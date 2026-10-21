@@ -893,10 +893,13 @@ SmStatus SmPlane::CreateIsoParametricCurve
   SER(EvaluatePointFast(sPMax,sEndPt));
 
   // create the line
-  SmLine *pLine;
+  SmLine *pLine = NULL;
   SER(SmLine::CreateLineSegment(crContext,3,sStPt,sEndPt,pLine));
   NER(pLine);
+  // a line whose parameters cannot be set (coordinates too large for them) is not handed out
+  SmObjDelete sCleanLine(pLine);
   SER(pLine->EditParameterization(sLineIvl));
+  sCleanLine.Clear();
 
   // set output
   rpNewIsoCurve = pLine;

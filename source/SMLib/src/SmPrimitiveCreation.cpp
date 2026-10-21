@@ -249,6 +249,37 @@ SmStatus SmPrimitiveCreation::CreateCircle
 } // end SmPrimitiveCreation::CreateCircle
 
 /*******************************************************************//**
+PURPOSE: One face of a box: the plane of `crFrame` bounded by `crDomain`, added to `pBrep`.
+
+NOTES: A plane that cannot be made, or made into a face (coordinates too large for the
+       tolerance), is deleted and its status returned; it never stays behind unowned.
+       A side of zero extent (a box of zero length, width or height) bounds no area and
+       gets no face, as in stock SMLib, where its plane failed and the failure was dropped.
+***********************************************************************/
+static SmStatus AddBoxFace(SmBrep * pBrep, const SmContext & crContext, const SmAxis2Placement & crFrame, const SmExtent2d & crDomain)
+{
+  if (crDomain.XLength() == 0.0 || crDomain.YLength() == 0.0)
+    { return SM_SUCCESS; }
+
+  SmPlane * pPlane = NULL;
+  SmStatus  eStatus = SmPlane::CreateCanonical( crContext, crFrame, pPlane );
+  if (eStatus != SM_SUCCESS || pPlane == NULL)
+    {
+      delete pPlane;
+      return eStatus != SM_SUCCESS ? eStatus : SM_ERR;
+    }
+  pPlane->AdjustSTEPUVDomain(crDomain);
+  SmFace * pFace = NULL;
+  eStatus = pBrep->CreateFaceFromSurface( (SmSurface*)pPlane, pPlane->GetSTEPUVDomain(), pFace );
+  if (pFace == NULL)
+    {
+      delete pPlane;
+      return eStatus != SM_SUCCESS ? eStatus : SM_ERR;
+    }
+  return eStatus;
+}
+
+/*******************************************************************//**
 PURPOSE: Create a rectilinear solid in the given region of the Brep.
             
 NOTES: 
@@ -266,6 +297,9 @@ NOTES:
 
   For now, the region must be the infinite region of the 
   Brep (limitation of SmStitch).
+
+  The extents are not checked (SmApiCreateBox refuses a non-positive one). A zero
+  extent builds only the faces of non-zero area, which do not make a valid solid.
 ***********************************************************************/
 SmStatus SmPrimitiveCreation::CreateBox
  (double                   dLength,   // in : extent along X axis of frame
@@ -276,72 +310,52 @@ SmStatus SmPrimitiveCreation::CreateBox
   // locals
   SmBrep           * pBrep    = m_pRegion->GetBrep();
   const SmContext  * pContext = pBrep->GetContext();
-  SmPlane          * pPlane   = NULL;
-  SmFace           * pFace    = NULL;
-  SmBSplineSurface * pSurface = NULL;
   SmAxis2Placement   sRefFrame( rRefFrame.GetOrigin() , rRefFrame.GetXAxis(), rRefFrame.GetYAxis() );
 
-  // set m_pBrep for changes
+  // set m_pBrep for changes (and back on every way out)
   pBrep->m_bEditingEnabled = TRUE;
+  struct EditingOff { SmBrep *p; ~EditingOff() { p->m_bEditingEnabled = FALSE; } } sEditingOff{pBrep};
 
   // 1. Build Base plane using original ref frame, domain:[u=length, v=width]
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
   SmPoint2d  sUVMin(0.0,0.0);
   SmPoint2d  sUVMax(dLength,dWidth);
   SmExtent2d sAnalDomain(sUVMin,sUVMax);
-  pSurface = pPlane;
-  pSurface->AdjustSTEPUVDomain(sAnalDomain);
-  pBrep->CreateFaceFromSurface( (SmSurface*)pSurface, pSurface->GetSTEPUVDomain(), pFace );
+  SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
   // 2. Build Top plane by translating ref frame to top, domain:[same as BaseFace]
   SmVector3d sZAxis = sRefFrame.GetZAxis();
   sZAxis.Unitize();
   sZAxis = sZAxis * dHeight;
   sRefFrame.Translate( sZAxis );
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  pSurface = pPlane;
-  pSurface->AdjustSTEPUVDomain(sAnalDomain);
-  pBrep->CreateFaceFromSurface( (SmSurface*)pSurface, pSurface->GetSTEPUVDomain(), pFace );
+  SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
 
   // 3. Build Right plane by flipping ref frame to Y-Z plane, domain:[u=width, v=height]
   sRefFrame.SetCanonical( rRefFrame.GetOrigin(), rRefFrame.GetYAxis(), rRefFrame.GetZAxis() ); 
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  pSurface = pPlane;
   sUVMax.Set( dWidth, dHeight );
   sAnalDomain.SetMinMax(sUVMin,sUVMax);
-  pSurface->AdjustSTEPUVDomain(sAnalDomain);
-  pBrep->CreateFaceFromSurface( (SmSurface*)pSurface, pSurface->GetSTEPUVDomain(), pFace );
+  SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
   // 4. Build Left plane by translating ref frame to opposite side, domain:[same as Right plane]
   sZAxis = sRefFrame.GetZAxis();
   sZAxis.Unitize();
   sZAxis = sZAxis * dLength;
   sRefFrame.Translate( sZAxis );
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  pSurface = pPlane;
-  pSurface->AdjustSTEPUVDomain(sAnalDomain);
-  pBrep->CreateFaceFromSurface( (SmSurface*)pSurface, pSurface->GetSTEPUVDomain(), pFace );
+  SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
 
   // 5. Build Front plane by flipping ref frame to X-Z plane, domain:[u=length, v=height]
   sRefFrame.SetCanonical( rRefFrame.GetOrigin() , rRefFrame.GetXAxis(), rRefFrame.GetZAxis() ); 
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  pSurface = pPlane;
   sUVMax.Set( dLength, dHeight );
   sAnalDomain.SetMinMax(sUVMin,sUVMax);
-  pSurface->AdjustSTEPUVDomain(sAnalDomain);
-  pBrep->CreateFaceFromSurface( (SmSurface*)pSurface, pSurface->GetSTEPUVDomain(), pFace );
+  SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
   // 6. Build Back plane by translating ref frame to opposite side, domain:[same as Front plane]
   sZAxis = sRefFrame.GetZAxis();
   sZAxis.Unitize();
   sZAxis = sZAxis * -dWidth;
   sRefFrame.Translate( sZAxis );
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  pSurface = pPlane;
-  pSurface->AdjustSTEPUVDomain(sAnalDomain);
-  pBrep->CreateFaceFromSurface( (SmSurface*)pSurface, pSurface->GetSTEPUVDomain(), pFace );
+  SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;

@@ -18,8 +18,9 @@
 namespace
 {
 
-SmBrep* make_box(double origin_x, double origin_y, double origin_z,
-                        double length, double width, double height)
+// The Brep CreateBox built and the status it returned. The Brep is the caller's either way.
+SmBrep* build_box(double origin_x, double origin_y, double origin_z,
+                  double length, double width, double height, SmStatus& rStatus)
 {
     SmContext* context = SmApiGetOrCreateContext();
     if (context == nullptr) {
@@ -33,7 +34,42 @@ SmBrep* make_box(double origin_x, double origin_y, double origin_z,
         SmVector3d(1.0, 0.0, 0.0),
         SmVector3d(0.0, 1.0, 0.0));
     SmPrimitiveCreation creator(box->GetInfiniteRegion());
-    CHECK_STATUS(creator.CreateBox(length, width, height, frame));
+    SmPyErrorTrail::clear();
+    rStatus = creator.CreateBox(length, width, height, frame);
+    return box;
+}
+
+SmBrep* make_box(double origin_x, double origin_y, double origin_z,
+                        double length, double width, double height)
+{
+    SmStatus eStatus = SM_SUCCESS;
+    SmBrep* box = build_box(origin_x, origin_y, origin_z, length, width, height, eStatus);
+    if (eStatus != SM_SUCCESS) {
+        delete box;
+        SmPyRaise(eStatus, "creator.CreateBox(length, width, height, frame)", __FILE__, __LINE__);
+    }
+    return box;
+}
+
+// The Brep CreateBox built, even when CreateBox reports that it is not valid (a degenerate
+// box): it is meant for the validators. The status is passed on as a RuntimeWarning.
+SmBrep* make_box_for_validation(double origin_x, double origin_y, double origin_z,
+                                double length, double width, double height)
+{
+    SmStatus eStatus = SM_SUCCESS;
+    SmBrep* box = build_box(origin_x, origin_y, origin_z, length, width, height, eStatus);
+    if (eStatus != SM_SUCCESS) {
+        std::string trail = SmPyErrorTrail::take();
+        std::string msg = std::string("creator.CreateBox reported ") + sm_status_name(eStatus) + " (" +
+                          std::to_string(static_cast<long>(eStatus)) + "); returning the Brep it built";
+        if (!trail.empty()) {
+            msg += ". Kernel trace: " + trail;
+        }
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, msg.c_str(), 1) != 0) {
+            delete box;
+            throw py::error_already_set();
+        }
+    }
     return box;
 }
 
@@ -60,7 +96,7 @@ void bind_dev_user_tests(py::module_& m)
         "kernel_create_box",
         [](py::tuple origin, double length, double width, double height) {
             SmPoint3d o = to_point(origin);
-            return make_box(o.x, o.y, o.z, length, width, height);
+            return make_box_for_validation(o.x, o.y, o.z, length, width, height);
         },
         py::return_value_policy::reference,
         py::arg("origin"), py::arg("length"), py::arg("width"), py::arg("height"),
@@ -70,6 +106,8 @@ void bind_dev_user_tests(py::module_& m)
         "Unlike ``_omni_solid.create_box``, degenerate dimensions (e.g. a zero\n"
         "height) are passed straight to the kernel, which builds an invalid\n"
         "Brep. Use it to exercise validators such as ``assert_valid``.\n"
+        "When ``CreateBox`` reports that the Brep it built is not valid, the\n"
+        "Brep is still returned and the status is issued as a ``RuntimeWarning``.\n"
         "\n"
         "Returns:\n"
         "    Brep: the kernel-built box.\n"
