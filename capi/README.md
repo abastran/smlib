@@ -365,3 +365,5 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   intersection of the offset surfaces. Where the offset of one face collapses (a chamfer as wide
   as the corner round it runs round, whose offset is the round's axis), that intersection is a
   single point and the trace failed (SM_ERR). A linear section is now revolved too, a cone.
+  The same trace failed on a hole's rims under `SmApiChamferFillet` (constant distance), which
+  now gives a closed solid there.
