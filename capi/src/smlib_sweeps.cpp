@@ -333,6 +333,7 @@ int32_t finish(SmBrep *r, bool solid, smlib_brep **out)
     {
         return SMLIB_ERR_NOT_SOLID;
     }
+    settle_tolerances(r);
     *out = new smlib_brep{owned.release()};
     return SMLIB_OK;
 }
