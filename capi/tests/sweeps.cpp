@@ -7,6 +7,7 @@
 
 #include "smlib.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -349,8 +350,28 @@ int main()
         char name[64];
         std::snprintf(name, sizeof name, "%s M%gx%g on %g mm", t.internal ? "internal" : "external", d, p, t.length);
         b = nullptr;
-        expect(name, tool != nullptr && body != nullptr ? smlib_boolean(body, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG, &b,
-               material - t.length / p * per_turn, 1e-4);
+        int32_t cut = tool != nullptr && body != nullptr ? smlib_boolean(body, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG;
+        // An external thread's edges end at their vertices: no vertex needed a tolerance grown
+        // past the shaft's 1e-5 (1e-5 mm, written as twice that) to hold a gap.
+        smlib_flat *flat = nullptr;
+        if (cut == SMLIB_OK && !t.internal && smlib_brep_export(b, &flat) == SMLIB_OK)
+        {
+            const double *tol = nullptr;
+            int64_t n = 0;
+            double widest = 0.0;
+            CHECK(smlib_flat_get_f64(flat, SMLIB_FLAT_VERTEX_TOLERANCE, &tol, &n) == SMLIB_OK && n > 0);
+            for (int64_t k = 0; k < n; ++k)
+            {
+                widest = std::max(widest, tol[k]);
+            }
+            if (!(widest <= 2e-5 * (1.0 + 1e-9)))
+            {
+                std::fprintf(stderr, "%s: a vertex tolerance grew to %g\n", name, widest / 2.0);
+                failures++;
+            }
+        }
+        smlib_flat_free(flat);
+        expect(name, cut, &b, material - t.length / p * per_turn, 1e-4);
         smlib_brep_free(tool);
         smlib_brep_free(body);
     }
