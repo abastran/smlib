@@ -324,7 +324,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   (SmFace test #34, "partially coincident edges"), with a vertex gap that only a larger tolerance
   covered. Each end of the edge's interval now moves to the curve's point nearest its ProtoVertex
   when that point is inside the interval, within tolerance and nearer than the end, and the UV
-  curves are trimmed with it.
+  curves are trimmed with it. Where the vertex instead lies past the curve's end (the curve stops
+  short of it, as a thread flank's curve on a nut's bore does 3.1e-5 before the bore's rim), the
+  curve and its UV curves are continued to the curve's point nearest the vertex, each by the exact
+  polynomial of its end span (`sm_CreateExactlyExtendedCurve`), when that point is within tolerance
+  of the vertex and each UV curve's new end lies on its face there.
 - **A moved face that leaves its tangent neighbour** (`SmOffsetGeometryCreation.cpp`,
   `ExtendTrimEdges`, `EdgeuseOffset`): a local operation (`SmBrep::LocalOperation`) rebuilds a
   tangent edge by lifting it onto one face's new surface and dropping it onto the other's. When

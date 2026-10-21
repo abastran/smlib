@@ -351,10 +351,12 @@ int main()
         std::snprintf(name, sizeof name, "%s M%gx%g on %g mm", t.internal ? "internal" : "external", d, p, t.length);
         b = nullptr;
         int32_t cut = tool != nullptr && body != nullptr ? smlib_boolean(body, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG;
-        // An external thread's edges end at their vertices: no vertex needed a tolerance grown
-        // past the shaft's 1e-5 (1e-5 mm, written as twice that) to hold a gap.
+        // Every thread's edges end at their vertices: no vertex needed a tolerance grown past the
+        // body's 1e-5 (1e-5 mm, written as twice that) to hold a gap. In the internal M10 a
+        // flank's curve on the bore stopped 3.1e-5 short of its vertex on the bore's rim
+        // (solidcore#410); it is continued to the vertex now.
         smlib_flat *flat = nullptr;
-        if (cut == SMLIB_OK && !t.internal && smlib_brep_export(b, &flat) == SMLIB_OK)
+        if (cut == SMLIB_OK && smlib_brep_export(b, &flat) == SMLIB_OK)
         {
             const double *tol = nullptr;
             int64_t n = 0;
