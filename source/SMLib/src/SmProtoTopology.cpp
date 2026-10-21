@@ -2653,10 +2653,13 @@ SmProtoEdge::~SmProtoEdge()
   // delete nested owned objects
   for(ii=0;ii<lNumEDs;ii++) { if(m_sEdgeDefs[ii]) delete m_sEdgeDefs[ii] ; m_sEdgeDefs[ii] = NULL ; }
 
-  // Remove PE from its End PV->PE lists
-  if(    m_pStartPV)              { m_pStartPV->RemoveProtoEdge(this) ; }
+  // Remove PE from its End PV->PE lists. A PV lists a PE once per end it bounds (DD1), so a
+  // PE whose ends are one PV (closed, or after CombineProtoVertex merged its two ends) is listed
+  // there twice: remove every entry, or the PV keeps a pointer to this deleted PE and its
+  // destructor writes through it.
+  if(    m_pStartPV)              { while(m_pStartPV->RemoveProtoEdge(this) == SM_SUCCESS) {} }
   if(    m_pEndPV 
-     && (m_pEndPV != m_pStartPV)) { m_pEndPV->RemoveProtoEdge(this) ; }
+     && (m_pEndPV != m_pStartPV)) { while(m_pEndPV->RemoveProtoEdge(this) == SM_SUCCESS) {} }
 
   // clear contained objects
   m_pXSectInterval.Init() ;
