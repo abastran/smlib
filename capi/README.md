@@ -323,3 +323,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   covered. Each end of the edge's interval now moves to the curve's point nearest its ProtoVertex
   when that point is inside the interval, within tolerance and nearer than the end, and the UV
   curves are trimmed with it.
+- **A moved face that leaves its tangent neighbour** (`SmOffsetGeometryCreation.cpp`,
+  `ExtendTrimEdges`, `EdgeuseOffset`): a local operation (`SmBrep::LocalOperation`) rebuilds a
+  tangent edge by lifting it onto one face's new surface and dropping it onto the other's. When
+  only one of the two faces moved (a boss wall beside its base round, one piece of a split
+  face), the drop crossed the gap, the failure was ignored, and the body came back with an edge
+  as loose as the gap. A drop farther than ten times the edge's tolerance now fails the local
+  operation (offset and shell, which close such gaps later, are unchanged).

@@ -1591,6 +1591,15 @@ SmBoolean bDebugMe2 = FALSE;
 //        SmBSplineCurve *pUVCurve2Found = NULL;
       ULONG lClosestIdx = 0;
 
+      // The edge is lifted onto one face's new surface and dropped onto the other's. Faces
+      // offset alike stay tangent, so the drop lands on the edge; when only one of them got a
+      // new surface (a local operation moving a face beside a blend, or one piece of a split
+      // face), the drop crosses the gap between them and the faces no longer meet there.
+      double dMeetTol = 10.0 * smos_Max( (double)pOffsetEdgeuse->GetEdge()->GetTolerance(), m_dThisApproxTol3d );
+      if (   cpOffsetExecutive->GetOffsetOperation() == SM_OO_LOCAL_OPERATION
+          && dDistToOtherSurf > dMeetTol )
+        { SER( SM_ERR ); }
+
       // When Lifted Curve dropped to OtherExtSurf
       if (sUVCurves.GetSize() != 0) 
         {
@@ -2281,6 +2290,9 @@ static ULONG lDebugCount = 0 ;
                                            eMarkType);  // in : uses without incrementing eMarkType value
           if ( eStat != SM_SUCCESS )
             {
+              // A local operation has no later step that would close the gap: it fails.
+              if ( cpOffsetExecutive->GetOffsetOperation() == SM_OO_LOCAL_OPERATION )
+                { SER( eStat ); }
               MSG(_T("Problem Extending Lamina/Tangent Edge - Will be Fixed Later"));
             }
 
