@@ -1920,8 +1920,38 @@ SmStatus SmEllipse::AdjustSTEPInterval
   double dStepT1 = crNewSTEPInterval.GetMax();
 
   // After these calls, the conversion may not be reciprocal. Need to reparameterize
-  SER( m_vPolarConverter.ConvertToNURBSParameter(dStepT0, dNurbsT0, bExactConversion) );
-  SER( m_vPolarConverter.ConvertToNURBSParameter(dStepT1, dNurbsT1, bExactConversion) );
+  // SolidCraft fork: the polar converter only knows the current arc, and clamps an angle
+  // outside it to the arc's ends. A new interval past the current one (a full circle moved
+  // to [360, 540]) then had both ends clamped to one NURBS parameter, a curve of zero
+  // parametric length, and every later reparameterization of it divided by zero (NaN knots in
+  // the surfaces of revolution built on it). An angle outside the current arc is taken whole
+  // turns back into it when the arc is a full turn (the NURBS parameter moves by the full
+  // circle's NURBS length per turn, the other way round for an inside-out curve), and
+  // otherwise continues the arc's NURBS interval in proportion to the angle.
+  const SmExtent1d sOldSTEPIvl  = m_vAnalDomain ;
+  const SmExtent1d sOldNurbsIvl = GetNaturalInterval() ;
+  auto ConvertAngle = [&](double dStepT, double & rdNurbsT) -> SmStatus
+    {
+      const double dSpan = sOldSTEPIvl.GetLength() ;
+      if(   sOldSTEPIvl.ContainsValue(dStepT, SM_EFF_ZERO_DEG)
+         || !(dSpan > SM_EFF_ZERO_DEG) )
+        { return m_vPolarConverter.ConvertToNURBSParameter(dStepT, rdNurbsT, bExactConversion) ; }
+      const double dSign = m_bInsideOut ? -1.0 : 1.0 ;
+      if(smos_Fabs(dSpan - 360.0) < SM_EFF_ZERO_DEG)
+        {
+          double dTurns  = std::floor((dStepT - sOldSTEPIvl.GetMin()) / 360.0) ;
+          double dInside = sOldSTEPIvl.ClampValue(dStepT - dTurns * 360.0) ;
+          SER( m_vPolarConverter.ConvertToNURBSParameter(dInside, rdNurbsT, bExactConversion) );
+          rdNurbsT += dSign * dTurns * sOldNurbsIvl.GetLength() ;
+          return SM_SUCCESS ;
+        }
+      double dFraction = (dStepT - sOldSTEPIvl.GetMin()) / dSpan ;
+      rdNurbsT = m_bInsideOut ? sOldNurbsIvl.GetMax() - dFraction * sOldNurbsIvl.GetLength()
+                              : sOldNurbsIvl.GetMin() + dFraction * sOldNurbsIvl.GetLength() ;
+      return SM_SUCCESS ;
+    } ;
+  SER( ConvertAngle(dStepT0, dNurbsT0) );
+  SER( ConvertAngle(dStepT1, dNurbsT1) );
   SmExtent1d sNewNurbsIvl( dNurbsT0, dNurbsT1 );
 
   // save the input

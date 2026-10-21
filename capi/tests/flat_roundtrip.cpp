@@ -699,6 +699,60 @@ int main(int argc, char **argv)
         }
     }
 
+    // An analytic face's angular range may start a turn past the principal one (solidcore#428):
+    // the torus with its major, minor or both ranges moved on by 2 pi is the same torus. Its
+    // tube circle was once rebuilt over a clamped, empty parameter interval, which gave NaN
+    // knots, an overflow in N_IgesClampSrf (#427) and then a refused import.
+    for (auto &e : exports)
+    {
+        if (std::strcmp(e.first, "torus") != 0)
+        {
+            continue;
+        }
+        const double pi = 3.14159265358979323846;
+        for (int shift = 1; shift <= 3; ++shift)
+        {
+            Arrays a = Snapshot(e.second);
+            const std::vector<int64_t> &type = a.i[SMLIB_FLAT_FACE_SURFACE_TYPE];
+            std::vector<double> &range = a.f[SMLIB_FLAT_FACE_RANGE];
+            int moved = 0;
+            for (size_t k = 0; k < type.size() && 4 * k + 3 < range.size(); ++k)
+            {
+                if (type[k] != SMLIB_FLAT_SURFACE_TORUS)
+                {
+                    continue;
+                }
+                moved++;
+                for (int c = 0; c < 2; ++c)
+                {
+                    if (shift & (1 << c))
+                    {
+                        range[4 * k + c] += 2.0 * pi;
+                        range[4 * k + 2 + c] += 2.0 * pi;
+                    }
+                }
+            }
+            CHECK(moved == 1);
+            smlib_flat *f = FromArrays(a);
+            smlib_brep *b = nullptr;
+            int32_t s = smlib_brep_import(f, &b);
+            const double want = 2.0 * pi * pi * 10.0 * 9.0;
+            double v = 0.0;
+            int64_t len = 0, bad = -1;
+            char buf[4096] = {0};
+            if (s == SMLIB_OK)
+            {
+                v = Measure(b).volume;
+                CHECK(smlib_brep_check(b, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK);
+            }
+            std::printf("torus, %s range a turn on: import %d, volume %.12g (want %.12g), failed checks %lld %s\n",
+                        shift == 1 ? "major" : shift == 2 ? "minor" : "both", static_cast<int>(s), v, want, static_cast<long long>(bad), buf);
+            CHECK(s == SMLIB_OK && std::fabs(v - want) <= 1e-7 * want && bad == 0);
+            smlib_brep_free(b);
+            smlib_flat_free(f);
+        }
+    }
+
     // The accessors' argument checks.
     {
         smlib_flat *f = smlib_flat_new();
