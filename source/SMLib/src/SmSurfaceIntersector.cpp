@@ -6055,7 +6055,8 @@ SmStatus SmSurfaceIntersector::FindInteriorCurves
       // trace curve can switch the trace direction when the first step is out of bounds
 
       // when Start point is not Bounded and currently traced curve is not closed
-      if(   !m_bCurveIsClosed
+      if(   m_vCurvePoints.GetLastNode() != NULL // SolidCraft change: nothing traced, nothing to reverse
+         && !m_bCurveIsClosed
          && !pStartTSP->IsBounded()
          &&  dInputTraceDirection == m_dCurveTraceDirection) // no switch in TraceCurve() of trace direction
         {
@@ -6544,7 +6545,12 @@ SmBoolean bDebugMe = FALSE ;
           //    2. Reverse direction has not yet been traced
           //    3. Surface0 UVTangent is tangent to all Surface0 UVBoundaries that the start point lies upon
           //    4. Surface1 UVTangent is tangent to all Surface1 UVBoundaries that the start point lies upon
-          if(   !m_bCurveIsClosed                               // curve is not yet closed
+          // SolidCraft change: TraceCurve() returns SM_SUCCESS with an empty m_vCurvePoints when the
+          // start point is a tangent/coincidence point (or a bounded point) already on a found curve,
+          // and leaves m_bCurveIsClosed as the previous curve left it; there is nothing to trace back
+          // from then (ReverseCurveDirection() of the empty list failed with SM_ERR_NULL_POINTER).
+          if(   m_vCurvePoints.GetLastNode() != NULL               // something was traced
+             && !m_bCurveIsClosed                               // curve is not yet closed
              && dInputTraceDirection == m_dCurveTraceDirection  // have yet to trace the reverse direction
              && (   (pStartTSP->UParamType(0) == SM_EP_INSIDE || SM_IS_ZERO_TO_TOL(pStartTSP->UVDeriv(0).x, SM_EFF_ZERO))
                  && (pStartTSP->VParamType(0) == SM_EP_INSIDE || SM_IS_ZERO_TO_TOL(pStartTSP->UVDeriv(0).y, SM_EFF_ZERO)))
