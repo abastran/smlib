@@ -282,6 +282,7 @@ protected:
   SmTList<SmTsectPnt> m_vCurvePoints;                // xsect curve sample points - contains TsectPnts allocaed by m_vTSPntMgr
   SmTList<SmTsectPnt> m_vStartPoints;                // list of start points to start/stop curve traces
   SmTList<SmTsectPnt> m_vThroughPoints;              // list of points to include in curve trace
+  SmTArray<SmPoint2d>  m_vTangentSeeds;              // SolidCraft change: uv pairs (surf1, surf2) where interior search found parallel normals
     
 public:
   // constructor
@@ -510,6 +511,16 @@ public:
                                                             ///<      :        SM_TC_REGION_BOUNDARY = curve bounds a region within which surfs are coincident           <br>
     SmTArray<double>           & rDeviations                ///< [out]: max 3DCurve through point deviation from source surfaces                                         <br>
                                                             ///<      : NOTE: the deviation between through points may be larger than this value.                        <br>
+  );
+
+  // SolidCraft change: trace tangential intersection curves (see SmTangentCurveTracer.cpp)
+  SmStatus FindTangentCurves
+  (
+    SmTArray<SmCurve*>         & r3DCurves,                  ///< [i/o]: 3d intersection curve array                            <br>
+    SmTArray<SmCurve*>         & rSurface1UVCurves,          ///< [i/o]: associated UVTrimCurves on Surface 1                   <br>
+    SmTArray<SmCurve*>         & rSurface2UVCurves,          ///< [i/o]: associated UVTrimCurves on Surface 2                   <br>
+    SmTArray<SmTsectCurveType> & rCurveTypes,                ///< [i/o]: associated CurveType                                   <br>
+    SmTArray<double>           & rDeviations                 ///< [i/o]: associated max distance between 3DCurve and surfaces   <br>
   );
 
   virtual SmStatus FindInteriorCurves

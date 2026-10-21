@@ -1512,9 +1512,10 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
         SER(sNorm1.AngleBetween(sNorm2,dAngleRad));
         if (dAngleRad > SM_PI/2.0) dAngleRad = SM_PI - dAngleRad;
         if (SM_RAD2DEG(dAngleRad) < 5.0) 
-          {
+          { // SolidCraft change: keep it as a seed for the tangent point search and FindTangentCurves()
             sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
             sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+            m_vTangentSeeds.Add(sUVGuess1); m_vTangentSeeds.Add(sUVGuess2);
             continue;
           }
       }
@@ -1647,9 +1648,10 @@ SmBoolean bDebugMe = FALSE;
 
           // skip this node pair when angle between normals is small
           if (SM_RAD2DEG(dAngleRad) < 2.0) 
-            {
+            { // SolidCraft change: keep it as a seed for the tangent point search and FindTangentCurves()
               sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
               sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+              m_vTangentSeeds.Add(sUV); m_vTangentSeeds.Add(sUV2);
               continue;
             }
         }
