@@ -278,6 +278,33 @@ int main()
         smlib_brep_free(block);
     }
 
+    // tangency-labs/solidcore#416: a box 25 x 25 x 10 with its bottom edges rounded R2, then its
+    // vertical edges R2. Each vertical edge's tangent chain runs on down the seam where two
+    // bottom rounds meet, between two cylinders as wide as the round: the ball touching both
+    // sits where their axes meet, the corner's ball, and SMLib traced the offset cylinders'
+    // intersection (their axes, crossing at that one point) and failed. Each vertical edge
+    // loses (1 - pi/4) 4 along 8, each corner the octant of the two bottom rounds' crossing
+    // (16/3, a Steinmetz solid's eighth) less the corner ball's (4 pi / 3).
+    {
+        smlib_brep *tray = box(0, 0, 0, 25, 25, 10);
+        const double bottom[12] = {12.5, 0, 0, 25, 12.5, 0, 12.5, 25, 0, 0, 12.5, 0};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(tray, bottom, 4, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
+        const double vertical[12] = {0, 0, 6, 25, 0, 6, 25, 25, 6, 0, 25, 6};
+        if (rounded != nullptr && smlib_fillet(rounded, vertical, 4, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            double removed = 4.0 * (32.0 * (1.0 - PI / 4.0) + 16.0 / 3.0 - 4.0 * PI / 3.0);
+            CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the vertical edges of the tray with R2 bottom rounds rounded R2");
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(tray);
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);

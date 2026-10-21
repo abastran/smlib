@@ -211,6 +211,7 @@ public:
   virtual SmStatus  CalcCylinderFilletGeom   (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
   virtual SmStatus  CalcConeFilletGeom       (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
   virtual SmStatus  CalcTorusFilletGeom      (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
+  virtual SmStatus  CalcSphereFilletGeom     (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
 
   SmStatus          ComputeSurfaceValues     (SmPoint2d               aUVValues[2], SmTsectPnt  & rTsectPnt);
   SmStatus          ComputePointValues       (SmPoint2d          aUVValues[2],

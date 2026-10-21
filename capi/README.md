@@ -380,3 +380,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   torus could turn the long way round, and the rollover test failed (SM_ERR). With the center on
   the axis, the rail points are now turned into the half-planes through the edge's ends, and
   the edge's start orients the sweep.
+- **Rounds whose center curve is a point** (`SmFilletSolver.cpp`, new `CalcSphereFilletGeom`):
+  the round of an edge between two cylinders as wide as the round, whose axes meet (the seam
+  where two R2 bottom rounds of a box meet, in the tangent chain of an R2 vertical edge), has
+  every ball centered where the axes meet: the offset cylinders are their axes, and their
+  intersection, which SMLib traced, is that one point (SM_ERR). Such a round is now made exactly,
+  as the patch of that ball between the circles it touches the cylinders along.
