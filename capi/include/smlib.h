@@ -505,7 +505,9 @@ int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_po
 /* Rounded by a circular cross-section at constant radius (as smlib_fillet). */
 #define SMLIB_BLEND_ROUND 0
 /* Rounded by a curvature-continuous (G2) blend-curve cross-section between the contact lines
- * the round of that radius has. */
+ * the round of that radius has: the quintic whose first and last three control points lie on
+ * the contacts' tangent lines, the inner ones a third and two thirds of the way from each
+ * contact to where the two tangent lines meet (on planar faces, zero curvature at the contacts). */
 #define SMLIB_BLEND_CURVATURE 1
 /* Rounded by a circular cross-section whose width from contact line to contact line (the
  * chord) is constant: the size is that width. */
