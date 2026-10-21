@@ -5887,6 +5887,9 @@ std::atomic<ULONG> lDebugCount(0);
       SER( SmoothPolygons( pPolyBrep ));
     }
 
+  // Hold every triangle to the chord tolerance (the subdivision tree bounds its cells, not the triangles made in them).
+  SER( RefineTrianglesToChordHeight( pPolyBrep, pFace, pSC->m_dChordHeightTolerance ));
+
 #ifdef SM_DEBUG_CODE
   if (bDebugMe)
     {
@@ -11052,6 +11055,222 @@ std::atomic<int> cbi(0);
   return SM_SUCCESS;
 
 } // end SmTess::SubdivideManifoldEdge
+
+/*******************************************************************//**
+PURPOSE: Bisect the triangles of one face's UV tessellation that lie
+         farther than the chord tolerance from the face's surface.
+
+NOTES: The subdivision tree bounds each cell's chord height, but the
+  triangles are made afterwards: boundary cells are filled by ear clipping
+  without interior vertices (a cell strip beside a sphere's seam, eaten from
+  a reflex corner, became a fan of slivers 13 times the tolerance off the
+  surface), and an inside cell's two triangles can lie farther from the
+  surface than the cell's pseudo box allows (1.2 times on spheres and tori).
+  So each triangle is measured at its UV centroid and at the UV midpoints of
+  its edges inside the face: the surface point there against the triangle's
+  point of the same barycentric coordinates, along the surface normal. A
+  triangle beyond the tolerance has its longest edge split at the UV
+  midpoint when that edge is inside the face (in both triangles on it, so
+  the mesh stays conforming), and each of the two triangles then gets an
+  edge from the new vertex to its opposite corner. Edges on the face
+  boundary are never split, being shared with the neighbouring faces'
+  tessellations; nor are edges shorter than twice the chord tolerance, nor
+  edges whose midpoint would lie next to an opposite corner. A pass splits a
+  triangle at most once; passes repeat until no triangle is split or a pass
+  limit is reached.
+***********************************************************************/
+SmStatus SmTess::RefineTrianglesToChordHeight
+ (SmPolyBrep * pPolyBrep,          // i/o: UV triangles of one face
+  SmFace     * pFace,              // in : the face they tessellate
+  double       dChordHeightTol)    // in : max allowed distance from a triangle to the surface, 0 = none
+{
+  if (pPolyBrep == NULL || pFace == NULL || !(dChordHeightTol > 0.0))
+    { return SM_SUCCESS; }
+  const SmSurface *cpSurface = pFace->GetSurface();
+  if (cpSurface == NULL)
+    { return SM_SUCCESS; }
+
+  // Bounds: a pass limit for a pathological face, and no edge split shorter than twice the chord
+  // tolerance (a chord that short can only lie farther from a surface curved tighter than the tolerance
+  // itself) or than 10 face tolerances (TriangulateFace's skip of small PolyEdges).
+  const ULONG  lMaxPasses   = 64;
+  const double dMinLength3d = std::max(10.0 * pFace->GetTolerance(), 2.0 * dChordHeightTol);
+
+  // an edge inside the face: two triangles of this PolyBrep, neither use on a Brep edge, not degenerate
+  auto IsInnerEdge = [this](SmPolyEdge *pPE) -> SmBoolean
+    {
+      return(   pPE->IsManifold()
+             && !pPE->IsDegenerate()
+             && GetPolyEdgeEU(pPE) == NULL
+             && GetPolyEdgeEU(pPE->GetRadial()) == NULL) ;
+    } ;
+
+  SM_PTR_ARRAY(sPolyFaces, SmPolyFace, 256) ; // SmTArray<SmPolyFace *>
+  SM_PTR_ARRAY(sPolyLoops, SmPolyLoop,   4) ; // SmTArray<SmPolyLoop *>
+  SM_PTR_ARRAY(sPolyEdges, SmPolyEdge,   8) ; // SmTArray<SmPolyEdge *>
+
+  // the three edges of a one-loop triangle, else FALSE
+  auto GetTriangleEdges = [&](const SmPolyFace *pPF) -> SmBoolean
+    {
+      pPF->GetPolyLoops(sPolyLoops) ;
+      if (sPolyLoops.GetSize() != 1)
+        { return FALSE; }
+      sPolyLoops[0]->GetPolyEdges(sPolyEdges) ;
+      return(sPolyEdges.GetSize() == 3) ;
+    } ;
+
+  // The first pass measures every triangle, each later one only the triangles the pass before made
+  // or changed, and those it left for later because a neighbour was being split.
+  pPolyBrep->GetPolyFaces(sPolyFaces) ;
+  SmTArray<SmPolyFace *> sToMeasure(sPolyFaces) ;
+  for (ULONG lPass = 0; lPass < lMaxPasses && sToMeasure.GetSize() > 0; lPass++)
+    {
+      // pick the edges to split: at most one per triangle in a pass
+      std::unordered_set<const SmPolyFace *> sTouched ;
+      SmTArray<SmPolyEdge *> sToSplit ;
+      SmTArray<SmPolyFace *> sNextToMeasure ;
+      for (ULONG ii = 0; ii < sToMeasure.GetSize(); ii++)
+        {
+          SmPolyFace *pPF = sToMeasure[ii] ;
+          if (sTouched.count(pPF) != 0)
+            {
+              sNextToMeasure.Add(pPF) ;
+              continue;
+            }
+          if (!GetTriangleEdges(pPF))
+            { continue; }
+
+          // the 3D corners; a triangle with no area in 3D (two corners at a pole) is left alone
+          SmPoint3d sUV[3], sP[3] ;
+          for (ULONG kk = 0; kk < 3; kk++)
+            {
+              sUV[kk] = sPolyEdges[kk]->GetStartPoint() ;
+              SER(cpSurface->EvaluatePoint(SmPoint2d(sUV[kk].x, sUV[kk].y), sP[kk])) ;
+            }
+          if (((sP[1] - sP[0]) * (sP[2] - sP[0])).Length() <= dMinLength3d * dMinLength3d * SM_EFF_ZERO_SQRT)
+            { continue; }
+
+          // The distance from the triangle to the surface at the UV centroid and at the inner edges' UV
+          // midpoints: the surface point there against the triangle's point of the same barycentric
+          // coordinates, along the surface normal (so a parameterization that is not linear in 3D, which
+          // moves the point along the surface, does not count).
+          SmPolyEdge *pLongest     = NULL ;
+          ULONG       lLongest     = 0 ;
+          double      dLongest     = 0.0 ;
+          SmPoint3d   sLongestMid ;
+          double      dDeviation   = 0.0 ;
+          for (ULONG kk = 0; kk < 4; kk++)
+            {
+              SmPoint3d sSampleUV, sOnTriangle ;
+              if (kk == 3)
+                {
+                  sSampleUV   = (sUV[0] + sUV[1] + sUV[2]) / 3.0 ;
+                  sOnTriangle = (sP[0] + sP[1] + sP[2]) / 3.0 ;
+                }
+              else
+                {
+                  SmPolyEdge *pPE = sPolyEdges[kk] ;
+                  if (!IsInnerEdge(pPE))
+                    { continue; }
+                  sSampleUV   = (sUV[kk] + sUV[(kk + 1) % 3]) / 2.0 ;
+                  sOnTriangle = (sP[kk] + sP[(kk + 1) % 3]) / 2.0 ;
+                }
+              SmPoint2d  sSample(sSampleUV.x, sSampleUV.y) ;
+              SmPoint3d  sOnSurface ;
+              SmVector3d sSurfaceNormal ;
+              SER(cpSurface->EvaluatePoint(sSample, sOnSurface)) ;
+              SmVector3d sOff = sOnSurface - sOnTriangle ;
+              double     dOff = sOff.Length() ;
+              if (cpSurface->EvaluateNormal(sSample, TRUE, TRUE, sSurfaceNormal) == SM_SUCCESS)
+                { dOff = std::fabs(sOff.Dot(sSurfaceNormal)) ; }
+              dDeviation = std::max(dDeviation, dOff) ;
+              if (kk < 3)
+                {
+                  double dLength = sP[kk].DistanceBetween(sP[(kk + 1) % 3]) ;
+                  if (dLength > dLongest)
+                    {
+                      dLongest    = dLength ;
+                      lLongest    = kk ;
+                      pLongest    = sPolyEdges[kk] ;
+                      sLongestMid = sOnSurface ;
+                    }
+                }
+            }
+          if (dDeviation <= dChordHeightTol || pLongest == NULL || dLongest <= dMinLength3d)
+            { continue; }
+
+          // The longest inner edge is split, or none: splitting a shorter one would make a sliver. A
+          // neighbour already split in this pass waits for the next one.
+          SmPolyFace *pOther = pLongest->GetRadial()->GetPolyFace() ;
+          if (sTouched.count(pOther) != 0)
+            {
+              sNextToMeasure.Add(pPF) ;
+              continue;
+            }
+
+          // The new vertex must stay clear of both triangles' opposite corners (a sliver's corner can lie
+          // next to the midpoint of its long edge), or the 3D mesh would join them.
+          if (sLongestMid.DistanceBetween(sP[(lLongest + 2) % 3]) <= dMinLength3d)
+            { continue; }
+          SmPoint3d sOtherUV = pLongest->GetRadial()->GetCCWPolyEdge()->GetEndPoint() ;
+          SmPoint3d sOtherP ;
+          SER(cpSurface->EvaluatePoint(SmPoint2d(sOtherUV.x, sOtherUV.y), sOtherP)) ;
+          if (sLongestMid.DistanceBetween(sOtherP) <= dMinLength3d)
+            { continue; }
+
+          sTouched.insert(pPF) ;
+          sTouched.insert(pOther) ;
+          sToSplit.Add(pLongest) ;
+        } // end iter every triangle, picking edges to split
+
+      // no work - every triangle is within the tolerance or can't be split
+      if (sToSplit.GetSize() == 0)
+        { break; }
+
+      // split each edge at its UV midpoint and join the new vertex to the opposite corner of both triangles
+      for (ULONG ii = 0; ii < sToSplit.GetSize(); ii++)
+        {
+          SmPolyEdge   *pPE        = sToSplit[ii] ;
+          SmPolyFace   *aFaces[2]  = { pPE->GetPolyFace(), pPE->GetRadial()->GetPolyFace() } ;
+          SmPoint3d     sMid       = (pPE->GetStartPoint() + pPE->GetEndPoint()) / 2.0 ;
+          SmPolyEdge   *pNewEdge   = NULL ;
+          SmPolyVertex *pNewVertex = NULL ;
+          SER(pPE->GetPolyFace()->MakeVertexSplitPolyEdge(pPE, sMid, pNewEdge, pNewVertex)) ;
+          if (pNewEdge == NULL || pNewVertex == NULL)
+            { continue; }
+          for (ULONG jj = 0; jj < 2; jj++)
+            {
+              aFaces[jj]->GetPolyLoops(sPolyLoops) ;
+              if (sPolyLoops.GetSize() != 1)
+                { continue; }
+              sPolyLoops[0]->GetPolyEdges(sPolyEdges) ;
+              if (sPolyEdges.GetSize() != 4)
+                { continue; }
+              for (ULONG kk = 0; kk < 4; kk++)
+                {
+                  if (sPolyEdges[kk]->GetStartPolyVertex() != pNewVertex)
+                    { continue; }
+                  SmPolyEdge *pNewManifold = NULL ;
+                  SmPolyLoop *pNewLoop     = NULL ;
+                  SmPolyFace *pNewFace     = NULL ;
+                  SER(aFaces[jj]->MakeManifoldEdge(sPolyEdges[kk],           // in : start of new edge = the new vertex
+                                                   sPolyEdges[(kk + 2) % 4], // in : end of new edge = the opposite corner
+                                                   pNewManifold,
+                                                   pNewLoop,
+                                                   pNewFace)) ;
+                  sNextToMeasure.Add(aFaces[jj]) ;
+                  if (pNewFace != NULL)
+                    { sNextToMeasure.Add(pNewFace) ; }
+                  break ;
+                }
+            }
+        } // end iter every edge to split
+      sToMeasure = sNextToMeasure ;
+    } // end iter passes
+
+  return SM_SUCCESS;
+
+} // end SmTess::RefineTrianglesToChordHeight
 
 /*******************************************************************//**
 PURPOSE: Tessellate Phase 1 - tessellate Brep->Edges preparing for
