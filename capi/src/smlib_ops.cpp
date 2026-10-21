@@ -1093,7 +1093,7 @@ bool law_has_corner(int32_t degree, const double *knots, const double *radii, in
     return false;
 }
 
-// The radius law along `e`: the B-spline (radius as its x) over the edge's parameter interval,
+// The radius law along `e`: the B-spline (radius as its x, its parameter as its y) over the edge's parameter interval,
 // reversed when `start` is nearer the interval's end than its start. Null if it can't be built.
 std::unique_ptr<SmBSplineFilletLaw> law_along(SmEdge *e, const double start[3], int32_t degree, const double *knots, int64_t n_knots,
                                               const double *radii, int64_t n_radii)
@@ -1113,17 +1113,32 @@ std::unique_ptr<SmBSplineFilletLaw> law_along(SmEdge *e, const double start[3], 
     SmVector3d at(start[0], start[1], start[2]);
     bool reverse = (hi[0] - at).Length() < (lo[0] - at).Length();
     const SmContext &ctx = *SmApiGetOrCreateContext();
+    // The knots in the law's direction.
+    std::vector<double> kv(static_cast<size_t>(n_knots));
+    for (int64_t i = 0; i < n_knots; ++i)
+    {
+        kv[static_cast<size_t>(i)] = reverse ? 1.0 - knots[n_knots - 1 - i] : knots[i];
+    }
+    // Radius as x, and as y the parameter itself, as SMLib's own laws keep something monotonic
+    // there: control points at the Greville abscissae (the mean of the `degree` knots after
+    // each) make y(t) = t exactly. A law curve with y = 0 has no speed where the radius is
+    // constant, and SMLib cannot extend it past the edge's ends.
     SmTArray<SmPoint3d> cps;
     for (int64_t i = 0; i < n_radii; ++i)
     {
-        cps.Add(SmPoint3d(radii[reverse ? n_radii - 1 - i : i], 0.0, 0.0));
+        double g = 0.0;
+        for (int64_t j = 1; j <= degree; ++j)
+        {
+            g += kv[static_cast<size_t>(i + j)];
+        }
+        cps.Add(SmPoint3d(radii[reverse ? n_radii - 1 - i : i], g / static_cast<double>(degree), 0.0));
     }
     // The knots as SMLib takes them: each distinct value once, with its multiplicity.
     SmTArray<double> unique;
     SmTArray<ULONG> mults;
     for (int64_t i = 0; i < n_knots; ++i)
     {
-        double k = reverse ? 1.0 - knots[n_knots - 1 - i] : knots[i];
+        double k = kv[static_cast<size_t>(i)];
         if (unique.GetSize() > 0 && unique[unique.GetSize() - 1] == k)
         {
             mults[mults.GetSize() - 1] += 1;

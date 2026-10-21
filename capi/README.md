@@ -73,7 +73,9 @@ round (SMLib's G2 blend-curve section between the contact lines of the round of 
 chord round (circular section at a constant width from contact to contact, SMLib's
 constant-distance solver) and the chamfer above. `smlib_fillet_variable` rounds one edge with a
 radius that follows a clamped B-spline law (degree 1 to 3) over the edge's parameter, 0 at the
-end nearest a given point; it becomes an `SmBSplineFilletLaw` on SMLib's variable-radius solver.
+end nearest a given point; it becomes an `SmBSplineFilletLaw` on SMLib's variable-radius solver,
+whose law curve carries the radius as x and, as SMLib's own laws do, the parameter itself as y
+(control points at the Greville abscissae), so a constant law can be extended past the edge's ends.
 
 `tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
 regression cases, both against analytic volumes and `smlib_brep_check` level 2.
