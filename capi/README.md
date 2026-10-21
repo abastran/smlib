@@ -144,3 +144,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   `Imprint`): `MakeEdgeInFace` can fail after it has made a new Edge of the curves it was given;
   the EdgeDefinition then deleted them anyway, and the Edge used them after the free. Curves with
   an owner (which `MakeEdgeInFace` sets) are left to their Brep now.
+- **Failed imprint ignored** (`SmTopologyIntersector.cpp`, `SmMerge.cpp`):
+  `IntersectInsertRelate` overwrote the status of `ImprintIntersections` with the next step's,
+  and `SmMerge::PiecewiseMerge` ignored its first `IntersectInsertRelate`, so a boolean went on
+  with half-imprinted, inconsistent Breps (use-after-free reads in later steps). Both stop with
+  the error now.
