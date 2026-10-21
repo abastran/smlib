@@ -501,3 +501,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   loops of the wrong orientation, rails up to half a millimetre off their surfaces. It now
   removes no edge the target had and no edge between two of its faces, as booleans clean up
   only the edges of their intersection.
+- **A round that runs over a hole** (`SmFilletExecutive.h`/`.cpp`, `DoFilleting`, new
+  `RailsLeaveTheirFaces`): topology insertion, the executive's default, puts each round's rails
+  into the faces they lie on and trims those faces back to them, and intersects the round with
+  nothing else. An R4 round on a plate's edge whose contact line runs across a through hole
+  must be trimmed by the hole's wall; it wasn't, and the body came back open. When a rail runs
+  off the face it lies on (a point of it outside that face by both the 3D and the UV
+  classification), the fillet faces are now merged into the body one at a time instead
+  (`m_bDoPiecewiseMerge`), which intersects them with the rest of it.

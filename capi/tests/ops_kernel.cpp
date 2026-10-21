@@ -671,6 +671,41 @@ int main()
         }
     }
 
+    // tangency-labs/solidcore#422: a plate 40 x 20 x 10 with a through hole r3 at (20, 14.5),
+    // its top edge y = 20 rounded R4. The round's contact line on the top (y = 16) runs across
+    // the hole, so the round must be trimmed by the hole's wall; SMLib put the rails into the
+    // faces they lie on and intersected the round with nothing else, and the body came back
+    // open. It now merges such a round into the body face by face. The round takes
+    // (1 - pi/4) 16 along 40, less what the hole had already taken of that: for y in [16, 17.5]
+    // the hole's chord 2 sqrt(9 - (y - 14.5)^2) times the round's depth 4 - sqrt(16 - (y - 16)^2).
+    {
+        smlib_brep *plate = box(0, 0, 0, 40, 20, 10);
+        smlib_brep *bore = cylinder(20, 14.5, -1, 3, 12);
+        smlib_brep *holed_plate = nullptr;
+        CHECK(smlib_boolean(plate, bore, SMLIB_BOOLEAN_SUBTRACT, &holed_plate) == SMLIB_OK);
+        double overlap = 0.0;
+        const int steps = 2000;  // Simpson's rule
+        for (int i = 0; i <= steps; ++i)
+        {
+            double y = 16.0 + 1.5 * i / steps;
+            double chord = 2.0 * std::sqrt(std::max(0.0, 9.0 - (y - 14.5) * (y - 14.5)));
+            double depth = 4.0 - std::sqrt(16.0 - (y - 16.0) * (y - 16.0));
+            overlap += (i == 0 || i == steps ? 1.0 : (i % 2 != 0 ? 4.0 : 2.0)) * chord * depth;
+        }
+        overlap *= 1.5 / (3.0 * steps);
+        const double edge[3] = {5, 20, 10};
+        CHECK(holed_plate != nullptr && smlib_fillet(holed_plate, edge, 1, 0.1, 4.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), volume_of(holed_plate) - (640.0 * (1.0 - PI / 4.0) - overlap), 1e-7));
+            done(r);
+        }
+        for (smlib_brep *b : {plate, bore, holed_plate})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
