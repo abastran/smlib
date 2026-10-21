@@ -170,6 +170,24 @@ int main(void)
     CHECK(fabs(volume(r) - v0) < 1e-6 * 8000.0);
     smlib_brep_free(r);
     r = NULL;
+    /* A constant law (2 -> 2, and the same as a quadratic) is the round of radius 2; a quadratic
+     * with control radii 3, 2, 1 is the linear law above. */
+    const double flat[2] = {2.0, 2.0};
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 1, knots, 4, flat, 2, &r) == SMLIB_OK);
+    CHECK(fabs(volume(r) - (8000.0 - quarter * 4.0 * 20.0)) < 1e-6 * 8000.0);
+    smlib_brep_free(r);
+    r = NULL;
+    const double knots2[6] = {0, 0, 0, 1, 1, 1};
+    const double flat3[3] = {2.0, 2.0, 2.0};
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 2, knots2, 6, flat3, 3, &r) == SMLIB_OK);
+    CHECK(fabs(volume(r) - (8000.0 - quarter * 4.0 * 20.0)) < 1e-6 * 8000.0);
+    smlib_brep_free(r);
+    r = NULL;
+    const double falling[3] = {3.0, 2.0, 1.0};
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 2, knots2, 6, falling, 3, &r) == SMLIB_OK);
+    CHECK(fabs(volume(r) - v0) < 1e-6 * 8000.0);
+    smlib_brep_free(r);
+    r = NULL;
     const double unclamped[4] = {0, 0.5, 1, 1};
     CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 1, unclamped, 4, law, 2, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 4, knots, 4, law, 2, &r) == SMLIB_ERR_ARG);

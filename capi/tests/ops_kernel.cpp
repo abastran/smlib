@@ -13,6 +13,7 @@
 #include <SmApiQueries.h>
 #include <SmVector3d.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -375,6 +376,46 @@ int main()
         {
             smlib_brep_free(b);
         }
+    }
+
+    // A constant radius law (r -> r) on the top back edge of a 60 x 40 x 20 box whose vertical
+    // edge at (60, 40) is rounded R5. The round runs on past the edge's end until it meets the R5
+    // cylinder, so the law is evaluated past its end; built with no slope (the shim's law curve
+    // had radius in x and 0 in y), it could not be extended there, and the round failed (1001).
+    // Removed: (1 - pi/4) r^2 along 55, and past x = 55 the square r x r less the quarter disc,
+    // as far as the cylinder reaches: the integral of (r - sqrt(r^2 - u^2)) sqrt(25 - (5 - r +
+    // u)^2) over 0 < u < r.
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        const double corner_edge[3] = {60, 40, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(block, corner_edge, 1, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
+        const double back_top[3] = {27.5, 40, 20};
+        const double from[3] = {0, 40, 20};
+        const double knots[4] = {0, 0, 1, 1};
+        for (double radius : {1.0, 2.0, 3.0})
+        {
+            const double law[2] = {radius, radius};
+            if (rounded != nullptr && smlib_fillet_variable(rounded, back_top, 0.1, from, 1, knots, 4, law, 2, &r) == SMLIB_OK)
+            {
+                double past = 0.0;
+                const int steps = 200000;
+                for (int i = 0; i < steps; ++i)
+                {
+                    double u = (i + 0.5) * radius / steps;
+                    double w = 5.0 - radius + u;
+                    past += (radius - std::sqrt(radius * radius - u * u)) * std::sqrt(std::max(0.0, 25.0 - w * w)) * radius / steps;
+                }
+                CHECK(near(volume_of(r), volume_of(rounded) - 55.0 * radius * radius * (1.0 - PI / 4.0) - past, 1e-6));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"a constant law into the R5 corner");
+            }
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(block);
     }
 
     // Booleans that split, vanish or touch.
