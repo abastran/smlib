@@ -148,6 +148,8 @@ protected:
   SmRelation<SmVertex,SmFace>     m_vVToF;              // map origVertices to CapFaces created to fill gaps created by offsetting surfaces from the vertex
   SmRelation<SmFace,SmFace>       m_vBlendToFaces;
   SmMapPtrToPtr<SmSurface, SmSurface> & m_vSurfExtSurf;
+  SmTArray<SmFace*>               m_sCollapsedFaces;    // inset faces whose offset collapses (a round thinner than the wall),
+                                                        //  mated across instead of offset (DoExtendedOffset())
 
 public:
 
@@ -253,6 +255,8 @@ public:
                                     SmSurface *& rpExtSurface);
 
   SmEdgeuse * GetOffsetEdgeuse(SmEdgeuse *cpOrigEu);
+  SmBoolean   IsCollapsedFace(const SmFace *pFace) const { return m_sCollapsedFaces.IsIn(SM_CONST_CAST(SmFace*, pFace)); }
+  SmEdgeuse * GetEdgeuseAcrossCollapsedFace(const SmEdgeuse *pEU, const SmVertex *pFrom) const;
 
   SmStatus MapEdgeuses(SmFaceuse * pOriginalFU,
                        SmFace * pOffsetFace);

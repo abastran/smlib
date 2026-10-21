@@ -1310,8 +1310,17 @@ SmBoolean bDebugMeAll = FALSE ;
                                                 sOffsetSurface,     // out: New Surface (more than 1 for self-XSect cases)
                                                 sIntData)) ;        // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
                                                                   
+          // An inset face whose offset collapses (a convex round thinner than the wall) gets no
+          // offset face: the faces beside it are mated across it below, as at a sharp edge.
           if (sOffsetSurface == NULL) 
-            { SER(SM_ERR); }
+            {
+              if (m_bInset && m_bExtendConvexEdges)
+                {
+                  m_sCollapsedFaces.Add(pOrigFace) ;
+                  continue ;
+                }
+              SER(SM_ERR);
+            }
 
           // signal self intersection problems
           // But -- we passed True to FaceuseOffset, telling it not to check this...
@@ -1457,6 +1466,35 @@ SmBoolean bDebugMe11 = FALSE;
   SmNewMarkAndLock sMarkLock( m_pOffsetBrep->GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
   SmMarkType       eMarkType = sMarkLock.GetMarkType() ;
 
+  // Mate the faces beside each collapsed face across it: the offsets of the faces on either side
+  // of a collapsed round meet where they intersect, the round's rails becoming one sharp edge.
+  // (The rails' ends are trimmed by TrimExtendedEdge, which also looks across collapsed faces.)
+  ULONG lUnbridged = 0 ;
+  double dTanTolDeg = GetTangencyTolDegrees();
+  for (ii=0; ii<sOffsetEdgeuses.GetSize(); ii++)
+    {
+      SmEdgeuse *pEU     = sOffsetEdgeuses[ii];
+      SmEdgeuse *pRadial = pEU->GetRadial();
+      if (   pRadial == NULL
+          || pRadial == pEU
+          || !IsCollapsedFace(pRadial->GetFace())
+          || !pRadial->IsTangentSector(dTanTolDeg)
+          || pEU->IsMarked(eMarkType))
+        { continue; }
+      SmEdgeuse *pAcross    = GetEdgeuseAcrossCollapsedFace(pRadial, NULL);
+      SmEdgeuse *pOffEU     = GetOffsetEdgeuse(pEU);
+      SmEdgeuse *pOffAcross = pAcross ? GetOffsetEdgeuse(pAcross) : NULL;
+      if (   pOffEU == NULL
+          || pOffAcross == NULL
+          || m_rGeometryCreation.MateEdges(m_crContext, this, pEU, pAcross, pOffEU, pOffAcross, eMarkType) != SM_SUCCESS)
+        {
+          lUnbridged++ ;
+          continue;
+        }
+      pEU->Mark(eMarkType);     pEU->GetMate()->Mark(eMarkType);
+      pAcross->Mark(eMarkType); pAcross->GetMate()->Mark(eMarkType);
+    } // end iter every offset edgeuse beside a collapsed face
+
   // when extending convex edges - not filleting them 
   // mark offset edges which have tangent sectors
   if (GetExtendConvexEdges()) 
@@ -1466,6 +1504,7 @@ SmBoolean bDebugMe11 = FALSE;
         {
           SmEdgeuse *pEU     = sOffsetEdgeuses[ii];
           SmEdgeuse *pRadial = pEU->GetRadial();
+          if (IsCollapsedFace(pRadial->GetFace())) { continue; } // mated across it above
 
           // Mark the EU, and skip it if its radial partner is marked.
           if (pRadial->IsMarked(eMarkType)) { continue; }
@@ -1536,6 +1575,7 @@ SmBoolean bDebugMe5 = FALSE;
       // Mark the EU, and skip it if its radial partner is marked.
       SmEdgeuse * pEU     = sOffsetEdgeuses[ii];
       SmEdgeuse * pRadial = pEU->GetRadial();
+      if (IsCollapsedFace(pRadial->GetFace())) { continue; } // mated across it above
       pEU->Mark(eMarkType);
       if (pRadial->IsMarked(eMarkType)) 
         { continue; }
@@ -1593,6 +1633,37 @@ SmBoolean bDebugMe8 = FALSE;
 #endif // SM_DEBUG_CODE
     } // end iter every offset edgeuse
 
+
+  // The offset of an edge along a collapsed face's end (where the round meets the face across its
+  // end) now runs from the corner where the mated faces meet back to that corner: squeeze it out.
+  for (ii=0; ii<sOffsetEdgeuses.GetSize(); ii++)
+    {
+      SmEdgeuse *pEU     = sOffsetEdgeuses[ii];
+      SmEdgeuse *pRadial = pEU->GetRadial();
+      if (   pRadial == NULL
+          || pRadial == pEU
+          || !IsCollapsedFace(pRadial->GetFace())
+          || pRadial->IsTangentSector(dTanTolDeg))
+        { continue; }
+      SmEdgeuse *pOffEU = GetOffsetEdgeuse(pEU);
+      SmEdge    *pOffEdge = pOffEU ? pOffEU->GetEdge() : NULL;
+      SmVertex  *pV1 = pOffEdge ? pOffEdge->GetStartVertex() : NULL;
+      SmVertex  *pV2 = pOffEdge ? pOffEdge->GetEndVertex()   : NULL;
+      if (   pOffEdge == NULL
+          || pV1 == pV2
+          || pV1->GetPoint().DistanceBetween(pV2->GetPoint()) > 10.0 * pOffEdge->GetTolerance())
+        {
+          lUnbridged++ ;
+          continue;
+        }
+      SER(m_vEUToEU.RemovePair(pEU, pOffEU));
+      SER(m_pOffsetBrep->SqueezeEdge(pOffEdge, pV1));
+    } // end iter every offset edgeuse along a collapsed face's end
+
+  // A collapsed face that could not be bridged (no face across it, or no meeting) leaves the
+  // offset open: refuse it rather than build a body with holes.
+  if (lUnbridged > 0)
+    { SER(SM_ERR_DEGENERATE_SURFACE); }
 
   SER(RemoveExcessFaces( m_pOffsetBrep ));
 
@@ -2713,6 +2784,55 @@ SmEdgeuse* SmOffsetExecutive::GetOffsetEdgeuse
    }
    return NULL;
 } // end GetOffsetEdgeuse
+
+/*******************************************************************//**
+PURPOSE: The original edgeuse beyond a collapsed face (an inset face whose
+   offset vanished), seen from one of its edgeuses.
+
+NOTES: pEU is an edgeuse of the collapsed face. Across a rail (a tangent
+   edge of a four-sided round), the result is the radial of the opposite rail.
+   Across an end edge (where the round meets a face across its end), seen
+   from pFrom, one of that edge's vertices, it is the radial of the rail at
+   the edge's other vertex. NULL when pEU's face did not collapse, or the
+   face across collapsed too, or the face has another shape.
+***********************************************************************/
+SmEdgeuse * SmOffsetExecutive::GetEdgeuseAcrossCollapsedFace
+  (const SmEdgeuse *pEU,      // in : edgeuse of a collapsed face
+   const SmVertex  *pFrom)    // in : for an end edge, the vertex it is seen from; NULL for a rail
+ const
+{
+  if (pEU == NULL || !IsCollapsedFace(pEU->GetFace())) { return NULL; }
+  double dTanTolDeg = m_rGeometryCreation.GetTangencyTolDegrees();
+  SmEdgeuse *pNext = NULL;
+  if (pEU->IsTangentSector(dTanTolDeg))
+    {
+      SmTArray<SmEdgeuse*> sLoopEUs;
+      pEU->GetLoopuse()->GetEdgeuses(sLoopEUs);
+      if (sLoopEUs.GetSize() != 4) { return NULL; }
+      pNext = pEU->GetCCWEdgeuse()->GetCCWEdgeuse();
+    }
+  else
+    {
+      if (pFrom == NULL) { return NULL; }
+      // the end edge's vertex away from pFrom (by position: pFrom may be a vertex of the rail beside it)
+      SmVertex *pV0  = pEU->GetEdge()->GetStartVertex();
+      SmVertex *pV1  = pEU->GetEdge()->GetEndVertex();
+      SmVertex *pFar =   pV0->GetPoint().DistanceBetween(pFrom->GetPoint()) > pV1->GetPoint().DistanceBetween(pFrom->GetPoint())
+                       ? pV0
+                       : pV1 ;
+      SmEdgeuse *aSides[2] = { pEU->GetCWEdgeuse(), pEU->GetCCWEdgeuse() };
+      for (ULONG ii=0; ii<2; ii++)
+        {
+          SmEdge *pE = aSides[ii]->GetEdge();
+          if (aSides[ii] != pEU && (pE->GetStartVertex() == pFar || pE->GetEndVertex() == pFar))
+            { pNext = aSides[ii]; break; }
+        }
+    }
+  SmEdgeuse *pAcross = pNext ? pNext->GetRadial() : NULL;
+  if (pAcross == NULL || pAcross == pNext || IsCollapsedFace(pAcross->GetFace())) { return NULL; }
+  return pAcross;
+
+} // end SmOffsetExecutive::GetEdgeuseAcrossCollapsedFace
 
 /*******************************************************************//**
 PURPOSE: Syncronize the corresponding offset edgeuses of an edgeuse.

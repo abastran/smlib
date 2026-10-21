@@ -690,6 +690,92 @@ int main()
         }
     }
 
+    // tangency-labs/solidcore#397: an inward shell of a box 30 x 20 x 10 whose edges are rounded
+    // thinner than the 2 mm wall. Each round's inward offset collapses (SMLib's offset surface is
+    // NULL), which failed the shell (1001); the faces beside it are now mated across it, so the
+    // inner walls meet at sharp edges: the cavity is the box shrunk by the wall on every side
+    // (but the open top), whatever the radius. All twelve edges rounded (the corner balls
+    // collapse too) and only the four vertical ones (their ends meet the top and bottom faces,
+    // where the offset edges along them shrink to a corner). A round thicker than the wall (r 3)
+    // still shells as before, to a cavity rounded r - t.
+    {
+        const double a = 30, b = 20, c = 10, t = 2;
+        // a x b x c with all edges rounded (corners balls), as the core box grown by the radius
+        auto rounded = [](double x, double y, double z, double rad)
+        {
+            double cx = x - 2 * rad, cy = y - 2 * rad, cz = z - 2 * rad;
+            return cx * cy * cz + 2 * rad * (cx * cy + cy * cz + cx * cz) + PI * rad * rad * (cx + cy + cz) + 4.0 / 3.0 * PI * rad * rad * rad;
+        };
+        std::vector<double> all, vertical;
+        for (double y : {0.0, b})
+        {
+            for (double z : {0.0, c})
+            {
+                all.insert(all.end(), {a / 2, y, z});
+            }
+        }
+        for (double x : {0.0, a})
+        {
+            for (double z : {0.0, c})
+            {
+                all.insert(all.end(), {x, b / 2, z});
+            }
+        }
+        for (double x : {0.0, a})
+        {
+            for (double y : {0.0, b})
+            {
+                all.insert(all.end(), {x, y, c / 2});
+                vertical.insert(vertical.end(), {x, y, c / 2});
+            }
+        }
+        const double top[3] = {a / 2, b / 2, c};
+        smlib_brep *block = box(0, 0, 0, a, b, c);
+        struct Case
+        {
+            const std::vector<double> *edges;
+            double radius;
+        };
+        for (Case k : {Case{&all, 1.0}, Case{&all, 0.5}, Case{&vertical, 1.0}, Case{&vertical, 0.5}, Case{&all, 3.0}})
+        {
+            const double rad = k.radius;
+            const bool every = k.edges == &all;
+            smlib_brep *round = nullptr;
+            CHECK(smlib_fillet(block, k.edges->data(), static_cast<int64_t>(k.edges->size() / 3), 0.1, rad, &round, nullptr) == SMLIB_OK);
+            if (round == nullptr)
+            {
+                continue;
+            }
+            const double outer = every ? rounded(a, b, c, rad) : a * b * c - 4.0 * (1.0 - PI / 4.0) * rad * rad * c;
+            CHECK(near(volume_of(round), outer, 1e-7));
+            const double inner = rad > t ? rounded(a - 2 * t, b - 2 * t, c - 2 * t, rad - t) : (a - 2 * t) * (b - 2 * t) * (c - 2 * t);
+            std::printf("box %s rounded r%g, inward shell %g: closed", every ? "all edges" : "vertical edges", rad, t);
+            int32_t got = smlib_shell(round, nullptr, 0, 0.1, -t, &r, nullptr);
+            std::printf(" %d", static_cast<int>(got));
+            CHECK(got == SMLIB_OK);
+            if (r != nullptr)
+            {
+                // (a cavity rounded r - t is SMLib's approximation of the offset, to its tolerance)
+                CHECK(near(volume_of(r), outer - inner, rad > t ? 1e-6 : 1e-7));
+                done(r);
+            }
+            if (rad <= t)
+            {
+                got = smlib_shell(round, top, 1, 0.1, -t, &r, nullptr);
+                std::printf(", open at the top %d", static_cast<int>(got));
+                CHECK(got == SMLIB_OK);
+                if (r != nullptr)
+                {
+                    CHECK(near(volume_of(r), outer - (a - 2 * t) * (b - 2 * t) * (c - t), 1e-7));
+                    done(r);
+                }
+            }
+            std::printf("\n");
+            smlib_brep_free(round);
+        }
+        smlib_brep_free(block);
+    }
+
     // A box 20 x 10 x 30 open at the top with walls 4 thick: the sides need room 4 from each
     // other (10 > 8), the floor's is far, so the shell goes through even though the box's
     // smallest half extent is 5; walls of 5 leave none.

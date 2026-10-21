@@ -455,6 +455,16 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   only where its continuation does not fold over the domain the merge uses: the normal may not
   vanish or turn back between neighbouring points of a 21 x 21 grid over that domain; otherwise
   the faces stay as they are, with the edge between them.
+- **Inward offsets across rounds thinner than the wall** (`SmOffsetExecutive.cpp`/`.h`,
+  `DoExtendedOffset`, new `GetEdgeuseAcrossCollapsedFace`; `SmOffsetGeometryCreation.cpp`,
+  `TrimExtendedEdge`): a convex round whose radius is at most the inset distance has no offset
+  (its offset surface is NULL), and the offset, so the shell, failed (1001): a box with r1 or
+  r0.5 edges shelled 2 inward (tangency-labs/solidcore#397). Such a face now gets no offset face;
+  the faces on either side of it are mated across it (their offsets intersected, as at a sharp
+  convex edge, the trim points found on the offsets of the faces beyond collapsed neighbours), and
+  the offset edge along its end, which the mating shrinks to a corner, is squeezed out. A collapsed
+  face that cannot be bridged so (not four-sided, or a collapsed face across it) is refused with
+  `SM_ERR_DEGENERATE_SURFACE`.
 - **Triangles held to the chord tolerance** (`SmTess.cpp`/`.h`, new
   `SmTess::RefineTrianglesToChordHeight`, called from `AddQuadBoundaries`): the subdivision tree
   bounds each cell's chord height, but the triangles made in it were never measured. The cell strip
