@@ -3182,6 +3182,24 @@ SmStatus SmFilletExecutive::DoFilleting
   // remember that we're using the SmTopologyIntersector and the SmCurveClassification code for fillets
   m_vTI.m_bDoingFillets = TRUE ;
 
+  // SolidCraft change: the clean-up after filleting removes topological edges next to the
+  // faces the fillet made, never one between two of the target's own faces (the faces of a
+  // sphere in patches, which it merged into a face no parameterization of theirs could carry).
+  // Booleans likewise clean up only the edges of their intersection.
+  m_sPostProcessKeptEdges.clear();
+  m_sPostProcessKeptFaces.clear();
+  if (m_pTargetBrep != NULL)
+    {
+      SmTArray<SmEdge*> sTargetEdges;
+      m_pTargetBrep->GetEdges(sTargetEdges);
+      for (ULONG ke=0; ke<sTargetEdges.GetSize(); ke++)
+        { m_sPostProcessKeptEdges.insert(sTargetEdges[ke]); }
+      SmTArray<SmFace*> sTargetFaces;
+      m_pTargetBrep->GetFaces(sTargetFaces);
+      for (ULONG kf=0; kf<sTargetFaces.GetSize(); kf++)
+        { m_sPostProcessKeptFaces.insert(sTargetFaces[kf]); }
+    }
+
   // Create m_pFilletBrep - A shell Brep containing the new Fillet Faces, 
   //  Edges, and Vertices created by filleting m_pTargetBrep Edges and Corners
   if(SM_SUCCESS != CreateFilletBrep( pOptFilletErrorInfo ))

@@ -876,6 +876,21 @@ SmBoolean bDebugMe=FALSE;
             { continue; }
         }
 
+      // SolidCraft change: an edge the caller keeps, or one between two faces it keeps apart (a
+      // fillet's input), stays
+      if ( m_sPostProcessKeptEdges.count( pEdge ) != 0 )
+        { continue; }
+      if ( ! m_sPostProcessKeptFaces.empty() )
+        {
+          SM_PTR_ARRAY(sKeptFaces, SmFace, 8);
+          pEdge->GetFaces( sKeptFaces );
+          SmBoolean bAllKept = sKeptFaces.GetSize() > 0;
+          for ( ULONG kf=0; kf<sKeptFaces.GetSize() && bAllKept; kf++ )
+            { bAllKept = m_sPostProcessKeptFaces.count( sKeptFaces[kf] ) != 0; }
+          if ( bAllKept )
+            { continue; }
+        }
+
       // skip NonTopological edges - side effect - one Surface may be expanded to 'cover' the other
       SmExtent2d sMergedFaceDomain;
       if(!pEdge->IsTopological(pSurfToKeep, dDistBetween, 10.0, &sMergedFaceDomain)) // note: ApproxTol3d Gain = 10.0 is different than
