@@ -30,10 +30,40 @@ links it) on Windows.
 - **Handles belong to the caller,** who frees them with `smlib_brep_free`.
 - **Calls are serialised.** SMLib keeps process-global state, so one lock serialises every call.
 
-So far the API covers what's needed to prove the build (init, copy, free, box, volume, counts
-and native file read/write), SMLib's own validity check (`smlib_brep_check`) and exact mass
-properties (`smlib_brep_mass_properties`, `smlib_brep_area`). SolidCraft's kernel adapter adds
-the rest, one shim at a time, each with a case in a fuzz target.
+So far the API covers what's needed to prove the build (init, copy, free, box, volume, counts,
+manifold check and native file read/write), SMLib's own validity check (`smlib_brep_check`),
+exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history and the flat
+arrays below. SolidCraft's kernel adapter adds the rest, one shim at a time, each with a case in
+a fuzz target.
+
+## Flat B-rep arrays
+
+`smlib_brep_export` turns a B-rep into a `smlib_flat`: plain `int64`/`double` arrays that a
+caller reads and writes by id (`smlib_flat_get_i64`/`_f64`, `smlib_flat_set_i64`/`_f64`).
+`smlib_brep_import` builds a B-rep from them. SolidCraft maps these arrays onto its own B-rep.
+The arrays mirror one member of USD's BrepArray schema (`source/BREP_USD_DATA/inc/UsdBrepArrayData.h`)
+with the same layout and units: regions, shells, faceuses, faces, loops, edgeuses with radial
+lists, edges, wire edges and vertices; analytic surfaces (plane, cylinder, cone, sphere, torus)
+and NURBS; and analytic angles and face ranges in radians. Tokens become small integers and
+3-vectors are flattened. `include/smlib.h` documents every array: its meaning, element type,
+units and length rule. The conversion is `src/smlib_flat.cpp`, a USD-free port of
+`source/BREP_SM_USD/src/SmuConvert.cpp`, and it keeps that converter's behaviour:
+- UV trim curves are carried only for faces on NURBS surfaces. On analytic faces, SMLib's trims
+  live in its internal NURBS form of the surface rather than the analytic parameterisation, so
+  they are not exported and SMLib rebuilds them from the 3D edges on import.
+- Edge curves are always exported as NURBS: lines, circles and ellipses as their exact NURBS form,
+  and any other curve approximated to the B-rep's tolerance. Import also accepts line, circle
+  and ellipse curves.
+- A cone with a negative semi-angle is rebuilt in the equivalent positive-angle form on import.
+  Its second export therefore differs from its first, and from then on the arrays are stable.
+- Attributes, materials and colours are not carried.
+
+Import validates everything first (counts, indices, lengths, kinds, finite values, NURBS
+orders and knots, closed loops, radial cycles), so malformed arrays return
+`SM_ERR_INVALID_INPUT` without building anything. A failing import's dump holds its arrays as
+text, which `smlib_flat_read` reads back for replay. `tests/flat_roundtrip.cpp` round-trips a box,
+cylinder, cone, sphere, torus, two filleted boxes and a boolean, then feeds the import hostile
+and randomly mutated arrays.
 
 ## Diagnostics
 
@@ -59,6 +89,10 @@ build-fuzz/smlib_fuzz -max_total_time=120 corpus/
 
 `fuzz/fuzz_history.cpp` (`smlib_fuzz_history`) does the same for the history shims, through a
 real boolean of two tagged boxes.
+
+`SMLIB_FUZZ_SMB=<file.smb>` adds a second starting body for the flat-array case. Point it at a
+body with NURBS faces, such as `blend.smb`, which the round-trip test writes to its scratch
+directory; that way the NURBS and UV-trim paths get fuzzed too, not only a box.
 
 ## Targets
 

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -113,6 +114,13 @@ public:
         }
     }
 
+    // A non-B-rep input, dumped by `write` (given the file path) as `<n>-<function>-<name>.txt`
+    // when the call fails.
+    void input_text(const char *name, std::function<void(const std::string &path)> write)
+    {
+        m_texts.emplace_back(name, std::move(write));
+    }
+
     // Runs `f` under the lock, with SMLib's context created, and returns its status.
     template <typename F>
     int32_t run(F &&f)
@@ -180,6 +188,10 @@ private:
             {
                 std::fprintf(f, "%s: %s-%s.smb\n", in.first, stem, in.first);
             }
+            for (auto &in : m_texts)
+            {
+                std::fprintf(f, "%s: %s-%s.txt\n", in.first, stem, in.first);
+            }
             std::fclose(f);
         }
         for (auto &in : m_inputs)
@@ -187,11 +199,16 @@ private:
             std::string path = base + "-" + in.first + ".smb";
             SmApiWriteBrepToFile(in.second, path.c_str(), FALSE);
         }
+        for (auto &in : m_texts)
+        {
+            in.second(base + "-" + in.first + ".txt");
+        }
     }
 
     const char *m_fn;
     std::string m_line;
     std::vector<std::pair<const char *, const SmBrep *>> m_inputs;
+    std::vector<std::pair<const char *, std::function<void(const std::string &)>>> m_texts;
 };
 
 // Hands `p` to the caller, or deletes it when it is no usable body.
