@@ -22,6 +22,7 @@
 #include <SmFilletStandardSolver.h>
 #include <SmLoopuse.h>
 #include <SmOffsetGeometryCreation.h>
+#include <SmPlane.h>
 #include <SmRegion.h>
 #include <SmSSIData.h>
 #include <SmShell.h>
@@ -755,6 +756,85 @@ int32_t move_faces(SmBrep *b, const std::vector<SmFace *> &picked, double distan
     return status(b->LocalOperation(faces, surfaces));
 }
 
+// Tilts each face of `picked` (planes only) by `angle` radians about its line on the neutral
+// plane (through `origin`, normal `normal`), so that it leans in going along `pull`, then lets
+// SMLib's local operation extend or trim the faces around it to meet the tilted planes. A face
+// must be parallel to the pull (its normal square to it); the hinge is where a line from a point
+// inside the face, along the pull, meets the neutral plane.
+int32_t draft_faces(SmBrep *b, const std::vector<SmFace *> &picked, const SmPoint3d &origin, const SmVector3d &normal, const SmVector3d &pull,
+                    double angle)
+{
+    const SmContext &ctx = *SmApiGetOrCreateContext();
+    SmTArray<SmFace *> faces;
+    SmTArray<SmSurface *> surfaces;
+    auto give_up = [&](int32_t st)
+    {
+        for (ULONG k = 0; k < surfaces.GetSize(); ++k)
+        {
+            delete surfaces[k];
+        }
+        return st;
+    };
+    for (SmFace *f : picked)
+    {
+        SmSurface *surf = f->GetSurface();
+        SmFaceuse *fu = outer_faceuse(b, f);
+        if (surf == nullptr || fu == nullptr)
+        {
+            return give_up(static_cast<int32_t>(SM_ERR_INVALID_INPUT));
+        }
+        if (!surf->IsKindOf(SmPlane_TYPE))
+        {
+            return give_up(SMLIB_ERR_UNSUPPORTED);
+        }
+        // The face's outward normal: the plane's, turned with the outer faceuse.
+        SmVector3d n = static_cast<const SmPlane *>(surf)->GetPosition().GetZAxis();
+        if (fu->GetOrientation() != SM_OT_SAME)
+        {
+            n = -n;
+        }
+        if (std::fabs(n.Dot(pull)) > 1e-6)
+        {
+            return give_up(SMLIB_ERR_UNSUPPORTED);
+        }
+        SmPoint3d inside;
+        if (SmApiFaceInternalPoint(f, inside) != SM_SUCCESS)
+        {
+            return give_up(static_cast<int32_t>(SM_ERR_INVALID_INPUT));
+        }
+        double along = pull.Dot(normal);
+        if (std::fabs(along) < 1e-12)
+        {
+            return give_up(SMLIB_ERR_ARG);
+        }
+        SmPoint3d hinge = inside + pull * ((origin - inside).Dot(normal) / along);
+        // Turning n about n x pull by `angle` gives n cos(angle) + pull sin(angle).
+        SmVector3d axis = n * pull; // the cross product
+        double len = axis.Length();
+        if (!(len > 0.5))
+        {
+            return give_up(SMLIB_ERR_UNSUPPORTED);
+        }
+        axis = axis / len;
+        SmSurface *tilted = nullptr;
+        if (surf->Copy(ctx, tilted) != SM_SUCCESS || tilted == nullptr)
+        {
+            delete tilted;
+            return give_up(static_cast<int32_t>(SM_ERR_INVALID_INPUT));
+        }
+        SmAxis2Placement turn;
+        turn.RotateAboutAxisAtPoint(angle, hinge, axis);
+        if (tilted->Transform(turn) != SM_SUCCESS)
+        {
+            delete tilted;
+            return give_up(static_cast<int32_t>(SM_ERR_INVALID_INPUT));
+        }
+        faces.Add(f);
+        surfaces.Add(tilted);
+    }
+    return status(b->LocalOperation(faces, surfaces));
+}
+
 } // namespace
 
 extern "C" int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out)
@@ -1261,6 +1341,64 @@ extern "C" int32_t smlib_offset_faces(const smlib_brep *brep, const double *poin
                 return s;
             }
             return finish(std::move(w), solid_in, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_draft(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, const double neutral_origin[3],
+                               const double neutral_normal[3], const double pull[3], double angle, smlib_brep **out, int64_t *out_failed_point)
+{
+    auto unit = [](const double *v, SmVector3d &u)
+    {
+        if (v == nullptr || !finite(v, 3))
+        {
+            return false;
+        }
+        u = SmVector3d(v[0], v[1], v[2]);
+        double len = u.Length();
+        if (!(len > 1e-12) || !std::isfinite(len))
+        {
+            return false;
+        }
+        u = u / len;
+        return true;
+    };
+    SmVector3d normal;
+    SmVector3d along;
+    if (!valid(brep) || out == nullptr || !points_ok(points, n_points, false) || !tolerance_ok(tolerance) || neutral_origin == nullptr ||
+        !finite(neutral_origin, 3) || std::fabs(neutral_origin[0]) > 1e9 || std::fabs(neutral_origin[1]) > 1e9 || std::fabs(neutral_origin[2]) > 1e9 ||
+        !unit(neutral_normal, normal) || !unit(pull, along) || !std::isfinite(angle) || angle == 0.0 || std::fabs(angle) >= 1.5697963267948966)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_draft", handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", neutral=" + vec(neutral_origin, 3) +
+                              "/" + vec(neutral_normal, 3) + ", pull=" + vec(pull, 3) + ", angle=" + num(angle));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            int32_t s = SMLIB_OK;
+            Owned w = copy_of(brep, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            if (!w->IsManifoldSolid())
+            {
+                return SMLIB_ERR_ARG;
+            }
+            std::vector<SmFace *> picked;
+            s = pick_faces(w.get(), points, n_points, tolerance, picked, out_failed_point);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            s = draft_faces(w.get(), picked, SmPoint3d(neutral_origin[0], neutral_origin[1], neutral_origin[2]), normal, along, angle);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            return finish(std::move(w), true, out);
         }
     );
 }
