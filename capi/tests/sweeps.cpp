@@ -272,6 +272,39 @@ int main()
     expect("screw sweep down", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, -1.0, 3.0, 1e-4, &b), &b,
            screw, 2e-3);
 
+    // tangency-labs/solidcore#434: two walls 12 thick and 60 tall swept along half circles,
+    // wall A r 44..56 over 0..180 degrees, wall B r 52..64 over 90..270, overlapping over a
+    // quarter turn and sharing the planes z = 0 and z = 60. Wall A's frame started with its z in
+    // the path's plane (a start tangent along +y), and its flat top came out 2.9e-4 off plane;
+    // joined, the walls failed (1006). Flat, the union merged the tops onto wall B's surface
+    // continued past its ends, where its radial lines run back over the sector through its
+    // centre: wall A's edges dropped onto the wrong sheet, and the result had UV gaps and the
+    // wrong volume. V = V_A + V_B - overlap.
+    {
+        List path_a;
+        path_a.arc(0, 0, 0, 0, 0, 1, 1, 0, 0, 50.0, 0.0, PI);
+        List wall_a;
+        wall_a.polygon({44, 0, 0, 56, 0, 0, 56, 0, 60, 44, 0, 60});
+        List path_b;
+        path_b.arc(0, 0, 0, 0, 0, 1, 0, 1, 0, 58.0, 0.0, PI);
+        List wall_b;
+        wall_b.polygon({0, 52, 0, 0, 64, 0, 0, 64, 60, 0, 52, 60});
+        const double v_a = 60.0 * (PI / 2.0) * (56.0 * 56.0 - 44.0 * 44.0);
+        const double v_b = 60.0 * (PI / 2.0) * (64.0 * 64.0 - 52.0 * 52.0);
+        const double overlap = 60.0 * (PI / 4.0) * (56.0 * 56.0 - 52.0 * 52.0);
+        smlib_brep *a = nullptr;
+        smlib_brep *w = nullptr;
+        CHECK(smlib_sweep(wall_a.kinds.data(), wall_a.nk(), wall_a.reals.data(), wall_a.nr(), path_a.kinds.data(), path_a.nk(), path_a.reals.data(),
+                          path_a.nr(), SMLIB_SWEEP_FOLLOW, 1, &a) == SMLIB_OK);
+        CHECK(smlib_sweep(wall_b.kinds.data(), wall_b.nk(), wall_b.reals.data(), wall_b.nr(), path_b.kinds.data(), path_b.nk(), path_b.reals.data(),
+                          path_b.nr(), SMLIB_SWEEP_FOLLOW, 1, &w) == SMLIB_OK);
+        b = nullptr;
+        int32_t joined = a != nullptr && w != nullptr ? smlib_boolean(a, w, SMLIB_BOOLEAN_UNION, &b) : SMLIB_ERR_ARG;
+        expect("two swept arc walls joined", joined, &b, v_a + v_b - overlap, 1e-5);
+        smlib_brep_free(a);
+        smlib_brep_free(w);
+    }
+
     // Modelled ISO metric threads, the groove (the space between the teeth, ISO 68-1 basic
     // profile, 60 degree flanks) screwed a pitch past each end of the threaded length and cut
     // away, as SolidCraft cuts them. External: from the root (5H/8 under the major diameter, P/4

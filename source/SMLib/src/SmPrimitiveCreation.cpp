@@ -5158,6 +5158,28 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   SmVector3d sFromX, sFromY, sFromZ;
   sPathPtAndDir[1].MakeUnitOrthoVectors( NULL, sFromX, sFromY, sFromZ );
 
+  // SolidCraft fork: the path is turned so that this frame becomes the global one, and the
+  // sweep (N_CreateSweepScale, Z0 = global z) carries the profile on a frame that starts there
+  // and is computed from point to point along the path. Along a planar path the plane's normal
+  // is the one direction such a frame keeps; MakeUnitOrthoVectors of a start tangent along +y
+  // puts z in the path's plane instead, and a wall's flat top swept along a half circle then
+  // came out with its control points spread 2.9e-4 mm about its plane (the modelling tolerance
+  // is 1e-5), which a boolean with another wall on that plane could not resolve. So a planar
+  // path starts the frame with its z on the plane's normal; the top is then flat to 1e-13.
+  {
+    SmVector3d sPlaneNormal;
+    if(   pPathCurveCopy->IsPlanar( SM_ZONE_TOL_3D, NULL, &sPlaneNormal )
+       && sPlaneNormal.Unitize() == SM_SUCCESS
+       && smos_Fabs( sPlaneNormal.Dot( sFromX ) ) < SM_EFF_ZERO_SQRT )
+      {
+        sFromZ = sPlaneNormal - sPlaneNormal.Dot( sFromX ) * sFromX ;
+        if ( sFromZ.Unitize() == SM_SUCCESS )
+          { sFromY = sFromZ * sFromX ; }
+        else
+          { sPathPtAndDir[1].MakeUnitOrthoVectors( NULL, sFromX, sFromY, sFromZ ); }
+      }
+  }
+
   SmVector3d sToXAxis( 1, 0, 0 ), sToYAxis( 0, 1, 0 );
   SmAxis2Placement sPathRot( sOrigin, sFromX, sFromY,
                              sOrigin, sToXAxis, sToYAxis );
