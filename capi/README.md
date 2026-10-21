@@ -303,3 +303,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   import). An angle outside a full-turn arc is now taken whole turns back into it, the NURBS
   parameter moving by the circle's NURBS length per turn; outside a partial arc, the arc's NURBS
   interval continues in proportion to the angle.
+- **Caps of a curve sweep whose path bends** (`SmPrimitiveCreation.cpp`,
+  `SmPrimitiveCreation::CreateCurveSweep`): it took the start cap's curves from the first side
+  faces and the end cap's from the last, one per profile curve. A swept surface is split into a
+  face per G1 piece of the path (a line, then an arc), so with a profile of two loops (an
+  annulus) the start cap got a face from the junction and the end cap missed one, and the sweep
+  failed (1001). Each side face is now marked by whether its own surface starts or ends where
+  the swept surface does along the path, and the caps take those.

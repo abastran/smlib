@@ -4796,6 +4796,33 @@ SmStatus SmBrep::CreateFacesFromSurface
                                          sUKnotsAtSplit,        // out: All U knots matching search criteria              
                                          sVKnotsAtSplit)) ;     // out: All V knots matching search criteria              
 
+  return CreateFacesFromSurfaceAtKnots(pSurface, sUKnotsAtSplit, sVKnotsAtSplit, rNewFaces) ;
+
+} // end SmBrep::CreateFacesFromSurface
+
+/*******************************************************************//**
+PURPOSE: Create a face or faces in a brep corresponding to a naturally
+   bounded surface split at the given knots.
+
+NOTES: 1. SolidCraft fork: the body of CreateFacesFromSurface, for a caller that knows
+            where the surface is to be split better than the surface's own continuity
+            (a swept surface approximating its sections, see CreateCurveSweep).
+       2. The split values are ascending; those on the domain's boundary are skipped.
+       3. As CreateFacesFromSurface: the faces are their own Shells, and the input
+            pSurface is deleted when it is split, else owned by the single new Face.
+***********************************************************************/
+SmStatus SmBrep::CreateFacesFromSurfaceAtKnots
+  (SmSurface              * pSurface,        // in : Tgt Surface
+   const SmTArray<double> & crUKnotsAtSplit, // in : U values to split at, ascending
+   const SmTArray<double> & crVKnotsAtSplit, // in : V values to split at, ascending
+   SmTArray<SmFace*>      & rNewFaces)       // out: 1 or more new faces
+{
+  NER(pSurface);
+  rNewFaces.ReSet();
+
+  // temporarily mark this Brep for changes
+  SmTemporaryChangeValue<SmBoolean> sChange1(m_bEditingEnabled,TRUE);
+
   const SmContext * pContext = GetContext();
 
 #ifdef SM_DEBUG_CODE
@@ -4810,7 +4837,7 @@ SmBoolean bDebugMe = FALSE;
 #endif // SM_DEBUG_CODE
 
   SmTArray<SmSurface*> sSplittedSurfaces;
-  if (sUKnotsAtSplit.GetSize() == 0) 
+  if (crUKnotsAtSplit.GetSize() == 0) 
     {
       // We don't need to split the surface in U direction
       sSplittedSurfaces.Add(pSurface);
@@ -4819,9 +4846,9 @@ SmBoolean bDebugMe = FALSE;
     {
       SmSurface * pSur = pSurface;
       // Need to split the surface at C0 knots in U direction
-      for (ULONG ii=0; ii<sUKnotsAtSplit.GetSize(); ii++) 
+      for (ULONG ii=0; ii<crUKnotsAtSplit.GetSize(); ii++) 
         {
-          double dParameter = sUKnotsAtSplit[ii];
+          double dParameter = crUKnotsAtSplit[ii];
           // Split the surface geometry now
           SmSurface * pSurL = NULL;
           SmSurface * pSurR = NULL;
@@ -4851,7 +4878,7 @@ SmBoolean bDebugMe = FALSE;
     }
 
   SM_PTR_ARRAY(sSubPatches,SmSurface,16);
-  if (sVKnotsAtSplit.GetSize() == 0) 
+  if (crVKnotsAtSplit.GetSize() == 0) 
     {
       sSubPatches.Append(sSplittedSurfaces);
     }
@@ -4861,9 +4888,9 @@ SmBoolean bDebugMe = FALSE;
       for (ULONG jj=0; jj<sSplittedSurfaces.GetSize(); jj++) 
         {
           SmSurface * pSur = sSplittedSurfaces[jj];
-          for (ULONG kk=0; kk<sVKnotsAtSplit.GetSize(); kk++) 
+          for (ULONG kk=0; kk<crVKnotsAtSplit.GetSize(); kk++) 
             {
-              double dParameter = sVKnotsAtSplit[kk];
+              double dParameter = crVKnotsAtSplit[kk];
               SmSurface * pSurL = NULL;
               SmSurface * pSurR = NULL;
               SmExtent2d sUVDomain = pSur->GetNaturalUVDomain();
@@ -4906,7 +4933,7 @@ SmBoolean bDebugMe = FALSE;
     }
   return SM_SUCCESS;
 
-} // end SmBrep::CreateFacesFromSurface
+} // end SmBrep::CreateFacesFromSurfaceAtKnots
 
 /*******************************************************************//**
 PURPOSE: This method will create a set of curves corresponding to the

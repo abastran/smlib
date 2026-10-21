@@ -210,6 +210,41 @@ int main()
                        bend.nr(), SMLIB_SWEEP_FOLLOW, 1, &b),
            &b, PI * 4.0 * (PI / 2 * 25.0), 1e-3);
 
+    // Profiles with a hole along a path that bends (solidcore#411): each loop's wall comes in a
+    // face per path piece, and the caps take the faces at the path's ends (Pappus: the
+    // profile's centroid is on the path, so area x path length).
+    List annulus = circle(0, 0, 0, 0, 0, 1, 1, 0, 0, 3);
+    annulus.append(circle(0, 0, 0, 0, 0, -1, 1, 0, 0, 2));
+    List frame;
+    frame.polygon({-3, -3, 0, 3, -3, 0, 3, 3, 0, -3, 3, 0});
+    frame.append(circle(0, 0, 0, 0, 0, -1, 1, 0, 0, 2));
+    List hook;
+    hook.line(0, 0, 0, 0, 0, 10).arc(20, 0, 10, 0, 1, 0, -1, 0, 0, 20, 0, PI / 2);
+    List crank = hook;
+    crank.line(20, 0, 30, 35, 0, 30);
+    const double hook_length = 10.0 + PI / 2 * 20.0;
+    struct Hollow
+    {
+        const char *name;
+        const List *profile;
+        double area;
+        const List *path;
+        double length;
+    };
+    const Hollow hollows[] = {
+        {"sweep annulus along line+arc", &annulus, PI * (9.0 - 4.0), &hook, hook_length},
+        {"sweep annulus along line+arc+line", &annulus, PI * (9.0 - 4.0), &crank, hook_length + 15.0},
+        {"sweep holed square along line+arc", &frame, 36.0 - PI * 4.0, &hook, hook_length},
+    };
+    for (const Hollow &h : hollows)
+    {
+        b = nullptr;
+        expect(h.name,
+               smlib_sweep(h.profile->kinds.data(), h.profile->nk(), h.profile->reals.data(), h.profile->nr(), h.path->kinds.data(), h.path->nk(),
+                           h.path->reals.data(), h.path->nr(), SMLIB_SWEEP_FOLLOW, 1, &b),
+               &b, h.area * h.length, 1e-4);
+    }
+
     // Lofts: square to square (a box), circle to circle (a frustum, ruled).
     List boxes;
     boxes.polygon({0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0}).polygon({0, 0, 8, 10, 0, 8, 10, 10, 8, 0, 10, 8});

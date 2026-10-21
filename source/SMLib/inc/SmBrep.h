@@ -413,7 +413,13 @@ public:
                                                                               //             ... SM_CT_C1 = split face at C1 and C0 discontinuities  
                                                                               //             ... SM_CT_C2 = split face at C2, C1, and C0 discontinuities  
                                                                               //             ... and all other SmContinuityType values  
-                                  SmTArray<SmFace*> & rNewFaces) ;            // out: 1 or more new faces 
+                                  SmTArray<SmFace*> & rNewFaces) ;            // out: 1 or more new faces
+
+  // SolidCraft fork: create face(s) and shell from surface in infinite region after splitting surface at the given values.
+  SmStatus CreateFacesFromSurfaceAtKnots(SmSurface              * pSurface,          // in : Tgt Surface
+                                         const SmTArray<double> & crUKnotsAtSplit,   // in : U values to split at, ascending
+                                         const SmTArray<double> & crVKnotsAtSplit,   // in : V values to split at, ascending
+                                         SmTArray<SmFace*>      & rNewFaces) ;       // out: 1 or more new faces
 
   // convenience function - calls CreateFaceFromSurface() and
   SmStatus CreateEndCapsFromSurface(SmSurface *pSurface,  // in : Surface to be made into a face 

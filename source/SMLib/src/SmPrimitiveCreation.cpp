@@ -5359,6 +5359,11 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
 // Transform each profile according to input parameters to align with path
 // Then move resulting surface back to original path position
   ULONG lNumComposites = sComposites.GetSize();
+  // SolidCraft fork: which side faces begin and end the sweep. A swept surface split at a
+  // G1 knot along the path (a line then an arc) gives several faces per profile curve, so
+  // the first and last faces in rSideFaces are not the caps' curves once the profile has more
+  // than one loop: each face is marked by its own surface's parameter along the path instead.
+  SmTArray<SmBoolean> sSideAtStart, sSideAtEnd;
   for(ii = 0; ii < lNumComposites; ii++)
   {
     SmCompositeCurve *pComp = sComposites[ii];
@@ -5385,7 +5390,42 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     // For now subdivide at G1 continuities to make things
     // which are more filletable.
     SmTArray<SmFace*> sNewFaces;
-    pBrep->CreateFacesFromSurface( pNewBSS, pNewBSS->GetNaturalUVDomain(), SM_CT_G1, sNewFaces );
+    const SmExtent2d sSweptDomain = pNewBSS->GetNaturalUVDomain();
+    const SmExtent1d sAlongPath = pOptions->bTranslationalSweep ? sSweptDomain.GetVInterval() : sSweptDomain.GetUInterval();
+    const double dAlongZero = SM_EFF_ZERO * (1.0 + smos_Max( smos_Fabs( sAlongPath.GetMin() ), smos_Fabs( sAlongPath.GetMax() ) ));
+    // SolidCraft fork: the wall is split along the path where the swept surface is G1 or less,
+    // and across it where the profile is. The swept surface is an approximation (to
+    // bAppoxTol3d) between the sections it places: inside it a profile knot that is C1 (a
+    // circle's quarter points) comes out with a kink of the approximation's size, which the
+    // surface's own classification calls G1, and a pipe along a 0.05-turn helix then had its
+    // wall cut into four quarter faces. The profile's knots are those of the swept surface
+    // across the path, and each section is a rigid (or scaled) image of the profile, which
+    // keeps its continuity, so the profile's continuity at a knot is the wall's.
+    SmTArray<double> sUSplits, sVSplits;
+    SER( pNewBSS->FindKnotsByMaxContinuity( SM_CT_G1, FALSE, sUSplits, sVSplits ) );
+    SmTArray<double> &rAcrossSplits = pOptions->bTranslationalSweep ? sUSplits : sVSplits;
+    rAcrossSplits.ReSet();
+    {
+      SmContinuityType eMinProfileContinuity;
+      SmTArray<SmContinuityType> sProfileContinuities;
+      SmTArray<double> sProfileKnots;
+      SER( pCompNurb->CalculateContinuities( eMinProfileContinuity, sProfileContinuities ) );
+      SER( pCompNurb->GetKnots( sProfileKnots ) );
+      SM_ASSERT( sProfileKnots.GetSize() == sProfileContinuities.GetSize() );
+      SM_ASSERT( pCompNurb->GetNaturalInterval() == ( pOptions->bTranslationalSweep ? sSweptDomain.GetUInterval() : sSweptDomain.GetVInterval() ) );
+      for(jj = 1; jj + 1 < sProfileKnots.GetSize(); jj++)
+      {
+        if(sProfileContinuities[jj] <= SM_CT_G1) { rAcrossSplits.Add( sProfileKnots[jj] ); }
+      }
+    }
+    SER( pBrep->CreateFacesFromSurfaceAtKnots( pNewBSS, sUSplits, sVSplits, sNewFaces ) );
+    for(jj = 0; jj < sNewFaces.GetSize(); jj++)
+    {
+      const SmExtent2d sFaceDomain = sNewFaces[jj]->GetSurface()->GetNaturalUVDomain();
+      const SmExtent1d sFaceAlong = pOptions->bTranslationalSweep ? sFaceDomain.GetVInterval() : sFaceDomain.GetUInterval();
+      sSideAtStart.Add( smos_Fabs( sFaceAlong.GetMin() - sAlongPath.GetMin() ) <= dAlongZero ? TRUE : FALSE );
+      sSideAtEnd.Add( smos_Fabs( sFaceAlong.GetMax() - sAlongPath.GetMax() ) <= dAlongZero ? TRUE : FALSE );
+    }
     rSideFaces.Append( sNewFaces );
 
   } // end for each curve in sComposites
@@ -5442,7 +5482,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     ULONG lNumSideFaces = rSideFaces.GetSize();
     for(ii = 0; ii < lNumSideFaces; ii++)
     {
-      if(ii < lNumCurves)
+      if(sSideAtStart[ii])
       {
         pSurface = rSideFaces[ii]->GetSurface();
         sDomain = pSurface->GetNaturalUVDomain();
@@ -5473,13 +5513,11 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
         sStartCurves.Add( pCrv );
       }
 
-      // Always get sEndCurves when lNumSideFaces < lNumCurves. In this case lNumSideFaces - lNumCurves 
-      // should be a negative number and all is well. But they are ULONGs. So the result is not negative
-      // So we end up with no sEndCurves.
-      if(lNumCurves > lNumSideFaces || ii >= lNumSideFaces - lNumCurves)
+      if(sSideAtEnd[ii])
       {
         pSurface = rSideFaces[ii]->GetSurface();
         sDomain = pSurface->GetNaturalUVDomain();
+        eSurfParam = SM_SP_U;
         dParam = sDomain.GetMax().x;
         if(pOptions->bTranslationalSweep)
         {
