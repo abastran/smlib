@@ -283,6 +283,7 @@ protected:
   SmTList<SmTsectPnt> m_vStartPoints;                // list of start points to start/stop curve traces
   SmTList<SmTsectPnt> m_vThroughPoints;              // list of points to include in curve trace
   SmTArray<SmPoint2d>  m_vTangentSeeds;              // SolidCraft change: uv pairs (surf1, surf2) where interior search found parallel normals
+  SmTArray<SmPoint2d>  m_vTangentNodes;              // SolidCraft change: uv pairs of contact points where crossing branches meet
     
 public:
   // constructor
@@ -521,6 +522,16 @@ public:
     SmTArray<SmCurve*>         & rSurface2UVCurves,          ///< [i/o]: associated UVTrimCurves on Surface 2                   <br>
     SmTArray<SmTsectCurveType> & rCurveTypes,                ///< [i/o]: associated CurveType                                   <br>
     SmTArray<double>           & rDeviations                 ///< [i/o]: associated max distance between 3DCurve and surfaces   <br>
+  );
+
+  // SolidCraft change: output the nodes FindTangentCurves() found as touching points
+  SmStatus AddTangentNodes
+  (
+    SmTArray<SmCurve*>         & r3DCurves,
+    SmTArray<SmCurve*>         & rSurface1UVCurves,
+    SmTArray<SmCurve*>         & rSurface2UVCurves,
+    SmTArray<SmTsectCurveType> & rCurveTypes,
+    SmTArray<double>           & rDeviations
   );
 
   virtual SmStatus FindInteriorCurves
