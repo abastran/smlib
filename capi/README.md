@@ -400,3 +400,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   rational half cylinder in four spans) came out of a boolean with trims millimetres off its edges
   (edge tolerances of 0.78 mm, ValidatePointers failing). An analytic copy that does not give the
   same points at the same parameters is replaced by an exact copy.
+- **A filleted vertex with no corner** (`SmFilletExecutive.cpp`, `CreateFilletCorners`,
+  `CollectTangentEdgeSequence`; `SmFilletCorner.cpp`, `SmFilletCorner::Create`): the vertex/corner
+  map holds each filleted vertex's array of edgeuses until its corner replaces it. Where no corner
+  type handles a vertex (four filleted edges among five, at the line where a hole's wall touches
+  a face, its rim's tangent chain running on along that face), the array stayed in the map, and
+  the smooth-sequence walk called it as a corner through its virtual table (a crash). Such a
+  vertex now leaves the map, its array and the corner's edgeuse list are freed, and the fillet
+  fails (SM_ERR); a walk that finds no corner at a vertex fails too.

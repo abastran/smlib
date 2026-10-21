@@ -305,6 +305,33 @@ int main()
         smlib_brep_free(tray);
     }
 
+    // tangency-labs/solidcore#453: a 20 cube with a hole r5 along y whose wall touches the
+    // bottom face along one line, its back rim chamfered 3. The rim's tangent chain takes the
+    // bottom edge too, so four filleted edges meet at the touching point among five, a corner
+    // no corner type handles. The vertex was left with its array of edgeuses where its corner
+    // belongs, and the smooth-sequence walk called it as a corner (a crash). No chamfer of
+    // that size exists there (the rim has no face below it): a status, every blend kind.
+    {
+        SmBrep *bore = nullptr;
+        CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 5.0, 20.0, bore) == SM_SUCCESS && bore != nullptr);
+        CHECK(SmApiRotate(bore, SmVector3d(0, 0, 0), SmVector3d(1, 0, 0), 90.0) == SM_SUCCESS);
+        CHECK(SmApiTranslate(bore, SmVector3d(10, 20, 5)) == SM_SUCCESS);
+        smlib_brep tool{bore};
+        smlib_brep *holed_low = nullptr;
+        CHECK(smlib_boolean(cube, &tool, SMLIB_BOOLEAN_SUBTRACT, &holed_low) == SMLIB_OK);
+        CHECK(near(volume_of(holed_low), 8000.0 - PI * 25.0 * 20.0, 1e-6));
+        const double back_rim[3] = {10, 20, 10};
+        CHECK(smlib_chamfer(holed_low, back_rim, 1, 0.1, 3.0, &r, nullptr) > 0 && r == nullptr);
+        for (int32_t kind : {SMLIB_BLEND_ROUND, SMLIB_BLEND_CURVATURE, SMLIB_BLEND_CHORD, SMLIB_BLEND_CHAMFER})
+        {
+            const double size = 3.0;
+            int64_t failed = -1;
+            CHECK(smlib_blend(holed_low, kind, back_rim, &size, 1, 0.1, &r, &failed) > 0 && r == nullptr);
+        }
+        smlib_brep_free(holed_low);
+        delete bore;
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
