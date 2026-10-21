@@ -584,6 +584,7 @@ public:
   SmStatus AddPointToCurve(SmTsectPnt & rNextTSP);
 
   SmStatus AddStartPoint(SmTsectPnt & rStartTSP);
+  SmBoolean IsSameTangentCluster(SmTsectPnt & rA, SmTsectPnt & rB, SmBoolean bAnyTypeA) const; // SolidCraft change
 
   SmStatus AddThroughPoint(SmTsectPnt & rStartTSP);
 
