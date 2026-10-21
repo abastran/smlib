@@ -60,6 +60,9 @@ class SmSweepOptions
       SmBoolean bOrientProfilePerpendicularToPath = false; // if true, orient the profile so that it begins perpendicular to the path
       SmBoolean bMoveToProfile = false;                    // if true, move the result back to the original position of the profile
                                                            // otherwise the result will be at the path
+      SmBoolean bProfileAtPathStart = false;               // if true, the profile is swept where it lies: the path's start is its
+                                                           // reference point, so the profile keeps its place relative to the path
+                                                           // (bMoveProfileCenterToPath and bMoveToProfile then change nothing)
 } ;
 
 /*******************************************************************//**

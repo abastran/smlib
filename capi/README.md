@@ -231,3 +231,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   combined into another and deleted stayed in the coincident-edge lists of ProtoFaces (and the
   overlap lists of other ProtoEdges), which `GlueCoincidentBrepVertices` then read. Removing a
   ProtoEdge drops those references; a combined one is replaced by the one it went into.
+- **A curve sweep that keeps the profile where it lies** (`SmPrimitiveCreation.h`,
+  `SmSweepOptions::bProfileAtPathStart`; `SmPrimitiveCreation::CreateCurveSweep`): upstream
+  sweeps a profile with its first point (or its bounding-box centre) moved onto the path, so a
+  profile beside the path loses its offset round a bend. With the new option, off by default,
+  the path's start is the profile's reference point: the profile is carried as it lies relative
+  to the path. `smlib_sweep` uses it.

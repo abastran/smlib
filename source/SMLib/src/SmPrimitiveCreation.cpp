@@ -5089,7 +5089,12 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
 
   // Move Profiles to orgin
   SmVector3d sProfileRefPt( 0, 0, 0 );
-  if(pOptions->bMoveProfileCenterToPath)
+  if(pOptions->bProfileAtPathStart)
+  {
+    // The profile moves with the path's start: it keeps its place relative to the path.
+    sProfileRefPt = sPathPtAndDir[0];
+  }
+  else if(pOptions->bMoveProfileCenterToPath)
   {
     // If moving profile to center of path then we need to 
     // compute the centroid of all of the edges.
