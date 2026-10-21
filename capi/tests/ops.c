@@ -137,11 +137,7 @@ int main(void)
         smlib_brep_free(r);
         r = NULL;
     }
-    if (smlib_shell(a, top, 1, 0.1, -15.0, &r, NULL) == SMLIB_OK)
-    {
-        smlib_brep_free(r);
-        r = NULL;
-    }
+    CHECK(smlib_shell(a, top, 1, 0.1, -15.0, &r, NULL) == SMLIB_ERR_NO_ROOM && r == NULL);
     CHECK(near(volume(a), 8000.0));
 
     smlib_brep_free(far);

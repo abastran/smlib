@@ -16,8 +16,14 @@
 #include <SmEdge.h>
 #include <SmEdgeuse.h>
 #include <SmFace.h>
+#include <SmFaceuse.h>
 #include <SmFilletExecutive.h>
 #include <SmFilletStandardSolver.h>
+#include <SmOffsetGeometryCreation.h>
+#include <SmRegion.h>
+#include <SmSSIData.h>
+#include <SmShell.h>
+#include <SmSurface.h>
 #include <SmVertex.h>
 
 #include <memory>
@@ -314,6 +320,241 @@ int32_t finish(Owned r, bool solid_in, smlib_brep **out)
     return take(r.release(), out);
 }
 
+// The faceuse of `f` on the outside of its body: the one bounding the infinite region (for a
+// sheet, both do; then the upward one, along the surface normal).
+SmFaceuse *outer_faceuse(const SmBrep *b, const SmFace *f)
+{
+    SmFaceuse *fu = f->GetUpwardFaceuse();
+    if (fu == nullptr)
+    {
+        return nullptr;
+    }
+    if (fu->GetShell() == nullptr || fu->GetShell()->GetRegion() != b->GetInfiniteRegion())
+    {
+        fu = fu->GetMate();
+    }
+    return fu;
+}
+
+// Faces with their loose bounding boxes, for nearest-face queries.
+struct FaceSet
+{
+    std::vector<SmFace *> faces;
+    std::vector<std::pair<SmPoint3d, SmPoint3d>> boxes;
+
+    bool add(SmFace *f)
+    {
+        SmPoint3d lo;
+        SmPoint3d hi;
+        if (SmApiFaceBoundingBox(f, FALSE, lo, hi) != SM_SUCCESS)
+        {
+            return false;
+        }
+        faces.push_back(f);
+        boxes.emplace_back(lo, hi);
+        return true;
+    }
+
+    // The distance from `p` to the nearest face, with the nearest point in `at`; HUGE_VAL when
+    // none answers. A face whose box is farther than the nearest face so far is skipped.
+    double nearest(const SmPoint3d &p, SmPoint3d *at = nullptr) const
+    {
+        double best = HUGE_VAL;
+        for (size_t i = 0; i < faces.size(); ++i)
+        {
+            const SmPoint3d &lo = boxes[i].first;
+            const SmPoint3d &hi = boxes[i].second;
+            double box = 0.0;
+            for (int k = 0; k < 3; ++k)
+            {
+                double out = std::max(lo[k] - p[k], std::max(0.0, p[k] - hi[k]));
+                box += out * out;
+            }
+            if (std::sqrt(box) >= best)
+            {
+                continue;
+            }
+            SmPoint3d q;
+            double d = HUGE_VAL;
+            if (SmApiFaceClosestPoint(faces[i], p, q, d) == SM_SUCCESS && std::isfinite(d) && d < best)
+            {
+                best = d;
+                if (at != nullptr)
+                {
+                    *at = q;
+                }
+            }
+        }
+        return best;
+    }
+};
+
+// Whether an inward offset of `wall` (> 0) from every face of the solid `b` but `open` leaves a
+// cavity: a point inside `b` farther than `wall`, and a margin, from every face that is offset.
+// The answer is certified, never guessed: a point counts only as the centre of a ball inside
+// `b` (one no face reaches into), reached from a face sample by stepping inward along the
+// normal, then from ball to ball. SMLib's offset corrupts memory where no cavity remains
+// (tangency-labs/solidcore#380), so a wall this finds no room for is refused before SMLib sees
+// it. It may refuse a cavity thinner than the margin; it never accepts a wall at or beyond the
+// body's inradius (for a closed shell) or the faces' clearance (for an open one).
+bool leaves_cavity(SmBrep *b, const std::vector<SmFace *> &open, double wall)
+{
+    SmTArray<SmFace *> list;
+    b->GetFaces(list);
+    FaceSet all;
+    FaceSet walls;
+    for (ULONG i = 0; i < list.GetSize(); ++i)
+    {
+        if (!all.add(list[i]))
+        {
+            return false;
+        }
+        if (std::find(open.begin(), open.end(), list[i]) == open.end() && !walls.add(list[i]))
+        {
+            return false;
+        }
+    }
+    if (walls.faces.empty())
+    {
+        return true;
+    }
+    double tol = static_cast<double>(b->GetTolerance());
+    double margin = std::max(10.0 * tol, 1e-3 * wall);
+    double need = wall + margin;
+    // Face samples: a grid over each offset face's domain, the points inside its trims, each
+    // with the inward unit normal there.
+    constexpr int GRID = 5;
+    constexpr size_t MAX_SAMPLES = 2048;
+    std::vector<std::pair<SmPoint3d, SmVector3d>> samples;
+    for (SmFace *f : walls.faces)
+    {
+        SmFaceuse *fu = outer_faceuse(b, f);
+        SmSurface *surf = f->GetSurface();
+        if (fu == nullptr || surf == nullptr)
+        {
+            continue;
+        }
+        double inward = fu->GetOrientation() == SM_OT_SAME ? -1.0 : 1.0;
+        SmExtent2d dom = f->GetUVDomain();
+        for (int i = 0; i < GRID && samples.size() < MAX_SAMPLES; ++i)
+        {
+            for (int j = 0; j < GRID && samples.size() < MAX_SAMPLES; ++j)
+            {
+                SmPoint2d uv = dom.Evaluate((i + 0.5) / GRID, (j + 0.5) / GRID);
+                int cls = 0;
+                if (SmApiFaceClassifyUV(f, uv, cls) != SM_SUCCESS || cls != SM_PC_FACE)
+                {
+                    continue;
+                }
+                SmVector3d at[1];
+                SmVector3d n;
+                if (surf->Evaluate(uv, 0, 0, TRUE, TRUE, FALSE, at) != SM_SUCCESS || surf->EvaluateNormal(uv, TRUE, TRUE, n) != SM_SUCCESS)
+                {
+                    continue;
+                }
+                double len = n.Length();
+                if (!(len > 0.0) || !std::isfinite(len))
+                {
+                    continue;
+                }
+                samples.emplace_back(SmPoint3d(at[0]), n * (inward / len));
+            }
+        }
+    }
+    // A step of `h` inward from a sample ends at a ball's centre when no face is nearer to it
+    // than `h` (the step crossed none, and the ball touches only the sample's face).
+    auto ball = [&](const SmPoint3d &s, const SmVector3d &n, double h, SmPoint3d &c, double &r) {
+        c = s + n * h;
+        r = all.nearest(c);
+        return std::isfinite(r) && r >= h * (1.0 - 1e-9);
+    };
+    // First the direct step of `need` from each sample.
+    for (const auto &[s, n] : samples)
+    {
+        SmPoint3d c;
+        double r = 0.0;
+        if (ball(s, n, need, c, r) && walls.nearest(c) >= need)
+        {
+            return true;
+        }
+    }
+    // Then climbing, from a small ball at each sample: step away from the nearest offset face
+    // by most of the ball's radius (staying inside the ball, so inside the body) while the
+    // distance from the offset faces grows.
+    constexpr int STEPS = 48;
+    for (const auto &[s, n] : samples)
+    {
+        SmPoint3d c;
+        double r = 0.0;
+        if (!ball(s, n, std::max(margin, 1e3 * tol), c, r))
+        {
+            continue;
+        }
+        for (int k = 0; k < STEPS; ++k)
+        {
+            SmPoint3d q;
+            double d = walls.nearest(c, &q);
+            if (d >= need)
+            {
+                return true;
+            }
+            if (!(d > 0.0) || !std::isfinite(d))
+            {
+                break;
+            }
+            SmPoint3d next = c + (c - q) * (0.9 * r / d);
+            double rn = all.nearest(next);
+            if (!(rn > 0.0) || !std::isfinite(rn) || walls.nearest(next) <= d * (1.0 + 1e-9))
+            {
+                break;
+            }
+            c = next;
+            r = rn;
+        }
+    }
+    return false;
+}
+
+// Moves the picked faces of `b` (in place) `distance` along their outward normals: each gets
+// its surface's offset, and SMLib's local operation extends or trims the faces around them to
+// meet it. The local operation takes the surfaces over, also when it fails.
+int32_t move_faces(SmBrep *b, const std::vector<SmFace *> &picked, double distance)
+{
+    double tol = static_cast<double>(b->GetTolerance());
+    SmOffsetGeometryCreation make(std::fabs(distance), tol);
+    SmTArray<SmFace *> faces;
+    SmTArray<SmSurface *> surfaces;
+    for (SmFace *f : picked)
+    {
+        SmFaceuse *fu = outer_faceuse(b, f);
+        if (fu == nullptr)
+        {
+            return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
+        }
+        // The offset goes along the faceuse's normal: outward from the outer one, inward from
+        // its mate.
+        if (distance < 0.0)
+        {
+            fu = fu->GetMate();
+        }
+        SmSurface *s = nullptr;
+        SmSSIData crossings;
+        int32_t st = status(make.FaceuseOffset(*SmApiGetOrCreateContext(), fu, TRUE, s, crossings));
+        if (st != SMLIB_OK || s == nullptr)
+        {
+            delete s;
+            for (ULONG k = 0; k < surfaces.GetSize(); ++k)
+            {
+                delete surfaces[k];
+            }
+            return st != SMLIB_OK ? st : static_cast<int32_t>(SM_ERR_INVALID_INPUT);
+        }
+        faces.Add(f);
+        surfaces.Add(s);
+    }
+    return status(b->LocalOperation(faces, surfaces));
+}
+
 } // namespace
 
 extern "C" int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out)
@@ -503,25 +744,12 @@ extern "C" int32_t smlib_shell(const smlib_brep *brep, const double *points, int
                 return s;
             }
             bool solid_in = w->IsManifoldSolid();
-            // An inward wall at least as thick as the body's inradius leaves no cavity, and
-            // SMLib's offset of such a wall corrupts its working body (use-after-free under ASan
-            // in GlueCoincidentBrepVertices and DeleteEdge). Half the smallest extent of the
-            // (loose) bounding box is at least the inradius, so a wall that thick can only fail:
-            // refuse it before SMLib sees it.
-            if (thickness < 0.0)
+            // An inward wall with no room left inside it corrupts SMLib's working body (use-after-
+            // free under ASan in GlueCoincidentBrepVertices and DeleteEdge,
+            // tangency-labs/solidcore#380): refuse it before SMLib sees it.
+            if (thickness < 0.0 && solid_in && !leaves_cavity(w.get(), picked, -thickness))
             {
-                SmPoint3d lo;
-                SmPoint3d hi;
-                s = status(SmApiBrepBoundingBox(w.get(), FALSE, lo, hi));
-                if (s != SMLIB_OK)
-                {
-                    return s;
-                }
-                double least = std::min(hi[0] - lo[0], std::min(hi[1] - lo[1], hi[2] - lo[2]));
-                if (-thickness >= 0.5 * least)
-                {
-                    return SMLIB_ERR_ARG;
-                }
+                return SMLIB_ERR_NO_ROOM;
             }
             SmTArray<const SmFace *> open;
             for (SmFace *f : picked)
@@ -536,6 +764,117 @@ extern "C" int32_t smlib_shell(const smlib_brep *brep, const double *points, int
                 return s;
             }
             return finish(Owned(r), solid_in, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_offset_faces(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
+                                      smlib_brep **out, int64_t *out_failed_point)
+{
+    if (!valid(brep) || out == nullptr || !points_ok(points, n_points, false) || !tolerance_ok(tolerance) || !std::isfinite(distance) ||
+        distance == 0.0 || std::fabs(distance) > 1e6)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_offset_faces",
+           handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", distance=" + num(distance));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            int32_t s = SMLIB_OK;
+            Owned w = copy_of(brep, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            std::vector<SmFace *> picked;
+            s = pick_faces(w.get(), points, n_points, tolerance, picked, out_failed_point);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            bool solid_in = w->IsManifoldSolid();
+            if (!solid_in)
+            {
+                return SMLIB_ERR_ARG;
+            }
+            // Faces moved in so far that no material is left behind them reach the same offset
+            // code as a shell with no cavity: the body must reach deeper than the move behind
+            // the moved faces.
+            if (distance < 0.0)
+            {
+                SmTArray<SmFace *> all;
+                w->GetFaces(all);
+                std::vector<SmFace *> others;
+                for (ULONG i = 0; i < all.GetSize(); ++i)
+                {
+                    if (std::find(picked.begin(), picked.end(), all[i]) == picked.end())
+                    {
+                        others.push_back(all[i]);
+                    }
+                }
+                if (!leaves_cavity(w.get(), others, -distance))
+                {
+                    return SMLIB_ERR_NO_ROOM;
+                }
+            }
+            s = move_faces(w.get(), picked, distance);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            return finish(std::move(w), solid_in, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_thicken(const smlib_brep *brep, double thickness, int32_t symmetric, smlib_brep **out)
+{
+    if (!valid(brep) || out == nullptr || !std::isfinite(thickness) || thickness == 0.0 || std::fabs(thickness) > 1e6)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_thicken", handle(brep) + ", thickness=" + num(thickness) + ", symmetric=" + std::to_string(symmetric));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            int32_t s = SMLIB_OK;
+            Owned w = copy_of(brep, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            if (w->IsManifoldSolid())
+            {
+                return SMLIB_ERR_ARG;
+            }
+            // Symmetric: the sheet moved back by half first, then thickened by the whole.
+            if (symmetric != 0)
+            {
+                SmBrep *moved = nullptr;
+                s = status(SmApiOffsetBrepFull(w.get(), -0.5 * thickness, TRUE, TRUE, moved));
+                if (s != SMLIB_OK || moved == nullptr)
+                {
+                    delete moved;
+                    return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;
+                }
+                // OffsetBrep leaves its input allocated (possibly changed) beside the result.
+                if (moved != w.get())
+                {
+                    w.reset(moved);
+                }
+            }
+            SmTArray<const SmFace *> none;
+            SmBrep *r = nullptr;
+            s = status(SmApiShellBrepFull(w.get(), thickness, TRUE, TRUE, TRUE, none, r));
+            if (s != SMLIB_OK)
+            {
+                delete r;
+                return s;
+            }
+            return finish(Owned(r), true, out);
         }
     );
 }
