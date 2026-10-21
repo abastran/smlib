@@ -41,7 +41,7 @@ one shim at a time, each with a case in a fuzz target.
 ## Operations
 
 `src/smlib_ops.cpp`: `smlib_boolean` (union, subtract, intersect), `smlib_fillet`,
-`smlib_chamfer`, `smlib_shell`, `smlib_offset_faces` and `smlib_thicken`. Each copies its inputs and works on the copies, so tagged
+`smlib_chamfer`, `smlib_blend`, `smlib_fillet_variable`, `smlib_shell`, `smlib_offset_faces` and `smlib_thicken`. Each copies its inputs and works on the copies, so tagged
 operands (`smlib_history_tag`) give a result whose history `smlib_history_read` reads. An empty
 boolean result is `SMLIB_ERR_EMPTY`; several solids come back as one body
 (`smlib_brep_solid_count`). A solid input that gives anything but a closed manifold solid is
@@ -66,6 +66,14 @@ operation (`SmBrep::LocalOperation`) extend or trim the faces around them; moved
 the body behind them is `SMLIB_ERR_NO_ROOM` by the same test. `smlib_thicken` makes a solid of a
 sheet with `SmApiShellBrepFull` (ruled walls along the open edges), a symmetric one after
 moving the sheet back by half with `SmApiOffsetBrepFull`.
+
+`smlib_blend` gives each picked edge (and its tangent chain) its own size and one of four
+blends: a round (circular section, constant radius, as `smlib_fillet`), a curvature-continuous
+round (SMLib's G2 blend-curve section between the contact lines of the round of that radius), a
+chord round (circular section at a constant width from contact to contact, SMLib's
+constant-distance solver) and the chamfer above. `smlib_fillet_variable` rounds one edge with a
+radius that follows a clamped B-spline law (degree 1 to 3) over the edge's parameter, 0 at the
+end nearest a given point; it becomes an `SmBSplineFilletLaw` on SMLib's variable-radius solver.
 
 `tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
 regression cases, both against analytic volumes and `smlib_brep_check` level 2.

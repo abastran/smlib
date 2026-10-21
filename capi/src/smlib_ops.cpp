@@ -13,6 +13,7 @@
 
 #include <SmApiBrep.h>
 #include <SmApiQueries.h>
+#include <SmBSplineCurve.h>
 #include <SmEdge.h>
 #include <SmEdgeuse.h>
 #include <SmFace.h>
@@ -82,11 +83,12 @@ std::string pts(const double *points, int64_t n)
     return n == 0 ? std::string("[]") : vec(points, static_cast<int>(n * 3));
 }
 
-// The entity nearest each point under the picking rule. On failure, the index of the point
-// that matched none or several goes to `failed`.
+// The entity nearest each point under the picking rule, each once; with `first`, the index of
+// the point that first picked each. On failure, the index of the point that matched none or
+// several goes to `failed`.
 template <typename T, typename Dist>
 int32_t pick(const SmTArray<T *> &all, const double *points, int64_t n, double tol, double model_tol, Dist dist,
-             std::vector<T *> &picked, int64_t *failed)
+             std::vector<T *> &picked, int64_t *failed, std::vector<int64_t> *first = nullptr)
 {
     for (int64_t i = 0; i < n; ++i)
     {
@@ -132,6 +134,10 @@ int32_t pick(const SmTArray<T *> &all, const double *points, int64_t n, double t
         if (std::find(picked.begin(), picked.end(), best) == picked.end())
         {
             picked.push_back(best);
+            if (first != nullptr)
+            {
+                first->push_back(i);
+            }
         }
     }
     return SMLIB_OK;
@@ -150,11 +156,12 @@ bool face_distance(SmFace *f, const SmPoint3d &p, double &d)
     return SmApiFaceClosestPoint(f, p, q, d) == SM_SUCCESS;
 }
 
-int32_t pick_edges(SmBrep *b, const double *points, int64_t n, double tol, std::vector<SmEdge *> &out, int64_t *failed)
+int32_t pick_edges(SmBrep *b, const double *points, int64_t n, double tol, std::vector<SmEdge *> &out, int64_t *failed,
+                   std::vector<int64_t> *first = nullptr)
 {
     SmTArray<SmEdge *> all;
     b->GetEdges(all);
-    return pick(all, points, n, tol, static_cast<double>(b->GetTolerance()), edge_distance, out, failed);
+    return pick(all, points, n, tol, static_cast<double>(b->GetTolerance()), edge_distance, out, failed, first);
 }
 
 int32_t pick_faces(SmBrep *b, const double *points, int64_t n, double tol, std::vector<SmFace *> &out, int64_t *failed)
@@ -193,8 +200,9 @@ bool direction_from(const SmEdge *e, const SmVertex *v, SmVector3d &dir)
 }
 
 // Grows `edges` by every filletable edge that continues one of them tangentially at a shared
-// vertex, until no more do: a pick on one edge of a smooth chain rounds the whole chain.
-void tangent_chains(std::vector<SmEdge *> &edges)
+// vertex, until no more do: a pick on one edge of a smooth chain rounds the whole chain. Each
+// edge added takes the size (`sizes`, one per edge, grown alongside) of the edge it continues.
+void tangent_chains(std::vector<SmEdge *> &edges, std::vector<double> &sizes)
 {
     std::unordered_set<SmEdge *> in(edges.begin(), edges.end());
     for (size_t i = 0; i < edges.size(); ++i)
@@ -224,6 +232,7 @@ void tangent_chains(std::vector<SmEdge *> &edges)
                 {
                     in.insert(f);
                     edges.push_back(f);
+                    sizes.push_back(sizes[i]);
                 }
             }
         }
@@ -256,25 +265,25 @@ bool chamfer_radius(SmEdge *e, double distance, double &radius)
     return std::isfinite(radius) && radius > 0.0;
 }
 
-// Chamfers `edges` of `b` in place: a constant-radius solver with a linear cross-section per
-// edge (SMLib's constant-distance solver, which SmApiChamferFillet uses, leaves a hole rim
-// open), bevelled corners, then stitching as SmApiFilletEdges does. The executive refers to `b`
-// until it is destroyed, so it lives here alone and is gone before the caller hands `b` on or
-// frees it.
-int32_t chamfer_edges(SmBrep *b, const std::vector<SmEdge *> &edges, double distance)
+// Chamfers `edges` of `b` in place, edge i `distances[i]` back along each face: a
+// constant-radius solver with a linear cross-section per edge (SMLib's constant-distance solver,
+// which SmApiChamferFillet uses, leaves a hole rim open), bevelled corners, then stitching as
+// SmApiFilletEdges does. The executive refers to `b` until it is destroyed, so it lives here
+// alone and is gone before the caller hands `b` on or frees it.
+int32_t chamfer_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &distances)
 {
     SmTArray<SmEdge *> es;
     SmTArray<SmFilletSurfaceGeneratorType> kinds;
     SmTArray<SmFilletSolverType> solvers;
     SmTArray<double> radii;
-    for (SmEdge *e : edges)
+    for (size_t i = 0; i < edges.size() && i < distances.size(); ++i)
     {
         double radius = 0.0;
-        if (!chamfer_radius(e, distance, radius))
+        if (!chamfer_radius(edges[i], distances[i], radius))
         {
             return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
         }
-        es.Add(e);
+        es.Add(edges[i]);
         kinds.Add(SM_FSG_LINEAR);
         solvers.Add(SM_FS_CONST_RADIUS);
         radii.Add(radius);
@@ -339,6 +348,68 @@ bool closed_nonmanifold(const SmBrep &r)
         }
     }
     return true;
+}
+
+// Rounds `edges` of `b` in place, edge i at `sizes[i]`, as SmApiFilletEdgesPerEdge does
+// (SetFilletParameters, DoFillet, stitching) with one cross-section and solver for all: SMLIB_BLEND_ROUND a
+// circular section at constant radius, SMLIB_BLEND_CURVATURE a G2 blend-curve section between
+// the same contact lines, SMLIB_BLEND_CHORD a circular section at constant width (SMLib's
+// constant-distance solver). `laws` (one per edge, or empty) makes each edge's radius vary.
+int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &sizes, int32_t kind,
+                    const std::vector<SmFilletLaw *> &laws)
+{
+    SmTArray<SmEdge *> es;
+    SmTArray<double> values;
+    SmTArray<SmFilletLaw *> law_array;
+    for (size_t i = 0; i < edges.size() && i < sizes.size(); ++i)
+    {
+        es.Add(edges[i]);
+        values.Add(sizes[i]);
+    }
+    for (SmFilletLaw *l : laws)
+    {
+        law_array.Add(l);
+    }
+    SmTArray<SmFilletSurfaceGeneratorType> sections;
+    SmTArray<SmFilletSolverType> solvers;
+    ULONG continuity = 1;
+    switch (kind)
+    {
+    case SMLIB_BLEND_ROUND:
+        sections.Add(SM_FSG_CIRCULAR);
+        solvers.Add(laws.empty() ? SM_FS_CONST_RADIUS : SM_FS_VARIABLE_RADIUS);
+        break;
+    case SMLIB_BLEND_CURVATURE:
+        sections.Add(SM_FSG_BLEND_CURVE);
+        solvers.Add(SM_FS_CONST_RADIUS);
+        continuity = 2;
+        break;
+    case SMLIB_BLEND_CHORD:
+        sections.Add(SM_FSG_CIRCULAR);
+        solvers.Add(SM_FS_CONST_DIST);
+        break;
+    default:
+        return SMLIB_ERR_ARG;
+    }
+    if (!laws.empty() && (laws.size() != edges.size() || kind != SMLIB_BLEND_ROUND))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    SmFilletExecutive exec(*SmApiGetOrCreateContext(), b);
+    int32_t s = status(exec.SetFilletParameters(b, es, sections, solvers, values, laws.empty() ? nullptr : &law_array, -1.0, -1.0,
+                                                -1.0, -1.0, continuity, 1.0));
+    if (s != SMLIB_OK)
+    {
+        return s;
+    }
+    // SetFilletParameters chose the executive's options as SmApiFilletEdges runs it (its
+    // SetDoGlobalMerge comes before, so SetFilletParameters resets it).
+    s = status(exec.DoFillet());
+    if (s != SMLIB_OK)
+    {
+        return s;
+    }
+    return status(b->StitchAndOrient());
 }
 
 // Hands a finished operation's body to the caller: it must have faces, and a solid input must
@@ -682,15 +753,33 @@ extern "C" int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out)
     );
 }
 
-extern "C" int32_t smlib_fillet(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double radius,
-                                smlib_brep **out, int64_t *out_failed_point)
+namespace
 {
-    if (!valid(brep) || out == nullptr || !points_ok(points, n_points, false) || !tolerance_ok(tolerance) || !std::isfinite(radius) ||
-        !(radius > 0.0) || radius > 1e6)
+
+bool size_ok(double x)
+{
+    return std::isfinite(x) && x > 0.0 && x <= 1e6;
+}
+
+// smlib_blend's work, logged as `fn`: `sizes` holds one size per point, or one for all.
+int32_t blend_call(const char *fn, const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, bool one_size,
+                   int64_t n_points, double tolerance, smlib_brep **out, int64_t *out_failed_point)
+{
+    bool kind_ok = kind == SMLIB_BLEND_ROUND || kind == SMLIB_BLEND_CURVATURE || kind == SMLIB_BLEND_CHORD || kind == SMLIB_BLEND_CHAMFER;
+    if (!valid(brep) || out == nullptr || !kind_ok || !points_ok(points, n_points, false) || !tolerance_ok(tolerance) || sizes == nullptr)
     {
         return SMLIB_ERR_ARG;
     }
-    Call c("smlib_fillet", handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", radius=" + num(radius));
+    int64_t n_sizes = one_size ? 1 : n_points;
+    for (int64_t i = 0; i < n_sizes; ++i)
+    {
+        if (!size_ok(sizes[i]))
+        {
+            return SMLIB_ERR_ARG;
+        }
+    }
+    Call c(fn, handle(brep) + ", kind=" + std::to_string(kind) + ", points=" + pts(points, n_points) + ", sizes=" +
+                   vec(sizes, static_cast<int>(n_sizes)) + ", tolerance=" + num(tolerance));
     c.input("brep", brep);
     return c.run(
         [&]
@@ -702,19 +791,20 @@ extern "C" int32_t smlib_fillet(const smlib_brep *brep, const double *points, in
                 return s;
             }
             std::vector<SmEdge *> picked;
-            s = pick_edges(w.get(), points, n_points, tolerance, picked, out_failed_point);
+            std::vector<int64_t> first;
+            s = pick_edges(w.get(), points, n_points, tolerance, picked, out_failed_point, &first);
             if (s != SMLIB_OK)
             {
                 return s;
             }
-            tangent_chains(picked);
-            bool solid_in = w->IsManifoldSolid();
-            SmTArray<SmEdge *> edges;
-            for (SmEdge *e : picked)
+            std::vector<double> each;
+            for (int64_t k : first)
             {
-                edges.Add(e);
+                each.push_back(sizes[one_size ? 0 : k]);
             }
-            s = status(SmApiFilletEdges(w.get(), edges, radius, 1, 1, 1.0));
+            tangent_chains(picked, each);
+            bool solid_in = w->IsManifoldSolid();
+            s = kind == SMLIB_BLEND_CHAMFER ? chamfer_edges(w.get(), picked, each) : round_edges(w.get(), picked, each, kind, {});
             if (s != SMLIB_OK)
             {
                 return s;
@@ -724,15 +814,120 @@ extern "C" int32_t smlib_fillet(const smlib_brep *brep, const double *points, in
     );
 }
 
+// Whether `knots` (n_knots) and `radii` (n_radii) are a clamped B-spline of `degree` from 0
+// to 1: degree 1 to 3, 2 to 100 control radii, knots rising, each end repeated degree + 1 times,
+// radii finite and non-negative.
+bool law_ok(int32_t degree, const double *knots, int64_t n_knots, const double *radii, int64_t n_radii)
+{
+    if (degree < 1 || degree > 3 || n_radii < 2 || n_radii > 100 || n_radii <= degree || n_knots != n_radii + degree + 1 ||
+        knots == nullptr || radii == nullptr || !finite(knots, static_cast<int>(n_knots)) || !finite(radii, static_cast<int>(n_radii)))
+    {
+        return false;
+    }
+    for (int64_t i = 0; i < n_knots; ++i)
+    {
+        bool low_end = i <= degree;
+        bool high_end = i >= n_radii;
+        if ((low_end && knots[i] != 0.0) || (high_end && knots[i] != 1.0) || (i > 0 && knots[i] < knots[i - 1]))
+        {
+            return false;
+        }
+    }
+    for (int64_t i = 0; i < n_radii; ++i)
+    {
+        if (radii[i] < 0.0 || radii[i] > 1e6)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The radius law along `e`: the B-spline (radius as its x) over the edge's parameter interval,
+// reversed when `start` is nearer the interval's end than its start. Null if it can't be built.
+std::unique_ptr<SmBSplineFilletLaw> law_along(SmEdge *e, const double start[3], int32_t degree, const double *knots, int64_t n_knots,
+                                              const double *radii, int64_t n_radii)
+{
+    SmCurve *curve = e->GetCurve();
+    if (curve == nullptr)
+    {
+        return nullptr;
+    }
+    SmExtent1d ivl = e->GetInterval();
+    SmVector3d lo[1];
+    SmVector3d hi[1];
+    if (curve->Evaluate(ivl.GetMin(), 0, TRUE, lo) != SM_SUCCESS || curve->Evaluate(ivl.GetMax(), 0, TRUE, hi) != SM_SUCCESS)
+    {
+        return nullptr;
+    }
+    SmVector3d at(start[0], start[1], start[2]);
+    bool reverse = (hi[0] - at).Length() < (lo[0] - at).Length();
+    const SmContext &ctx = *SmApiGetOrCreateContext();
+    SmTArray<SmPoint3d> cps;
+    for (int64_t i = 0; i < n_radii; ++i)
+    {
+        cps.Add(SmPoint3d(radii[reverse ? n_radii - 1 - i : i], 0.0, 0.0));
+    }
+    // The knots as SMLib takes them: each distinct value once, with its multiplicity.
+    SmTArray<double> unique;
+    SmTArray<ULONG> mults;
+    for (int64_t i = 0; i < n_knots; ++i)
+    {
+        double k = reverse ? 1.0 - knots[n_knots - 1 - i] : knots[i];
+        if (unique.GetSize() > 0 && unique[unique.GetSize() - 1] == k)
+        {
+            mults[mults.GetSize() - 1] += 1;
+        }
+        else
+        {
+            unique.Add(k);
+            mults.Add(1);
+        }
+    }
+    SmBSplineCurve *c = nullptr;
+    if (SmBSplineCurve::CreateCanonical(ctx, 3, static_cast<ULONG>(degree), cps, SM_CF_UNSPECIFIED, mults, unique, SM_KT_UNSPECIFIED,
+                                        nullptr, nullptr, c) != SM_SUCCESS ||
+        c == nullptr)
+    {
+        delete c;
+        return nullptr;
+    }
+    // The law takes the curve; its map is the whole curve, 0 to 1.
+    return std::unique_ptr<SmBSplineFilletLaw>(new (ctx) SmBSplineFilletLaw(c, SmExtent1d(0.0, 1.0)));
+}
+
+} // namespace
+
+extern "C" int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, int64_t n_points,
+                               double tolerance, smlib_brep **out, int64_t *out_failed_point)
+{
+    return blend_call("smlib_blend", brep, kind, points, sizes, false, n_points, tolerance, out, out_failed_point);
+}
+
+extern "C" int32_t smlib_fillet(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double radius,
+                                smlib_brep **out, int64_t *out_failed_point)
+{
+    return blend_call("smlib_fillet", brep, SMLIB_BLEND_ROUND, points, &radius, true, n_points, tolerance, out, out_failed_point);
+}
+
 extern "C" int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
                                  smlib_brep **out, int64_t *out_failed_point)
 {
-    if (!valid(brep) || out == nullptr || !points_ok(points, n_points, false) || !tolerance_ok(tolerance) || !std::isfinite(distance) ||
-        !(distance > 0.0) || distance > 1e6)
+    return blend_call("smlib_chamfer", brep, SMLIB_BLEND_CHAMFER, points, &distance, true, n_points, tolerance, out, out_failed_point);
+}
+
+extern "C" int32_t smlib_fillet_variable(const smlib_brep *brep, const double *point, double tolerance, const double *start,
+                                         int32_t degree, const double *knots, int64_t n_knots, const double *radii, int64_t n_radii,
+                                         smlib_brep **out)
+{
+    if (!valid(brep) || out == nullptr || !points_ok(point, 1, false) || start == nullptr || !finite(start, 3) ||
+        !tolerance_ok(tolerance) || !law_ok(degree, knots, n_knots, radii, n_radii))
     {
         return SMLIB_ERR_ARG;
     }
-    Call c("smlib_chamfer", handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", distance=" + num(distance));
+    Call c("smlib_fillet_variable", handle(brep) + ", point=" + vec(point, 3) + ", tolerance=" + num(tolerance) + ", start=" + vec(start, 3) +
+                                        ", degree=" + std::to_string(degree) + ", knots=" + vec(knots, static_cast<int>(n_knots)) +
+                                        ", radii=" + vec(radii, static_cast<int>(n_radii)));
     c.input("brep", brep);
     return c.run(
         [&]
@@ -744,14 +939,21 @@ extern "C" int32_t smlib_chamfer(const smlib_brep *brep, const double *points, i
                 return s;
             }
             std::vector<SmEdge *> picked;
-            s = pick_edges(w.get(), points, n_points, tolerance, picked, out_failed_point);
-            if (s != SMLIB_OK)
+            s = pick_edges(w.get(), point, 1, tolerance, picked, nullptr);
+            if (s != SMLIB_OK || picked.size() != 1)
             {
-                return s;
+                return s != SMLIB_OK ? s : SMLIB_ERR_PICK_NONE;
             }
-            tangent_chains(picked);
+            std::unique_ptr<SmBSplineFilletLaw> law = law_along(picked[0], start, degree, knots, n_knots, radii, n_radii);
+            if (law == nullptr)
+            {
+                return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
+            }
             bool solid_in = w->IsManifoldSolid();
-            s = chamfer_edges(w.get(), picked, distance);
+            // The solver evaluates the law (it keeps a reference), so the law outlives the
+            // executive inside round_edges. The size is the start radius.
+            std::vector<double> size{std::max(radii[0], radii[n_radii - 1])};
+            s = round_edges(w.get(), picked, size, SMLIB_BLEND_ROUND, {law.get()});
             if (s != SMLIB_OK)
             {
                 return s;

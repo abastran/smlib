@@ -491,6 +491,35 @@ int32_t smlib_fillet(const smlib_brep *brep, const double *points, int64_t n_poi
 int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
                       smlib_brep **out, int64_t *out_failed_point);
 
+/* What smlib_blend makes of each selected edge. */
+/* Rounded by a circular cross-section at constant radius (as smlib_fillet). */
+#define SMLIB_BLEND_ROUND 0
+/* Rounded by a curvature-continuous (G2) blend-curve cross-section between the contact lines
+ * the round of that radius has. */
+#define SMLIB_BLEND_CURVATURE 1
+/* Rounded by a circular cross-section whose width from contact line to contact line (the
+ * chord) is constant: the size is that width. */
+#define SMLIB_BLEND_CHORD 2
+/* Cut by an equal-distance chamfer (as smlib_chamfer): the size is the setback. */
+#define SMLIB_BLEND_CHAMFER 3
+
+/* A new body: `brep` with the selected edges blended as `kind` (SMLIB_BLEND_*), each at its
+ * point's size (`sizes`, one per point, each > 0). Each selected edge brings its whole tangent
+ * chain, as for smlib_fillet; an edge reached from several points takes the first point's size.
+ * smlib_fillet and smlib_chamfer are this call with one size for every point. */
+int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, int64_t n_points,
+                    double tolerance, smlib_brep **out, int64_t *out_failed_point);
+
+/* A new body: `brep` with the one edge `point` selects (no tangent chain) rounded by a circular
+ * cross-section whose radius varies along it: a clamped B-spline of `degree` (1 to 3) over the
+ * position along the edge, 0 at its end nearest `start` and 1 at the other, with `n_knots`
+ * knots (n_radii + degree + 1, rising from 0 to 1, each end repeated degree + 1 times) and
+ * `n_radii` (2 to 100) control radii, each >= 0. The position is the edge curve's parameter,
+ * scaled to 0..1, which is the fraction of its length on a line or a circular arc. A point that
+ * selects nothing or cannot decide fails as for any selection (no index is written). */
+int32_t smlib_fillet_variable(const smlib_brep *brep, const double *point, double tolerance, const double *start, int32_t degree,
+                              const double *knots, int64_t n_knots, const double *radii, int64_t n_radii, smlib_brep **out);
+
 /* A new body: `brep` hollowed to a wall of `thickness` (non-zero; negative: the wall lies
  * inside the original surface, positive: outside), open at the selected faces. `n_points` may
  * be 0 (and `points` NULL) for a closed hollow body. An inward wall that leaves no room inside

@@ -123,6 +123,59 @@ int main(void)
     smlib_brep_free(r);
     r = NULL;
 
+    /* smlib_blend: each edge at its point's size. Two parallel top edges rounded at 2 and 3
+     * lose (1 - pi/4) r^2 L each. */
+    const double tops[6] = {10, 20, 20, 10, 0, 20};
+    const double radii[2] = {2.0, 3.0};
+    const double quarter = 1.0 - 3.14159265358979323846 / 4.0;
+    CHECK(smlib_blend(a, SMLIB_BLEND_ROUND, tops, radii, 2, 0.1, &r, &failed) == SMLIB_OK);
+    CHECK(fabs(volume(r) - (8000.0 - quarter * (4.0 + 9.0) * 20.0)) < 1e-3);
+    smlib_brep_free(r);
+    r = NULL;
+    CHECK(smlib_blend(a, SMLIB_BLEND_CHAMFER, tops, radii, 2, 0.1, &r, &failed) == SMLIB_OK);
+    CHECK(fabs(volume(r) - (8000.0 - 0.5 * (4.0 + 9.0) * 20.0)) < 1e-3);
+    smlib_brep_free(r);
+    r = NULL;
+    /* A chord of 2 sqrt(2) on a right-angled edge is the round of radius 2. */
+    const double chord = 2.0 * sqrt(2.0);
+    CHECK(smlib_blend(a, SMLIB_BLEND_CHORD, edge, &chord, 1, 0.1, &r, &failed) == SMLIB_OK);
+    CHECK(fabs(volume(r) - (8000.0 - quarter * 4.0 * 20.0)) < 1e-2);
+    smlib_brep_free(r);
+    r = NULL;
+    /* A curvature-continuous blend between the round's contact lines starts flat at each one, so
+     * it runs outside the round and takes less, but something. */
+    CHECK(smlib_blend(a, SMLIB_BLEND_CURVATURE, edge, radii, 1, 0.1, &r, &failed) == SMLIB_OK);
+    double g2 = volume(r);
+    CHECK(g2 > 8000.0 - quarter * 4.0 * 20.0 && g2 < 8000.0 - 1.0);
+    smlib_brep_free(r);
+    r = NULL;
+    CHECK(smlib_blend(a, 9, edge, radii, 1, 0.1, &r, NULL) == SMLIB_ERR_ARG);
+    CHECK(smlib_blend(a, SMLIB_BLEND_ROUND, edge, NULL, 1, 0.1, &r, NULL) == SMLIB_ERR_ARG);
+    const double bad[2] = {1.0, -1.0};
+    CHECK(smlib_blend(a, SMLIB_BLEND_ROUND, tops, bad, 2, 0.1, &r, NULL) == SMLIB_ERR_ARG);
+
+    /* A radius running linearly from 3 at x = 0 to 1 at x = 20 along the edge at y = 20, z = 20:
+     * (1 - pi/4) L (r0^2 + r0 r1 + r1^2) / 3 taken away, whichever way the edge runs. */
+    const double knots[4] = {0, 0, 1, 1};
+    const double law[2] = {3.0, 1.0};
+    const double from0[3] = {0, 20, 20};
+    const double from1[3] = {20, 20, 20};
+    double linear = 8000.0 - quarter * 20.0 * (9.0 + 3.0 + 1.0) / 3.0;
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 1, knots, 4, law, 2, &r) == SMLIB_OK);
+    double v0 = volume(r);
+    CHECK(fabs(v0 - linear) < 0.05);
+    smlib_brep_free(r);
+    r = NULL;
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from1, 1, knots, 4, law, 2, &r) == SMLIB_OK);
+    CHECK(fabs(volume(r) - v0) < 1e-6 * 8000.0);
+    smlib_brep_free(r);
+    r = NULL;
+    const double unclamped[4] = {0, 0.5, 1, 1};
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 1, unclamped, 4, law, 2, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 4, knots, 4, law, 2, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_fillet_variable(a, edge, 0.1, NULL, 1, knots, 4, law, 2, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_fillet_variable(a, edge, 0.1, from0, 1, knots, 3, law, 2, &r) == SMLIB_ERR_ARG);
+
     const double top[3] = {10, 10, 20};
     CHECK(smlib_shell(a, top, 1, 0.1, -2.0, &r, &failed) == SMLIB_OK);
     CHECK(near(volume(r), 3392.0));
