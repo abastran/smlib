@@ -12,7 +12,9 @@
 #include <SmApiPrimitives.h>
 #include <SmApiQueries.h>
 #include <SmBSplineCurve.h>
+#include <SmCylinder.h>
 #include <SmFilletExecutive.h>
+#include <SmOffsetSurface.h>
 #include <SmVector3d.h>
 
 #include <algorithm>
@@ -704,6 +706,45 @@ int main()
         {
             smlib_brep_free(b);
         }
+    }
+
+    // tangency-labs/solidcore#419: an offset surface evaluated beyond its
+    // base surface's domain extends the base, and the extension's shape depends on its length.
+    // It was made to reach just past the first point evaluated there, and extended again from
+    // itself for the next, so two copies of one offset surface evaluated in another order (the
+    // fillet solver's, which finds a round's end points, and the trace's) gave points 0.03 mm
+    // apart at the same parameters, and the trace refused the end points. Now the extension's
+    // reach depends only on how far out the point lies. A half cylinder r5 offset by 4, beyond
+    // both ends of its arc: once straight at two points, once after two nearer points first.
+    {
+        const SmContext &ctx = *SmApiGetOrCreateContext();
+        SmCylinder *half = new (ctx) SmCylinder(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0), 5.0, 0.0, 180.0, 10.0,
+                                                FALSE, FALSE, FALSE, &ctx);
+        SmOffsetSurface *first = new (ctx) SmOffsetSurface(4.0, *half);
+        SmOffsetSurface *second = new (ctx) SmOffsetSurface(4.0, *half);
+        first->SetAllowExtension(TRUE);
+        second->SetAllowExtension(TRUE);
+        SmExtent2d d = half->GetNaturalUVDomain();
+        double length = d.GetMax().x - d.GetMin().x;
+        double v = 0.5 * (d.GetMin().y + d.GetMax().y);
+        SmPoint3d p;
+        const double nearer[2] = {d.GetMax().x + 0.067 * length, d.GetMin().x - 0.067 * length};
+        for (double u : nearer)
+        {
+            CHECK(first->EvaluatePoint(SmPoint2d(u, v), p) == SM_SUCCESS);
+        }
+        const double farther[2] = {d.GetMax().x + 0.116 * length, d.GetMin().x - 0.116 * length};
+        for (double u : farther)
+        {
+            SmPoint3d a;
+            SmPoint3d b;
+            CHECK(second->EvaluatePoint(SmPoint2d(u, v), b) == SM_SUCCESS);
+            CHECK(first->EvaluatePoint(SmPoint2d(u, v), a) == SM_SUCCESS);
+            CHECK(a.DistanceBetween(b) < 1e-9);
+        }
+        delete first;
+        delete second;
+        delete half;
     }
 
     // Booleans that split, vanish or touch.

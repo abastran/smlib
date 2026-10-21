@@ -513,3 +513,15 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   off the face it lies on (a point of it outside that face by both the 3D and the UV
   classification), the fillet faces are now merged into the body one at a time instead
   (`m_bDoPiecewiseMerge`), which intersects them with the rest of it.
+- **Offset surfaces extended the same way whatever was evaluated first** (`SmOffsetSurface.cpp`,
+  `sm_ExtendSurface`, new `sm_ExtendToward`, `SmOffsetSurface::EvaluatePoint`,
+  `EvaluatePlainOrSimple`): evaluated beyond its base surface's domain, an offset surface
+  extends the base (G1R), and the extension's shape depends on its length and on how its other
+  sides were extended. It was made to reach one domain size past the first point evaluated out
+  there, and extended again from itself for the next, so two copies of one offset surface
+  evaluated in another order disagreed beyond the base: an R4 round on the rim where a half
+  cylinder meets an extruded B-spline ramp found its end points on the fillet solver's copy and
+  traced from them on another, 0.03 to 0.07 mm off, and failed (1006, then 1001). Now every
+  extension is made from the base, all of its sides that can grow at once, each by the base
+  domain's size times the least power of two that reaches the point, and never less than the
+  extension it replaces: the same points give the same extension.
