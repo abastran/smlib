@@ -843,6 +843,32 @@ SmStatus SmFilletSolver::CalcConeFilletGeom
 } // end SmFilletSolver::CalcConeFilletGeom
 
 /*******************************************************************//**
+PURPOSE: Turn a point about an axis into the half-plane, bounded by the axis,
+   through another point.  A point on the axis, or a target on it, stays.
+
+NOTES: For a fillet about the axis of a circular arc, the rail points of one
+   cross-section turned so are those of another.
+***********************************************************************/
+static void sm_TurnIntoHalfPlane
+  (const SmPoint3d  & crOrigin,   // in : point on the axis
+   const SmVector3d & crAxis,     // in : unit axis direction
+   const SmPoint3d  & crTarget,   // in : point in the half-plane wanted
+   double             dTol,       // in : distance from the axis treated as on it
+   SmPoint3d        & rPoint)     // i/o: point to turn
+{
+  SmVector3d sP( rPoint - crOrigin );
+  SmVector3d sT( crTarget - crOrigin );
+  double     dAlong = sP.Dot( crAxis );
+  SmVector3d sPRad( sP - crAxis*dAlong );
+  SmVector3d sTRad( sT - crAxis*sT.Dot( crAxis ) );
+  double     dPRad = sPRad.Length();
+  double     dTRad = sTRad.Length();
+  if ( dPRad < dTol || dTRad < dTol )
+    { return; }
+  rPoint = crOrigin + crAxis*dAlong + sTRad*(dPRad/dTRad);
+} // end sm_TurnIntoHalfPlane
+
+/*******************************************************************//**
 PURPOSE: Create a torus surface for fillet geometry and
     store it as the FilletGeom FilletSurface and its min and max
     SM_SP_V isoParameter curves as the FilletGeom->Rail curves.
@@ -926,6 +952,29 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
   SER(pSurf1->EvaluatePoint(sStartUV1,sP1));   // sP1 = rail2 point
   ReloadSurfaceOffsets();
 
+  // When the section's center lies on the arc's axis, the offset of a face
+  // collapses there (a round as wide as the cylinder or sphere it runs round
+  // is centered on the axis), and so does the intersection the TsectPnts come
+  // from: their uv on that face give a point of the circle the ball touches,
+  // but not the one in the edge's cross-section.  Then turn the rail points
+  // into the half-planes through the edge's ends.
+  SmVector3d sUnitAxis( sRefFrame.GetZAxis() );
+  SER( sUnitAxis.Unitize() );
+  SmPoint3d  sAxisPnt( sRefFrame.GetOrigin() );
+  SmVector3d sCenterOff( sArcCenter - sAxisPnt );
+  SmVector3d sCenterRad( sCenterOff - sUnitAxis*sCenterOff.Dot( sUnitAxis ) );
+  double     dCenterTol = GetThisApproxTol3d();
+  SmBoolean  bCenterOnAxis = ( sCenterRad.Length() < dCenterTol ) ? TRUE : FALSE;
+  SmPoint3d  sEdgeStart, sEdgeEnd;
+  if ( bCenterOnAxis )
+    {
+      SmExtent1d sEdgeIvl = pEdge->GetInterval();
+      SER( pCurve->EvaluatePoint( sEdgeIvl.GetMin(), sEdgeStart ));
+      SER( pCurve->EvaluatePoint( sEdgeIvl.GetMax(), sEdgeEnd ));
+      sm_TurnIntoHalfPlane( sAxisPnt, sUnitAxis, sEdgeStart, dCenterTol, sP0 );
+      sm_TurnIntoHalfPlane( sAxisPnt, sUnitAxis, sEdgeStart, dCenterTol, sP1 );
+    }
+
   // allocate the cross-section from the points [centerPoint, sP0, sP1]:
   // the arc about the center, or the line from rail to rail
   SmBSplineCurve * pArc = NULL ;
@@ -950,13 +999,22 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
   SmVector3d sDir = sAxisOfRevolution * sVec; // Start direction of rail curves
 
   // get circular to-be-filleted edge->curve point (pos,tang) nearest to arcCenter Point
+  // (with the center on the axis every point is as near: take the edge's start,
+  // whose half-plane the section was turned into)
   SmPoint3d sPV[2];
   SmExtent1d sIvl = pEdge->GetInterval();
-  SmSolutionArray sSolutions;
-  SER(pCurve->GlobalPointSolve(sIvl, SM_SO_MINIMIZE, sArcCenter,
-                               dAnalyticTol,NULL,NULL,SM_SR_SINGLE,sSolutions));
-  if (sSolutions.GetSize() != 1) SER(SM_ERR);
-  SER(pCurve->Evaluate(sSolutions[0].m_vStart[0],1,TRUE,sPV));
+  if ( bCenterOnAxis )
+    {
+      SER(pCurve->Evaluate(sIvl.GetMin(),1,TRUE,sPV));
+    }
+  else
+    {
+      SmSolutionArray sSolutions;
+      SER(pCurve->GlobalPointSolve(sIvl, SM_SO_MINIMIZE, sArcCenter,
+                                   dAnalyticTol,NULL,NULL,SM_SR_SINGLE,sSolutions));
+      if (sSolutions.GetSize() != 1) SER(SM_ERR);
+      SER(pCurve->Evaluate(sSolutions[0].m_vStart[0],1,TRUE,sPV));
+    }
 
   // when to-be-filleted edge tangent nearest sweep curve opposes initial sweep direction
   if (sPV[1].Dot(sDir) < 0.0)
@@ -1005,6 +1063,11 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
   SER(pSurf0->EvaluatePoint(sEndUV0,sEndP0));   // sEndP0 = rail1 point
   SER(pSurf1->EvaluatePoint(sEndUV1,sEndP1));   // sEndP1 = rail2 point
   ReloadSurfaceOffsets();
+  if ( bCenterOnAxis )
+    {
+      sm_TurnIntoHalfPlane( sAxisPnt, sUnitAxis, sEdgeEnd, dCenterTol, sEndP0 );
+      sm_TurnIntoHalfPlane( sAxisPnt, sUnitAxis, sEdgeEnd, dCenterTol, sEndP1 );
+    }
 
   SmVector3d sEndVec( sEndP0 - sOrigin );
 

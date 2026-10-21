@@ -367,3 +367,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   single point and the trace failed (SM_ERR). A linear section is now revolved too, a cone.
   The same trace failed on a hole's rims under `SmApiChamferFillet` (constant distance), which
   now gives a closed solid there.
+- **Rail points of a section centered on the axis** (`SmFilletSolver.cpp`,
+  `CalcTorusFilletGeom`): the revolved section was placed by the rail points of the
+  intersection points at its ends, and oriented by the edge point nearest the section's
+  center. A round as wide as the corner round it runs round (R5 rim beside R5 vertical
+  corners) is centered on that round's axis, where the offset faces collapse: the rail points
+  then lie anywhere on the circle the ball touches, and every edge point is as near, so the
+  torus could turn the long way round, and the rollover test failed (SM_ERR). With the center on
+  the axis, the rail points are now turned into the half-planes through the edge's ends, and
+  the edge's start orients the sweep.
