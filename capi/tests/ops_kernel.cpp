@@ -250,6 +250,20 @@ int main()
         done(r);
     }
 
+    // SMLib defect 6 (SmOffsetExecutive::RemoveExcessFaces deleted faces its face maps still
+    // held, which PiecewiseMerge then read), found by fuzz_ops: a closed inward shell of the
+    // cube with two of its edges chamfered 0.1 mm. Any status, never a crash.
+    {
+        const double two[6] = {0, 0, 10, 0, 20, 10};
+        smlib_brep *nicked = nullptr;
+        CHECK(smlib_chamfer(cube, two, 2, 0.01, 0.1, &nicked, nullptr) == SMLIB_OK && sound(nicked));
+        if (smlib_shell(nicked, nullptr, 0, 0.01, -2.624267578125, &r, nullptr) == SMLIB_OK)
+        {
+            done(r);
+        }
+        smlib_brep_free(nicked);
+    }
+
     for (smlib_brep *b : {cube, rod, holed, pin, round, cut, big, far, touching})
     {
         smlib_brep_free(b);
