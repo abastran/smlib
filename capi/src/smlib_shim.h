@@ -1,0 +1,216 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 SolidCraft contributors
+// SPDX-License-Identifier: Apache-2.0
+
+// What every shim file shares: the handle type, the one library lock, and Call, which runs an
+// entry point under that lock, catches every C++ exception, logs one line, records the call in
+// flight for crash reports and, when the call fails, dumps its inputs for replay. Internal to the
+// library; include/smlib.h is the only public header.
+
+#ifndef SMLIB_SHIM_H
+#define SMLIB_SHIM_H
+
+#include "smlib.h"
+
+#include <SmApiGeneral.h>
+#include <SmApiImportExport.h>
+#include <SmBrep.h>
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
+struct smlib_brep
+{
+    SmBrep *p;
+};
+
+namespace smlib_shim
+{
+
+inline std::mutex &lock()
+{
+    static std::mutex m;
+    return m;
+}
+
+// Diagnostics settings; changed and read under the lock.
+inline smlib_log_fn g_log = nullptr;
+inline void *g_log_user = nullptr;
+inline std::string g_dump_dir;
+inline unsigned long g_dump_seq = 0;
+
+// The call in flight, readable without the lock by a crash handler. g_current_len is 0 while no
+// call runs; the text is written before the length is published.
+inline constexpr size_t CURRENT_CAP = 512;
+inline char g_current[CURRENT_CAP];
+inline std::atomic<size_t> g_current_len{0};
+
+inline int32_t status(SmApiStatus s)
+{
+    return s == SM_SUCCESS ? SMLIB_OK : static_cast<int32_t>(s);
+}
+
+inline bool finite(const double *v, int n)
+{
+    for (int i = 0; i < n; ++i)
+    {
+        if (!std::isfinite(v[i]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline std::string num(double x)
+{
+    char b[32];
+    std::snprintf(b, sizeof b, "%.17g", x);
+    return b;
+}
+
+inline std::string vec(const double *v, int n)
+{
+    if (v == nullptr)
+    {
+        return "null";
+    }
+    std::string s = "[";
+    for (int i = 0; i < n; ++i)
+    {
+        s += (i ? "," : "") + num(v[i]);
+    }
+    return s + "]";
+}
+
+inline std::string handle(const smlib_brep *b)
+{
+    char t[32];
+    std::snprintf(t, sizeof t, "%p", static_cast<const void *>(b));
+    return b == nullptr ? std::string("null") : std::string("brep@") + t;
+}
+
+// One API call: its line for the log, the dump and crash reports, and its B-rep inputs.
+class Call
+{
+public:
+    Call(const char *fn, std::string args) : m_fn(fn), m_line(std::string(fn) + "(" + args + ")")
+    {
+    }
+
+    void input(const char *name, const smlib_brep *b)
+    {
+        if (b != nullptr && b->p != nullptr)
+        {
+            m_inputs.emplace_back(name, b->p);
+        }
+    }
+
+    // Runs `f` under the lock, with SMLib's context created, and returns its status.
+    template <typename F>
+    int32_t run(F &&f)
+    {
+        int32_t s = SMLIB_ERR_EXCEPTION;
+        try
+        {
+            std::lock_guard<std::mutex> g(lock());
+            publish();
+            auto t0 = std::chrono::steady_clock::now();
+            try
+            {
+                s = SmApiGetOrCreateContext() == nullptr ? SMLIB_ERR_EXCEPTION : f();
+            }
+            catch (...)
+            {
+                s = SMLIB_ERR_EXCEPTION;
+            }
+            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            finish(s, ms);
+        }
+        catch (...)
+        {
+            // The lock itself or the logging failed; the status stands.
+        }
+        g_current_len.store(0, std::memory_order_release);
+        return s;
+    }
+
+private:
+    void publish()
+    {
+        size_t n = std::min(m_line.size(), CURRENT_CAP - 1);
+        std::memcpy(g_current, m_line.data(), n);
+        g_current[n] = '\0';
+        g_current_len.store(n, std::memory_order_release);
+    }
+
+    void finish(int32_t s, double ms)
+    {
+        char tail[64];
+        std::snprintf(tail, sizeof tail, " -> %d (%.3f ms)", static_cast<int>(s), ms);
+        std::string line = m_line + tail;
+        if (g_log != nullptr)
+        {
+            g_log(g_log_user, s == SMLIB_OK ? 0 : 1, line.c_str());
+        }
+        if (s != SMLIB_OK && !g_dump_dir.empty())
+        {
+            dump(line);
+        }
+    }
+
+    // Writes the call's line and its B-rep inputs into the dump directory. Best effort: a dump
+    // that cannot be written never changes the call's status.
+    void dump(const std::string &line)
+    {
+        char stem[64];
+        std::snprintf(stem, sizeof stem, "%lu-%s", ++g_dump_seq, m_fn);
+        std::string base = g_dump_dir + "/" + stem;
+        if (FILE *f = std::fopen((base + ".txt").c_str(), "w"))
+        {
+            std::fprintf(f, "%s\n", line.c_str());
+            for (auto &in : m_inputs)
+            {
+                std::fprintf(f, "%s: %s-%s.smb\n", in.first, stem, in.first);
+            }
+            std::fclose(f);
+        }
+        for (auto &in : m_inputs)
+        {
+            std::string path = base + "-" + in.first + ".smb";
+            SmApiWriteBrepToFile(in.second, path.c_str(), FALSE);
+        }
+    }
+
+    const char *m_fn;
+    std::string m_line;
+    std::vector<std::pair<const char *, const SmBrep *>> m_inputs;
+};
+
+// Hands `p` to the caller, or deletes it when it is no usable body.
+inline int32_t take(SmBrep *p, smlib_brep **out)
+{
+    if (p == nullptr || p->GetNumFaces() == 0)
+    {
+        delete p;
+        return SMLIB_ERR_EMPTY;
+    }
+    *out = new smlib_brep{p};
+    return SMLIB_OK;
+}
+
+inline bool valid(const smlib_brep *b)
+{
+    return b != nullptr && b->p != nullptr;
+}
+
+} // namespace smlib_shim
+
+#endif // SMLIB_SHIM_H
