@@ -1498,7 +1498,12 @@ SmStatus SmSphere::IntersectWithPlane
     } // end Plane is bounded check
 
   // See if we are intersecting at a singularity point
-  if (dDistToPlane > m_dRadius - dTol)
+  // SolidCraft change: the circle collapses to a point only when its radius
+  // sqrt(R^2 - d^2) is within dTol. Comparing the gap R - d against dTol
+  // turned loops of radius up to sqrt(2*R*dTol) (1e-3 for R = 1, dTol = 1e-6)
+  // into a single touching point.
+  double dGap = m_dRadius - dDistToPlane;
+  if (dGap <= 0.0 || dGap * (m_dRadius + dDistToPlane) <= dTol * dTol)
     {
       // build degenerate curve
       SmBSplineCurve *pBSC = NULL ;
@@ -1714,12 +1719,21 @@ SmBoolean bDebugMe = FALSE ;
     } // end coincident CenterPoint check
 
   // Take care of touching situations
-  if (   (dDist + dTol > dRadius + dOtherRadius)             // tangent outside
-      || (dDist - dTol < smos_Fabs(dRadius-dOtherRadius)))   // tangent inside
+  // SolidCraft change: the circle collapses to a touching point only when its
+  // radius is within dTol. Comparing the center gap against dTol turned loops
+  // of radius up to ~sqrt(2*R*dTol) into a single point. The circle radius h
+  // satisfies (2*d*h)^2 = (d+r1+r2)(r1+r2-d)(d-r1+r2)(d+r1-r2); each factor
+  // is formed directly, so a near-tangent factor keeps its relative accuracy.
+  double dOutGap = dRadius + dOtherRadius - dDist;              // > 0 unless apart
+  double dInGap  = dDist - smos_Fabs(dRadius - dOtherRadius);   // > 0 unless nested
+  double dHeight4 = (dDist + dRadius + dOtherRadius) * dOutGap
+                  * (dDist - dRadius + dOtherRadius) * (dDist + dRadius - dOtherRadius);
+  if (   dOutGap <= 0.0 || dInGap <= 0.0
+      || dHeight4 <= 4.0 * dTol * dTol * dDist * dDist)
     {
       double dSign = 1.0;
       // when touching inside
-      if (dDist - dTol < smos_Fabs(dRadius-dOtherRadius))
+      if (dInGap < dOutGap)
         {
           // when OtherSphere is larger than thisSphere
           if (dRadius < dOtherRadius)
