@@ -710,19 +710,25 @@ SmBoolean bDebugMe = FALSE;
 
                     SER(m_pOther->CombineCoincidentVertices(pOtherV2,pOtherV1,pDeletedOtherEdge));
                     RemoveRelationship(pV1,pOtherV1);
-                    if (pDeletedBrepEdge && pDeletedOtherEdge)
+                    // If these are not alreday a mated pair, then calling
+                    // RemoveRelationship() can leave the maps with different
+                    // sizes, and containing stale pointers.  [B460]
+                    // Either Brep may squeeze an edge while the other doesn't: a deleted edge's
+                    // relationship goes whichever side deleted it, or the maps keep a pointer to
+                    // freed memory that the next marking pass walks.
+                    if (pDeletedBrepEdge && pDeletedOtherEdge && IsMatedPair( pDeletedBrepEdge, pDeletedOtherEdge ) )
+                      { RemoveRelationship(pDeletedBrepEdge,pDeletedOtherEdge); }
+                    else
                       {
-                        // If these are not alreday a mated pair, then calling
-                        // RemoveRelationship() can leave the maps with different
-                        // sizes, and containing stale pointers.  [B460]
-                        if ( IsMatedPair( pDeletedBrepEdge, pDeletedOtherEdge ) )
-                          { RemoveRelationship(pDeletedBrepEdge,pDeletedOtherEdge); }
-                        else
+                        if ( pDeletedBrepEdge != NULL )
                           {
                             SmEdge *pMate = (SmEdge*)GetOtherMate( pDeletedBrepEdge );
                             if ( pMate != NULL )
                               { RemoveRelationship( pDeletedBrepEdge, pMate ); }
-                            pMate  = (SmEdge*)GetBrepMate( pDeletedOtherEdge );
+                          }
+                        if ( pDeletedOtherEdge != NULL )
+                          {
+                            SmEdge *pMate = (SmEdge*)GetBrepMate( pDeletedOtherEdge );
                             if ( pMate != NULL )
                               { RemoveRelationship( pMate, pDeletedOtherEdge ); }
                           }
