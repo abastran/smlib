@@ -4257,6 +4257,11 @@ SmStatus SmBrep::CreateFaceInRegionFromSurface
   // check input - crUVDomain contained within the pSurface->GetNaturalUVDomain()
   AERN_MSG(crUVDomain.IsContainedBy(pSurface->GetNaturalUVDomain(), SM_EFF_ZERO), SM_ERR, _T("SmBrep::CreateFaceInRegionFromSurface requested UVDomain not contained by Surf->NaturalUVDomain - Pass Nurb UVDomain and not Anal UVDomain")) ; 
 
+  // MakeFaceWithCurves (below) refuses a surface degenerate to a curve or a point before it takes
+  // the trimming curves; refuse it here, before they are made, so that none is left behind.
+  if (pSurface->IsDegenerateCurve() || pSurface->IsDegeneratePoint())
+    { SER(SM_ERR_INVALID_INPUT) ; }
+
   // locals
   SmBrep          * pBrep              = this;
   const SmContext * pContext           = pBrep->GetContext();
