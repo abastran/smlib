@@ -3760,6 +3760,71 @@ NOTES: A TsectPnt is a duplicate and should not be added to m_sStartPoints when
                    is accurate enough to handle all cases. That predicate is a heuristic. 
                    [cf. B254 B295]
 ***********************************************************************/
+// SolidCraft change: tangent start point clustering helpers (see AddStartPoint)
+static SmBoolean sm_IsTangentType(SmIntersectionPointType eType)
+{
+  return    eType == SM_IP_TANGENT_POINT
+         || eType == SM_IP_TANGENT_CURVE
+         || eType == SM_IP_COINCIDENCE;
+}
+
+// lower is better: a traceable tangent-curve point first, then the smallest deviation
+static double sm_TangentStartRank(const SmTsectPnt & crTSP)
+{
+  return (crTSP.m_ePointType == SM_IP_TANGENT_CURVE ? 0.0 : 1.0) + smos_Min(crTSP.m_dDeviation, 0.5);
+}
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when two tangent-type boundary start points lie on the same
+   boundary side of both surfaces, near each other, and the surfaces stay within tolerance
+   of each other along that boundary between them: they are two samples of one tangential
+   contact crossing the boundary, not two intersection branches.
+***********************************************************************/
+SmBoolean SmSurfaceIntersector::IsSameTangentCluster
+  (SmTsectPnt & rA,          // in : tangent-type boundary start point (any type: see bAnyTypeA)
+   SmTsectPnt & rB,          // in : tangent-type boundary start point
+   SmBoolean    bAnyTypeA)   // in : TRUE = rA may be of any type (a traced curve end)
+  const
+{
+  if (   (!sm_IsTangentType(rA.m_ePointType) && !bAnyTypeA)
+      || !sm_IsTangentType(rB.m_ePointType))
+    { return FALSE; }
+  // both on a common boundary side of each surface
+  for (ULONG k=0; k<2; k++)
+    {
+      SmBoolean bSameU = rA.UParamType(k) != SM_EP_INSIDE && rA.UParamType(k) == rB.UParamType(k)
+                         && smos_Fabs(rA.UVPos(k).x - rB.UVPos(k).x) < SM_EFF_ZERO_SQRT;
+      SmBoolean bSameV = rA.VParamType(k) != SM_EP_INSIDE && rA.VParamType(k) == rB.VParamType(k)
+                         && smos_Fabs(rA.UVPos(k).y - rB.UVPos(k).y) < SM_EFF_ZERO_SQRT;
+      if (!bSameU && !bSameV)
+        { return FALSE; }
+    }
+  // near each other: a contact of order n smears the boundary solution over ~ tol^(1/n);
+  // stay within a few sqrt(tol) (order 2) of each other
+  double dSize   = 1.0 + rA.SrfPos(0).GetMaxDimension();
+  double dRadius = 10.0 * smos_Sqrt(m_dThisApproxTol3d * dSize);
+  if (rA.SrfPos(0).DistanceBetween(rB.SrfPos(0)) > dRadius)
+    { return FALSE; }
+  // the surfaces stay within tolerance along the boundary in between
+  const SmExtent2d &sDom1 = m_vUVDomain[1];
+  for (ULONG i=1; i<4; i++)
+    {
+      double dT = 0.25 * i;
+      SmPoint2d sUV0 = rA.UVPos(0) + dT * (rB.UVPos(0) - rA.UVPos(0));
+      SmPoint2d sUV1 = rA.UVPos(1) + dT * (rB.UVPos(1) - rA.UVPos(1));
+      SmPoint3d sP0;
+      if (m_cpSurface[0]->EvaluatePoint(sUV0, sP0) != SM_SUCCESS)
+        { return FALSE; }
+      SmBoolean bOk = FALSE, bIsMulti = FALSE;
+      SmPoint2d sDropUV1;
+      double dGap = SM_BIG_DOUBLE;
+      m_cpSurface[1]->DropPoint(sP0, sDom1, &sUV1, bOk, sDropUV1, dGap, bIsMulti);
+      if (!bOk || dGap > m_dThisApproxTol3d)
+        { return FALSE; }
+    }
+  return TRUE;
+}
+
 SmStatus SmSurfaceIntersector::AddStartPoint
  (SmTsectPnt & rStartTSP)             // in : candidate StartPoint to add to m_vStartPoints array
 {
@@ -3786,6 +3851,29 @@ SmStatus SmSurfaceIntersector::AddStartPoint
                                 || rStartTSP.VParamType(1) == SM_EP_START
                                 || rStartTSP.VParamType(1) == SM_EP_END
                                 || rStartTSP.VParamType(1) == SM_EP_BOTH) ;
+
+  // SolidCraft change: where the surfaces touch tangentially along a curve that crosses a
+  // boundary, the boundary/surface intersection is within tolerance over a whole stretch of
+  // the boundary, and FindBoundaryStartPoints() returns a cluster of start points there.
+  // Tracing each of them gives the tangent curve again (the 'already traced' test only looks at
+  // a trace's 2nd point) plus short spurious curves snapped from one cluster point to the next.
+  // Keep one start point per cluster: the tangent-curve point with the smallest deviation.
+  if (sm_IsTangentType(rStartTSP.m_ePointType))
+    {
+      for (ULONG i=0; i<sStartPts.GetSize(); i++)
+        {
+          SmTsectPnt *pTSP = sStartPts[i];
+          if (!IsSameTangentCluster(rStartTSP, *pTSP, FALSE))
+            { continue; }
+          if (sm_TangentStartRank(rStartTSP) < sm_TangentStartRank(*pTSP))
+            {
+              // the new point is the better representative: it takes pTSP's place
+              m_vStartPoints.InsertAfter(&rStartTSP, pTSP);
+              m_vStartPoints.Remove(pTSP);
+            }
+          return SM_SUCCESS;
+        }
+    }
 
   // check every StartPoint for a match to input point
   for (ULONG i=0; i<sStartPts.GetSize(); i++) 
@@ -5052,12 +5140,116 @@ static ULONG lDebugCount = 0 ;
   SmTsectPnt *pNextTSP     = NULL;
   SmBoolean bHitBoundary;
 
+  // SolidCraft change: TRUE when the span from rFrom to rTo already lies on a found curve
+  // (rTo and three points of the span, approximated by a chord-length Hermite, all on
+  // r3DCurves).  Used for the 2nd point of a trace whose first step was ended by TestPoint()
+  // (snapped onto another start point or curve end): those exits skipped the 'already traced'
+  // test below, so a curve that is one span long (a tangent line from one boundary start
+  // point to the other) was traced a second time from its other end.
+  auto bSpanOnFoundCurve = [&](SmTsectPnt &rFrom, SmTsectPnt &rTo) -> SmBoolean
+    {
+      if (r3DCurves.GetSize() == 0 || rTo.m_ePointType == SM_IP_SINGULARITY)
+        { return FALSE; }
+      if (!IsPointOnCurve(rTo.CrvPos(), r3DCurves))
+        { return FALSE; }
+      double dChord = rTo.CrvPos().DistanceBetween(rFrom.CrvPos());
+      SmVector3d sT0 = rFrom.CrvDeriv(), sT1 = rTo.CrvDeriv();
+      double dL0 = sT0.Length(), dL1 = sT1.Length();
+      if (dL0 > SM_EFF_ZERO) { sT0 = sT0 * (dChord / dL0); }
+      if (dL1 > SM_EFF_ZERO) { sT1 = sT1 * (dChord / dL1); }
+      SmHermiteCurve sSpan(rFrom.CrvPos(), sT0, rTo.CrvPos(), sT1);
+      sSpan.SetContext(NULL);
+      for (int k = 1; k <= 3; k++)
+        {
+          SmPoint3d sMid;
+          if (sSpan.EvaluatePoint(0.25 * k, sMid) != SM_SUCCESS || !IsPointOnCurve(sMid, r3DCurves))
+            { return FALSE; }
+        }
+      return TRUE;
+    };
+
+  // SolidCraft change: TRUE when this span of a tangent-curve trace passes by a free end
+  // of an already found curve (other than one at this trace's start point).  Tangent
+  // curves are only determined to about sqrt(tol), so that is the reach used.
+  auto bReachesFoundCurveEnd = [&](SmTsectPnt &rFrom, SmTsectPnt &rTo, double &rdT) -> SmBoolean
+    {
+      // tangential contact: near-parallel normals at both span ends
+      if (   rTo.m_dTangentPlaneAngleRad   > SM_DEG2RAD(1.0)
+          || rFrom.m_dTangentPlaneAngleRad > SM_DEG2RAD(1.0))
+        { return FALSE; }
+      double dReach = smos_Max(10.0 * m_dThisApproxTol3d,
+                               smos_Sqrt(m_dThisApproxTol3d * (1.0 + rTo.CrvPos().GetMaxDimension())));
+      SmVector3d sSeg = rTo.CrvPos() - rFrom.CrvPos();
+      double dSegLenSq = sSeg.LengthSquared();
+      for (ULONG jj=0; jj<r3DCurves.GetSize(); jj++)
+        {
+          SmCurve *pCurve = r3DCurves[jj];
+          if (pCurve->IsDegenerate())
+            { continue; }
+          SmExtent1d sIvl = pCurve->GetNaturalInterval();
+          for (int e=0; e<2; e++)
+            {
+              SmPoint3d sEnd;
+              if (pCurve->EvaluatePoint(e == 0 ? sIvl.GetMin() : sIvl.GetMax(), sEnd) != SM_SUCCESS)
+                { continue; }
+              if (sEnd.DistanceBetween(rStartPoint.CrvPos()) < dReach)
+                { continue; }
+              // only an end the span has gone past: an end ahead of the trace may be
+              // a true junction (a corner) that the trace is about to reach itself
+              double dT = dSegLenSq > 0.0 ? (sEnd - rFrom.CrvPos()).Dot(sSeg) / dSegLenSq : 1.0;
+              if (dT < 0.0 || dT > 0.95)
+                { continue; }
+              SmPoint3d sNear = rFrom.CrvPos() + dT * sSeg;
+              if (sNear.DistanceBetween(sEnd) < dReach)
+                { rdT = dT; return TRUE; }
+            }
+        }
+      return FALSE;
+    };
+
   // 4. iterate intersection trace - finding and adding points to m_vCurvePoints array
   //     stop when - step out of bounds
   while (!bDone) 
     {
       // 4a. get tracedCurve's last node
       SmTsectPnt *pTSP = m_vCurvePoints.GetLastNode();
+
+      // SolidCraft change: a tangent curve traced from its other end that has run onto
+      // the free end of an already traced curve is the same tangent curve, whose earlier
+      // trace stopped part way (tangential tracing is ill-conditioned).  Stop here so the
+      // two traces meet instead of the second retracing the first.
+      SmTsectPnt *pPrevTSP = m_vCurvePoints.GetPrevNode(pTSP);
+      double dEndT = 1.0;
+      if (   pPrevTSP != NULL && pPrevTSP != pTSP
+          && bReachesFoundCurveEnd(*pPrevTSP, *pTSP, dEndT))
+        {
+          // shorten the last span so it ends at that curve end rather than overlap it
+          double dUVDerivLen = pPrevTSP->UVDeriv(0).Length();
+          if (dEndT <= 0.05 && m_vCurvePoints.GetFirstNode() != pPrevTSP)
+            {
+              // the previous point is already at that curve end
+              m_vCurvePoints.RemoveLast();
+            }
+          else if (dEndT < 0.95 && dUVDerivLen > SM_EFF_ZERO)
+            {
+              double dShortStep = dEndT * pTSP->UVPos(0).DistanceBetween(pPrevTSP->UVPos(0)) / dUVDerivLen;
+              SmTsectPnt *pEndTSP = (SmTsectPnt*)m_vTSPntMgr.GetNewElement();
+              pEndTSP->m_ePointType = SM_IP_UNKNOWN;
+              SmBoolean bGood = FALSE, bClip = FALSE, bHit = FALSE;
+              double dDev = 0.0, dAng = 0.0;
+              if (   ComputeNextPoint(*pPrevTSP, dShortStep, *pEndTSP, bGood, dDev, dAng, bClip, bHit) == SM_SUCCESS
+                  && bGood
+                  && m_vUVDomain[0].ContainsPoint2d(pEndTSP->UVPos(0), dUVTol_0)
+                  && m_vUVDomain[1].ContainsPoint2d(pEndTSP->UVPos(1), dUVTol_1))
+                {
+                  m_vCurvePoints.RemoveLast();
+                  pEndTSP->m_dDeviation = dDev;
+                  SER(AddPointToCurve(*pEndTSP));
+                }
+            }
+          bDone = TRUE;
+          break;
+        }
 
       // 4b. let dStepSize = last step size if given, else 100 * m_dThisApproxTol3d ;
       //     step size is used in the surface UV domains to get next UV guess points
@@ -5220,6 +5412,12 @@ static ULONG lDebugCount = 0 ;
       if (   bDone 
           || pNextTSP->m_dCurveParameter != dLastCurveParam )
         {
+          // SolidCraft change: don't retrace an already found curve (see bSpanOnFoundCurve)
+          if (lPointCount == 0 && bSpanOnFoundCurve(*pTSP, *pNextTSP))
+            {
+              bDone = TRUE;
+              break;
+            }
           SER( AddPointToCurve( *pNextTSP ));
 
           if ( bDone ) // Done with this curve.
@@ -5318,6 +5516,9 @@ static ULONG lDebugCount = 0 ;
                   // TestPoint() snapped to something.
                   if (bDone) 
                     {
+                      // SolidCraft change: don't retrace an already found curve (see bSpanOnFoundCurve)
+                      if (lPointCount == 0 && bSpanOnFoundCurve(*pTSP, *pNextTSP))
+                        { return SM_SUCCESS; }
                       // TestPoint() detected an end condition: done tracing.
                       SER(AddPointToCurve(*pNextTSP));
 #ifdef SM_DEBUG_CODE
@@ -6616,6 +6817,22 @@ SmBoolean bDebugMe = FALSE ;
               sm_GraphicsLoop();
             }
 #endif // SM_DEBUG_CODE
+
+          // SolidCraft change: a traced curve that ends on a boundary inside a tangential
+          // contact consumes the start points of that contact's boundary cluster: the trace
+          // reaches the boundary within tolerance but not necessarily at the cluster's
+          // representative start point, which would otherwise be traced again from that end.
+          SmTsectPnt *pEnds[2] = { m_vCurvePoints.GetFirstNode(), m_vCurvePoints.GetLastNode() };
+          for (ULONG e=0; e<2 && pEnds[1] != pEnds[0]; e++)
+            {
+              SmTArray<SmTsectPnt*> sLeft;
+              m_vStartPoints.GetAllNodes(sLeft);
+              for (ULONG q=0; q<sLeft.GetSize(); q++)
+                {
+                  if (IsSameTangentCluster(*pEnds[e], *sLeft[q], TRUE))
+                    { m_vStartPoints.Remove(sLeft[q]); }
+                }
+            }
 
           // create and add a 3DCurve and 2 UVTrimCurves with a CurveType and Deviation value
           // from the points in m_vCurvePoints.
