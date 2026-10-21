@@ -6295,6 +6295,142 @@ SmStatus SmSurfaceIntersector::FindInteriorCurves
 } // SmSurfaceIntersector::FindInteriorCurves
 
 /*******************************************************************//**
+SolidCraft change: split intersection curves at singular points.
+
+PURPOSE: Helpers for SmSurfaceIntersector::DoIntersection which split
+    traced crossing curves where they pass through a singular point of the
+    intersection, i.e. a point where the two surface normals are parallel
+    while two (or more) branches cross.  The marching tracer steps straight
+    through such a point (n1 x n2 vanishes only at the point itself), so the
+    output curves crossed there without ending.  After splitting, every
+    branch ends at the singular point.
+
+NOTES: The detection samples s(t) = |n1 x n2| (sine of the angle between
+    the unit surface normals) along each output curve using the shared
+    parameterization of the 3D and UV curves, finds sharp local minima where
+    s drops to (near) zero, and refines them by golden section search.
+***********************************************************************/
+static double sm_SingularSine(const SmSurface * cpSrf1,
+                              const SmSurface * cpSrf2,
+                              const SmCurve   * cpUV1,
+                              const SmCurve   * cpUV2,
+                              double            dT)
+{
+  SmPoint3d  sUV1, sUV2;
+  SmVector3d sN1, sN2;
+  if (cpUV1->EvaluatePoint(dT, sUV1) != SM_SUCCESS) return -1.0;
+  if (cpUV2->EvaluatePoint(dT, sUV2) != SM_SUCCESS) return -1.0;
+  if (cpSrf1->EvaluateNormal(SmPoint2d(sUV1.x, sUV1.y), TRUE, TRUE, sN1) != SM_SUCCESS) return -1.0;
+  if (cpSrf2->EvaluateNormal(SmPoint2d(sUV2.x, sUV2.y), TRUE, TRUE, sN2) != SM_SUCCESS) return -1.0;
+  double dL1 = sN1.Length(), dL2 = sN2.Length();
+  if (dL1 < SM_EFF_ZERO || dL2 < SM_EFF_ZERO) return -1.0;
+  return (sN1 * sN2).Length() / (dL1 * dL2);
+}
+
+static SmStatus sm_SplitCurvesAtSingularPoints
+  (const SmContext            & crContext,
+   const SmSurface            * cpSrf1,
+   const SmSurface            * cpSrf2,
+   double                       dTol3d,
+   SmTArray<SmCurve*>         & r3DCurves,
+   SmTArray<SmCurve*>         & rUV1Curves,
+   SmTArray<SmCurve*>         & rUV2Curves,
+   SmTArray<SmTsectCurveType> & rCurveTypes,
+   SmTArray<double>           & rDeviations)
+{
+  const ULONG  lSamplesPerSpan = 8;
+  const double dGolden         = 0.5 * (smos_Sqrt(5.0) - 1.0);
+
+  ULONG lCount = r3DCurves.GetSize();
+  for (ULONG ii = 0; ii < lCount; ii++)
+    {
+      SmCurve *pC3 = r3DCurves[ii];
+      SmCurve *pUV1 = ii < rUV1Curves.GetSize() ? rUV1Curves[ii] : NULL;
+      SmCurve *pUV2 = ii < rUV2Curves.GetSize() ? rUV2Curves[ii] : NULL;
+      if (!pC3 || !pUV1 || !pUV2) continue;
+      if (rCurveTypes[ii] != SM_TC_CROSSING && rCurveTypes[ii] != SM_TC_NEAR_TANGENT) continue;
+      if (!pC3->IsKindOf(SmBSplineCurve_TYPE) || pC3->IsDegenerate()) continue;
+
+      // sample s(t) on every knot span
+      SmTArray<double> sKnots;
+      SER(((SmBSplineCurve *)pC3)->GetKnots(sKnots));
+      if (sKnots.GetSize() < 2) continue;
+      SmTArray<double> sT, sS;
+      for (ULONG kk = 0; kk + 1 < sKnots.GetSize(); kk++)
+        for (ULONG jj = 0; jj < lSamplesPerSpan; jj++)
+          {
+            double dT = sKnots[kk] + (sKnots[kk+1] - sKnots[kk]) * (double)jj / (double)lSamplesPerSpan;
+            sT.Add(dT);
+            sS.Add(sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dT));
+          }
+      sT.Add(sKnots[sKnots.GetSize()-1]);
+      sS.Add(sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, sKnots[sKnots.GetSize()-1]));
+
+      SmPoint3d sStart, sEnd;
+      SER(pC3->EvaluatePoint(sT[0], sStart));
+      SER(pC3->EvaluatePoint(sT[sT.GetSize()-1], sEnd));
+
+      SmTArray<double> sSplits;
+      ULONG lLastSplitIndex = 0;  // sample index of the previous split (or the curve start)
+      for (ULONG kk = 1; kk + 1 < sS.GetSize(); kk++)
+        {
+          if (sS[kk] < 0.0 || sS[kk-1] < 0.0 || sS[kk+1] < 0.0) continue;
+          if (!(sS[kk] <= sS[kk-1] && sS[kk] < sS[kk+1])) continue;
+          // golden section refine on [t(k-1), t(k+1)]
+          double dA = sT[kk-1], dB = sT[kk+1];
+          double dC = dB - dGolden * (dB - dA), dD = dA + dGolden * (dB - dA);
+          double dFC = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dC);
+          double dFD = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dD);
+          for (int it = 0; it < 80 && dB - dA > SM_EFF_ZERO * (1.0 + smos_Fabs(dA)); it++)
+            {
+              if (dFC < dFD) { dB = dD; dD = dC; dFD = dFC; dC = dB - dGolden * (dB - dA); dFC = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dC); }
+              else           { dA = dC; dC = dD; dFC = dFD; dD = dA + dGolden * (dB - dA); dFD = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dD); }
+            }
+          double dTStar = 0.5 * (dA + dB);
+          double dSStar = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dTStar);
+          SmPoint3d sP;
+          SER(pC3->EvaluatePoint(dTStar, sP));
+          // the curve must really cross the point: the intersection angle has to rise again
+          // between the previous split (or the curve start) and this point and between this
+          // point and the curve end, otherwise this is the same (high order contact) singular
+          // region as an end that already terminates the curve there
+          double dRiseBefore = 0.0, dRiseAfter = 0.0;
+          for (ULONG mm = lLastSplitIndex; mm < kk; mm++)          if (sS[mm] > dRiseBefore) dRiseBefore = sS[mm];
+          for (ULONG mm = kk + 1; mm < sS.GetSize(); mm++)         if (sS[mm] > dRiseAfter)  dRiseAfter  = sS[mm];
+          // accept only a point where the normals are parallel to numerical precision on a curve
+          // which is a true crossing on both sides (excludes near-tangent and tangent curves),
+          // away from the curve ends
+          if (   dSStar >= 0.0 && dSStar < 1.0e-6
+              && dRiseBefore > 1.0e-3 && dRiseAfter > 1.0e-3
+              && sP.DistanceBetween(sStart) > 10.0 * dTol3d
+              && sP.DistanceBetween(sEnd)   > 10.0 * dTol3d)
+            {
+              sSplits.Add(dTStar);
+              lLastSplitIndex = kk;
+            }
+        }
+
+      // split from the last parameter down: 'this' keeps the leading part, the new curve is the tail
+      for (long kk = (long)sSplits.GetSize() - 1; kk >= 0; kk--)
+        {
+          double   dSplit = sSplits[(ULONG)kk];
+          SmCurve *pTail3 = NULL, *pTailUV1 = NULL, *pTailUV2 = NULL;
+          if (pC3->CreateBySplitCurve(crContext, dSplit, pTail3) != SM_SUCCESS || !pTail3) continue;
+          SER(pUV1->CreateBySplitCurve(crContext, dSplit, pTailUV1));
+          SER(pUV2->CreateBySplitCurve(crContext, dSplit, pTailUV2));
+          r3DCurves.Add(pTail3);
+          rUV1Curves.Add(pTailUV1);
+          rUV2Curves.Add(pTailUV2);
+          SmTsectCurveType eType = rCurveTypes[ii];
+          double           dDev  = rDeviations[ii];
+          rCurveTypes.Add(eType);
+          rDeviations.Add(dDev);
+        }
+    }
+  return SM_SUCCESS;
+}
+
+/*******************************************************************//**
 PURPOSE: This method is the top level interface function for performing
     surface/surface intersection.
 
@@ -6927,6 +7063,14 @@ SmBoolean bDebugMe = FALSE ;
       sm_GraphicsLoop();
     }
 #endif // SM_DEBUG_CODE
+
+  // SolidCraft change: split crossing curves at singular points (parallel normals) they pass through
+  if (!m_bDoingSelfIntersection)
+    {
+      SER(sm_SplitCurvesAtSingularPoints(crContext, m_cpSurface[0], m_cpSurface[1], m_dThisApproxTol3d,
+                                         s3DCurves, sSurface1UVCurves, sSurface2UVCurves,
+                                         sCurveTypes, sDeviations));
+    }
 
   // set outputs
   SM_ASSERT(   (p3DCurves         == NULL || p3DCurves->GetSize()         == 0)
