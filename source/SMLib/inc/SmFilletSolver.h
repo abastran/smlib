@@ -470,10 +470,12 @@ class SM_EXPORT SmBlendCurveCrossSectionFSG : public SmFilletSurfaceGenerator
 protected:
   ULONG  m_lContinuity; // 1, 2, or 3 for G1, G2 or G3
   double m_dBlendScale;
+  SmBoolean m_bAtThirds; // TRUE = inner control points at thirds towards the tangent lines' meeting point
 public:
-  SmBlendCurveCrossSectionFSG(double dBlendScale=1.5, ULONG lContinuity=1)
+  SmBlendCurveCrossSectionFSG(double dBlendScale=1.5, ULONG lContinuity=1, SmBoolean bAtThirds=FALSE)
      : m_lContinuity(lContinuity), 
-       m_dBlendScale(dBlendScale)
+       m_dBlendScale(dBlendScale),
+       m_bAtThirds(bAtThirds)
   {}
 
   virtual ~SmBlendCurveCrossSectionFSG() {}

@@ -495,6 +495,7 @@ SmFilletExecutive::SmFilletExecutive
    m_bDoPiecewiseMerge(FALSE),
    m_bDoTopologyInsertion(TRUE),
    m_bDoGlobalMerge(FALSE),
+   m_bBlendCurveAtThirds(FALSE),
    m_bDoTrimming(TRUE),
    m_bDoClassification(TRUE),
    m_pAttributeE(NULL)
@@ -761,7 +762,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
   else if ( eXSectType == SM_FSG_CIRCULAR )
     { pFSG = new (*pContext) SmCircularCrossSectionFSG( TRUE, dXSectTol ); }
   else if ( eXSectType == SM_FSG_BLEND_CURVE )
-    { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity) ; }
+    { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity, m_bBlendCurveAtThirds) ; }
   else
     {
       GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
@@ -940,7 +941,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
       else if ( eXSectType == SM_FSG_CIRCULAR )
         { pFSG = new (*pContext) SmCircularCrossSectionFSG( TRUE, dXSectTol ); }
       else if ( eXSectType == SM_FSG_BLEND_CURVE )
-        { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity); }
+        { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity, m_bBlendCurveAtThirds); }
       else
         {
           GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
@@ -1050,7 +1051,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
           else if ( eXSectType == SM_FSG_CIRCULAR )
             { pFSG = new (*pContext) SmCircularCrossSectionFSG( TRUE, 0.1 ); }
           else if ( eXSectType == SM_FSG_BLEND_CURVE )
-            { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity) ; }
+            { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity, m_bBlendCurveAtThirds) ; }
           else
             {
               GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,

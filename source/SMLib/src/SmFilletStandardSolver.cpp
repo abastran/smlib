@@ -4306,6 +4306,49 @@ SmBoolean bDebugMe7 = FALSE;
                     lDegree = 7;
                 }
             }
+            // At thirds: the Hermite's inner control points (P0 + D0/n, P1 - D1/n for degree n)
+            // a third of the way from each contact to where the two contact tangent lines meet,
+            // so D_i is n/3 of that distance; the higher derivatives keep their curvature with it.
+            if (m_bAtThirds)
+            {
+                SmVector3d d0(sVectors[0]);
+                SmVector3d d1(sVectors[1]);
+                double l0 = d0.Length();
+                double l1 = d1.Length();
+                SmVector3d w = sPoints[0] - sPoints[1];
+                if (l0 > SM_EFF_ZERO && l1 > SM_EFF_ZERO)
+                {
+                    d0 = d0 / l0;
+                    d1 = d1 / l1;
+                    // Lines P0 + u d0 and P1 - v d1 (u, v > 0 run towards the corner).
+                    double b = -d0.Dot(d1);
+                    double den = 1.0 - b * b;
+                    if (den > 1.0e-10)
+                    {
+                        double dd = d0.Dot(w);
+                        double e = -d1.Dot(w);
+                        double u = (b * e - dd) / den;
+                        double v = (e - b * dd) / den;
+                        if (u > SM_EFF_ZERO && v > SM_EFF_ZERO)
+                        {
+                            double k0 = (lDegree / 3.0) * u / l0;
+                            double k1 = (lDegree / 3.0) * v / l1;
+                            sVectors[0] = sVectors[0] * k0;
+                            sVectors[1] = sVectors[1] * k1;
+                            if (pHigherOrderVecs)
+                            {
+                                sHigherOrderVecs[0] = sHigherOrderVecs[0] * (k0 * k0);
+                                sHigherOrderVecs[1] = sHigherOrderVecs[1] * (k1 * k1);
+                                if (pHigherOrderVecs->GetSize() == 4)
+                                {
+                                    sHigherOrderVecs[2] = sHigherOrderVecs[2] * (k0 * k0 * k0);
+                                    sHigherOrderVecs[3] = sHigherOrderVecs[3] * (k1 * k1 * k1);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             SER(SmBSplineCurve::CreateInterpolatingCurve(crContext,SM_CP_UNIFORM,3,
                 lDegree,sPoints,sVectors,pHigherOrderVecs,FALSE,pArc));
 
