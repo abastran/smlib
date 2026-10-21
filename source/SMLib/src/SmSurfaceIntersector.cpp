@@ -6474,6 +6474,7 @@ SmStatus SmSurfaceIntersector::DoIntersection
   if (pSurface2UVCurves) { pSurface2UVCurves->ReSet() ; }
   if (pDeviations)       { pDeviations->ReSet();        }
   m_vTangentSeeds.ReSet(); // SolidCraft change: filled by FindInteriorCurves(), used by FindTangentCurves()
+  m_vTangentNodes.ReSet(); // SolidCraft change: filled by FindTangentCurves(), used by AddTangentNodes()
 
   // 
   // 
@@ -7035,6 +7036,10 @@ SmBoolean bDebugMe = FALSE ;
             } 
         } // end degenerateCurve check
     } // end iter every s3DCurves[i] looking for degenerate curves to remove
+
+  // SolidCraft change: report the singular points where crossing branches meet
+  SER(AddTangentNodes(s3DCurves,sSurface1UVCurves,sSurface2UVCurves,
+                      sCurveTypes,sDeviations));
 
 #ifdef SM_DEBUG_CODE
   // draw Brep1(Blue), Brep2(green), Surf1-Face1(cyan-black), Surf2-Face2(yellow-black)
