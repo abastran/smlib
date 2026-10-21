@@ -10,6 +10,8 @@
 #include "StdAfx.h"
 
 #include <nurbs.h>
+#include <SmBoxSearch.h>
+#include <unordered_map>
 #include <SmFace.h>
 #include <SmVertex.h>
 #include <SmSurface.h>
@@ -12624,40 +12626,91 @@ SmBoolean bDebugMe = FALSE;
 
     { // begin Scope for TargetPoint/Vertex intersection
 
-      // Get Vertices
-      SmTArray< SmVertex* > apVerts;
-      this->GetVertices( apVerts, NULL, bTgtLoopsOnly, pOptTgtLoops ) ;
-
-      // see if the target point is on a vertex location
-      for(ii=0;ii<apVerts.GetSize();ii++)
+      // The vertex tolerance of the test below: at least the face's and pVert's own.
+      auto VertexTol = [&](const SmVertex * pVert) -> double
         {
-          SmVertex *pVert = apVerts[ii];
-
           double dVertTol = smos_Max( this->GetTolerance(), pVert->GetTolerance() );
-
     #ifdef SM_USE_NEWTOL
           SM_NEWTOL_LINE dVertTol = smos_Max( dVertTol, rPointClassification.GetGap3d() );
     #else // SM_USE_OLDTOL
           SM_OLDTOL_LINE dVertTol = smos_Max( dVertTol, (double)rPointClassification.GetTolerance() );
     #endif // SM_USE_OLDTOL
+          return dVertTol ;
+        } ;
+      // When the point is at pVert, classify it there.
+      auto AtVertex = [&](SmVertex * pVert) -> SmBoolean
+        {
+          double dVertTol = VertexTol( pVert ) ;
+          if(!pVert->GetPoint().CloserThan(dVertTol, sSurfPt))
+            { return FALSE ; }
 
-          if(pVert->GetPoint().CloserThan(dVertTol, sSurfPt))
-            {
-              rPointClassification.SetClassObject(SM_PC_VERTEX, pVert) ;
+          rPointClassification.SetClassObject(SM_PC_VERTEX, pVert) ;
 
-              // Need to calculate the deviation.
+          // Need to calculate the deviation.
     #ifdef SM_USE_NEWTOL
-              SM_NEWTOL_LINE rPointClassification.SetGap3d       (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
-              SM_NEWTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
+          SM_NEWTOL_LINE rPointClassification.SetGap3d       (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
+          SM_NEWTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
     #else // SM_USE_OLDTOL
-              SM_OLDTOL_LINE rPointClassification.SetDeviation   (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
-              SM_OLDTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
+          SM_OLDTOL_LINE rPointClassification.SetDeviation   (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
+          SM_OLDTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
     #endif // SM_USE_OLDTOL
 
-              rPointClassification.SetPreSnapParam(SM_BIG_DOUBLE) ;
-              return SM_SUCCESS ;
+          rPointClassification.SetPreSnapParam(SM_BIG_DOUBLE) ;
+          return TRUE ;
+        } ;
+
+      // The point is at the first face vertex, in GetVertices' order, within that vertex's
+      // tolerance of it. Within a SmTopologyListWalkScope (SmBrep::AssertValid, which
+      // classifies every vertex of every face) the face's vertices are gathered once, with a
+      // box search over their points: the first of the vertices it finds near the point that
+      // passes the test is that first vertex.
+      const SmFaceVertexIndex * pIndex = bTgtLoopsOnly ? NULL : SmTopologyListWalkScope::FaceVertices( this ) ;
+      SmBoolean bSearched = FALSE ;
+      if (pIndex && pIndex->m_bOK)
+        {
+          const double dFaceTol = this->GetTolerance() ;
+          const double dPad = smos_Max( smos_Max( dFaceTol, pIndex->m_dMaxVertexTol ),
+    #ifdef SM_USE_NEWTOL
+                                        rPointClassification.GetGap3d() ) ;
+    #else // SM_USE_OLDTOL
+                                        (double)rPointClassification.GetTolerance() ) ;
+    #endif // SM_USE_OLDTOL
+          std::vector<ULONG> sNear ;
+          if (std::isfinite(dPad) && pIndex->m_sSearch.Query( SmExtent3d( sSurfPt ), dPad, sNear ))
+            {
+              bSearched = TRUE ;
+              for (ULONG kv = 0; kv < sNear.size(); kv++)
+                {
+                  if (AtVertex( pIndex->m_vVertices[sNear[kv]] ))
+                    { return SM_SUCCESS ; }
+                }
             }
-        } // end iter every face vertex
+        }
+
+      // Otherwise walk the face's vertices loop by loop, in GetVertices' order, up to the first
+      // one at the point. GetVertices lists each loop's vertices once; walking the vertexuses
+      // instead meets a repeated vertex again only after its first test failed, so the first
+      // match is the same, without building and de-duplicating the face's whole list on every
+      // call.
+      if (!bSearched)
+      {
+      SmFaceuse * pVertFU = GetUpwardFaceuse() ;
+      SmTArray< SmLoopuse* > apVertLUs ;
+      SmTArray< SmVertexuse* > apVUs ;
+      if (pVertFU)
+        { pVertFU->GetLoopuses( apVertLUs, bTgtLoopsOnly, pOptTgtLoops ) ; }
+
+      // see if the target point is on a vertex location
+      for(ULONG iLU=0; iLU<apVertLUs.GetSize(); iLU++)
+      {
+      apVertLUs[iLU]->GetVertexuses( apVUs ) ;
+      for(ii=0;ii<apVUs.GetSize();ii++)
+        {
+          if (AtVertex( apVUs[ii]->GetVertex() ))
+            { return SM_SUCCESS ; }
+        } // end iter every loop vertex
+      } // end iter every loop
+      }
     } // end Scope for TargetPoint/Vertex intersection
 
   // arrive here when TargetPoint is not on a vertex, 
@@ -16670,8 +16723,19 @@ SmBoolean SmFace::HasCoincidentVertices
   SmBoolean bQuitEarly = (pOptToSurviveVerts == NULL && pOptToSurviveVerts == NULL) ;
   SmBoolean bDone      = FALSE ; 
 
+  // Only vertices a box search finds within SM_EFF_ZERO of each other can pass the distance
+  // test below: each vertex is compared with those, in the order of the all-pairs loop.
+  const ULONG lNumVerts = sVertices.GetSize() ;
+  std::vector<SmExtent3d> sBoxes(lNumVerts) ;
+  std::vector<bool> sKnown(lNumVerts, true) ;
+  for(ii=0;ii<lNumVerts;ii++)
+    { sBoxes[ii] = SmExtent3d(sVertices[ii]->GetPoint()) ; }
+  SmBoxSearch sSearch ;
+  sSearch.Build(sBoxes, sKnown) ;
+  std::vector<ULONG> sCand ;
+
   // for every Vertex
-  for(ii=0;ii<sVertices.GetSize() && bDone == FALSE;ii++)
+  for(ii=0;ii<lNumVerts && bDone == FALSE;ii++)
     {
       SmVertex *pToSurviveVertex = sVertices[ii] ;
 
@@ -16680,8 +16744,13 @@ SmBoolean SmFace::HasCoincidentVertices
         { continue ; }
 
       // for every other vertex - look for coincident partners 
-      for(jj=ii+1;jj<sVertices.GetSize();jj++)
+      if(!sSearch.Query(sBoxes[ii], SM_EFF_ZERO, sCand))
+        { sm_AllFrom(0, lNumVerts, sCand) ; }
+      for(ULONG kc=0;kc<sCand.size();kc++)
         {
+          jj = sCand[kc] ;
+          if(jj <= ii)
+            { continue ; }
           SmVertex *pToDeleteVertex = sVertices[jj] ;
 
           double dDistSq = pToSurviveVertex->GetPoint().DistanceBetweenSquared(pToDeleteVertex->GetPoint()) ;
@@ -16841,6 +16910,13 @@ SmBoolean SmFace::HasCoincidentEdges
   SmBoolean bQuitEarly = (pOptToSurviveEdges == NULL && pOptToSurviveEdges == NULL) ;
   SmBoolean bDone      = FALSE ; 
 
+  // An edge is compared only with the later edges whose start vertex is one of the vertices
+  // coincident with its start or end (as the test below requires), in the all-pairs order.
+  std::unordered_map<const SmVertex *, std::vector<ULONG> > sEdgesStartingAt ;
+  for(ii=0;ii<sEdges.GetSize();ii++)
+    { sEdgesStartingAt[sEdges[ii]->GetStartVertex()].push_back(ii) ; }
+  std::vector<ULONG> sCand ;
+
   // for every Edge
   for(ii=0;ii<sEdges.GetSize() && bDone == FALSE;ii++)
     {           
@@ -16858,8 +16934,21 @@ SmBoolean SmFace::HasCoincidentEdges
       sm_FindCoincidentVerts(pToSurviveEdge->GetEndVertex(),   sToSurviveVerts, sToDeleteVerts, sEndVerts) ;
 
       // for every other Edge - look for coincident partners 
-      for(jj=ii+1;jj<sEdges.GetSize();jj++)
+      sCand.clear() ;
+      for(ULONG kv=0;kv<sStartVerts.GetSize()+sEndVerts.GetSize();kv++)
         {
+          const SmVertex *pV = kv < sStartVerts.GetSize() ? sStartVerts[kv] : sEndVerts[kv-sStartVerts.GetSize()] ;
+          auto it = sEdgesStartingAt.find(pV) ;
+          if(it == sEdgesStartingAt.end())
+            { continue ; }
+          for(ULONG jE : it->second)
+            { if(jE > ii) sCand.push_back(jE) ; }
+        }
+      std::sort(sCand.begin(), sCand.end()) ;
+      sCand.erase(std::unique(sCand.begin(), sCand.end()), sCand.end()) ;
+      for(ULONG kc=0;kc<sCand.size();kc++)
+        {
+          jj = sCand[kc] ;
           SmEdge    * pToDeleteEdge     = sEdges[jj] ;
           SmCurve   * pToDeleteCurve    = pToDeleteEdge->GetCurve() ;
           SmExtent1d  sDeleteIvl        = pToDeleteEdge->GetInterval() ;
@@ -20300,16 +20389,38 @@ SmBoolean sm_AssertTestFace34( const SmFace* pFace )
     SmTArray<SmEdge*> sEdges;
     pFace->GetEdges( sEdges );
 
+    // GlobalCoincidenceChecker finds nothing for two curves whose boxes over their intervals
+    // are farther apart than the tolerance: only the pairs a box search finds near each other
+    // are compared (every pair whose box could not be computed still is).
+    const ULONG lNumEdges = sEdges.GetSize();
+    std::vector<SmExtent3d> sBoxes(lNumEdges);
+    std::vector<bool> sKnown(lNumEdges, false);
+    double dMaxTol = 0.0;
+    for ( ii = 0; ii < lNumEdges; ii++ )
+    {
+        const SmExtent1d sI = sEdges[ii]->GetInterval();
+        sKnown[ii] = sEdges[ii]->GetCurve()->CalculateBoundingBox( sI, &sBoxes[ii] ) == SM_SUCCESS;
+        dMaxTol = smos_Max( dMaxTol, SmTol::GetZoneTol3d( sEdges[ii] ).val );
+    }
+    SmBoxSearch sSearch;
+    sSearch.Build( sBoxes, sKnown );
+    std::vector<ULONG> sCand;
+
     // Compare each edge with all others
-    for ( ii = 0; ii < sEdges.GetSize(); ii++ )
+    for ( ii = 0; ii < lNumEdges; ii++ )
     {
         SmEdge    *pE1 = sEdges[ii];
         SmCurve   *pC1 = pE1->GetCurve();
         SmExtent1d sI1 = pE1->GetInterval();
         SmZoneTol3d dT1 = SmTol::GetZoneTol3d( pE1 );
 
-        for ( jj = ii+1; jj < sEdges.GetSize(); jj++ )
+        if ( !sKnown[ii] || !std::isfinite(dMaxTol) || !sSearch.Query( sBoxes[ii], dMaxTol, sCand ) )
+            { sm_AllFrom( 0, lNumEdges, sCand ); }
+        for ( ULONG kc = 0; kc < sCand.size(); kc++ )
         {
+            jj = sCand[kc];
+            if ( jj <= ii )
+                { continue; }
             SmEdge     *pE2 = sEdges[jj];
             SmCurve    *pC2 = pE2->GetCurve();
             SmExtent1d  sI2 = pE2->GetInterval();

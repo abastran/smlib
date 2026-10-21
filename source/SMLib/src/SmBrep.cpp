@@ -52,9 +52,12 @@
 #include <SmOffsetExecutive.h>
 #include <SmOffsetGeometryCreation.h>
 #include <SmMatrix.h>
+#include <SmBoxSearch.h>
 
 #include <unordered_set>
 #include <cmath>
+#include <algorithm>
+#include <vector>
 
 #if defined(SM_GFX_OUTPUT_CODE)
 #include <SmGraphicsVertexArray.h>
@@ -15148,7 +15151,8 @@ static SmStatus sm_FindCoinFace
     double & rdDev,                    // out: Distance between pFace/FoundFace MidPoints
     ULONG lStartIdx = 0,               // in, opt: allows ignoring the first part of rFaces
     const SmTArray<SmExtent3d> * pFaceBoxes  = NULL, // in, opt: loose 3d boxes aligned with rFaces (enables far-apart reject)
-    const SmTArray<SmBoolean>  * pFaceBoxesOK = NULL // in, opt: per-box validity aligned with rFaces
+    const SmTArray<SmBoolean>  * pFaceBoxesOK = NULL, // in, opt: per-box validity aligned with rFaces
+    const std::vector<ULONG>   * pCandidates  = NULL  // in, opt: search only these indices of rFaces (ascending, >= lStartIdx)
   )
 {
   // Init output.
@@ -15181,8 +15185,12 @@ static SmStatus sm_FindCoinFace
                             && pFace->CalculateBoundingBox( sFaceBox ) == SM_SUCCESS ) ;
 
   ULONG ii, lNumFaces = rFaces.GetSize();
-  for ( ii = lStartIdx; ii < lNumFaces; ii++ )
+  const ULONG lNumToSearch = pCandidates ? static_cast<ULONG>(pCandidates->size()) : lNumFaces ;
+  for ( ULONG iSearch = pCandidates ? 0 : lStartIdx; iSearch < lNumToSearch; iSearch++ )
     {
+      ii = pCandidates ? (*pCandidates)[iSearch] : iSearch ;
+      if( ii < lStartIdx || ii >= lNumFaces )
+        { continue; }
       SmFace *pThisFace = rFaces[ii];
 
       if(pThisFace == pFace )
@@ -30454,6 +30462,10 @@ SmBoolean bDebugMe = FALSE ;
 
   SM_REF1(pTestRequests);
 
+  // The tests below only read the topology: each face's vertices are gathered once for all the
+  // point classifications on it (SmFace::PointClassify, through SmTopologyListWalkScope).
+  SmTopologyListWalkScope sListWalks ;
+
   // init output
   if(pCoinEnts1 != NULL ) { pCoinEnts1->ReSet(); }
   if(pCoinEnts1 != NULL ) { pCoinEnts2->ReSet(); }
@@ -30477,16 +30489,36 @@ SmBoolean bDebugMe = FALSE ;
   SmStatus eStat;
   double dMaxDev;
 
+  // The pairwise tests below visit, for each entity, only the candidates a box search
+  // (SmBoxSearch) finds near it, in the order the all-pairs loops visited them, and run the
+  // same tests on them: a pair the search leaves out is one too far apart for its test to pass.
+  // So the reports are those of the all-pairs loops, without their quadratic cost.
+  std::vector<ULONG> sCand ;
+  const SmBoolean bTolOK = std::isfinite(dTol) ;
+
   // Vertices.
   SmTArray< SmVertex* > sVerts;
   this->GetVertices( sVerts) ;
   ULONG lNumVerts = sVerts.GetSize();
+  SmBoxSearch sVertTree ;
+  {
+    std::vector<SmExtent3d> sBoxes(lNumVerts) ;
+    std::vector<bool> sKnown(lNumVerts, true) ;
+    for(ii = 0; ii < lNumVerts; ii++)
+      { sBoxes[ii] = SmExtent3d( sVerts[ii]->GetPoint() ) ; }
+    sVertTree.Build( sBoxes, sKnown ) ;
+  }
   for(ii = 0; ii < lNumVerts; ii++)
     {
       SmPoint3d sPt0 = sVerts[ii]->GetPoint();
 
-      for ( jj = ii+1; jj < lNumVerts; jj++)
+      if( !bTolOK || !sVertTree.Query( SmExtent3d( sPt0 ), dTol, sCand ) )
+        { sm_AllFrom( 0, lNumVerts, sCand ) ; }
+      for ( ULONG kk = 0; kk < sCand.size(); kk++)
         {
+          jj = sCand[kk] ;
+          if( jj <= ii )
+            { continue ; }
           SmPoint3d sPt1 = sVerts[jj]->GetPoint();
           SmBoolean bCoinVerts = sPt0.CloserThan( dTol, sPt1 ) ;
 
@@ -30523,6 +30555,19 @@ SmBoolean bDebugMe = FALSE ;
   SmTArray< SmEdge* > sEdges;
   this->GetEdges( sEdges) ;
   ULONG lNumEdges = sEdges.GetSize();
+
+  // FindCoincidentEdge only looks further at edges between the same two vertices: each edge's
+  // candidates are the later edges with its pair of end vertices, in order.
+  std::vector< std::pair<const SmVertex*, const SmVertex*> > sEdgeEnds(lNumEdges) ;
+  std::unordered_map< const SmVertex*, std::vector<ULONG> > sEdgesAtVertex ;
+  for ( ii = 0; ii < lNumEdges; ii++)
+    {
+      const SmVertex *pA = sEdges[ii]->GetVertex();
+      const SmVertex *pB = sEdges[ii]->GetOtherVertex( pA) ;
+      sEdgeEnds[ii] = std::make_pair( pA, pB ) ;
+      sEdgesAtVertex[pA].push_back( ii ) ;
+    }
+  SmTArray< SmEdge* > sEdgeCands;
   for ( ii = 0; ii < lNumEdges; ii++)
     {
       SmEdge *pThisEdge = sEdges[ii];
@@ -30531,11 +30576,36 @@ SmBoolean bDebugMe = FALSE ;
       SmCurve *pThisCurve = pThisEdge->GetCurve();
       SmExtent1d sDomain = pThisEdge->GetInterval();
 
+      // Edge E matches when (E.v, E.other(E.v)) is (pV1, pV2) or (pV2, pV1): E.v is one of them.
+      sCand.clear() ;
+      for ( const SmVertex *pV : { (const SmVertex*)pV1, (const SmVertex*)pV2 } )
+        {
+          auto it = sEdgesAtVertex.find( pV ) ;
+          if( it == sEdgesAtVertex.end() )
+            { continue ; }
+          for ( ULONG jE : it->second )
+            {
+              if(   jE > ii
+                 && (   (sEdgeEnds[jE].first == pV1 && sEdgeEnds[jE].second == pV2)
+                     || (sEdgeEnds[jE].first == pV2 && sEdgeEnds[jE].second == pV1)) )
+                { sCand.push_back( jE ) ; }
+            }
+          if( pV1 == pV2 )
+            { break ; }
+        }
+      std::sort( sCand.begin(), sCand.end() ) ;
+      sCand.erase( std::unique( sCand.begin(), sCand.end() ), sCand.end() ) ;
+      sEdgeCands.ReSet() ;
+      for ( ULONG kk = 0; kk < sCand.size(); kk++)
+        { sEdgeCands.Add( sEdges[sCand[kk]] ) ; }
+
       eStat = SmTools::FindCoincidentEdge( pV1, pV2,
                                            pThisCurve, sDomain,
-                                           dTol, sEdges,
+                                           dTol, sEdgeCands,
                                            bFound, bSameOrient,
-                                           lFoundIndex, dMaxDev, ii+1) ;
+                                           lFoundIndex, dMaxDev, 0) ;
+      if( eStat == SM_SUCCESS && bFound == TRUE && lFoundIndex < sCand.size() )
+        { lFoundIndex = sCand[lFoundIndex] ; }
 
       // error reporting - when pAList != NULL
       bCheck &= SM_ASSERT_PAIR_REPORT(SM_LIST_3, 1, SM_LEVEL_2, (eStat != SM_SUCCESS || bFound == FALSE || dMaxDev >= dTol), pThisEdge, sEdges[lFoundIndex], dTol, dMaxDev, _T("") ) ;
@@ -30580,13 +30650,61 @@ SmBoolean bDebugMe = FALSE ;
   for ( ii = 0; ii < lNumFaces; ii++ )
     { sCoinFaceBoxesOK[ii] = ( sFaces[ii]->CalculateBoundingBox( sCoinFaceBoxes[ii] ) == SM_SUCCESS ) ; }
 
+  // sm_FindCoinFace takes a face as coincident only when its outer loop has the same number of
+  // edges and all of them in common with this face's outer loop: its candidates are the later
+  // faces with that many outer-loop edges sharing one (or, with none, all later faces with none).
+  std::vector<ULONG> sOuterEdgeCount(lNumFaces, 0) ;
+  std::vector<bool> sHasLoops(lNumFaces, false) ;
+  std::vector< std::vector<SmEdge*> > sOuterEdges(lNumFaces) ;
+  std::unordered_map< const SmEdge*, std::vector<ULONG> > sOuterFacesOfEdge ;
+  std::vector<ULONG> sNoOuterEdgeFaces ;
+  {
+    SmTArray< SmLoop* > sCoinLoops ;
+    SmTArray< SmEdge* > sCoinEdges ;
+    for ( ii = 0; ii < lNumFaces; ii++ )
+      {
+        sFaces[ii]->GetLoops( sCoinLoops ) ;
+        if( sCoinLoops.GetSize() < 1 )
+          { continue ; }
+        sHasLoops[ii] = true ;
+        sCoinLoops[0]->GetEdges( sCoinEdges ) ;
+        sOuterEdgeCount[ii] = sCoinEdges.GetSize() ;
+        for ( jj = 0; jj < sCoinEdges.GetSize(); jj++ )
+          {
+            sOuterEdges[ii].push_back( sCoinEdges[jj] ) ;
+            std::vector<ULONG> & rFacesOfEdge = sOuterFacesOfEdge[sCoinEdges[jj]] ;
+            if( rFacesOfEdge.empty() || rFacesOfEdge.back() != ii )
+              { rFacesOfEdge.push_back( ii ) ; }
+          }
+        if( sCoinEdges.GetSize() == 0 )
+          { sNoOuterEdgeFaces.push_back( ii ) ; }
+      }
+  }
+
   for ( ii = 0; ii < lNumFaces; ii++)
     {
       SmFace *pThisFace = sFaces[ii];
 
+      sCand.clear() ;
+      if( sHasLoops[ii] && sOuterEdgeCount[ii] == 0 )
+        { sCand = sNoOuterEdgeFaces ; }
+      else if( sHasLoops[ii] )
+        {
+          for ( const SmEdge *pE : sOuterEdges[ii] )
+            {
+              for ( ULONG jF : sOuterFacesOfEdge[pE] )
+                {
+                  if( jF > ii && sOuterEdgeCount[jF] == sOuterEdgeCount[ii] )
+                    { sCand.push_back( jF ) ; }
+                }
+            }
+          std::sort( sCand.begin(), sCand.end() ) ;
+          sCand.erase( std::unique( sCand.begin(), sCand.end() ), sCand.end() ) ;
+        }
+
       eStat = sm_FindCoinFace( pThisFace, dTol, sFaces,
                                bFound, lFoundIndex, dMaxDev, ii+1,
-                               &sCoinFaceBoxes, &sCoinFaceBoxesOK) ;
+                               &sCoinFaceBoxes, &sCoinFaceBoxesOK, &sCand) ;
 
       // error reporting - when pAList != NULL
       bCheck &= SM_ASSERT_PAIR_REPORT(SM_LIST_3, 2, SM_LEVEL_2, (eStat != SM_SUCCESS || bFound == FALSE || dMaxDev >= dTol), pThisFace, sFaces[lFoundIndex], dTol, dMaxDev, _T("") ) ;
@@ -30638,12 +30756,12 @@ SmBoolean bDebugMe = FALSE ;
   SmTArray< SmEdge  * >   sFaceEdges;
   SmSolution sSol;
 
-  ULONG lIndx;
   SmBoolean bSuccess;
   double dParam, dDist;
   SmPoint2d sUV;
 
   // Vertex/Edge:
+  std::vector<bool> sEdgeBoxKnown ;
   for ( ii=0; ii<lNumEdges; ii++ )
   {
       SmEdge *pE = sEdges[ii];
@@ -30651,6 +30769,8 @@ SmBoolean bDebugMe = FALSE ;
 
       // Save the box for Edge/Face test
       sEdgeBoxes.Add( sEdgeBox) ;
+      // A box that could not be computed is whatever sEdgeBox held before: never prune by it.
+      sEdgeBoxKnown.push_back( eStat == SM_SUCCESS ) ;
 
       pCrv = pE->GetCurve();
       if(pCrv == NULL ) { continue; } // better not happen...
@@ -30658,8 +30778,12 @@ SmBoolean bDebugMe = FALSE ;
       pEdgeVtx1 = pE->GetVertex();
       pEdgeVtx2 = pE->GetOtherVertex( pEdgeVtx1) ;
 
-      for ( jj=0; jj<lNumVerts; jj++ )
+      // Candidates: the vertices the box test below may let through.
+      if( eStat != SM_SUCCESS || !bTolOK || !sVertTree.Query( sEdgeBox, dTol, sCand ) )
+        { sm_AllFrom( 0, lNumVerts, sCand ) ; }
+      for ( ULONG kk=0; kk<sCand.size(); kk++ )
       {
+          jj = sCand[kk] ;
           pV = sVerts[jj];
 
           if(pV == pEdgeVtx1 || pV == pEdgeVtx2 )
@@ -30720,13 +30844,25 @@ SmBoolean bDebugMe = FALSE ;
   // Vertex/Face and Edge/Face: we'll do these both in one loop on the faces,
   // mainly just to prevent having to save all of the Faces' bounding boxes.
 
+  // Edge/Face candidates: the edges the box test below may let through.
+  SmBoxSearch sEdgeTree ;
+  {
+    std::vector<SmExtent3d> sBoxes(lNumEdges) ;
+    for ( ii=0; ii<lNumEdges; ii++ )
+      { sBoxes[ii] = sEdgeBoxes[ii] ; }
+    sEdgeTree.Build( sBoxes, sEdgeBoxKnown ) ;
+  }
+  std::unordered_set<const SmVertex*> sFaceVertSet ;
+  std::unordered_set<const SmEdge*>   sFaceEdgeSet ;
+
   for ( ii=0; ii<lNumFaces; ii++ )
   {
       pF = sFaces[ii];
       SmZoneTol3d sFaceZoneTol3d = SmTol::GetZoneTol3d(pF) ;
       SmPointClassification   sPointClass(sFaceZoneTol3d, GetContext()) ;
 
-      pF->CalculateBoundingBox( sFaceBox) ;
+      // A box that could not be computed is whatever sFaceBox held before: never prune by it.
+      const SmBoolean bFaceBoxOK = ( pF->CalculateBoundingBox( sFaceBox) == SM_SUCCESS ) ;
 
       pSrf = pF->GetSurface();
 
@@ -30734,13 +30870,23 @@ SmBoolean bDebugMe = FALSE ;
 
       pF->GetVertices( sFaceVerts) ;
       pF->GetEdges   ( sFaceEdges) ;
+      // The face's own vertices and edges, looked up instead of searched for (FindElement).
+      sFaceVertSet.clear() ;
+      sFaceEdgeSet.clear() ;
+      for ( jj=0; jj<sFaceVerts.GetSize(); jj++ )
+        { sFaceVertSet.insert( sFaceVerts[jj] ) ; }
+      for ( jj=0; jj<sFaceEdges.GetSize(); jj++ )
+        { sFaceEdgeSet.insert( sFaceEdges[jj] ) ; }
 
       // Vertex/Face:
-      for ( jj=0; jj<lNumVerts; jj++ )
+      if( !bFaceBoxOK || !bTolOK || !sVertTree.Query( sFaceBox, dTol, sCand ) )
+        { sm_AllFrom( 0, lNumVerts, sCand ) ; }
+      for ( ULONG kk=0; kk<sCand.size(); kk++ )
       {
+          jj = sCand[kk] ;
           pV = sVerts[jj];
 
-          if(sFaceVerts.FindElement( pV, lIndx ) )
+          if( sFaceVertSet.count( pV ) != 0 )
             { continue; }
 
           sVtxPos = pV->GetPoint();
@@ -30789,11 +30935,14 @@ SmBoolean bDebugMe = FALSE ;
       } // end Vertex/Face tests: loop on all Vertices
 
       // Edge/Face:
-      for ( jj=0; jj<lNumEdges; jj++ )
+      if( !bFaceBoxOK || !bTolOK || !sEdgeTree.Query( sFaceBox, dTol, sCand ) )
+        { sm_AllFrom( 0, lNumEdges, sCand ) ; }
+      for ( ULONG kc=0; kc<sCand.size(); kc++ )
       {
+          jj = sCand[kc] ;
           SmEdge* pE = sEdges[jj];
 
-          if(sFaceEdges.FindElement( pE, lIndx ) )
+          if( sFaceEdgeSet.count( pE ) != 0 )
             { continue; }
 
           sEdgeBox = sEdgeBoxes[jj];
@@ -32107,6 +32256,29 @@ SmBoolean bDebugMe = FALSE;
   { /* do some tests on faces */
     SmTArray<SmFace*> sFaces;
     GetFaces(sFaces);
+
+    // Tests 107/108 ask whether each faceuse is on its shell's list. SmOwningTopology::IsInList
+    // walks the whole list, which made these tests quadratic in the faces of a shell; each
+    // shell's list is walked once instead (the same walk: from the head along m_pNext until it
+    // ends or comes back to the head) and its members looked up.
+    std::unordered_map<const SmShell*, std::unordered_set<const SmTopology*> > sShellMembers ;
+    auto IsOnShellList = [&sShellMembers](const SmShell * pShell, const SmFaceuse * pFU) -> SmBoolean
+      {
+        auto it = sShellMembers.find(pShell) ;
+        if (it == sShellMembers.end())
+          {
+            std::unordered_set<const SmTopology*> & rMembers = sShellMembers[pShell] ;
+            SmTopology * pHead = pShell->GetList() ;
+            for (SmTopology * pTgt = pHead; pTgt; )
+              {
+                rMembers.insert(pTgt) ;
+                pTgt = pTgt->m_pNext ;
+                if (pTgt == pHead) break ;
+              }
+            it = sShellMembers.find(pShell) ;
+          }
+        return it->second.count(pFU) != 0 ;
+      } ;
     for (ULONG ii = 0; ii < sFaces.GetSize(); ii++)
       {
         /*  verify that first loopuse is SAME ==> outer
@@ -32162,10 +32334,10 @@ SmBoolean bDebugMe = FALSE;
 
         // Faceuse's owning Shells must contain the Faceuse.
         SmShell *pSh = pFU0->GetShell();
-        bRtn &= SM_ASSERT_OBJ_BOOLEAN_REPORT(this, SM_LIST_1, 107, SM_LEVEL_0, (pSh != NULL && pSh->IsInList( pFU0 )), pFU0, _T("") ) ;
+        bRtn &= SM_ASSERT_OBJ_BOOLEAN_REPORT(this, SM_LIST_1, 107, SM_LEVEL_0, (pSh != NULL && IsOnShellList( pSh, pFU0 )), pFU0, _T("") ) ;
 
         pSh = pFU1->GetShell();
-        bRtn &= SM_ASSERT_OBJ_BOOLEAN_REPORT(this, SM_LIST_1, 108, SM_LEVEL_0, (pSh != NULL && pSh->IsInList( pFU1 )), pFU1, _T("") ) ;
+        bRtn &= SM_ASSERT_OBJ_BOOLEAN_REPORT(this, SM_LIST_1, 108, SM_LEVEL_0, (pSh != NULL && IsOnShellList( pSh, pFU1 )), pFU1, _T("") ) ;
 
 #ifdef ALLOW_ONLY_REGULARIZED_BREPS
         {
@@ -35074,6 +35246,9 @@ SmBoolean SmBrep::AssertValid
   SmTArray<ULONG>  * pTestRequests) // in : when eTestLevel == SM_LEVEL_GIVEN, run these tests in this order, default:[NULL]
  const
 {
+  // Each topology list is walked once for all its members' checks (SmTopology::AssertValid).
+  SmTopologyListWalkScope sListWalks ;
+
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
   if(bDebugMe)
