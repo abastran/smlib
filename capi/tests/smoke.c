@@ -103,6 +103,36 @@ int main(void)
     smlib_set_log(NULL, NULL);
     smlib_brep_free(logged);
 
+    /* ---- Primitives ----------------------------------------------------------------------- */
+    {
+        const double pi = 3.14159265358979323846;
+        const double at[3] = {0.0, 0.0, 0.0};
+        smlib_brep *b = NULL;
+        CHECK(smlib_make_cylinder(at, 5.0, 10.0, &b) == SMLIB_OK);
+        CHECK(smlib_brep_volume(b, 1e-7, &volume) == SMLIB_OK && fabs(volume - pi * 250.0) < 1e-4);
+        smlib_brep_free(b);
+        b = NULL;
+        CHECK(smlib_make_sphere(at, 5.0, &b) == SMLIB_OK);
+        CHECK(smlib_brep_volume(b, 1e-7, &volume) == SMLIB_OK && fabs(volume - 4.0 / 3.0 * pi * 125.0) < 1e-3);
+        smlib_brep_free(b);
+        b = NULL;
+        CHECK(smlib_make_cone(at, 5.0, 2.0, 10.0, &b) == SMLIB_OK);
+        CHECK(smlib_brep_volume(b, 1e-7, &volume) == SMLIB_OK && fabs(volume - pi * 10.0 / 3.0 * 39.0) < 1e-3);
+        smlib_brep_free(b);
+        b = NULL;
+        CHECK(smlib_make_torus(at, 10.0, 3.0, &b) == SMLIB_OK);
+        CHECK(smlib_brep_volume(b, 1e-7, &volume) == SMLIB_OK && fabs(volume - 2.0 * pi * pi * 10.0 * 9.0) < 1e-2);
+        smlib_brep_free(b);
+
+        smlib_brep *none2 = NULL;
+        CHECK(smlib_make_cylinder(at, -1.0, 10.0, &none2) == SMLIB_ERR_ARG && none2 == NULL);
+        CHECK(smlib_make_sphere(at, NAN, &none2) == SMLIB_ERR_ARG);
+        CHECK(smlib_make_cone(at, 5.0, 5.0, 10.0, &none2) == SMLIB_ERR_ARG);
+        CHECK(smlib_make_cone(at, 5.0, -1.0, 10.0, &none2) == SMLIB_ERR_ARG);
+        CHECK(smlib_make_torus(at, 3.0, 3.0, &none2) == SMLIB_ERR_ARG);
+        CHECK(smlib_make_torus(NULL, 10.0, 3.0, &none2) == SMLIB_ERR_ARG && none2 == NULL);
+    }
+
     if (failures == 0)
     {
         printf("smlib C API smoke test: ok\n");
