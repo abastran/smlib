@@ -310,3 +310,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   annulus) the start cap got a face from the junction and the end cap missed one, and the sweep
   failed (1001). Each side face is now marked by whether its own surface starts or ends where
   the swept surface does along the path, and the caps take those.
+- **Intersection edges that run past their vertex** (`SmProtoTopology.cpp`,
+  `SmEdgeDefinition::Imprint`): an intersection curve's ProtoVertex can come from another
+  intersection, and where the curve crosses a face's edge at a grazing angle (a thread groove's
+  flank meeting a shaft's rim at the end face) that vertex lay on the curve a few tolerances inside
+  its end. The edge ran past its vertex and lay along the rim within tolerance up to its end
+  (SmFace test #34, "partially coincident edges"), with a vertex gap that only a larger tolerance
+  covered. Each end of the edge's interval now moves to the curve's point nearest its ProtoVertex
+  when that point is inside the interval, within tolerance and nearer than the end, and the UV
+  curves are trimmed with it.

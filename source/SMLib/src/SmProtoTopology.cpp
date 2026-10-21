@@ -1430,6 +1430,71 @@ static int iDebugMe=0;
 #endif // SM_DEBUG_CODE
 
 
+  // SolidCraft fork: the intersection curve ends where its ProtoVertices are. A ProtoVertex
+  // found by another intersection (where a curve crosses a face's edge at a grazing angle, its
+  // position along the edge is only known to the tolerance over the angle's sine) can lie on
+  // this curve inside its interval, a few tolerances from the curve's end. The Edge then ran
+  // past its Vertex, and lay along the next Edge within tolerance up to that end: "partially
+  // coincident edges" (SmFace test #34) and a vertex gap that only a larger tolerance covered.
+  // Each end of the interval moves to the curve's point nearest its ProtoVertex when that
+  // point lies inside the interval, nearer to the ProtoVertex than the end is, and within
+  // tolerance. The UV curves share the 3d curve's parameter and span the Edge's interval, so
+  // they are trimmed with it (or nothing moves).
+  if(pStartPV != pEndPV)
+    {
+      for(int iEnd = 0; iEnd < 2; iEnd++)
+        {
+          const SmPoint3d &rPV = (iEnd == 0) ? pStartPV->GetPosition() : pEndPV->GetPosition();
+          double dEnd = (iEnd == 0) ? m_pXSectInterval.GetMin() : m_pXSectInterval.GetMax();
+          SmPoint3d sEndPt;
+          if(m_pXSectCurve3d->EvaluatePoint(dEnd, sEndPt) != SM_SUCCESS)
+            { continue; }
+          double dGap = sEndPt.DistanceBetween(rPV);
+          if(!(dGap > SM_EFF_ZERO * (1.0 + sEndPt.GetMaxDimension())))
+            { continue; }
+          SmBoolean bFound = FALSE;
+          double dParam = dEnd, dDist = SM_BIG_DOUBLE;
+          if(   m_pXSectCurve3d->DropPoint(m_pXSectInterval, rPV, NULL, m_dTol, &dEnd, bFound, dParam, dDist, SM_SO_MINIMIZE) != SM_SUCCESS
+             || !bFound
+             || !(dDist < dGap)
+             || !(dDist <= m_dTol)
+             || !m_pXSectInterval.ContainsValue(dParam, -SM_EFF_ZERO))
+            { continue; }
+          SmExtent1d sTrimmed = m_pXSectInterval;
+          if(iEnd == 0) { sTrimmed.SetMin(dParam); }
+          else          { sTrimmed.SetMax(dParam); }
+          if(!(sTrimmed.GetLength() > SM_EFF_ZERO * (1.0 + smos_Fabs(dParam))))
+            { continue; }
+          // The UV curves are trimmed as SmEdgeDefinition::Split trims its pieces' curves, on
+          // copies, so a failure leaves everything as it was. The 3d curve keeps its extent; the
+          // Edge's interval lies inside it.
+          SmCurve *apOld[2] = { m_pXSectUVCurve1, m_pXSectUVCurve2 };
+          SmCurve *apNew[2] = { NULL, NULL };
+          SmBoolean bTrimmed = TRUE;
+          for(int iCrv = 0; iCrv < 2 && bTrimmed; iCrv++)
+            {
+              if(apOld[iCrv] == NULL)
+                { continue; }
+              SmExtent1d sWanted = sTrimmed;
+              if(   apOld[iCrv]->GetOwner() != NULL
+                 || apOld[iCrv]->Copy(*m_cpContext, apNew[iCrv]) != SM_SUCCESS
+                 || apNew[iCrv] == NULL
+                 || apNew[iCrv]->Trim(sTrimmed) != SM_SUCCESS
+                 || !(SM_ARE_SAME(sWanted.GetMin(), sTrimmed.GetMin()) && SM_ARE_SAME(sWanted.GetMax(), sTrimmed.GetMax())))
+                { bTrimmed = FALSE; }
+            }
+          if(   !bTrimmed
+             || !(sTrimmed.GetLength() > SM_EFF_ZERO * (1.0 + smos_Fabs(dParam))))
+            {
+              for(int iCrv = 0; iCrv < 2; iCrv++) { delete apNew[iCrv]; }
+              continue;
+            }
+          if(apNew[0] != NULL) { delete m_pXSectUVCurve1; m_pXSectUVCurve1 = apNew[0]; }
+          if(apNew[1] != NULL) { delete m_pXSectUVCurve2; m_pXSectUVCurve2 = apNew[1]; }
+          m_pXSectInterval = sTrimmed;
+        }
+    }
+
   // First do Brep 1.
   SmEdge *pNewE1 = NULL;
   SmLoop *pNewL1 = NULL;
