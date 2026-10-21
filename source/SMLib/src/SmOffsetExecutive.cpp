@@ -2035,6 +2035,18 @@ SmStatus SmOffsetExecutive::ReplaceImplicitOffsets
 } // end SmOffsetExecutive::ReplaceImplicitOffsets
 
 /*******************************************************************//**
+PURPOSE: Remove every pair of rRelation whose second is pSecond.
+***********************************************************************/
+template<class TYPE1>
+static void sm_ForgetSecond( SmRelation<TYPE1,SmFace> & rRelation, SmFace * pSecond )
+{
+    SmTArray<TYPE1*> sFirsts;
+    rRelation.GetFirsts( pSecond, sFirsts );
+    for (ULONG ii=0; ii<sFirsts.GetSize(); ii++)
+      { rRelation.RemovePair( sFirsts[ii], pSecond ); }
+}
+
+/*******************************************************************//**
 PURPOSE: Remove Excess Faces of the Result by measurement to the original.
 
 NOTES: 
@@ -2094,6 +2106,21 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
                 }
             }
         }
+    }
+
+    // The face maps still point at the faces about to be deleted, and PiecewiseMerge walks
+    // them next: forget those faces first, or it reads them after the free.
+    for (ULONG ii=0; ii<sDeleteFaces.GetSize(); ii++)
+    {
+        SmFace *pF = sDeleteFaces[ii];
+        sm_ForgetSecond( m_vFUToF, pF );
+        sm_ForgetSecond( m_vEToF, pF );
+        sm_ForgetSecond( m_vVToF, pF );
+        sm_ForgetSecond( m_vBlendToFaces, pF );
+        SmTArray<SmFace*> sBlendSeconds;
+        m_vBlendToFaces.GetSeconds( pF, sBlendSeconds );
+        for (ULONG jj=0; jj<sBlendSeconds.GetSize(); jj++)
+          { m_vBlendToFaces.RemovePair( pF, sBlendSeconds[jj] ); }
     }
 
     // Clean up those faces we have collected.

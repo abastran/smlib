@@ -188,3 +188,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   combined into another and deleted stayed in the coincident-edge lists of ProtoFaces (and the
   overlap lists of other ProtoEdges), which `GlueCoincidentBrepVertices` then read. Removing a
   ProtoEdge drops those references; a combined one is replaced by the one it went into.
+- **Excess faces deleted under the face maps** (`SmOffsetExecutive.cpp`, `RemoveExcessFaces`):
+  it deleted offset faces that its face maps (`m_vFUToF`, `m_vEToF`, `m_vVToF`,
+  `m_vBlendToFaces`) still held, and `PiecewiseMerge` read them next. They are dropped from
+  the maps first.
