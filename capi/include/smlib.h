@@ -440,6 +440,9 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 #define SMLIB_ERR_PICK_NONE (-1101)
 /* A selection point is as near to two edges (faces) as the body's modelling tolerance can tell. */
 #define SMLIB_ERR_PICK_AMBIGUOUS (-1102)
+/* An inward offset leaves no room inside the body: no point of it lies farther than the wall
+ * from every face that is offset (smlib_shell, smlib_offset_faces). */
+#define SMLIB_ERR_NO_ROOM (-1103)
 
 /* Selecting edges and faces. Operations that act on some edges or faces take them as points
  * (`points`: x, y, z for each of `n_points`, at most 4096). Each point selects the edge (face)
@@ -480,9 +483,24 @@ int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_po
 
 /* A new body: `brep` hollowed to a wall of `thickness` (non-zero; negative: the wall lies
  * inside the original surface, positive: outside), open at the selected faces. `n_points` may
- * be 0 (and `points` NULL) for a closed hollow body. */
+ * be 0 (and `points` NULL) for a closed hollow body. An inward wall that leaves no room inside
+ * the solid (no point of it farther than the wall from every face but the open ones, by a
+ * margin of 0.1% of the wall or ten times the body's tolerance) is SMLIB_ERR_NO_ROOM. */
 int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double thickness,
                     smlib_brep **out, int64_t *out_failed_point);
+
+/* A new body: the solid `brep` with the selected faces moved `distance` (non-zero; negative:
+ * into the body) along their outward normals, each onto its surface's offset, and the faces
+ * around them extended or trimmed to meet the moved faces (SMLib's local operation). The
+ * topology is kept where the moved faces meet their neighbours as the old ones did. */
+int32_t smlib_offset_faces(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
+                           smlib_brep **out, int64_t *out_failed_point);
+
+/* A new solid: the sheet `brep` (not a closed solid: SMLIB_ERR_ARG) thickened by `thickness`
+ * (non-zero) along its surfaces' normals (negative: against them), or by half of it each way
+ * when `symmetric` is non-zero. The sheet and its offset are joined by ruled walls along the
+ * sheet's open edges. */
+int32_t smlib_thicken(const smlib_brep *brep, double thickness, int32_t symmetric, smlib_brep **out);
 
 /* ---- Surface/surface intersection (src/smlib_ssi.cpp) ------------------------------------
  *

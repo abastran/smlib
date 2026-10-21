@@ -238,12 +238,12 @@ int main()
 
     // SMLib defects 2-5 (curves of a failed imprint freed under their Edge, a failed imprint
     // carried on, a squeezed vertex reused, a combined-away ProtoEdge left in its ProtoFaces):
-    // inward walls as thick as the cube's inradius or thicker. Exactly the inradius reaches
-    // SMLib and fails there; thicker is refused before it (no cavity can remain).
+    // inward walls as thick as the cube's inradius or thicker, refused before SMLib sees them
+    // (no cavity can remain).
     const double lid[3] = {10, 10, 20};
-    s = smlib_shell(cube, lid, 1, 0.1, -10.0, &r, nullptr);
-    CHECK(s != SMLIB_OK && r == nullptr);
-    CHECK(smlib_shell(cube, lid, 1, 0.1, -15.0, &r, nullptr) == SMLIB_ERR_ARG);
+    CHECK(smlib_shell(cube, lid, 1, 0.1, -10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+    CHECK(smlib_shell(cube, lid, 1, 0.1, -15.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+    CHECK(smlib_shell(cube, nullptr, 0, 0.1, -10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
     if (smlib_shell(cube, lid, 1, 0.1, -9.5, &r, nullptr) == SMLIB_OK)
     {
         CHECK(near(volume(r), 8000.0 - 1.0 * 1.0 * 10.5, 1e-6));
@@ -263,6 +263,89 @@ int main()
         }
         smlib_brep_free(nicked);
     }
+
+    // tangency-labs/solidcore#380: the guard against walls with no room inside is the body's
+    // own inradius, not its box. An L of two 6 mm legs, 40 long and 20 tall: its box allows 10,
+    // its inradius is 6 * sqrt(2) / (1 + sqrt(2)) = 3.51 (at the inner corner).
+    {
+        smlib_brep *legs[2] = {box(0, 0, 0, 40, 6, 20), box(0, 0, 0, 6, 40, 20)};
+        smlib_brep *ell = nullptr;
+        CHECK(smlib_boolean(legs[0], legs[1], SMLIB_BOOLEAN_UNION, &ell) == SMLIB_OK && sound(ell));
+        for (double wall : {5.0, 4.0, 3.6})
+        {
+            CHECK(smlib_shell(ell, nullptr, 0, 0.1, -wall, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        }
+        // Open at the top, the wall only needs room from the sides and the floor: the same.
+        const double top[3] = {20, 3, 20};
+        CHECK(smlib_shell(ell, top, 1, 0.1, -3.6, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+        if (smlib_shell(ell, top, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK)
+        {
+            // Floor 1 thick under a cavity 19 tall, its plan the L inset by 1: 2 * 38 * 4 - 4 * 4.
+            CHECK(std::fabs(volume(r) - (volume(ell) - 19.0 * (2.0 * 38.0 * 4.0 - 16.0))) < 1e-4);
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the L opened at the top, 1 mm walls");
+        }
+        smlib_brep_free(ell);
+        smlib_brep_free(legs[0]);
+        smlib_brep_free(legs[1]);
+    }
+
+    // A box 20 x 10 x 30 open at the top with walls 4 thick: the sides need room 4 from each
+    // other (10 > 8), the floor's is far, so the shell goes through even though the box's
+    // smallest half extent is 5; walls of 5 leave none.
+    {
+        smlib_brep *slab = box(0, 0, 0, 20, 10, 30);
+        const double top[3] = {10, 5, 30};
+        CHECK(smlib_shell(slab, top, 1, 0.1, -4.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume(r) - (6000.0 - 12.0 * 2.0 * 26.0)) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_shell(slab, top, 1, 0.1, -5.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+        smlib_brep_free(slab);
+    }
+
+    // Offset faces: the cube's top up by 5, then down by 5; its side and top together; a
+    // cylinder's wall out by 2. Down by the cube's height leaves nothing and is refused.
+    {
+        const double top[3] = {10, 10, 20};
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, 5.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume(r) - 10000.0) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, -5.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume(r) - 6000.0) < 1e-6);
+            done(r);
+        }
+        const double two[6] = {10, 10, 20, 20, 10, 10};
+        CHECK(smlib_offset_faces(cube, two, 2, 0.1, 2.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume(r) - 22.0 * 20.0 * 22.0) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, -20.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, 0.0, &r, nullptr) == SMLIB_ERR_ARG);
+        const double wall[3] = {14, 10, 5};
+        if (smlib_offset_faces(rod, wall, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            done(r);
+        }
+    }
+
+    // Thicken: a sheet (the cube's top face alone, SMLib's own way of making one is not in the
+    // C API; a solid is refused).
+    CHECK(smlib_thicken(cube, 1.0, 0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_thicken(nullptr, 1.0, 0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_thicken(cube, NAN, 0, &r) == SMLIB_ERR_ARG);
 
     for (smlib_brep *b : {cube, rod, holed, pin, round, cut, big, far, touching})
     {

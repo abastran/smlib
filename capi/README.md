@@ -41,7 +41,7 @@ one shim at a time, each with a case in a fuzz target.
 ## Operations
 
 `src/smlib_ops.cpp`: `smlib_boolean` (union, subtract, intersect), `smlib_fillet`,
-`smlib_chamfer` and `smlib_shell`. Each copies its inputs and works on the copies, so tagged
+`smlib_chamfer`, `smlib_shell`, `smlib_offset_faces` and `smlib_thicken`. Each copies its inputs and works on the copies, so tagged
 operands (`smlib_history_tag`) give a result whose history `smlib_history_read` reads. An empty
 boolean result is `SMLIB_ERR_EMPTY`; several solids come back as one body
 (`smlib_brep_solid_count`). A solid input that gives anything but a closed manifold solid is
@@ -54,8 +54,18 @@ with the point's index). Fillets and chamfers take each picked edge's whole tang
 (edges meeting within 0.5°). A chamfer's distance is the setback along each face at the edge's
 midpoint; it is cut by SMLib's constant-radius solver with a linear section, whose ball radius
 is the setback times tan(a/2), a being the angle between the faces there. A shell's thickness
-is negative inward, positive outward; an inward wall at least half the body's smallest
-bounding-box extent can leave no cavity and is refused before SMLib sees it.
+is negative inward, positive outward. An inward wall that leaves no room inside the body is
+`SMLIB_ERR_NO_ROOM`, refused before SMLib's offset sees it (which corrupts memory there,
+tangency-labs/solidcore#380): the shim looks for a point inside the solid farther than the wall
+(and a margin) from every face but the open ones, certified as the centre of a ball inside the
+body that it reached from a face sample along the inward normal, then from ball to ball. Found
+none, it refuses; so a wall at or past the body's inradius never reaches SMLib, whatever the
+body's shape. `smlib_offset_faces` moves the picked faces along their outward normals onto
+their surfaces' offsets (`SmOffsetGeometryCreation::FaceuseOffset`) and lets SMLib's local
+operation (`SmBrep::LocalOperation`) extend or trim the faces around them; moved in past all of
+the body behind them is `SMLIB_ERR_NO_ROOM` by the same test. `smlib_thicken` makes a solid of a
+sheet with `SmApiShellBrepFull` (ruled walls along the open edges), a symmetric one after
+moving the sheet back by half with `SmApiOffsetBrepFull`.
 
 `tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
 regression cases, both against analytic volumes and `smlib_brep_check` level 2.
