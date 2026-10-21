@@ -267,6 +267,32 @@ bool chamfer_radius(SmEdge *e, double distance, double &radius)
     return std::isfinite(radius) && radius > 0.0;
 }
 
+// Why the last blend in this call failed, as the fillet executive noted it: dumped with the
+// call's inputs (Call::input_text) so a failing blend can be read without a debugger.
+std::string g_blend_why;
+
+void note_blend_failure(SmFilletExecutive &exec, int32_t s)
+{
+    SmFilletErrorInfo *e = exec.GetFilletErrorInfo();
+    if (e == nullptr)
+    {
+        return;
+    }
+    char head[256];
+    std::snprintf(head, sizeof head, "status %d, fillet error %d, corner type %d, edge type %d, at (%.9g, %.9g, %.9g)\n", static_cast<int>(s),
+                  static_cast<int>(e->GetErrorCode()), static_cast<int>(e->m_eCornerType), static_cast<int>(e->m_eEdgeType), e->m_vLocation[0],
+                  e->m_vLocation[1], e->m_vLocation[2]);
+    g_blend_why = head;
+    for (const TCHAR *c : {e->m_cComment, e->m_cEntityName})
+    {
+        for (size_t i = 0; i < SM_TBLOCK_SIZE && c[i] != 0; ++i)
+        {
+            g_blend_why += static_cast<char>(c[i] < 128 ? c[i] : '?');
+        }
+        g_blend_why += "\n";
+    }
+}
+
 // Chamfers `edges` of `b` in place, edge i with its first edgeuse's surface offset `first[i]`
 // and the other's `second[i]` (equal for an equal-distance chamfer): a constant-radius solver
 // with a linear cross-section per edge (SMLib's constant-distance solver, which
@@ -292,6 +318,7 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
     int32_t s = status(exec.SetFilletParameters(b, es, kinds, solvers, r0, nullptr, -1.0, -1.0, -1.0, -1.0, 1, 1.0, &r1));
     if (s != SMLIB_OK)
     {
+        note_blend_failure(exec, s);
         return s;
     }
     // SetFilletParameters chose the executive's options as SmApiFilletEdges and
@@ -299,6 +326,7 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
     s = status(exec.CreateFilletCorners());
     if (s != SMLIB_OK)
     {
+        note_blend_failure(exec, s);
         return s;
     }
     SmTArray<SmFilletCorner *> &corners = exec.GetFilletCorners();
@@ -309,6 +337,7 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
     s = status(exec.DoFilleting());
     if (s != SMLIB_OK)
     {
+        note_blend_failure(exec, s);
         return s;
     }
     return status(b->StitchAndOrient());
@@ -488,10 +517,14 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
         return SMLIB_ERR_ARG;
     }
     SmFilletExecutive exec(*SmApiGetOrCreateContext(), b);
+    // The curvature-continuous section is the quintic whose inner control points lie a third
+    // and two thirds of the way from each contact to the corner its tangents make.
+    exec.SetBlendCurveAtThirds(kind == SMLIB_BLEND_CURVATURE ? TRUE : FALSE);
     int32_t s = status(exec.SetFilletParameters(b, es, sections, solvers, values, laws.empty() ? nullptr : &law_array, -1.0, -1.0,
                                                 -1.0, -1.0, continuity, 1.0));
     if (s != SMLIB_OK)
     {
+        note_blend_failure(exec, s);
         return s;
     }
     // SetFilletParameters chose the executive's options as SmApiFilletEdges runs it (its
@@ -499,6 +532,7 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
     s = status(exec.DoFillet());
     if (s != SMLIB_OK)
     {
+        note_blend_failure(exec, s);
         return s;
     }
     return status(b->StitchAndOrient());
@@ -953,9 +987,17 @@ int32_t blend_call(const char *fn, const smlib_brep *brep, int32_t kind, const d
     Call c(fn, handle(brep) + ", kind=" + std::to_string(kind) + ", points=" + pts(points, n_points) + ", sizes=" +
                    vec(sizes, static_cast<int>(n_sizes)) + ", tolerance=" + num(tolerance));
     c.input("brep", brep);
+    c.input_text("why", [](const std::string &path) {
+        if (FILE *f = std::fopen(path.c_str(), "w"))
+        {
+            std::fputs(g_blend_why.c_str(), f);
+            std::fclose(f);
+        }
+    });
     return c.run(
         [&]
         {
+            g_blend_why.clear();
             int32_t s = SMLIB_OK;
             Owned w = copy_of(brep, s);
             if (s != SMLIB_OK)
@@ -1141,9 +1183,17 @@ extern "C" int32_t smlib_fillet_variable(const smlib_brep *brep, const double *p
                                         ", degree=" + std::to_string(degree) + ", knots=" + vec(knots, static_cast<int>(n_knots)) +
                                         ", radii=" + vec(radii, static_cast<int>(n_radii)));
     c.input("brep", brep);
+    c.input_text("why", [](const std::string &path) {
+        if (FILE *f = std::fopen(path.c_str(), "w"))
+        {
+            std::fputs(g_blend_why.c_str(), f);
+            std::fclose(f);
+        }
+    });
     return c.run(
         [&]
         {
+            g_blend_why.clear();
             int32_t s = SMLIB_OK;
             Owned w = copy_of(brep, s);
             if (s != SMLIB_OK)
@@ -1193,9 +1243,17 @@ extern "C" int32_t smlib_chamfer_sides(const smlib_brep *brep, const double *poi
     Call c("smlib_chamfer_sides", handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", distance=" + num(distance) +
                                       ", second=" + num(second) + ", angle=" + std::to_string(second_is_angle) + ", first=" + vec(first, 3));
     c.input("brep", brep);
+    c.input_text("why", [](const std::string &path) {
+        if (FILE *f = std::fopen(path.c_str(), "w"))
+        {
+            std::fputs(g_blend_why.c_str(), f);
+            std::fclose(f);
+        }
+    });
     return c.run(
         [&]
         {
+            g_blend_why.clear();
             int32_t s = SMLIB_OK;
             Owned w = copy_of(brep, s);
             if (s != SMLIB_OK)
