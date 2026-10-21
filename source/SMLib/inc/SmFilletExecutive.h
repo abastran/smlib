@@ -239,6 +239,11 @@ protected:
                                                     //        This catches large radius cases where original Brep pieces get cut away.
                                                     // FALSE= use faster local operations that might miss some large radius cases.
 
+  SmBoolean                 m_bBlendCurveAtThirds;  // TRUE = blend-curve sections place their inner control points a third
+                                                    //        and two thirds of the way from each contact to where the two
+                                                    //        contacts' tangent lines meet (SmBlendCurveCrossSectionFSG).
+                                                    // FALSE= the fairest equally spaced Hermite scaled by the thumbweight.
+
   SmBoolean                 m_bDoTrimming;          // TRUE = Remove original m_pTargetBrep pieces trimmed away by the filleting operation.
                                                     // FALSE= no trimming; Only imprint FilletGeometry onto original m_pTargetBrep
 
@@ -417,6 +422,7 @@ public:
 
   SmBoolean                   GetDoClassification()   { return m_bDoClassification; }
   SmBoolean                   GetDoGlobalMerge()      { return m_bDoGlobalMerge; }
+  SmBoolean                   GetBlendCurveAtThirds() { return m_bBlendCurveAtThirds; }
 
   SmTArray<SmFilletCorner*> & GetFilletCorners()      { return m_vFilletCorners; }
   SmTArray<SmFilletSolver*> & GetFilletSolvers()      { return m_vFilletSolvers; }
@@ -443,6 +449,8 @@ public:
   void     SetDoPiecewiseMerge       (SmBoolean bDoPiecewiseMerge) { m_bDoPiecewiseMerge    = bDoPiecewiseMerge; }
   void     SetDoTopologyInsertion    (SmBoolean bDoInsert)         { m_bDoTopologyInsertion = bDoInsert; }
   void     SetDoGlobalMerge          (SmBoolean bDoGlobalMerge)    { m_bDoGlobalMerge       = bDoGlobalMerge; }
+  // Before SetFilletParameters, which creates the section generators with it.
+  void     SetBlendCurveAtThirds     (SmBoolean bAtThirds)         { m_bBlendCurveAtThirds  = bAtThirds; }
   void     SetDoTrimming             (SmBoolean bDoTrim)           { m_bDoTrimming          = bDoTrim; }
   SmStatus SetBevelCorner            (SmVertex * pCornerVert);
   SmStatus SetFilletBrepEdgeMap      ();
