@@ -51,9 +51,18 @@ units and length rule. The conversion is `src/smlib_flat.cpp`, a USD-free port o
 - UV trim curves are carried only for faces on NURBS surfaces. On analytic faces, SMLib's trims
   live in its internal NURBS form of the surface rather than the analytic parameterisation, so
   they are not exported and SMLib rebuilds them from the 3D edges on import.
-- Edge curves are always exported as NURBS: lines, circles and ellipses as their exact NURBS form,
-  and any other curve approximated to the B-rep's tolerance. Import also accepts line, circle
-  and ellipse curves.
+- Edge curves are exported as lines, circles and ellipses when SMLib holds them as `SmLine`,
+  `SmCircle` and `SmEllipse`. B-splines stay NURBS, and any other curve kind is approximated
+  as NURBS to the B-rep's tolerance. (This differs from SmuConvert, which exports every edge
+  curve as NURBS; its import already read the analytic kinds.) Analytic edges are written in the
+  arrays and units that import reads: the range is in radians for circles and ellipses. Before
+  writing an analytic edge, export rebuilds the curve exactly as import will and checks it
+  pointwise; if the check fails, the edge stays NURBS. An imported analytic edge has the
+  parameterisation of its kind rather than the original's. On a NURBS face, the edge's UV trims
+  are re-mapped to match, or dropped when the two parameterisations are not affinely related,
+  in which case SMLib rebuilds them.
+- SMLib's own primitives (`SmApiCreateCylinder`, `SmApiCreateCone`, `SmApiCreateTorus`) build
+  their circles as plain B-splines, so those export as NURBS. So do booleans' intersection curves.
 - A cone with a negative semi-angle is rebuilt in the equivalent positive-angle form on import.
   Its second export therefore differs from its first, and from then on the arrays are stable.
 - Attributes, materials and colours are not carried.
@@ -62,7 +71,8 @@ Import validates everything first (counts, indices, lengths, kinds, finite value
 orders and knots, closed loops, radial cycles), so malformed arrays return
 `SM_ERR_INVALID_INPUT` without building anything. A failing import's dump holds its arrays as
 text, which `smlib_flat_read` reads back for replay. `tests/flat_roundtrip.cpp` round-trips a box,
-cylinder, cone, sphere, torus, two filleted boxes and a boolean, then feeds the import hostile
+cylinder, cone, sphere, torus, two filleted boxes, a boolean and an inclined cut, checking each
+one's exported curve kinds, then feeds the import hostile
 and randomly mutated arrays.
 
 ## Diagnostics

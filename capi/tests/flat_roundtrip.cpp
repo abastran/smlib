@@ -125,6 +125,13 @@ double Compare(const Arrays &a, const Arrays &b, const char *what)
     for (auto &kv : a.f)
     {
         const std::vector<double> &x = kv.second, &y = b.f.at(kv.first);
+        // EXTENT is SMLib's loose (non-tight) bounding box, informational and ignored by import;
+        // it can differ between a B-rep and its re-import (blend1: the blend face's box comes
+        // out 4.6e-5 wider), with an all-NURBS export too. Its length still has to match.
+        if (kv.first == SMLIB_FLAT_EXTENT && x.size() == y.size())
+        {
+            continue;
+        }
         if (x.size() != y.size())
         {
             std::fprintf(stderr, "  %s: real array %d has %zu then %zu values\n", what, kv.first, x.size(), y.size());
@@ -178,6 +185,25 @@ Facts Measure(const smlib_brep *b)
     return f;
 }
 
+// Expected curve kinds per solid (nurbs, line, circle, ellipse). Export keeps SMLib's own curve
+// classes: SmApiCreateCylinder, SmApiCreateCone and SmApiCreateTorus build their rims and seam
+// circles as plain SmBSplineCurves (exactly circular, but not SmCircles), so those stay NURBS,
+// as do a boolean's intersection curves.
+const std::map<std::string, std::vector<int64_t>> g_kinds = {
+    {"box", {0, 12, 0, 0}},      // twelve SmLines
+    {"cylinder", {2, 1, 0, 0}},  // B-spline rims, a line seam
+    {"cone", {2, 1, 0, 0}},      // B-spline rims, a line seam
+    {"sphere", {0, 0, 1, 0}},    // the seam: an SmCircle half circle
+    {"torus", {2, 0, 0, 0}},     // B-spline seam circles
+    {"fillet", {0, 24, 24, 0}},  // the box's trimmed lines, the fillets' SmCircle arcs
+    {"blend", {48, 0, 0, 0}},    // blend-curve fillets: all B-splines
+    {"blend1", {4, 11, 0, 0}},   // the blend face's four B-spline edges, the box's eleven lines
+    {"boolean", {2, 13, 0, 0}},  // the hole's intersection curves are B-splines
+    {"incline", {1, 1, 0, 2}},   // B-spline bottom rim, line seam, two SmEllipse arcs
+};
+
+size_t g_analyticTrims = 0;
+
 // The round trip; returns the first export (caller frees) for the hostile cases.
 //
 // `normalizes`: the import rewrites this solid into an equivalent canonical form, so the first
@@ -186,7 +212,15 @@ Facts Measure(const smlib_brep *b)
 // and rebuilds the cone from Vmin. Then the volume (integrated at 1e-7 over a different
 // parameterisation) need only agree to 1e-7, and the arrays must reach a fixed point: the second
 // and third exports must match.
-smlib_flat *RoundTrip(const char *name, smlib_brep *b, bool normalizes = false)
+//
+// `volumeTolerance`: 1e-9 unless an edge curve is rebuilt with another parameterisation, which
+// SMLib then integrates (and trims) differently, by up to its 1e-7 accuracy: the cone (above),
+// the sphere, whose seam SmCircle is rebuilt over [-90, 90] degrees instead of [0, 1] (its
+// volume moves by 1.9e-8 at accuracy 1e-7 and 8.5e-8 at 1e-8, where an all-NURBS export keeps it
+// exactly), and the inclined cut, whose SmEllipse arcs are rebuilt likewise and whose cylinder
+// trims SMLib rebuilds. The geometry is the same: export checks the rebuilt curve against the
+// original pointwise.
+smlib_flat *RoundTrip(const char *name, smlib_brep *b, bool normalizes = false, double volumeTolerance = 1e-9)
 {
     if (b == nullptr)
     {
@@ -213,8 +247,12 @@ smlib_flat *RoundTrip(const char *name, smlib_brep *b, bool normalizes = false)
         return flat1;
     }
     Facts f1 = Measure(b2);
+    double v8a = 0.0, v8b = 0.0;
+    smlib_brep_volume(b, 1e-8, &v8a);
+    smlib_brep_volume(b2, 1e-8, &v8b);
+    std::printf("%-9s volume at 1e-8: %.12g -> %.12g (rel %.2e)\n", name, v8a, v8b, std::fabs(v8b - v8a) / std::max(1e-300, std::fabs(v8a)));
     double dv = std::fabs(f1.volume - f0.volume) / std::fabs(f0.volume);
-    CHECK(dv <= (normalizes ? 1e-7 : 1e-9));
+    CHECK(dv <= volumeTolerance);
     CHECK(f1.counts[0] == f0.counts[0] && f1.counts[1] == f0.counts[1] && f1.counts[2] == f0.counts[2]);
     CHECK(f0.manifold == 1 && f1.manifold == 1);
 
@@ -254,6 +292,44 @@ smlib_flat *RoundTrip(const char *name, smlib_brep *b, bool normalizes = false)
         CHECK(a3.i == a1.i && a3.f == a1.f);
     }
 
+    // Curve kinds of the first export: NURBS, line, circle, ellipse (edges and wire edges).
+    int64_t kinds[4] = {0, 0, 0, 0};
+    for (int32_t id : {SMLIB_FLAT_EDGE_CURVE_TYPE, SMLIB_FLAT_WIRE_EDGE_CURVE_TYPE})
+    {
+        for (int64_t t : a1.i[id])
+        {
+            CHECK(t >= 0 && t < 4);
+            if (t >= 0 && t < 4)
+            {
+                kinds[t]++;
+            }
+        }
+    }
+    auto expected = g_kinds.find(name);
+    if (expected != g_kinds.end())
+    {
+        const std::vector<int64_t> &k = expected->second;
+        if (!(kinds[0] == k[0] && kinds[1] == k[1] && kinds[2] == k[2] && kinds[3] == k[3]))
+        {
+            std::fprintf(stderr, "%s: curve kinds nurbs/line/circle/ellipse %lld/%lld/%lld/%lld, expected %lld/%lld/%lld/%lld\n", name,
+                         (long long)kinds[0], (long long)kinds[1], (long long)kinds[2], (long long)kinds[3], (long long)k[0], (long long)k[1],
+                         (long long)k[2], (long long)k[3]);
+            failures++;
+        }
+    }
+
+    // UV trims carried on edges exported as analytic curves (their knots were re-mapped).
+    size_t nAnalyticTrims = 0;
+    if (!a1.i[SMLIB_FLAT_EDGEUSE_NURBS_VERTEX_COUNT].empty())
+    {
+        for (size_t k = 0; k < a1.i[SMLIB_FLAT_EDGEUSE_EDGE].size(); ++k)
+        {
+            nAnalyticTrims += a1.i[SMLIB_FLAT_EDGEUSE_NURBS_VERTEX_COUNT][k] != 0 &&
+                              a1.i[SMLIB_FLAT_EDGE_CURVE_TYPE][static_cast<size_t>(a1.i[SMLIB_FLAT_EDGEUSE_EDGE][k])] != SMLIB_FLAT_CURVE_NURBS;
+        }
+    }
+    g_analyticTrims += nAnalyticTrims;
+
     size_t nNurbsFaces = a1.i[SMLIB_FLAT_FACE_NURBS_U_ORDER].size();
     size_t nUV = 0;
     for (int64_t n : a1.i[SMLIB_FLAT_EDGEUSE_NURBS_VERTEX_COUNT])
@@ -262,9 +338,10 @@ smlib_flat *RoundTrip(const char *name, smlib_brep *b, bool normalizes = false)
     }
     std::printf(
         "%-9s faces/edges/vertices %lld/%lld/%lld -> %lld/%lld/%lld, manifold %d -> %d, volume %.12g -> %.12g (rel %.2e), "
-        "NURBS faces %zu, UV trims %zu, re-export max rel diff %.2e\n",
+        "NURBS faces %zu, UV trims %zu (%zu on analytic edges), curves nurbs/line/circle/ellipse %lld/%lld/%lld/%lld, re-export max rel diff %.2e\n",
         name, (long long)f0.counts[0], (long long)f0.counts[1], (long long)f0.counts[2], (long long)f1.counts[0], (long long)f1.counts[1],
-        (long long)f1.counts[2], f0.manifold, f1.manifold, f0.volume, f1.volume, dv, nNurbsFaces, nUV, worst
+        (long long)f1.counts[2], f0.manifold, f1.manifold, f0.volume, f1.volume, dv, nNurbsFaces, nUV, nAnalyticTrims, (long long)kinds[0], (long long)kinds[1],
+        (long long)kinds[2], (long long)kinds[3], worst
     );
 
     smlib_flat_free(flat3);
@@ -470,7 +547,7 @@ int main(int argc, char **argv)
     std::vector<std::pair<const char *, smlib_brep *>> solids;
     if (const char *from = std::getenv("SMLIB_FLAT_SOLIDS"))
     {
-        for (const char *name : {"box", "cylinder", "cone", "sphere", "torus", "fillet", "blend", "boolean"})
+        for (const char *name : {"box", "cylinder", "cone", "sphere", "torus", "fillet", "blend", "blend1", "boolean", "incline"})
         {
             smlib_brep *b = nullptr;
             CHECK(smlib_brep_read((std::string(from) + "/" + name + ".smb").c_str(), 0, &b) == SMLIB_OK);
@@ -532,6 +609,22 @@ int main(int argc, char **argv)
         solids.emplace_back("blend", ToCApi(b, "blend"));
     }
     {
+        // One blended edge: one NURBS face with UV trims. (Its four boundary edges come out as
+        // B-splines, so this still carries no trim on an analytic edge.)
+        SmBrep *b = nullptr;
+        SmApiCreateBox(SmVector3d(0, 0, 0), 10, 10, 10, b);
+        SmTArray<SmEdge *> edges, one;
+        SmApiGetEdges(b, edges);
+        one.Add(edges[0]);
+        SmApiStatus s = SmApiFilletEdges(b, one, 2.0, 2, 2, 1.0);
+        if (s != SM_SUCCESS)
+        {
+            std::fprintf(stderr, "blend1: SmApiFilletEdges -> %d\n", (int)s);
+            failures++;
+        }
+        solids.emplace_back("blend1", ToCApi(b, "blend1"));
+    }
+    {
         SmBrep *box = nullptr, *cyl = nullptr, *r = nullptr;
         SmApiCreateBox(SmVector3d(0, 0, 0), 20, 20, 20, box);
         SmApiCreateCylinder(SmVector3d(10, 10, -5), 4, 30, cyl);
@@ -546,12 +639,32 @@ int main(int argc, char **argv)
         }
         solids.emplace_back("boolean", ToCApi(r, "boolean"));
     }
+    {
+        // A cylinder minus a tilted box: the inclined rim is made of ellipse arcs. (SmApiCut with
+        // an inclined plane also makes an ellipse, but leaves the body open: it does not cap.)
+        SmBrep *cyl = nullptr, *box = nullptr, *r = nullptr;
+        SmApiCreateCylinder(SmVector3d(0, 0, 0), 5, 20, cyl);
+        SmApiCreateBox(SmVector3d(-20, -20, 10), 40, 40, 40, box);
+        SmApiRotate(box, SmVector3d(0, 0, 10), SmVector3d(0, 1, 0), 25.0);
+        SmApiStatus s = SmApiBooleanDifference(cyl, box, r);
+        if (s != SM_SUCCESS)
+        {
+            std::fprintf(stderr, "incline: SmApiBooleanDifference -> %d\n", (int)s);
+            failures++;
+            delete cyl;
+            delete box;
+            r = nullptr;
+        }
+        solids.emplace_back("incline", ToCApi(r, "incline"));
+    }
     }
 
     std::vector<std::pair<const char *, smlib_flat *>> exports;
     for (auto &s : solids)
     {
-        smlib_flat *f = RoundTrip(s.first, s.second, std::strcmp(s.first, "cone") == 0);
+        const bool cone = std::strcmp(s.first, "cone") == 0;
+        const bool reparameterised = cone || std::strcmp(s.first, "sphere") == 0 || std::strcmp(s.first, "incline") == 0;
+        smlib_flat *f = RoundTrip(s.first, s.second, cone, reparameterised ? 1e-7 : 1e-9);
         if (f != nullptr)
         {
             exports.emplace_back(s.first, f);

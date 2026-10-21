@@ -671,7 +671,7 @@ SmBSplineSurface *smu_CreateSmBSplineSurface3d(const SmContext &crContext, const
  PURPOSE: append SmBSplineCurve2d data (Edgeuse->UVTrimCurves); NULL appends an empty curve.
           Port of smu_AddSmBSplineCurve2d_ToBrepArrayData.
  ***********************************************************************/
-SmStatus smu_AddSmBSplineCurve2d(SmBSplineCurve *pBSplineCurve2d, SmBoolean bSameOrientation, FlatBrep &F)
+SmStatus smu_AddSmBSplineCurve2d(SmBSplineCurve *pBSplineCurve2d, SmBoolean bSameOrientation, FlatBrep &F, const double *pRemap = nullptr)
 {
     // For NULL UVTrimCurves
     if (pBSplineCurve2d == NULL)
@@ -713,7 +713,15 @@ SmStatus smu_AddSmBSplineCurve2d(SmBSplineCurve *pBSplineCurve2d, SmBoolean bSam
 
     for (uint32_t i = 0; i < lNumKnots; i++)
     {
-        F.edgeuse_nurbs_knots.push_back(static_cast<double>(knts[i]));
+        double k = static_cast<double>(knts[i]);
+        if (pRemap != nullptr)
+        {
+            // SolidCraft: the edge is exported as an analytic curve whose imported parameter
+            // runs over [pRemap[2], pRemap[3]] instead of the edge's [pRemap[0], pRemap[1]];
+            // map the knots the same way so the trim's parameter keeps matching its edge's.
+            k = k == pRemap[1] ? pRemap[3] : pRemap[2] + (k - pRemap[0]) / (pRemap[1] - pRemap[0]) * (pRemap[3] - pRemap[2]);
+        }
+        F.edgeuse_nurbs_knots.push_back(k);
     }
 
     for (uint32_t i = 0; i < lNumCpts; ++i)
@@ -898,6 +906,301 @@ SmBSplineCurve *EdgeCurveAsBSpline(SmCurve *pCurve, const SmExtent1d &crInterval
     return pBSplineCurve;
 }
 
+// The 3D curve SmuConvert's import builds for a LINE, CIRCLE or ELLIPSE edge: an unbounded line
+// P + s * V, or a circle or ellipse over [dMin, dMax] degrees whose NURBS parameter is then set
+// to that same interval (EditParameterization). dMin/dMax are the edge range in SMLib units.
+// Export uses it too, to check what an import will rebuild.
+SmStatus BuildAnalyticEdgeCurve(
+    const SmContext &ctx,
+    int64_t type,
+    double dMin,
+    double dMax,
+    const SmPoint3d &center,
+    const SmVector3d &axis, // the line's direction for a line
+    const SmVector3d &ref,
+    double dRadius1,
+    double dRadius2,
+    SmCurve *&out
+)
+{
+    out = NULL;
+    if (type == kCurveLine)
+    {
+        SmLine *pLine = NULL;
+        SmStatus stat = SmLine::CreateCanonical(ctx, center, axis, pLine);
+        if (stat != SM_SUCCESS || pLine == NULL)
+        {
+            delete pLine;
+            return stat != SM_SUCCESS ? stat : SM_ERR;
+        }
+        out = pLine;
+        return SM_SUCCESS;
+    }
+    // Build coordinate system: X = refDirection, Y = axis cross refDirection
+    SmVector3d sYAxis = axis * ref;
+    SmAxis2Placement sPlacement;
+    sPlacement.SetCanonical(center, ref, sYAxis);
+    SmExtent1d sDegreeInterval(dMin, dMax);
+    if (type == kCurveCircle)
+    {
+        SmCircle *pCircle = NULL;
+        SmStatus stat = SmCircle::CreateCanonical(ctx, sPlacement, dRadius1, pCircle, &sDegreeInterval);
+        if (stat != SM_SUCCESS || pCircle == NULL)
+        {
+            delete pCircle;
+            return stat != SM_SUCCESS ? stat : SM_ERR;
+        }
+        pCircle->EditParameterization(sDegreeInterval, FALSE);
+        out = pCircle;
+        return SM_SUCCESS;
+    }
+    SmEllipse *pEllipse = NULL;
+    SmStatus stat = SmEllipse::CreateCanonical(ctx, sPlacement, dRadius1, dRadius2, pEllipse, &sDegreeInterval);
+    if (stat != SM_SUCCESS || pEllipse == NULL)
+    {
+        delete pEllipse;
+        return stat != SM_SUCCESS ? stat : SM_ERR;
+    }
+    pEllipse->EditParameterization(sDegreeInterval, FALSE);
+    out = pEllipse;
+    return SM_SUCCESS;
+}
+
+// How one edge's curve is exported (SolidCraft change: SmuConvert exports every edge curve as
+// NURBS; this exports lines, circles and ellipses as their own kinds, in the arrays and units
+// its import reads).
+struct EdgeExport
+{
+    int64_t type = kCurveNurbs;
+    double lo = 0.0, hi = 0.0;     // the exported range: radians for circles and ellipses
+    double smLo = 0.0, smHi = 0.0; // the imported edge's interval (SMLib units: degrees for circles and ellipses)
+    SmPoint3d center;              // circle/ellipse center, line origin
+    SmVector3d axis;               // circle/ellipse axis, line direction
+    SmVector3d ref;                // circle/ellipse reference direction
+    double r1 = 0.0, r2 = 0.0;     // radius; x and y radius for ellipses
+    // The imported curve's parameter is an affine image of this edge's, so UV trims can be
+    // carried by mapping their knots; otherwise they are dropped and SMLib rebuilds them.
+    bool affine = false;
+};
+
+// Decides how to export the curve of an edge with NURBS interval `ivl`. The most-derived class
+// is tested first: SmCircle derives from SmEllipse, and every analytic curve from
+// SmBSplineCurve. The edge's interval ends are converted with the curve's own
+// ConvertTFromNURBSToSTEP; a curve whose STEP parameter runs against its NURBS parameter
+// (InsideOut) is written with its axis (or direction) reversed and its range negated, which
+// is the same point set traversed the same way. The analytic form is used only when the
+// curve the import builds from it matches this one pointwise (at the edge's ends and along
+// the STEP parameter); anything else stays NURBS.
+EdgeExport ClassifyEdgeCurve(const SmContext &ctx, SmCurve *pCurve, const SmExtent1d &ivl)
+{
+    EdgeExport e;
+    EdgeExport nurbs;
+    if (pCurve == NULL)
+    {
+        return nurbs;
+    }
+    if (pCurve->IsKindOf(SmCircle_TYPE))
+    {
+        SmAxis2Placement sOrigin;
+        double dRadius = 0.0;
+        if (SM_REINTERPRET_CAST(SmCircle *, pCurve)->GetCanonical(sOrigin, dRadius) != SM_SUCCESS)
+        {
+            return nurbs;
+        }
+        e.type = kCurveCircle;
+        e.center = sOrigin.GetOrigin();
+        e.axis = sOrigin.GetZAxis();
+        e.ref = sOrigin.GetXAxis();
+        e.r1 = e.r2 = dRadius;
+    }
+    else if (pCurve->IsKindOf(SmEllipse_TYPE))
+    {
+        SmAxis2Placement sOrigin;
+        double dRadius1 = 0.0, dRadius2 = 0.0;
+        if (SM_REINTERPRET_CAST(SmEllipse *, pCurve)->GetCanonical(sOrigin, dRadius1, dRadius2) != SM_SUCCESS)
+        {
+            return nurbs;
+        }
+        e.type = kCurveEllipse;
+        e.center = sOrigin.GetOrigin();
+        e.axis = sOrigin.GetZAxis();
+        e.ref = sOrigin.GetXAxis();
+        e.r1 = dRadius1;
+        e.r2 = dRadius2;
+    }
+    else if (pCurve->IsKindOf(SmLine_TYPE))
+    {
+        SmPoint3d sPoint;
+        SmVector3d sVector; // Line(s) = Pt + s * Vec, Vec not unit length
+        if (SM_REINTERPRET_CAST(SmLine *, pCurve)->GetCanonical(sPoint, sVector) != SM_SUCCESS)
+        {
+            return nurbs;
+        }
+        e.type = kCurveLine;
+        e.center = sPoint;
+        e.axis = sVector;
+    }
+    else
+    {
+        return nurbs;
+    }
+
+    double s0 = 0.0, s1 = 0.0;
+    if (pCurve->ConvertTFromNURBSToSTEP(ivl.GetMin(), s0) != SM_SUCCESS || pCurve->ConvertTFromNURBSToSTEP(ivl.GetMax(), s1) != SM_SUCCESS ||
+        !std::isfinite(s0) || !std::isfinite(s1))
+    {
+        return nurbs;
+    }
+    // sNew = sign * sOld + shift
+    double sign = 1.0, shift = 0.0;
+    if (s0 > s1)
+    {
+        sign = -1.0;
+        s0 = -s0;
+        s1 = -s1;
+        e.axis = -e.axis;
+    }
+    if (!(s1 > s0))
+    {
+        return nurbs;
+    }
+    if (e.type == kCurveLine)
+    {
+        if (std::fabs(s0) > SM_INFINITE_PARAMETER || std::fabs(s1) > SM_INFINITE_PARAMETER)
+        {
+            return nurbs;
+        }
+        e.lo = e.smLo = s0;
+        e.hi = e.smHi = s1;
+    }
+    else
+    {
+        // SmCircle/SmEllipse::CreateCanonical take intervals within [-360, 360] degrees.
+        if (s1 - s0 > 360.0 + 1e-9)
+        {
+            return nurbs;
+        }
+        while (s1 > 360.0 + 1e-9)
+        {
+            s0 -= 360.0;
+            s1 -= 360.0;
+            shift -= 360.0;
+        }
+        while (s0 < -360.0 - 1e-9)
+        {
+            s0 += 360.0;
+            s1 += 360.0;
+            shift += 360.0;
+        }
+        if (s1 > 360.0 + 1e-9)
+        {
+            return nurbs;
+        }
+        e.lo = SM_DEG2RAD(s0);
+        e.hi = SM_DEG2RAD(s1);
+        e.smLo = UsdRadiansToSMLibDegrees(e.lo); // exactly what the import computes
+        e.smHi = UsdRadiansToSMLibDegrees(e.hi);
+    }
+
+    SmCurve *pNew = NULL;
+    if (BuildAnalyticEdgeCurve(ctx, e.type, e.smLo, e.smHi, e.center, e.axis, e.ref, e.r1, e.r2, pNew) != SM_SUCCESS || pNew == NULL)
+    {
+        delete pNew;
+        return nurbs;
+    }
+    SmObjDelete sCleanNew(pNew);
+
+    SmPoint3d a, b;
+    if (pCurve->EvaluatePoint(ivl.GetMin(), a) != SM_SUCCESS || pCurve->EvaluatePoint(ivl.GetMax(), b) != SM_SUCCESS)
+    {
+        return nurbs;
+    }
+    const double dScale = 1.0 + e.r1 + e.r2 + a.GetMaxDimension() + b.GetMaxDimension();
+    const double dTol = 1e-9 * dScale;
+    bool bAffine = true;
+    for (int k = 0; k <= 8; ++k)
+    {
+        const double f = k / 8.0;
+        // the same point by the STEP parameter of each curve
+        const double sNew = e.smLo + f * (e.smHi - e.smLo);
+        const double sOld = (sNew - shift) * sign;
+        double tOld = 0.0, tNew = 0.0;
+        SmPoint3d pOld, pNew2, pAffOld, pAffNew;
+        if (pCurve->ConvertTFromSTEPToNURBS(sOld, tOld) != SM_SUCCESS || pNew->ConvertTFromSTEPToNURBS(sNew, tNew) != SM_SUCCESS ||
+            pCurve->EvaluatePoint(tOld, pOld) != SM_SUCCESS || pNew->EvaluatePoint(tNew, pNew2) != SM_SUCCESS || pOld.DistanceBetween(pNew2) > dTol)
+        {
+            return nurbs;
+        }
+        // the same point by each edge's NURBS parameter, affinely matched
+        if (pCurve->EvaluatePoint(ivl.GetMin() + f * (ivl.GetMax() - ivl.GetMin()), pAffOld) != SM_SUCCESS ||
+            pNew->EvaluatePoint(e.smLo + f * (e.smHi - e.smLo), pAffNew) != SM_SUCCESS)
+        {
+            return nurbs;
+        }
+        const double d = pAffOld.DistanceBetween(pAffNew);
+        if ((k == 0 || k == 8) && d > dTol)
+        {
+            return nurbs; // the ends must match exactly as the edge's vertices do
+        }
+        bAffine = bAffine && d <= dTol;
+    }
+    e.affine = bAffine;
+    return e;
+}
+
+// The arrays of one edge family (edges or wire edges) that export writes.
+struct EdgeArraysOut
+{
+    std::vector<int64_t> &type;
+    std::vector<double> &range;
+    std::vector<int64_t> &nurbsCount, &nurbsOrder;
+    std::vector<double> &nurbsCvs, &nurbsKnots, &nurbsWeights;
+    std::vector<double> &circleCenter, &circleAxis, &circleRef, &circleRadius;
+    std::vector<double> &lineOrigin, &lineDirection;
+    std::vector<double> &ellipseCenter, &ellipseAxis, &ellipseRef, &ellipseX, &ellipseY;
+};
+
+// Writes one edge's curve kind, range and geometry.
+SmStatus WriteEdgeCurve(EdgeArraysOut &o, const EdgeExport &e, SmCurve *pCurve, const SmExtent1d &ivl, SmApproxTol3d sApproxTol3d)
+{
+    o.type.push_back(e.type);
+    if (e.type == kCurveNurbs)
+    {
+        o.range.push_back(ivl.GetMin());
+        o.range.push_back(ivl.GetMax());
+        SmObjDelete sCleanBSplineCurve;
+        SmBSplineCurve *pBSplineCurve = EdgeCurveAsBSpline(pCurve, ivl, sApproxTol3d, sCleanBSplineCurve);
+        if (pBSplineCurve == NULL)
+        {
+            return SM_ERR; // SmuConvert asserts and dereferences NULL
+        }
+        return smu_AddSmBSplineCurve3d(*pBSplineCurve, o.nurbsCount, o.nurbsOrder, o.nurbsCvs, o.nurbsKnots, o.nurbsWeights);
+    }
+    o.range.push_back(e.lo);
+    o.range.push_back(e.hi);
+    if (e.type == kCurveLine)
+    {
+        Push3(o.lineOrigin, e.center.x, e.center.y, e.center.z);
+        Push3(o.lineDirection, e.axis.x, e.axis.y, e.axis.z);
+    }
+    else if (e.type == kCurveCircle)
+    {
+        Push3(o.circleCenter, e.center.x, e.center.y, e.center.z);
+        Push3(o.circleAxis, e.axis.x, e.axis.y, e.axis.z);
+        Push3(o.circleRef, e.ref.x, e.ref.y, e.ref.z);
+        o.circleRadius.push_back(e.r1);
+    }
+    else
+    {
+        Push3(o.ellipseCenter, e.center.x, e.center.y, e.center.z);
+        Push3(o.ellipseAxis, e.axis.x, e.axis.y, e.axis.z);
+        Push3(o.ellipseRef, e.ref.x, e.ref.y, e.ref.z);
+        o.ellipseX.push_back(e.r1);
+        o.ellipseY.push_back(e.r2);
+    }
+    return SM_SUCCESS;
+}
+
 } // namespace
 
 /*******************************************************************/ /**
@@ -978,6 +1281,26 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         sEdgeIndex.emplace(pBrepData_ii->m_vEdges[jj].m_pEdge, jj);
     }
 
+    // How each edge's curve is exported (needed by the edgeuses' UV trims before the edges).
+    std::vector<EdgeExport> sEdgeExports(lNumEdges);
+    for (uint32_t jj = 0; jj < lNumEdges; ++jj)
+    {
+        SmEdgeData &rEdgeData = pBrepData_ii->m_vEdges[jj];
+        if (rEdgeData.m_pEdge != NULL)
+        {
+            sEdgeExports[jj] = ClassifyEdgeCurve(*cpContext, rEdgeData.m_pEdge->GetCurve(), rEdgeData.m_vInterval);
+        }
+    }
+    EdgeArraysOut sEdgeOut{F.edge_curve_type, F.edge_range, F.edge_nurbs_vertex_count, F.edge_nurbs_order, F.edge_nurbs_cvs,
+                           F.edge_nurbs_knots, F.edge_nurbs_weights, F.edge_circle_center, F.edge_circle_axis, F.edge_circle_ref_direction,
+                           F.edge_circle_radius, F.edge_line_origin, F.edge_line_direction, F.edge_ellipse_center, F.edge_ellipse_axis,
+                           F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius};
+    EdgeArraysOut sWireEdgeOut{F.wire_edge_curve_type, F.wire_edge_range, F.wire_edge_nurbs_vertex_count, F.wire_edge_nurbs_order,
+                               F.wire_edge_nurbs_cvs, F.wire_edge_nurbs_knots, F.wire_edge_nurbs_weights, F.wire_edge_circle_center,
+                               F.wire_edge_circle_axis, F.wire_edge_circle_ref_direction, F.wire_edge_circle_radius, F.wire_edge_line_origin,
+                               F.wire_edge_line_direction, F.wire_edge_ellipse_center, F.wire_edge_ellipse_axis, F.wire_edge_ellipse_ref_direction,
+                               F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius};
+
     // Regions
     for (uint32_t jj = 0; jj < lNumRegions; ++jj)
     {
@@ -1029,22 +1352,12 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             // it with edge indices; that equals the edge index only while no curve is shared.)
             sWireEdgeIdx.push_back(found->second);
 
-            F.wire_edge_curve_type.push_back(kCurveNurbs); // all curve types are currently converted to BSplines
-            F.wire_edge_range.push_back(pWireEdgeData->m_vInterval.GetMin());
-            F.wire_edge_range.push_back(pWireEdgeData->m_vInterval.GetMax());
             // WireEdge VertexIndices are compacted after sVertexShellIdx is built.
             sWireEdgeRawVertices.push_back(pWireEdgeData->m_lStartVertex);
             sWireEdgeRawVertices.push_back(pWireEdgeData->m_lEndVertex);
 
-            SmObjDelete sCleanBSplineCurve;
-            SmBSplineCurve *pBSplineCurve = EdgeCurveAsBSpline(pWireEdge->GetCurve(), pWireEdgeData->m_vInterval, sApproxTol3d, sCleanBSplineCurve);
-            if (pBSplineCurve == NULL)
-            {
-                return SM_ERR; // SmuConvert asserts and dereferences NULL
-            }
-            SmStatus s = smu_AddSmBSplineCurve3d(
-                *pBSplineCurve, F.wire_edge_nurbs_vertex_count, F.wire_edge_nurbs_order, F.wire_edge_nurbs_cvs, F.wire_edge_nurbs_knots,
-                F.wire_edge_nurbs_weights
+            SmStatus s = WriteEdgeCurve(
+                sWireEdgeOut, sEdgeExports[static_cast<size_t>(found->second)], pWireEdge->GetCurve(), pWireEdgeData->m_vInterval, sApproxTol3d
             );
             if (s != SM_SUCCESS)
             {
@@ -1390,8 +1703,30 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
                                 ? pBrepData_ii->m_vUVCurves[rEUData.m_lUVCurve]
                                 : NULL;
         SmBSplineCurve *pBSplineCurve2d = (pUVCurve != NULL && pUVCurve->IsKindOf(SmBSplineCurve_TYPE)) ? SM_REINTERPRET_CAST(SmBSplineCurve *, pUVCurve) : NULL;
+        // SolidCraft: on an edge exported as an analytic curve, the trim's knots follow the
+        // imported curve's parameter, or the trim is dropped when that is not an affine image of
+        // the edge's (SMLib then rebuilds it from the 3D edge, as for analytic faces).
+        double sRemap[4];
+        const double *pRemap = nullptr;
+        if (pBSplineCurve2d != NULL && rEUData.m_lEdge < sEdgeExports.size() && sEdgeExports[rEUData.m_lEdge].type != kCurveNurbs)
+        {
+            const EdgeExport &rE = sEdgeExports[rEUData.m_lEdge];
+            const SmExtent1d &rIvl = pBrepData_ii->m_vEdges[rEUData.m_lEdge].m_vInterval;
+            if (rE.affine)
+            {
+                sRemap[0] = rIvl.GetMin();
+                sRemap[1] = rIvl.GetMax();
+                sRemap[2] = rE.smLo;
+                sRemap[3] = rE.smHi;
+                pRemap = sRemap;
+            }
+            else
+            {
+                pBSplineCurve2d = NULL;
+            }
+        }
         const size_t lCountBefore = F.edgeuse_nurbs_vertex_count.size();
-        const SmStatus sUvCurveStatus = smu_AddSmBSplineCurve2d(pBSplineCurve2d, rEUData.m_bOrientation, F);
+        const SmStatus sUvCurveStatus = smu_AddSmBSplineCurve2d(pBSplineCurve2d, rEUData.m_bOrientation, F, pRemap);
         if (sUvCurveStatus != SM_SUCCESS && F.edgeuse_nurbs_vertex_count.size() == lCountBefore)
         {
             // UV trims are optional. Preserve the edgeuse/UV-curve one-to-one record alignment
@@ -1415,19 +1750,10 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             return SM_ERR;
         }
 
-        F.edge_curve_type.push_back(kCurveNurbs); // all curve types are currently converted to BSplines
-        F.edge_range.push_back(rEdgeData.m_vInterval.GetMin());
-        F.edge_range.push_back(rEdgeData.m_vInterval.GetMax());
         F.edge_vertices.push_back(smu_CompactLocalIndex(rEdgeData.m_lStartVertex, sVertexShellIdx));
         F.edge_vertices.push_back(smu_CompactLocalIndex(rEdgeData.m_lEndVertex, sVertexShellIdx));
 
-        SmObjDelete sCleanBSplineCurve;
-        SmBSplineCurve *pBSplineCurve = EdgeCurveAsBSpline(pEdge->GetCurve(), rEdgeData.m_vInterval, sApproxTol3d, sCleanBSplineCurve);
-        if (pBSplineCurve == NULL)
-        {
-            return SM_ERR; // SmuConvert asserts and dereferences NULL
-        }
-        SmStatus s = smu_AddSmBSplineCurve3d(*pBSplineCurve, F.edge_nurbs_vertex_count, F.edge_nurbs_order, F.edge_nurbs_cvs, F.edge_nurbs_knots, F.edge_nurbs_weights);
+        SmStatus s = WriteEdgeCurve(sEdgeOut, sEdgeExports[jj], pEdge->GetCurve(), rEdgeData.m_vInterval, sApproxTol3d);
         if (s != SM_SUCCESS)
         {
             return s;
@@ -1675,9 +2001,14 @@ bool GoodEdges(
             knot += c + o;
             iNurbs++;
         }
-        else if ((type[i] == kCurveCircle || type[i] == kCurveEllipse) && hi - lo > 2.0 * SM_PI + 1e-9)
+        else if ((type[i] == kCurveCircle || type[i] == kCurveEllipse) &&
+                 (hi - lo > 2.0 * SM_PI + 1e-9 || std::fabs(lo) > 2.0 * SM_PI * (1.0 + 1e-9) || std::fabs(hi) > 2.0 * SM_PI * (1.0 + 1e-9)))
         {
-            return false;
+            return false; // SmCircle/SmEllipse::CreateCanonical take [-360, 360] degrees
+        }
+        else if (type[i] == kCurveLine && (std::fabs(lo) > SM_INFINITE_PARAMETER || std::fabs(hi) > SM_INFINITE_PARAMETER))
+        {
+            return false; // an imported line is unbounded over +-SM_INFINITE_PARAMETER
         }
     }
     return true;
@@ -2140,46 +2471,19 @@ SmStatus MakeEdgeCurve(
     if (type == kCurveCircle)
     {
         size_t idx = c.circle++;
-        SmAxis2Placement sPlacement = Placement(Get3(circleCenter, idx), GetVec3(circleAxis, idx), GetVec3(circleRef, idx));
-        SmCircle *pCircle = NULL;
-        SmExtent1d sEdgeDegreeInterval(dMin, dMax);
-        SmStatus stat = SmCircle::CreateCanonical(ctx, sPlacement, circleRadius[idx], pCircle, &sEdgeDegreeInterval);
-        if (stat != SM_SUCCESS || pCircle == NULL)
-        {
-            delete pCircle;
-            return stat != SM_SUCCESS ? stat : SM_ERR;
-        }
-        pCircle->EditParameterization(sEdgeDegreeInterval, FALSE);
-        out = pCircle;
-        return SM_SUCCESS;
+        return BuildAnalyticEdgeCurve(
+            ctx, type, dMin, dMax, Get3(circleCenter, idx), GetVec3(circleAxis, idx), GetVec3(circleRef, idx), circleRadius[idx], circleRadius[idx], out
+        );
     }
     if (type == kCurveLine)
     {
         size_t idx = c.line++;
-        SmLine *pLine = NULL;
-        SmStatus stat = SmLine::CreateCanonical(ctx, Get3(lineOrigin, idx), GetVec3(lineDirection, idx), pLine);
-        if (stat != SM_SUCCESS || pLine == NULL)
-        {
-            delete pLine;
-            return stat != SM_SUCCESS ? stat : SM_ERR;
-        }
-        out = pLine;
-        return SM_SUCCESS;
+        return BuildAnalyticEdgeCurve(ctx, type, dMin, dMax, Get3(lineOrigin, idx), GetVec3(lineDirection, idx), SmVector3d(), 0.0, 0.0, out);
     }
-    // ellipse
     size_t idx = c.ellipse++;
-    SmAxis2Placement sPlacement = Placement(Get3(ellipseCenter, idx), GetVec3(ellipseAxis, idx), GetVec3(ellipseRef, idx));
-    SmEllipse *pEllipse = NULL;
-    SmExtent1d sEllipseDegreeInterval(dMin, dMax);
-    SmStatus stat = SmEllipse::CreateCanonical(ctx, sPlacement, ellipseX[idx], ellipseY[idx], pEllipse, &sEllipseDegreeInterval);
-    if (stat != SM_SUCCESS || pEllipse == NULL)
-    {
-        delete pEllipse;
-        return stat != SM_SUCCESS ? stat : SM_ERR;
-    }
-    pEllipse->EditParameterization(sEllipseDegreeInterval, FALSE);
-    out = pEllipse;
-    return SM_SUCCESS;
+    return BuildAnalyticEdgeCurve(
+        ctx, type, dMin, dMax, Get3(ellipseCenter, idx), GetVec3(ellipseAxis, idx), GetVec3(ellipseRef, idx), ellipseX[idx], ellipseY[idx], out
+    );
 }
 
 // The SMLib form of a USD edge range: radians -> degrees for circles and ellipses.
