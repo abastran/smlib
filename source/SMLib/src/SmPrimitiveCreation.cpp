@@ -697,6 +697,12 @@ SmStatus SmPrimitiveCreation::CreateCone
                                           dBrepTol,    // in : 3d Distance for planarity checks
                                           pBaseFace )); // out: new face
     }
+  else
+    {
+      // An apex, not a cap: its iso curve is unused. (SolidCraft fork: it leaked.)
+      delete pBaseEdge ;
+      pBaseEdge = NULL ;
+    }
 
   // make top face
   SmFace* pTopFace = NULL;
@@ -709,6 +715,12 @@ SmStatus SmPrimitiveCreation::CreateCone
                                           pCurves,    // in : array of planar curves to bound newFace - curves used by NewEdges
                                           dBrepTol,   // in : 3d Distance for planarity checks
                                           pTopFace )); // out: new face
+    }
+  else
+    {
+      // An apex, not a cap: its iso curve is unused. (SolidCraft fork: it leaked.)
+      delete pTopEdge ;
+      pTopEdge = NULL ;
     }
 
   // if any caps then stitch faces together to form solid
