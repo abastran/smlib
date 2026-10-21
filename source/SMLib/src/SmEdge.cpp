@@ -7622,6 +7622,62 @@ SmBoolean SmEdge::AssertValid
       // Must watch out for zero sectors: coincident faces.
       SmBoolean bHaveNonzeroAngle = FALSE;
 
+      // A sector between faces tangent along the edge (a cylinder touching a plane it rests on,
+      // left by a boolean as a non-manifold edge) has binormals that agree to first order: the
+      // faces leave the edge in the same direction and only their curvature parts them, so the
+      // binormal angles tie (or differ by rounding, either way round) and cannot show the order.
+      // Where any sector is that narrow, every face is measured by the direction from the edge to
+      // its point a short step into the face (20 edge tolerances, as IsConvexRadialSector steps),
+      // which tells tangent faces apart and gives every other face its binormal's angle within
+      // the curvature over that step.
+      const double dSeqParam    = sExtent.Evaluate(.456) ;
+      const double dStepOffDist = 20.0 * dEdgeTol ;
+      SmBoolean    bStepOff     = FALSE ;
+      {
+        const double dTieDot = smos_Cosine( SM_ANG_TOL_DEG * SM_PI/180.0 ) ;
+        const SmEdgeuse *pEU = pTargetEdgeuse ;
+        ULONG lSectors = 0 ;
+        do
+          {
+            const SmEdgeuse *pRad = pEU->GetRadial() ;
+            if(   pRad == NULL
+               || pEU->m_tEdgeuseType != SmLoopuse_TYPE
+               || pRad->m_tEdgeuseType != SmLoopuse_TYPE)
+              { break ; }
+            SmPoint3d  sP0, sP1 ;
+            SmVector3d sB0, sB1 ;
+            if(   pEU ->EvaluateBinormal(dSeqParam, TRUE, sP0, sB0) == SM_SUCCESS
+               && pRad->EvaluateBinormal(dSeqParam, TRUE, sP1, sB1) == SM_SUCCESS
+               && sB0.Unitize() == SM_SUCCESS
+               && sB1.Unitize() == SM_SUCCESS
+               && sB0.Dot(sB1) > dTieDot )
+              { bStepOff = TRUE ; }
+            pEU = pRad->GetMate() ;
+          }
+        while( !bStepOff && pEU != NULL && pEU != pTargetEdgeuse && ++lSectors < lNumEUs ) ;
+      }
+
+      // The direction an edgeuse's face leaves the edge in: its binormal, or (bStepOff) the
+      // direction to its step-off point, square to the edge.
+      auto sm_SectorDirection = [&]( const SmEdgeuse * pEU, SmPoint3d & rPnt, SmVector3d & rDir,
+                                     SmVector3d & rTangent, SmVector3d & rFaceNormal )
+      {
+        pEU->EvaluateBinormal(dSeqParam, TRUE, rPnt, rDir, &rTangent, &rFaceNormal) ;
+        if ( !bStepOff )
+          { return ; }
+        SmPoint3d  sStepPnt ;
+        SmVector3d sStepBin ;
+        if ( pEU->EvaluateBinormalStepOff(dSeqParam, dStepOffDist, sStepPnt, sStepBin) != SM_SUCCESS )
+          { return ; }
+        SmVector3d sUnitTan = rTangent ;
+        if ( sUnitTan.Unitize() != SM_SUCCESS )
+          { return ; }
+        SmVector3d sAway = sStepPnt - rPnt ;
+        sAway = sAway - sAway.Dot(sUnitTan) * sUnitTan ;
+        if ( sAway.Unitize() == SM_SUCCESS )
+          { rDir = sAway ; }
+      } ;
+
       // for every edgeuse-radial partner set, get angles from this edgeuse biVec in ascending order
       while(pTargetEdgeuse != pPrimaryEdgeuse)
         {
@@ -7634,8 +7690,8 @@ SmBoolean SmEdge::AssertValid
              && pRadialEdgeuse->m_tEdgeuseType == SmLoopuse_TYPE)
             {
               // get BinormalEvaluations
-              pTargetEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sTargetPnt, sTargetBiVec, &sTargetTangent, &sTargetFaceNormal) ;
-              pRadialEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sRadialPnt, sRadialBiVec, &sRadialTangent, &sRadialFaceNormal) ;
+              sm_SectorDirection(pTargetEdgeuse, sTargetPnt, sTargetBiVec, sTargetTangent, sTargetFaceNormal) ;
+              sm_SectorDirection(pRadialEdgeuse, sRadialPnt, sRadialBiVec, sRadialTangent, sRadialFaceNormal) ;
 
               // 1st iteration save variables
               if(pPrimaryEdgeuse == NULL) { pPrimaryEdgeuse = pTargetEdgeuse ;

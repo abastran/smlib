@@ -386,3 +386,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   every ball centered where the axes meet: the offset cylinders are their axes, and their
   intersection, which SMLib traced, is that one point (SM_ERR). Such a round is now made exactly,
   as the patch of that ball between the circles it touches the cylinders along.
+- **Radial order at a tangent edge** (`SmEdge.cpp`, `SmEdge::AssertValid`, test 9): it ordered
+  the faces round an edge by their binormals alone. Faces tangent along the edge (a cylinder or a
+  torus a boolean leaves touching a plane, four faces round the tangency) have the same binormal,
+  so the check read their right order as out of sequence and refused a valid body. Where two
+  faces round an edge leave it within 0.5° of each other, it now orders every face by the
+  direction to its point 20 edge tolerances into the face, square to the edge.
