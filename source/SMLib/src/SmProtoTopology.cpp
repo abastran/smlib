@@ -4409,6 +4409,21 @@ SmStatus SmProtoTopologyManager::RemoveProtoEdge( SmProtoEdge * pPE )
   else
     { return SM_ERR; }
 
+  // Every caller deletes the PE next: drop the references that ProtoFaces (their coincident PE
+  // lists) and other ProtoEdges (their overlapping PE lists) hold to it, or later passes over
+  // those lists (GlueCoincidentBrepVertices, Resolve) read it after the free.
+  ULONG ii;
+  for(ii=0;ii<m_sPFs.GetSize();ii++)
+    {
+      SmTArray<SmProtoEdge*> * pCoincPEs = m_sPFs[ii] ? m_sPFs[ii]->GetCoincProtoEdges() : NULL;
+      while(pCoincPEs != NULL && pCoincPEs->FindElement(pPE, idx)) { pCoincPEs->RemoveAt(idx) ; }
+    }
+  for(ii=0;ii<m_sPEs.GetSize();ii++)
+    {
+      SmTArray<SmProtoEdge*> * pOverlapPEs = m_sPEs[ii] ? &m_sPEs[ii]->GetOverlappingPEs() : NULL;
+      while(pOverlapPEs != NULL && pOverlapPEs->FindElement(pPE, idx)) { pOverlapPEs->RemoveAt(idx) ; }
+    }
+
   // remove End PV->PE back pointers
   SmProtoVertex * pStartPV = pPE->GetStartProtoVertex() ;
   SmProtoVertex * pEndPV   = pPE->GetEndProtoVertex() ;
@@ -6901,6 +6916,17 @@ SmBoolean bDebugMe3=FALSE;
                                                    : ((pNewPE22 != NULL) ? pNewPE22 : pPE2 ) ;
 
           pPE1ToCombine->CombineProtoEdge( pPE2ToCombine) ;
+
+          // ProtoFaces bounded by the combined-away PE are bounded by the survivor now.
+          for(ULONG pf=0; pf<m_sPFs.GetSize(); pf++)
+            {
+              SmTArray<SmProtoEdge*> * pCoincPEs = m_sPFs[pf] ? m_sPFs[pf]->GetCoincProtoEdges() : NULL;
+              ULONG lAt;
+              if(   pCoincPEs != NULL
+                 && pCoincPEs->FindElement( pPE2ToCombine, lAt)
+                 && !pCoincPEs->IsIn( pPE1ToCombine) )
+                { pCoincPEs->Add( pPE1ToCombine) ; }
+            }
 
           this->RemoveProtoEdge( pPE2ToCombine) ;
           delete pPE2ToCombine; pPE2ToCombine=NULL;
