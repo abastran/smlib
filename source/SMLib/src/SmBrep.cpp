@@ -33256,8 +33256,10 @@ SmBoolean bDebugMe = FALSE ;
           SmVertexFaceGap * pEndVertexFaceGap   = pEU->GetMate()->GetVertexuse()->GetVertexFaceGap() ;
 
           // when there are bad edgeuse start vertex gaps
-          if(  (pStartVertexEdgeGap && pStartVertexEdgeGap->GetLength() > pStartV->GetTolerance())   //      / 2.0
-              || (pStartVertexFaceGap && pStartVertexFaceGap->GetLength() > pStartV->GetTolerance()) ) //      / 2.0)
+          // (against half the tolerance, as the report below checks them: a vertex holds gaps up to
+          // half its tolerance)
+          if(  (pStartVertexEdgeGap && pStartVertexEdgeGap->GetLength() > pStartV->GetTolerance() / 2.0)
+              || (pStartVertexFaceGap && pStartVertexFaceGap->GetLength() > pStartV->GetTolerance() / 2.0) )
             {
               // remember we've seen a bad gap
               rbTolerancesViolatedOrUpdated = TRUE;
@@ -33288,8 +33290,8 @@ SmBoolean bDebugMe = FALSE ;
             } // end bad gap check
 
           // when there are bad edgesue end Vertex gaps
-          if(   (pEndVertexEdgeGap && (pEndVertexEdgeGap->GetLength() > pEndV->GetTolerance()))   //      / 2.0
-             || (pEndVertexFaceGap && (pEndVertexFaceGap->GetLength() > pEndV->GetTolerance())) ) //      / 2.0)
+          if(   (pEndVertexEdgeGap && (pEndVertexEdgeGap->GetLength() > pEndV->GetTolerance() / 2.0))
+             || (pEndVertexFaceGap && (pEndVertexFaceGap->GetLength() > pEndV->GetTolerance() / 2.0)) )
             {
               // remember we've seen a bad gap
               rbTolerancesViolatedOrUpdated = TRUE;
