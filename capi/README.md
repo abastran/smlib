@@ -363,3 +363,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   made a face's boundary curves and then let `MakeFaceWithCurves` refuse a surface degenerate to
   a curve or a point, which returns before it takes the curves, so they leaked (a box at
   `z = 1e200`). The surface is refused before the curves are made.
+- **Linear sections on arcs revolved** (`SmFilletSolver.cpp`, `CalcTorusFilletGeom`): a round
+  on a circular arc between surfaces of revolution about the arc's axis was made exactly, as the
+  revolved section (a torus), but a linear section (a chamfer) was always traced as the
+  intersection of the offset surfaces. Where the offset of one face collapses (a chamfer as wide
+  as the corner round it runs round, whose offset is the round's axis), that intersection is a
+  single point and the trace failed (SM_ERR). A linear section is now revolved too, a cone.

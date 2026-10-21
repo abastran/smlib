@@ -873,13 +873,16 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
   sm_CheckEdgeCurveDomains( this->GetContext(), pEdge, pCurve, m_bExtendBefore, m_bExtendAfter, sDelCurve );
   NER(pCurve);
 
-  // no work - not a circular cross-section on a circular arc
+  // no work - not a circular or linear cross-section on a circular arc
   // Side effect: get circular arc RefFrame, Radius, StartAng, and EndAng.
+  // A linear cross-section revolved about the arc's axis is a cone, as a
+  // circular one is a torus.
   double           dAnalyticTol = 1.0e-8;
   double           dRadius, dStartAng, dEndAng;
   SmAxis2Placement sRefFrame;
 
-  if (   m_pFSG->GetFilletSurfaceGeneratorType() != SM_FSG_CIRCULAR
+  SmFilletSurfaceGeneratorType eSection = m_pFSG->GetFilletSurfaceGeneratorType();
+  if (   (eSection != SM_FSG_CIRCULAR && eSection != SM_FSG_LINEAR)
       || !pCurve->IsArc(11,dAnalyticTol,sRefFrame,dRadius,dStartAng,dEndAng))
     {
       return SM_ERR;
@@ -923,11 +926,19 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
   SER(pSurf1->EvaluatePoint(sStartUV1,sP1));   // sP1 = rail2 point
   ReloadSurfaceOffsets();
 
-  // allocate the arc from the points [centerPoint, sP0, sP1]
+  // allocate the cross-section from the points [centerPoint, sP0, sP1]:
+  // the arc about the center, or the line from rail to rail
   SmBSplineCurve * pArc = NULL ;
-  SER(SmBSplineCurve::CreateArcFromPoints(m_crContext, 3,
-                                          sArcCenter, sP0, sP1,
-                                          SM_CO_QUADRATIC, pArc));
+  if ( eSection == SM_FSG_LINEAR )
+    {
+      SER(SmBSplineCurve::CreateLineSegment(m_crContext, 3, sP0, sP1, pArc));
+    }
+  else
+    {
+      SER(SmBSplineCurve::CreateArcFromPoints(m_crContext, 3,
+                                              sArcCenter, sP0, sP1,
+                                              SM_CO_QUADRATIC, pArc));
+    }
 
   // Determine if we need to reverse the axis of revolution
   // let sVec = Point on Rail - circularFilletEdge Origin

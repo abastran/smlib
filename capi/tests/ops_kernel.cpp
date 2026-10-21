@@ -182,6 +182,31 @@ int main()
     CHECK(smlib_chamfer(round, straight, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK);
     done(r);
 
+    // tangency-labs/solidcore#420: a chamfer as wide as the corner rounds it runs round. A box
+    // 40 x 40 x 20 with its vertical edges rounded R1, its bottom loop chamfered 1: on each
+    // corner the round's arc gets a cone closing to a point on the round's axis (SMLib traced
+    // it as an offset intersection, which collapses to that point, and failed). Each straight
+    // side loses a 1 x 1 triangle along 38, each corner the triangle turned a quarter about the
+    // axis: (pi / 2) * (1 / 3).
+    {
+        smlib_brep *plate = box(-20, -20, 0, 40, 40, 20);
+        const double corners[12] = {20, 20, 10, -20, 20, 10, 20, -20, 10, -20, -20, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(plate, corners, 4, 0.1, 1.0, &rounded, nullptr) == SMLIB_OK);
+        const double bottom[3] = {0, -20, 0};
+        if (rounded != nullptr && smlib_chamfer(rounded, bottom, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(rounded) - 4.0 * 38.0 * 0.5 - 4.0 * (PI / 2.0) / 3.0, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the bottom loop of the rounded plate chamfered 1");
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(plate);
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
