@@ -96,7 +96,7 @@ if(SMLIB_CAPI_TESTS)
   add_test(NAME smlib_history COMMAND smlib_history_test)
   # One C++ test per other shim file (tests/<area>.cpp), free to build its inputs with SM_API.
   file(GLOB CAPI_TESTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
-  list(FILTER CAPI_TESTS EXCLUDE REGEX "/history\\.cpp$")
+  list(FILTER CAPI_TESTS EXCLUDE REGEX "/(history|flat_roundtrip)\\.cpp$")
   foreach(test ${CAPI_TESTS})
     get_filename_component(name ${test} NAME_WE)
     add_executable(smlib_test_${name} ${test})
@@ -105,6 +105,15 @@ if(SMLIB_CAPI_TESTS)
     target_compile_definitions(smlib_test_${name} PRIVATE ${SMLIB_DEFINES})
     add_test(NAME smlib_test_${name} COMMAND smlib_test_${name})
   endforeach()
+
+  # Flat arrays: SmBrep -> arrays -> SmBrep round trips, and hostile arrays. The test builds its
+  # solids with SM_API directly and hands them to the C API as native files.
+  add_executable(smlib_flat_roundtrip tests/flat_roundtrip.cpp)
+  target_link_libraries(smlib_flat_roundtrip PRIVATE smlib)
+  target_include_directories(smlib_flat_roundtrip SYSTEM PRIVATE ${SRC}/SM_API/inc ${SRC}/SMLib/inc)
+  target_compile_definitions(smlib_flat_roundtrip PRIVATE ${SMLIB_DEFINES})
+  add_test(NAME smlib_flat_roundtrip COMMAND smlib_flat_roundtrip ${CMAKE_CURRENT_BINARY_DIR}/flat-roundtrip)
+  file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/flat-roundtrip)
 endif()
 
 if(SMLIB_CAPI_FUZZ)
