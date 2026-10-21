@@ -635,6 +635,76 @@ int32_t smlib_ssi_curve_samples(const smlib_ssi_result *r, int32_t i, int64_t ca
 int32_t smlib_ssi_point_count(const smlib_ssi_result *r, int32_t *out);
 int32_t smlib_ssi_point(const smlib_ssi_result *r, int32_t i, double xyz[3], double uv_a[2], double uv_b[2]);
 
+/* ---- Sweeps (src/smlib_sweeps.cpp) -------------------------------------------------------- */
+
+/* Curve lists. Profiles, paths and sections cross as a list of 3D curves in two arrays:
+ * `kinds` holds, for each curve in turn, its kind, and for a NURBS curve then its degree and its
+ * number of control points n; `reals` holds each curve's numbers in turn:
+ *   SMLIB_CURVE_LINE   start[3], end[3]                                                (6)
+ *   SMLIB_CURVE_ARC    center[3], axis[3], ref[3], radius, start, end                   (12)
+ *                      the arc counter-clockwise about the unit `axis` from angle `start`
+ *                      to `end` (radians, 0 < end - start <= 2 pi), angle 0 along the unit
+ *                      `ref` (perpendicular to `axis`)
+ *   SMLIB_CURVE_NURBS  n control points (x, y, z, weight > 0), then n + degree + 1 knots,
+ *                      non-decreasing, clamped (end multiplicity degree + 1, inner ones at
+ *                      most degree)                                           (5n + degree + 1)
+ * Both arrays must be used up exactly. At most SMLIB_CURVE_MAX_CURVES curves, coordinates within
+ * 1e9 mm. A list that breaks any of these returns SMLIB_ERR_ARG. A profile's curves run end to
+ * end in one or more closed loops (one closed planar loop and its holes for an extrusion). */
+#define SMLIB_CURVE_LINE 1
+#define SMLIB_CURVE_ARC 2
+#define SMLIB_CURVE_NURBS 3
+#define SMLIB_CURVE_MAX_CURVES 4096
+#define SMLIB_CURVE_MAX_DEGREE 25
+#define SMLIB_CURVE_MAX_POINTS 100000
+
+/* Each sweep returns a new body. With `cap` 1 the profile's loops close it at both ends and the
+ * result must be a closed manifold solid (SMLIB_ERR_NOT_SOLID otherwise); with `cap` 0 it is the
+ * swept sheet alone. */
+
+/* The planar profile extruded `distance` (> 0) along the unit `direction`, square to the
+ * profile's plane. `draft` (radians, |draft| < pi/2) leans the walls: 0 straight, positive
+ * inward (the far end smaller), negative outward; a drafted profile is one closed loop, its
+ * curves in order, and its direction must be the profile's normal (either way round). */
+int32_t smlib_extrude(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double direction[3],
+                      double distance, double draft, int32_t cap, smlib_brep **out);
+
+/* The planar profile turned `angle` radians (0 < angle <= 2 pi) right-handed about the axis
+ * through `origin` along `direction`, which lies in the profile's plane; the profile may touch
+ * the axis but not cross it. */
+int32_t smlib_revolve(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
+                      const double direction[3], double angle, int32_t cap, smlib_brep **out);
+
+/* The profile turns with the path (keeping its attitude to the path's tangent). */
+#define SMLIB_SWEEP_FOLLOW 0
+/* The profile only moves along the path, keeping its orientation. */
+#define SMLIB_SWEEP_TRANSLATE 1
+
+/* The profile swept along a path of end-to-end curves (joined into one B-spline), carried with
+ * the path's start: the profile keeps its place relative to it. The side walls are B-spline
+ * approximations of the swept surface, one per stretch of profile between tangent breaks. */
+int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *path_kinds,
+                    int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals, int32_t frame, int32_t cap,
+                    smlib_brep **out);
+
+/* A loft (skin) through `n_sections` (>= 2) sections, each a closed loop of curves: the curve
+ * list holds the sections' curves one section after the other, `section_sizes[i]` curves for
+ * section i. `degree` (1 ruled, 2, 3) is the walls' degree across the sections. With `cap` 1 the
+ * first and last sections close the ends. */
+int32_t smlib_loft(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *section_sizes,
+                   int64_t n_sections, int32_t degree, int32_t cap, smlib_brep **out);
+
+/* The profile carried by a screw motion about the axis through `origin` along `direction`:
+ * `turns` (0.001 to SMLIB_SCREW_MAX_TURNS) turns right-handed about the axis, rising `pitch`
+ * (signed, non-zero) per turn, capped at both ends: a thread's groove or a coil. The walls are
+ * skinned (cubic) through the profile placed by the screw motion at stations close enough that
+ * they stay within about `tolerance` (>= 1e-6 mm) of the true screw surfaces; at most
+ * SMLIB_SCREW_MAX_STATIONS stations, else SMLIB_ERR_ARG. */
+#define SMLIB_SCREW_MAX_TURNS 200.0
+#define SMLIB_SCREW_MAX_STATIONS 12000.0
+int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
+                          const double direction[3], double pitch, double turns, double tolerance, smlib_brep **out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -74,6 +74,28 @@ exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history
 arrays and surface/surface intersection below. SolidCraft's kernel adapter adds the rest, one
 shim at a time, each with a case in a fuzz target.
 
+## Sweeps
+
+`src/smlib_sweeps.cpp`: `smlib_extrude` (straight through `SmApiCreateLinearSweep`, drafted
+through `SmApiCreateTaperExtrude`), `smlib_revolve` (`SmApiCreateRotationalSweep`), `smlib_sweep`
+(`SmApiCreateCurveSweep`, the path's curves joined into one B-spline, the profile carried as it
+lies relative to the path), `smlib_loft` (`SmApiCreateSkinPrimitive`) and `smlib_screw_sweep`.
+Profiles, paths and sections cross as curve lists (lines, circular arcs, NURBS; `include/smlib.h`
+gives the layout), checked before SMLib sees them and built into SMLib curves inside the call.
+With `cap` the result must be a closed manifold solid (`SMLIB_ERR_NOT_SOLID` otherwise).
+
+Two of SM_API's behaviours shape the shims. Its draft extrusion takes the draft's sign for the
+side (positive in, negative out), not the 90 to 180 degrees `SmApiBrep.h` documents for an
+outward draft, and asserts a single chain of curves, so a drafted profile must be one loop. Its
+curve sweep carries the profile on its own frame along the path, which along a helix turns the
+profile away from a screw motion (3 turns of a thread's tooth came out 1 to 2% off in volume);
+`smlib_screw_sweep` therefore places the profile by the screw motion itself at stations along
+the turns and skins the walls through them, cubic, the stations close enough for the caller's
+tolerance.
+
+`tests/sweeps.cpp` checks each against closed-form volumes and SMLib's check, and feeds hostile
+curve lists; `fuzz/fuzz_sweeps.cpp` (`smlib_fuzz_sweeps`) fuzzes all five.
+
 ## Flat B-rep arrays
 
 `smlib_brep_export` turns a B-rep into a `smlib_flat`: plain `int64`/`double` arrays that a
