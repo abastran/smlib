@@ -787,6 +787,29 @@ int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *r
  * keep. */
 int32_t smlib_imprint(const smlib_brep *body, const smlib_brep *tool, smlib_brep **out);
 
+/* ---- Extend (src/smlib_extend.cpp) -------------------------------------------------------- */
+
+/* The input is a shape the call does not take (here: a sheet that is not one face bounded by
+ * its surface's parameter lines, or an edge that is not a whole side of it). */
+#define SMLIB_ERR_UNSUPPORTED (-1105)
+/* The answer is not exact in the input's geometry (here: an analytic surface whose speed across
+ * the side varies along it, or a box that would run past a pole or wrap round). */
+#define SMLIB_ERR_NOT_EXACT (-1106)
+
+/* How a surface continues past its side: its own geometry (a B-spline's end spans continued), a
+ * G1 run-off, or a G2 run-off. */
+#define SMLIB_EXTEND_NATURAL 0
+#define SMLIB_EXTEND_TANGENT 1
+#define SMLIB_EXTEND_CURVATURE 2
+
+/* A new body: the one-face sheet `sheet`, whose face is the whole parameter box of its surface
+ * (for a B-spline, all of the surface), continued `distance` (> 0) past the side its edge
+ * nearest `point` (within `tol`) runs along, as `mode` says. An analytic surface keeps its
+ * geometry and its box grows by the parameter step that crosses `distance` (the same all along
+ * the side, else SMLIB_ERR_NOT_EXACT); only a plane takes the G1 and G2 modes (as itself). A
+ * B-spline surface is SMLib's extended surface. The face keeps its orientation. */
+int32_t smlib_extend_sheet(const smlib_brep *sheet, const double point[3], double tol, double distance, int32_t mode, smlib_brep **out);
+
 #ifdef __cplusplus
 }
 #endif

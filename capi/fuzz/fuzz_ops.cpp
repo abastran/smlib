@@ -165,7 +165,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             break;
         }
         default:
-            st = smlib_shell(target, p, n, in.tame(0.01, 1), in.tame(-12, 12), &r, &failed);
+            if (in.byte() % 4 == 0)
+            {
+                // Refused unless the body is a one-face sheet; the pick and distance are hostile.
+                st = smlib_extend_sheet(target, p, in.tame(0.01, 1), in.tame(-5, 30), static_cast<int32_t>(in.byte() % 4) - 1, &r);
+            }
+            else
+            {
+                st = smlib_shell(target, p, n, in.tame(0.01, 1), in.tame(-12, 12), &r, &failed);
+            }
             break;
         }
         if (st == SMLIB_OK && r != nullptr)
