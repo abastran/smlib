@@ -296,8 +296,8 @@ void note_blend_failure(SmFilletExecutive &exec, int32_t s)
 // Chamfers `edges` of `b` in place, edge i with its first edgeuse's surface offset `first[i]`
 // and the other's `second[i]` (equal for an equal-distance chamfer): a constant-radius solver
 // with a linear cross-section per edge (SMLib's constant-distance solver, which
-// SmApiChamferFillet uses, leaves a hole rim open), bevelled corners, then stitching as
-// SmApiFilletEdges does. The executive refers to `b` until it is destroyed, so it lives here
+// SmApiChamferFillet uses, holds the chord across the chamfer, not the setbacks), bevelled
+// corners, then stitching as SmApiFilletEdges does. The executive refers to `b` until it is destroyed, so it lives here
 // alone and is gone before the caller hands `b` on or frees it.
 int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &first, const std::vector<double> &second)
 {

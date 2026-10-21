@@ -8,6 +8,7 @@
 #include "../src/smlib_shim.h"
 
 #include <SmApiBrep.h>
+#include <SmApiFillets.h>
 #include <SmApiPrimitives.h>
 #include <SmApiQueries.h>
 #include <SmVector3d.h>
@@ -149,6 +150,49 @@ int main()
     {
         std::fprintf(stderr, "chamfer of the hole rim failed: %d\n", static_cast<int>(s));
         failures++;
+    }
+    // tangency-labs/solidcore#379: SmApiChamferFillet (SMLib's constant-distance solver, a
+    // chord of 1 across each chamfer) on every edge of the holed cube, the hole's rims too,
+    // gives a closed solid, the one the shim's chamfer (constant radius, linear section) gives
+    // at the setback a chord of 1 has on these square edges, 1 / sqrt(2).
+    {
+        SmBrep *all = nullptr;
+        CHECK(SmApiBrepCopy(holed->p, all) == SM_SUCCESS && all != nullptr);
+        if (all != nullptr)
+        {
+            CHECK(SmApiChamferFillet(all, 1.0) == SM_SUCCESS);
+            smlib_brep *chamfered = new smlib_brep{all};
+            CHECK(all->IsManifoldSolid() && sound(chamfered));
+            double edges[42];
+            int n = 0;
+            for (double a : {0.0, 20.0})
+            {
+                for (double b : {0.0, 20.0})
+                {
+                    const double rows[3][3] = {{10, a, b}, {a, 10, b}, {a, b, 10}};
+                    for (const auto &row : rows)
+                    {
+                        for (double x : row)
+                        {
+                            edges[n++] = x;
+                        }
+                    }
+                }
+            }
+            for (double z : {0.0, 20.0})
+            {
+                edges[n++] = rim[0];
+                edges[n++] = rim[1];
+                edges[n++] = z;
+            }
+            CHECK(smlib_chamfer(holed, edges, 14, 0.1, 1.0 / std::sqrt(2.0), &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(chamfered), volume_of(r), 1e-8));
+                done(r);
+            }
+            smlib_brep_free(chamfered);
+        }
     }
     const double top[3] = {2, 2, 20};
     if (smlib_shell(holed, top, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK)
