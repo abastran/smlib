@@ -8263,6 +8263,48 @@ SmBoolean bDebugMe = FALSE;
   SmExtent2d sOrigDomain = this->GetSTEPUVDomain();
   sOrigDomain.Union( sNewDomain, sUpdateDomain );
 
+  // SolidCraft fork: a B-spline surface covers past its natural domain by continuing its end
+  // spans, and that continuation need not be one sheet: the straight lines of a swept planar
+  // sector run on through the sector's centre and turn back over it, and a curved end span
+  // bends round. Points of pOther then drop onto the wrong sheet, the merged face's UV domain
+  // spans the fold, and the face rebuilt on it gets UV trims far from its edges (two swept arc
+  // walls sharing their top and bottom planes, joined: UV gaps, the wrong volume). The
+  // continued surface must not fold over the domain the merge will use: its normal must not
+  // vanish or turn back between neighbouring samples of a grid over that domain.
+  if ( pBSplineSurface0 != NULL && !sUpdateDomain.IsContainedBy( sOrigDomain ) )
+    {
+      constexpr ULONG lNumFoldSamples = 21;
+      SmVector3d asD[4], sPrevRow[lNumFoldSamples], sThisRow[lNumFoldSamples];
+      double dRefLength = -1.0;
+      for ( ii=0; ii<lNumFoldSamples; ii++ )
+        {
+          for ( jj=0; jj<lNumFoldSamples; jj++ )
+            {
+              SmPoint2d sUV = sUpdateDomain.Evaluate( ii / (lNumFoldSamples - 1.0), jj / (lNumFoldSamples - 1.0) );
+              if ( this->EvaluateSTEP( sUV, 1, 1, TRUE, TRUE, TRUE, asD ) != SM_SUCCESS )
+                { return SM_SUCCESS; }
+              SmVector3d sNormal = asD[1] * asD[2];
+              double dLength = sNormal.Length();
+              if ( dRefLength < 0.0 )
+                {
+                  SmVector3d asRef[4];
+                  if ( this->EvaluateSTEP( sOrigDomain.Evaluate( 0.5, 0.5 ), 1, 1, TRUE, TRUE, TRUE, asRef ) != SM_SUCCESS )
+                    { return SM_SUCCESS; }
+                  dRefLength = (asRef[1] * asRef[2]).Length();
+                }
+              // A normal that all but vanishes: the samples are at a fold or a pole.
+              if ( !(dLength > SM_EFF_ZERO_SQRT * dRefLength) )
+                { return SM_SUCCESS; }
+              sThisRow[jj] = sNormal / dLength;
+              if ( ( jj > 0 && sThisRow[jj].Dot( sThisRow[jj-1] ) <= 0.0 )
+                || ( ii > 0 && sThisRow[jj].Dot( sPrevRow[jj] )   <= 0.0 ) )
+                { return SM_SUCCESS; }
+            }
+          for ( jj=0; jj<lNumFoldSamples; jj++ )
+            { sPrevRow[jj] = sThisRow[jj]; }
+        }
+    }
+
   this->AdjustSTEPUVDomain( sUpdateDomain );
 
   // Have to do this after AdjustSTEPUVDomain call:

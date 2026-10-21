@@ -431,3 +431,19 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   where the law must be extended past the edge's ends and its curve can't be (a constant law
   curve of zero speed), and set the offset surfaces to an uninitialised radius. They now return
   the failure (`SetUp` changing nothing), and the stepping checks `SetupOffsetValues`.
+- **A planar path's sweep frame** (`SmPrimitiveCreation.cpp`, `SmPrimitiveCreation::CreateCurveSweep`):
+  the sweep carries the profile on a frame that starts as the one `MakeUnitOrthoVectors` builds on
+  the path's start tangent. For a start tangent along +y its z lies in a planar path's plane, and a
+  wall swept along a half circle came out with its flat top spread 2.9e-4 mm about its plane (the
+  tolerance is 1e-5), so a boolean with another wall on that plane failed (1006). A planar path now
+  starts the frame with its z on the plane's normal, and the top is flat to 1e-13.
+- **Coincident faces merged across a fold** (`SmSurface.cpp`, `SmSurface::CoverCoincidentSurface`):
+  after a boolean, the faces either side of an edge between coincident surfaces are merged onto one
+  surface, a B-spline continued past its natural domain to cover the other (a planar one up to a
+  hundred times its size). That continuation need not be one sheet: a swept planar sector's
+  straight lines run on through its centre and back over it. Points of the other face dropped onto
+  the wrong sheet, and the merged face's UV trims lay far from its edges (two swept arc walls
+  sharing their top and bottom planes, joined: UV gaps and the wrong volume). A B-spline now covers
+  only where its continuation does not fold over the domain the merge uses: the normal may not
+  vanish or turn back between neighbouring points of a 21 x 21 grid over that domain; otherwise
+  the faces stay as they are, with the edge between them.
