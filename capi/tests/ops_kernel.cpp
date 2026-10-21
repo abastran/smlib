@@ -394,6 +394,20 @@ int main()
         {
             done(r);
         }
+        // tangency-labs/solidcore#401: a sphere r10 out by 2 is a sphere r12 whose edges lie
+        // within their tolerances (the gap was 5.015e-6 over 5e-6 before the results' tolerances
+        // were settled).
+        const double centre[3] = {0, 0, 0};
+        smlib_brep *ball = nullptr;
+        CHECK(smlib_make_sphere(centre, 10.0, &ball) == SMLIB_OK);
+        const double pole[3] = {10, 0, 0};
+        CHECK(smlib_offset_faces(ball, pole, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 4.0 / 3.0 * PI * 1728.0, 1e-6));
+            done(r);
+        }
+        smlib_brep_free(ball);
     }
 
     // tangency-labs/solidcore#402: a face moved away from a tangent neighbour that keeps its
