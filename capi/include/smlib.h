@@ -142,6 +142,25 @@ int32_t smlib_history_read(const smlib_brep *result, int64_t *buf, int64_t cap, 
 int32_t smlib_brep_check(const smlib_brep *brep, int32_t level, char *buf, int64_t cap, int64_t *out_len,
                          int64_t *out_failures);
 
+/* ---- Mass properties (smlib_measure.cpp) ------------------------------------------------- */
+
+/* Exact mass properties of a closed solid at unit density, integrated by SMLib on the exact
+ * surfaces (no tessellation) at `relative_accuracy`, clamped to [1e-8, 1e-1]. At 1e-8 analytic
+ * primitives come out within 2e-7 of their closed forms. Into `out`, in mm units:
+ *   [0] area, [1] volume, [2..5) centroid x, y, z,
+ *   [5..8)  moments of inertia Ixx, Iyy, Izz about axes through the centroid, parallel to the
+ *           world axes: the integrals of (y^2+z^2, z^2+x^2, x^2+y^2) dV,
+ *   [8..11) products of inertia Iyz, Izx, Ixy about the centroid: the integrals of (yz, zx, xy) dV
+ *           relative to it. The inertia tensor's off-diagonal terms are their negatives.
+ * For a density rho, the mass is rho * volume and the inertia scales by rho. A body that is not a closed manifold solid
+ * (a sheet, an open shell) is rejected with SM_ERR_INVALID_INPUT; smlib_brep_area measures
+ * those. */
+int32_t smlib_brep_mass_properties(const smlib_brep *brep, double relative_accuracy, double out[11]);
+
+/* Total area of every face, each counted once, so sheets and open shells too, at
+ * `relative_accuracy`, clamped to [1e-8, 1e-1]. */
+int32_t smlib_brep_area(const smlib_brep *brep, double relative_accuracy, double *out);
+
 #ifdef __cplusplus
 }
 #endif
