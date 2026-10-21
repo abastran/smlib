@@ -2416,11 +2416,12 @@ SmStatus SmVariableRadiusFS::SetupOffsetValues
    double * pdOffsetDist)            // out: optional fillet radius at this point, NULL to ignore
 {
   // compute the radius value at this intersection point
+  // (A failed evaluation leaves dValues unset: stop rather than offset by whatever is there.)
   double dValues[3];
-  m_rLaw->Evaluate(rTsectPnt.m_adUserDoubles[0], // in : target parameter - range:[crCurveInterval.Min,Max]
+  SER(m_rLaw->Evaluate(rTsectPnt.m_adUserDoubles[0], // in : target parameter - range:[crCurveInterval.Min,Max]
                   m_vLawInterval,                // in : crCurveInterval = interval defining range of fillet edge
                   m_bLawOrientation,             // in : bReverseOrientation: TRUE = parameters run from interval end to interval start
-                  dValues);                      // out: dValues[0] = fillet-radius at dParameter value
+                  dValues));                     // out: dValues[0] = fillet-radius at dParameter value
                                                  //      dValues[1] = 1st derivative: d(fillet-radius)/d(Parameter)
                                                  //      dValues[2] = 2nd derivative: d2(fillet-radius)/d(Parameter)**2
 
