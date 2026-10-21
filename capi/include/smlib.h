@@ -484,6 +484,28 @@ int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_po
 int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double thickness,
                     smlib_brep **out, int64_t *out_failed_point);
 
+/* ---- Tessellation (src/smlib_tess.cpp) -------------------------------------------------- */
+
+/* A triangle mesh, owned by the caller and freed with smlib_mesh_free. */
+typedef struct smlib_mesh smlib_mesh;
+
+/* SMLib's own triangulation of `brep` (SmApiTessellate): triangles within `chord_tolerance`
+ * (>= 0; 0 turns the criterion off) of their face, and edge curves and surface patches that
+ * turn by at most `angle_tolerance_deg` (in [0, 180); 0 turns it off); at least one of the two
+ * must be on. A face SMLib cannot triangulate fails the whole call. */
+int32_t smlib_brep_tessellate(const smlib_brep *brep, double chord_tolerance, double angle_tolerance_deg,
+                              smlib_mesh **out);
+
+/* The arrays of `mesh`, valid until it is freed: x, y, z of each of *n_vertices vertices; three
+ * vertex indices of each of *n_triangles triangles, counter-clockwise seen from outside a
+ * solid; and for each triangle the index of its B-rep face, in SMLib's face order (the order
+ * smlib_brep_export writes faces in). */
+int32_t smlib_mesh_arrays(const smlib_mesh *mesh, const double **positions, int64_t *n_vertices,
+                          const int64_t **triangles, const int64_t **faces, int64_t *n_triangles);
+
+/* Frees a mesh; NULL is ignored. */
+void smlib_mesh_free(smlib_mesh *mesh);
+
 #ifdef __cplusplus
 }
 #endif
