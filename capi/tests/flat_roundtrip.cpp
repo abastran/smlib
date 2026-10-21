@@ -538,7 +538,7 @@ int main(int argc, char **argv)
     {
         dir = argv[1];
     }
-    CHECK(smlib_abi_version() == SMLIB_ABI_VERSION && SMLIB_ABI_VERSION == 2);
+    CHECK(smlib_abi_version() == SMLIB_ABI_VERSION && SMLIB_ABI_VERSION == 3);
     CHECK(smlib_init() == SMLIB_OK);
 
     // The solids. With SMLIB_FLAT_SOLIDS set to a directory of <name>.smb files from an earlier

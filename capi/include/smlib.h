@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 /* Bumped whenever a declaration in this header changes. */
-#define SMLIB_ABI_VERSION 2
+#define SMLIB_ABI_VERSION 3
 
 #define SMLIB_OK 0
 /* A C++ exception escaped SMLib (out of memory, most likely). */
@@ -458,11 +458,21 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 #define SMLIB_BOOLEAN_SUBTRACT 1
 #define SMLIB_BOOLEAN_INTERSECT 2
 
+/* A boolean's result may be closed but not manifold: solids touching each other along an edge
+ * (an edge four or more faces share, in pairs) or at a vertex, as cuts that leave pieces meeting
+ * along a line give. Without this flag such a result is SMLIB_ERR_NOT_SOLID. */
+#define SMLIB_RESULT_NONMANIFOLD 1
+
 /* A new body: `a` and `b` combined by `op` (SMLIB_BOOLEAN_*); both inputs are left unchanged.
  * A result that is the empty set (an intersection of disjoint bodies, a subtraction of a body
  * that encloses `a`) is SMLIB_ERR_EMPTY. A result of several separate solids (a union of
- * disjoint bodies) is one body: smlib_brep_solid_count tells how many. */
+ * disjoint bodies) is one body: smlib_brep_solid_count tells how many. Solid inputs give a
+ * closed result: manifold, or (SMLIB_RESULT_NONMANIFOLD in `flags`, which smlib_boolean always
+ * passes) closed with solids touching along an edge or at a vertex; anything else, a sheet or
+ * an edge bounding a face on one side only, is SMLIB_ERR_NOT_SOLID. Any other bit in `flags` is
+ * SMLIB_ERR_ARG. */
 int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out);
+int32_t smlib_boolean_with(const smlib_brep *a, const smlib_brep *b, int32_t op, int32_t flags, smlib_brep **out);
 
 /* The number of separate solid regions of `brep` (voids not counted). */
 int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
