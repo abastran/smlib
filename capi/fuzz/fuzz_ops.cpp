@@ -120,7 +120,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         const double *p = in.byte() % 8 == 0 ? nullptr : pts;
         smlib_brep *target = in.byte() % 16 == 0 ? nullptr : body;
         int32_t st = SMLIB_OK;
-        switch (in.byte() % 5)
+        switch (in.byte() % 7)
         {
         case 0:
         case 1:
@@ -143,6 +143,19 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         case 3:
             st = smlib_chamfer(target, p, n, in.tame(0.01, 1), in.tame(0.1, 12), &r, &failed);
             break;
+        case 5:
+        {
+            double sizes[4] = {in.tame(0.1, 12), in.tame(0.1, 12), in.tame(0.1, 12), in.tame(0.1, 12)};
+            st = smlib_blend(target, static_cast<int32_t>(in.byte() % 5), p, sizes, n, in.tame(0.01, 1), &r, &failed);
+            break;
+        }
+        case 6:
+        {
+            const double knots[4] = {0, 0, 1, 1};
+            double radii[2] = {in.tame(0, 12), in.tame(0, 12)};
+            st = smlib_fillet_variable(target, p, in.tame(0.01, 1), pts + 3, 1, knots, 4, radii, 2, &r);
+            break;
+        }
         default:
             st = smlib_shell(target, p, n, in.tame(0.01, 1), in.tame(-12, 12), &r, &failed);
             break;
