@@ -156,3 +156,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
 - **Matrix type read uninitialised** (`NL_Math.cpp`, `N_InitRealMatrix`): it left the matrix type
   unset, and `N_RealMatrixIsNULL` reads it (UBSan: invalid enum load, from fillets that join a
   tangent chain). It is set now.
+- **Removed ProtoEdge left in ProtoFaces** (`SmProtoTopology.cpp`,
+  `SmProtoTopologyManager::RemoveProtoEdge`, `SplitIntersectingProtoEdges`): a ProtoEdge
+  combined into another and deleted stayed in the coincident-edge lists of ProtoFaces (and the
+  overlap lists of other ProtoEdges), which `GlueCoincidentBrepVertices` then read. Removing a
+  ProtoEdge drops those references; a combined one is replaced by the one it went into.
