@@ -135,8 +135,6 @@ maintain_legal_blurbs = true
 files.include = [
     "source/BREP_STAGING/**",
     "source/BREP_USD_DATA/**",
-    "source/OCCT_BREP_EXPORT/**",
-    "source/OCCT_BREP_IMPORT/**",
     "source/USD_BREP_UTILS/**",
     "source/HYDRA_USD_BREP/**",
     "tests/HYDRA_USD_BREP_test/**",
@@ -148,8 +146,6 @@ maintain_legal_blurbs = true
 files.include = [
     "source/BREP_STAGING/**",
     "source/BREP_USD_DATA/**",
-    "source/OCCT_BREP_EXPORT/**",
-    "source/OCCT_BREP_IMPORT/**",
     "source/USD_BREP_UTILS/**",
     "source/HYDRA_USD_BREP/**",
     "tests/HYDRA_USD_BREP_test/**",
