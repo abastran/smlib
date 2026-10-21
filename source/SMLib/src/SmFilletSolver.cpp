@@ -29,6 +29,7 @@
 #include <SmGeomUtility.h>
 #include <SmIsoCurve.h>
 #include <SmCylinder.h>
+#include <SmSurfOfRevolution.h>
 #include <SmPlane.h>
 
 // Forward decl of local routine:
@@ -841,6 +842,157 @@ SmStatus SmFilletSolver::CalcConeFilletGeom
     return SM_SUCCESS;
 
 } // end SmFilletSolver::CalcConeFilletGeom
+
+/*******************************************************************//**
+PURPOSE: Create a sphere patch for fillet geometry where the fillet's
+    center curve collapses to a point: a circular cross-section round
+    an edge between two cylinders as wide as the round, whose axes meet.
+    Store it as the FilletGeom FilletSurface and its min and max v
+    isoparameter curves as the rail curves.
+
+NOTES:
+    Each cylinder's offset by the round's radius is its axis, so every
+    ball touching both is centered where the axes meet, P, and touches
+    each cylinder along the circle about P square to that cylinder's axis.
+    (Rounding the edge where two such rounds meet, as two rounds of a box's
+    bottom do under the round of the vertical edge between them, leaves the
+    corner ball.)  The patch is the arc of the first contact circle from the
+    edge's start to its end, turned about the line through P square to both
+    axes onto the second circle: u runs along the edge, v from rail 0 to
+    rail 1, as on the other analytic fillets.
+***********************************************************************/
+SmStatus SmFilletSolver::CalcSphereFilletGeom
+  (SmTArray<SmTsectPnt*> & rTsectPnts,       // in : ordered fillet points (centers and rail points)
+   SmFilletGeom * pFilletGeom)               // in : FilletGeom to store the patch in, NULL = m_vFilletGeoms[0]
+{
+  if (   m_pFSG->GetFilletSurfaceGeneratorType() != SM_FSG_CIRCULAR
+      || rTsectPnts.GetSize() < 1 )
+    { return SM_ERR; }
+
+  // both base surfaces cylinders
+  SmOffsetSurface * pSurf0 = GetSurface(0);
+  SmOffsetSurface * pSurf1 = GetSurface(1);
+  const SmCone * pCyl0 = SM_CAST_PTR( SmCone, pSurf0->GetBaseSurface() );
+  const SmCone * pCyl1 = SM_CAST_PTR( SmCone, pSurf1->GetBaseSurface() );
+  if ( pCyl0 == NULL || pCyl1 == NULL || !pCyl0->IsCylinder() || !pCyl1->IsCylinder() )
+    { return SM_ERR; }
+
+  // constant radius, as wide as both cylinders
+  double dTol = GetThisApproxTol3d();
+  ULONG  lMaxIndex = rTsectPnts.GetSize() - 1;
+  double dRadius = 0.0, dRadius1 = 0.0;
+  SER(SetupOffsetValues(*rTsectPnts[0],         &dRadius));
+  SER(SetupOffsetValues(*rTsectPnts[lMaxIndex], &dRadius1));
+  dRadius = smos_Fabs(dRadius);
+  if (   dRadius < SM_EFF_ZERO
+      || smos_Fabs(smos_Fabs(dRadius1) - dRadius) > SM_EFF_ZERO
+      || smos_Fabs(pCyl0->GetBotRadius() - dRadius) > dTol
+      || smos_Fabs(pCyl1->GetBotRadius() - dRadius) > dTol )
+    { return SM_ERR; }
+
+  // the ball's center: every TsectPnt's, where the axes meet
+  SmPoint3d sCenter;
+  SER(pSurf0->EvaluatePoint(rTsectPnts[0]->UVPos(0), sCenter));
+  for ( ULONG ii=0; ii<=lMaxIndex; ii++ )
+    {
+      SmPoint3d sC0, sC1;
+      SER(pSurf0->EvaluatePoint(rTsectPnts[ii]->UVPos(0), sC0));
+      SER(pSurf1->EvaluatePoint(rTsectPnts[ii]->UVPos(1), sC1));
+      if (   sC0.DistanceBetween(sCenter) > dTol
+          || sC1.DistanceBetween(sCenter) > dTol )
+        { return SM_ERR; }
+    }
+  SmVector3d sAxis0( pCyl0->GetZAxis() );
+  SmVector3d sAxis1( pCyl1->GetZAxis() );
+  SER( sAxis0.Unitize() );
+  SER( sAxis1.Unitize() );
+  const SmCone * pCyls[2] = { pCyl0, pCyl1 };
+  const SmVector3d * pAxes[2] = { &sAxis0, &sAxis1 };
+  for ( ULONG kk=0; kk<2; kk++ )
+    {
+      SmVector3d sOff( sCenter - pCyls[kk]->GetOrigin() );
+      SmVector3d sRad( sOff - (*pAxes[kk])*sOff.Dot(*pAxes[kk]) );
+      if ( sRad.Length() > dTol )
+        { return SM_ERR; }
+    }
+  SmVector3d sTurnAxis( sAxis0 * sAxis1 );
+  if ( sTurnAxis.Length() < SM_EFF_ZERO_SQRT )
+    { return SM_ERR; }  // parallel cylinders: the centers fill a line, not this case
+  SER( sTurnAxis.Unitize() );
+
+  // the edge's ends, and where the ball touches each cylinder in their cross-sections
+  SmEdge     * pEdge  = GetEdgeuse(0)->GetEdge();
+  SmCurve    * pCurve = pEdge->GetCurve(); NER(pCurve);
+  SmExtent1d   sIvl   = pEdge->GetInterval();
+  SmPoint3d    sEnds[2];
+  SER(pCurve->EvaluatePoint(sIvl.GetMin(), sEnds[0]));
+  SER(pCurve->EvaluatePoint(sIvl.GetMax(), sEnds[1]));
+  SmPoint3d sContact[2][2]; // [cylinder][edge end]
+  for ( ULONG kk=0; kk<2; kk++ )
+    {
+      for ( ULONG ee=0; ee<2; ee++ )
+        {
+          SmVector3d sOff( sEnds[ee] - sCenter );
+          SmVector3d sRad( sOff - (*pAxes[kk])*sOff.Dot(*pAxes[kk]) );
+          if ( sRad.Length() < dTol )
+            { return SM_ERR; }
+          SER( sRad.Unitize() );
+          sContact[kk][ee] = sCenter + sRad*dRadius;
+        }
+    }
+
+  // the turn from the first circle to the second, less than half a turn, measured
+  // at the edge's end where the contacts lie farther apart (at the other they may
+  // meet on the turn's axis, where the edge runs into the corner ball's pole)
+  ULONG lAt = ( sContact[0][1].DistanceBetween(sContact[1][1])
+              > sContact[0][0].DistanceBetween(sContact[1][0]) ) ? 1 : 0;
+  SmVector3d sFrom( sContact[0][lAt] - sCenter );
+  SmVector3d sTo  ( sContact[1][lAt] - sCenter );
+  double dTurn = 0.0;
+  SER( sTurnAxis.CCWAngleBetween( sFrom, sTo, dTurn ));
+  if ( dTurn < 0.0 )
+    {
+      sTurnAxis = -sTurnAxis;
+      dTurn     = -dTurn;
+    }
+  if ( dTurn < SM_ANG_TOL_RAD || dTurn > SM_PI - SM_ANG_TOL_RAD )
+    { return SM_ERR; }
+
+  // the first circle's arc from the edge's start to its end, turned onto the second
+  SmBSplineCurve * pArc = NULL;
+  SER(SmBSplineCurve::CreateArcFromPoints(m_crContext, 3, sCenter,
+                                          sContact[0][0], sContact[0][1],
+                                          SM_CO_QUADRATIC, pArc));
+  SmSurfOfRevolution * pSphere = NULL;
+  SER(SmSurfOfRevolution::CreateCanonical(m_crContext, pArc, sCenter, sTurnAxis, pSphere, TRUE));
+  NER(pSphere);
+  SmExtent2d sSTEPDomain = pSphere->GetSTEPUVDomain();
+  SmPoint2d  sUVMax      = sSTEPDomain.GetMax();
+  sUVMax.x = SM_RAD2DEG( dTurn );
+  sSTEPDomain.SetMinMax( sSTEPDomain.GetMin(), sUVMax );
+  SER(pSphere->AdjustSTEPUVDomain( sSTEPDomain ));
+
+  if (pFilletGeom == NULL)
+    { pFilletGeom = m_vFilletGeoms[0]; }
+  pFilletGeom->m_pFilletSurface = pSphere;
+
+  // rails: the patch's v = min and v = max isoparameter curves
+  SmExtent2d sUVDomain = pSphere->GetNaturalUVDomain();
+  SmFilletEdge * pRails[2] = { pFilletGeom->GetRail(0), pFilletGeom->GetRail(1) };
+  double         dV[2]     = { sUVDomain.GetMin().y, sUVDomain.GetMax().y };
+  for ( ULONG kk=0; kk<2; kk++ )
+    {
+      SmBSplineCurve * pRailCrv = NULL;
+      SER(pSphere->CreateIsoParametricCurve(m_crContext, SM_SP_V, dV[kk], 0.0, pRailCrv));
+      pRails[kk]->SetCurve(pRailCrv, TRUE);   // TRUE = delete preExisting Edge->Curve
+      pRailCrv->SetOwner(pRails[kk]);
+      pRails[kk]->SetInterval(pRailCrv->GetNaturalInterval());
+    }
+
+  // all done
+  return SM_SUCCESS;
+
+} // end SmFilletSolver::CalcSphereFilletGeom
 
 /*******************************************************************//**
 PURPOSE: Turn a point about an axis into the half-plane, bounded by the axis,
@@ -2081,6 +2233,11 @@ static int sbDumpFVUs=0;
                   smos_WriteBuffer(sBuff);
                 }
 #endif // SM_DEBUG_CODE
+              return SM_SUCCESS;
+            }
+          // try making a sphere patch, for a center curve collapsed to a point
+          if (CalcSphereFilletGeom(sTsectPnts) == SM_SUCCESS)
+            {
               return SM_SUCCESS;
             }
         } // end both surfaces are analytic (planes or cones) check
