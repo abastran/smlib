@@ -348,3 +348,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   box with a cylinder on its side shelled to 1001 or 1006 by turns in one process, and a host
   whose threads allocate meanwhile moves the heap with its load). They now hand everything out
   in the order it was inserted, so every run does the same work.
+- **A validity check linear in the body** (`SmLoopuse.cpp`, `SmTopology.cpp`/`.h`, `SmEdgeuse.cpp`,
+  `SmFace.cpp`, `SmBrep.cpp`, new `SmBoxSearch.h`): `SmBrep::ValidatePointers`, `AssertValid` and
+  `ContainsCoincidentTopology` took time quadratic in a body's topology (over ten minutes on a
+  50,000-face part). A loop's vertices and edges are de-duplicated with a hash set past 32 of
+  them; `SmFace::PointClassify` no longer lists the face's vertices to test the first one at the
+  point; within `AssertValid` and `ContainsCoincidentTopology` (`SmTopologyListWalkScope`) each
+  topology list, each loop's edgeuses and each face's vertices are gathered once instead of once
+  per member; and the pairwise tests (coincident vertices, edges, faces, vertex/edge, vertex/face
+  and edge/face; a face's coincident vertices and edges) visit only the pairs that a box search,
+  or a shared vertex or edge, leaves possible, in the order the all-pairs loops did. Every test
+  still runs on every pair that could fail it, so the reports are the same.

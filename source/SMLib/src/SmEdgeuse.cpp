@@ -6175,10 +6175,20 @@ SmBoolean bDebugMe = FALSE ;
   /* 12 */ // check for Bad Loop  Connection,  Edgeuse->GetLoopuse() obj doesn't contain this Edgeuse
   if(IsLoopEdgeuse() && m_pSorLU->IsKindOf(SmLoopuse_TYPE))
     {
-      ULONG lIndx ;
-      SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 32) ;
-      GetLoopuse()->GetEdgeuses(sEdgeuses) ;
-      SmBoolean bHas = sEdgeuses.FindElement((SmEdgeuse *)this, lIndx) ;
+      SmBoolean bHas = FALSE ;
+      if (SmTopologyListWalkScope::IsOpen())
+        {
+          // Within SmBrep::AssertValid each loop's edgeuses are listed once for all of them
+          // (listing the loop for each of its edgeuses was quadratic in its length).
+          bHas = SmTopologyListWalkScope::LoopuseHasEdgeuse(GetLoopuse(), this) ;
+        }
+      else
+        {
+          ULONG lIndx ;
+          SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 32) ;
+          GetLoopuse()->GetEdgeuses(sEdgeuses) ;
+          bHas = sEdgeuses.FindElement((SmEdgeuse *)this, lIndx) ;
+        }
       bRtn &= SM_ASSERT_BOOLEAN_REPORT(14, SM_LEVEL_0, (bHas == TRUE), _T("") ) ;
     }
 

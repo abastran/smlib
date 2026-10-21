@@ -45,6 +45,37 @@
 #include <SmAssertArray.h>
 #include <SmPseudoBox.h>
 
+namespace
+{
+/*******************************************************************//**
+PURPOSE: Append pElem to rArray unless it is already there, as
+         SmTArray::AddUnique does, without its linear search on long loops.
+
+NOTES: The result is the same array in the same order. Up to
+       kLinearUnique elements AddUnique's own search is used; past that the
+       elements seen so far are kept in rSeen (built on first use), so
+       gathering a loop of n edges or vertices takes O(n) instead of O(n^2).
+***********************************************************************/
+const ULONG kLinearUnique = 32 ;
+
+template <class TYPE>
+void sm_AddUniqueInOrder(SmTArray<TYPE*> & rArray, std::unordered_set<TYPE*> & rSeen, TYPE * pElem)
+{
+  if (rSeen.empty() && rArray.GetSize() < kLinearUnique)
+    {
+      rArray.AddUnique(pElem) ;
+      return ;
+    }
+  if (rSeen.empty())
+    {
+      for (ULONG ii = 0; ii < rArray.GetSize(); ii++)
+        { rSeen.insert(rArray[ii]) ; }
+    }
+  if (rSeen.insert(pElem).second)
+    { rArray.Add(pElem) ; }
+}
+} // namespace
+
 //    // For debugging only - a set of pointers that can be assigned and inspected through the watch window
 //    #ifdef SM_DEBUG_CODE
 //
@@ -253,6 +284,7 @@ void SmLoopuse::GetEdges   // not GetEdgeuses
   // locals
   SmEdgeuse *pStartEU = SM_CAST_PTR(SmEdgeuse, m_pEUorVU ) ; SM_ASSERT(pStartEU != NULL) ;
   SmEdgeuse *pEU      = pStartEU ;
+  std::unordered_set<SmEdge*> sSeen ;
 
   // for every Edgeuse until we get back tothe StartEU
   do {
@@ -266,7 +298,7 @@ void SmLoopuse::GetEdges   // not GetEdgeuses
        // build output
        if(   pOptAttributeId == NULL
           || pE->FindAttribute(*pOptAttributeId) != NULL)  
-         { rEdges.AddUnique(pE) ; }
+         { sm_AddUniqueInOrder(rEdges, sSeen, pE) ; }
 
        // next iter
        pEU = pEU->m_pCCW;
@@ -438,6 +470,7 @@ void SmLoopuse::GetVertices
   SmEdgeuse * pStartEU = (SmEdgeuse*)m_pEUorVU;
   SM_ASSERT(pStartEU != NULL);
   SmEdgeuse *pEU = pStartEU;
+  std::unordered_set<SmVertex*> sSeen ;
   
   // for every Edgeuse until we get back to the StartEU
   do {
@@ -452,7 +485,7 @@ void SmLoopuse::GetVertices
        // build output
        if(   pOptAttributeId == NULL
          || pV->FindAttribute(*pOptAttributeId) != NULL)  
-        { rVertices.AddUnique(pV); }
+        { sm_AddUniqueInOrder(rVertices, sSeen, pV); }
 
        // next iter
        pEU = pEU->m_pCCW; SM_ASSERT(pEU != NULL);

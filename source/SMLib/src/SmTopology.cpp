@@ -12,6 +12,160 @@
 #include <SmAssertArray.h>
 #include <SmContext.h>
 
+#include <SmBoxSearch.h>
+#include <SmEdgeuse.h>
+#include <SmFace.h>
+#include <SmFaceuse.h>
+#include <SmLoopuse.h>
+#include <SmVertex.h>
+#include <SmVertexuse.h>
+
+#include <memory>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace
+{
+// One owner's list as walked from its head (SmTopologyListWalkScope).
+struct SmListRing
+{
+  const SmTopology * m_pHead = NULL ;
+  ULONG              m_lSize = 0 ;
+  SmBoolean          m_bWellFormed = FALSE ; // back to the head, Next/Last consistent everywhere
+  std::unordered_set<const SmTopology*> m_sMembers ;
+} ;
+
+struct SmListRingMemo
+{
+  std::unordered_map<const SmOwningTopology*, SmListRing> m_sRings ;
+  std::unordered_map<const SmLoopuse*, std::unordered_set<const SmEdgeuse*> > m_sLoopEdgeuses ;
+  std::unordered_map<const SmFace*, std::unique_ptr<SmFaceVertexIndex> > m_sFaceVertices ;
+} ;
+
+thread_local SmListRingMemo * t_pListRingMemo = NULL ;
+
+// The list of pOwner walked from its head, with the checks SmTopology::AssertValid makes from
+// each member: Next/Last consistency, and no loop that misses the start (two pointers, one
+// half as fast).
+const SmListRing & sm_GetListRing(SmListRingMemo & rMemo, const SmOwningTopology * pOwner)
+{
+  auto it = rMemo.m_sRings.find(pOwner) ;
+  // (An owner freed and another made at its address since is walked again: its head or count
+  // differs, as nearly always.)
+  if (   it != rMemo.m_sRings.end() && it->second.m_pHead == pOwner->GetList()
+      && (!it->second.m_bWellFormed || it->second.m_lSize == pOwner->GetSize()))
+    { return it->second ; }
+  SmListRing & rRing = rMemo.m_sRings[pOwner] ;
+  rRing = SmListRing() ;
+  const SmTopology * pHead = pOwner->GetList() ;
+  rRing.m_pHead = pHead ;
+  if (pHead == NULL)
+    { return rRing ; }
+  rRing.m_sMembers.insert(pHead) ;
+  SmBoolean bOk = (   pHead->GetNext() != NULL && pHead->GetLast() != NULL
+                   && pHead->GetNext()->GetLast() == pHead && pHead->GetLast()->GetNext() == pHead) ;
+  const SmTopology * pCurr = pHead->GetNext() ;
+  const SmTopology * pSlow = pCurr ;
+  SmBoolean bMoveSlow = FALSE ;
+  ULONG lCount = 1 ;
+  while (bOk && pCurr != pHead && pCurr != NULL)
+    {
+      lCount++ ;
+      if (   pCurr->GetNext() == NULL || pCurr->GetLast() == NULL
+          || pCurr->GetNext()->GetLast() != pCurr || pCurr->GetLast()->GetNext() != pCurr)
+        { bOk = FALSE ; break ; }
+      rRing.m_sMembers.insert(pCurr) ;
+      pCurr = pCurr->GetNext() ;
+      if (bMoveSlow)
+        { pSlow = pSlow->GetNext() ; }
+      bMoveSlow = !bMoveSlow ;
+      if (pSlow == pCurr)
+        { bOk = FALSE ; break ; }
+    }
+  rRing.m_bWellFormed = (bOk && pCurr == pHead) ;
+  rRing.m_lSize = lCount ;
+  return rRing ;
+}
+} // namespace
+
+SmTopologyListWalkScope::SmTopologyListWalkScope()
+: m_bOwnsMemo(t_pListRingMemo == NULL)
+{
+  if (m_bOwnsMemo)
+    { t_pListRingMemo = new SmListRingMemo ; }
+}
+
+SmTopologyListWalkScope::~SmTopologyListWalkScope()
+{
+  if (m_bOwnsMemo)
+    {
+      delete t_pListRingMemo ;
+      t_pListRingMemo = NULL ;
+    }
+}
+
+SmBoolean SmTopologyListWalkScope::IsOpen()
+{
+  return t_pListRingMemo != NULL ;
+}
+
+SmBoolean SmTopologyListWalkScope::LoopuseHasEdgeuse(const SmLoopuse * pLU, const SmEdgeuse * pEU)
+{
+  if (t_pListRingMemo == NULL || pLU == NULL)
+    { return FALSE ; }
+  auto it = t_pListRingMemo->m_sLoopEdgeuses.find(pLU) ;
+  if (it == t_pListRingMemo->m_sLoopEdgeuses.end())
+    {
+      std::unordered_set<const SmEdgeuse*> & rSet = t_pListRingMemo->m_sLoopEdgeuses[pLU] ;
+      SmTArray<SmEdgeuse*> sEdgeuses ;
+      pLU->GetEdgeuses(sEdgeuses) ;
+      for (ULONG ii = 0; ii < sEdgeuses.GetSize(); ii++)
+        { rSet.insert(sEdgeuses[ii]) ; }
+      it = t_pListRingMemo->m_sLoopEdgeuses.find(pLU) ;
+    }
+  return it->second.count(pEU) != 0 ;
+}
+
+const SmFaceVertexIndex * SmTopologyListWalkScope::FaceVertices(const SmFace * pFace)
+{
+  if (t_pListRingMemo == NULL || pFace == NULL)
+    { return NULL ; }
+  std::unique_ptr<SmFaceVertexIndex> & rIndex = t_pListRingMemo->m_sFaceVertices[pFace] ;
+  SmFaceuse * pFU = pFace->GetUpwardFaceuse() ;
+  if (rIndex && rIndex->m_pFaceuse == pFU)
+    { return rIndex.get() ; }
+  rIndex.reset(new SmFaceVertexIndex) ;
+  rIndex->m_pFaceuse = pFU ;
+  // The vertices as SmFace::GetVertices lists them: loop by loop, each loop's once.
+  SmTArray<SmLoopuse*> sLoopuses ;
+  SmTArray<SmVertexuse*> sVertexuses ;
+  if (pFU)
+    { pFU->GetLoopuses(sLoopuses) ; }
+  std::unordered_set<const SmVertex*> sSeen ;
+  std::vector<SmExtent3d> sBoxes ;
+  SmBoolean bOK = TRUE ;
+  for (ULONG ii = 0; ii < sLoopuses.GetSize(); ii++)
+    {
+      sLoopuses[ii]->GetVertexuses(sVertexuses) ;
+      for (ULONG jj = 0; jj < sVertexuses.GetSize(); jj++)
+        {
+          SmVertex * pV = sVertexuses[jj]->GetVertex() ;
+          if (!sSeen.insert(pV).second)
+            { continue ; }
+          const SmPoint3d sPt = pV->GetPoint() ;
+          const double dTol = pV->GetTolerance() ;
+          bOK &= std::isfinite(sPt.x) && std::isfinite(sPt.y) && std::isfinite(sPt.z) && std::isfinite(dTol) ;
+          rIndex->m_vVertices.push_back(pV) ;
+          sBoxes.push_back(SmExtent3d(sPt)) ;
+          rIndex->m_dMaxVertexTol = std::max(rIndex->m_dMaxVertexTol, dTol) ;
+        }
+    }
+  rIndex->m_bOK = bOK ;
+  if (bOK)
+    { rIndex->m_sSearch.Build(sBoxes, std::vector<bool>(sBoxes.size(), true)) ; }
+  return rIndex.get() ;
+}
+
 /* Obsolete Style Note on use of Mark - see class SmNewMarkAndLock
 
 Look at the function and you'll see that it simply sets a number from the
@@ -373,6 +527,15 @@ SmBoolean SmTopology::AssertValid
            ? SmAObject::AssertValid(pAList, eTestLevel, SM_NO_WALK, pTestRequests)
            : TRUE ) ;
 
+  // Within a SmTopologyListWalkScope: this object on a well-formed list walked once already.
+  const SmListRing * pRing = NULL ;
+  if (m_pListOwner && t_pListRingMemo)
+    {
+      const SmListRing & rRing = sm_GetListRing(*t_pListRingMemo, m_pListOwner) ;
+      if (rRing.m_bWellFormed && rRing.m_sMembers.count(this) != 0)
+        { pRing = &rRing ; }
+    }
+
   // when this object is a member of an Owner's list
   if(m_pListOwner)
     {
@@ -381,7 +544,7 @@ SmBoolean SmTopology::AssertValid
 
       // remove next line - makes checks recursive
       //      bRtn = (m_pListOwner->AssertValid(pAList)  == TRUE) ? bRtn : FALSE;
-      bOk = (m_pListOwner->IsInList(this)); SM_ASSERT(bOk);
+      bOk = pRing ? TRUE : (m_pListOwner->IsInList(this)); SM_ASSERT(bOk);
       bRtn &= SM_ASSERT_BOOLEAN_REPORT(0, SM_LEVEL_0, (bOk), _T("") ) ;
 
       // the owner and this object should have the same context
@@ -419,7 +582,12 @@ SmBoolean SmTopology::AssertValid
   ULONG lCount = 1;
   SmBoolean bMoveSlow = FALSE;
 
-  while ( pCurr != this && pCurr != NULL ) // these ptrs can be Null.
+  // On a well-formed ring walked from its head, the walk from here goes round the same ring:
+  // every check holds, and it counts the ring.
+  if ( pRing )
+    { lCount = pRing->m_lSize; }
+
+  while ( !pRing && pCurr != this && pCurr != NULL ) // these ptrs can be Null.
     {
       lCount++;
 

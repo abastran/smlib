@@ -261,5 +261,49 @@ SM_NEWTOL_LINE , m_bIsSmallTopology(FALSE)
 
 } ; // end class SmTopology
 
+/*******************************************************************//**
+PURPOSE: While one of these lives on a thread, SmTopology::AssertValid
+         walks each owner's list of topology once and remembers it.
+
+NOTES: Every member of a list checks that it is on its owner's list and
+       walks the whole list from itself, so checking all the members of a
+       list was quadratic in its length (a Brep's edges, a shell's faceuses).
+       Within this scope the list is walked once from its head; when that
+       walk finds a well-formed ring, each member's checks have the same
+       outcome as its own walk would, and are answered from it. Any list
+       that is not well formed, and any object not on the list walked, is
+       checked as before. Loops' edgeuse lists and faces' vertices are
+       likewise gathered once (LoopuseHasEdgeuse, FaceVertices). The
+       topology and vertex points must not change while the scope lives:
+       SmBrep::AssertValid, which only reads them, opens one.
+***********************************************************************/
+struct SmFaceVertexIndex ;
+class SmLoopuse ;
+class SmEdgeuse ;
+class SmFace ;
+
+class SM_EXPORT SmTopologyListWalkScope
+{
+public:
+  SmTopologyListWalkScope() ;
+  ~SmTopologyListWalkScope() ;
+
+  // Whether a scope is open on this thread.
+  static SmBoolean IsOpen() ;
+
+  // In a scope, whether pEU is one of pLU's edgeuses (SmLoopuse::GetEdgeuses), from one walk of
+  // each loop. Only to be called with a scope open.
+  static SmBoolean LoopuseHasEdgeuse(const SmLoopuse * pLU, const SmEdgeuse * pEU) ;
+
+  // In a scope, the vertices of pFace (all its loops) for SmFace::PointClassify, built on first
+  // use; NULL without a scope.
+  static const SmFaceVertexIndex * FaceVertices(const SmFace * pFace) ;
+
+  SmTopologyListWalkScope(const SmTopologyListWalkScope &) = delete ;
+  SmTopologyListWalkScope & operator=(const SmTopologyListWalkScope &) = delete ;
+private:
+  SmBoolean m_bOwnsMemo ;
+} ; // end class SmTopologyListWalkScope
+
 #endif // !__SMTOPOLOGY_H__
 
