@@ -531,9 +531,10 @@ int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, 
  * knots (n_radii + degree + 1, rising from 0 to 1, each end repeated degree + 1 times) and
  * `n_radii` (2 to 100) control radii, each >= 0. The position is the edge curve's parameter,
  * scaled to 0..1, which is the fraction of its length on a line or a circular arc. A point that
- * selects nothing or cannot decide fails as for any selection (no index is written). A law with
- * a corner inside the edge (its slope jumps where a knot repeats `degree` times) is
- * SMLIB_ERR_UNSUPPORTED: SMLib's section fit runs smoothly across the corner and misses it. */
+ * selects nothing or cannot decide fails as for any selection (no index is written). Where the
+ * law has a corner inside the edge (its slope jumps where a knot repeats `degree` times) the
+ * round turns, and is split into faces there. A law whose radius is zero inside the edge (the
+ * round would pinch to a point) is SMLIB_ERR_UNSUPPORTED. */
 int32_t smlib_fillet_variable(const smlib_brep *brep, const double *point, double tolerance, const double *start, int32_t degree,
                               const double *knots, int64_t n_knots, const double *radii, int64_t n_radii, smlib_brep **out);
 

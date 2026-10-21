@@ -2347,6 +2347,60 @@ SmBoolean SmVariableRadiusFS::OffsetRadiiCanChange
 } // end SmVariableRadiusFS::OffsetRadiiCanChange
 
 /*******************************************************************//**
+PURPOSE: The edge parameters where the radius law has a corner.
+
+NOTES: SolidCraft change. Appended to rParams, ascending.
+***********************************************************************/
+SmStatus SmVariableRadiusFS::GetRadiusCornerParameters
+  (SmTArray<double> & rParams)       // out: corner parameters on the filleted edge
+{
+  NER(m_rLaw);
+  SER(m_rLaw->GetCornerParameters(m_vLawInterval, m_bLawOrientation, rParams));
+  return SM_SUCCESS;
+
+} // end SmVariableRadiusFS::GetRadiusCornerParameters
+
+/*******************************************************************//**
+PURPOSE: Whether an intersection point lies where the radius law has a corner.
+
+NOTES: SolidCraft change. The point's law parameter is m_adUserDoubles[0]
+  (see SetupOffsetValues).
+***********************************************************************/
+SmBoolean SmVariableRadiusFS::IsAtRadiusCorner
+  (const SmTsectPnt & crTsectPnt)    // in : intersection point
+{
+  SmTArray<double> sCorners;
+  if (GetRadiusCornerParameters(sCorners) != SM_SUCCESS)
+    { return FALSE; }
+  double dTol = 1.0e-9 * (1.0 + smos_Fabs(m_vLawInterval.GetMin()) + smos_Fabs(m_vLawInterval.GetMax()));
+  for (ULONG i=0; i<sCorners.GetSize(); i++)
+    {
+      if (smos_Fabs(crTsectPnt.m_adUserDoubles[0] - sCorners[i]) <= dTol)
+        { return TRUE; }
+    }
+  return FALSE;
+
+} // end SmVariableRadiusFS::IsAtRadiusCorner
+
+/*******************************************************************//**
+PURPOSE: The edge parameter of an intersection point, when the radius law
+  has corners.
+
+NOTES: SolidCraft change. The point's law parameter is m_adUserDoubles[0].
+***********************************************************************/
+SmBoolean SmVariableRadiusFS::GetRadiusParameter
+  (const SmTsectPnt & crTsectPnt,    // in : intersection point
+   double           & rdParam)       // out: its edge parameter
+{
+  SmTArray<double> sCorners;
+  if (GetRadiusCornerParameters(sCorners) != SM_SUCCESS || sCorners.GetSize() == 0)
+    { return FALSE; }
+  rdParam = crTsectPnt.m_adUserDoubles[0];
+  return TRUE;
+
+} // end SmVariableRadiusFS::GetRadiusParameter
+
+/*******************************************************************//**
 PURPOSE: Set extension flags to TRUE for each end if there is not
     a blend being done at the corner.
 
@@ -3167,6 +3221,56 @@ SmStatus SmLinearCrossSectionFSG::CreateSurface
 } // end SmLinearCrossSectionFSG::CreateSurface
 
 /*******************************************************************//**
+PURPOSE: The interior knots where a fillet's center curve or one of its rails
+    turns: its tangents before and after the knot differ by more than
+    dAngTolRad.
+
+NOTES: SolidCraft change. The three curves share their knots (FlushCurve
+    builds them span by span); a turn comes from a corner in the radius.
+***********************************************************************/
+static SmStatus sm_FilletCurveCorners
+  (const SmBSplineCurve & crCenterLine,  // in : fillet center curve
+   const SmBSplineCurve & crRail1Curve,  // in : 1st rail
+   const SmBSplineCurve & crRail2Curve,  // in : 2nd rail
+   double                 dAngTolRad,    // in : angle above which a knot is a corner
+   SmTArray<double>     & rCorners)      // out: corner knots, ascending
+{
+  rCorners.ReSet();
+  SmTArray<double> sKnots;
+  SER(crRail1Curve.GetKnots(sKnots));
+  SmExtent1d sIvl = crRail1Curve.GetNaturalInterval();
+  double dTol = SM_EFF_ZERO_SQRT * (1.0 + smos_Fabs(sIvl.GetMin()) + smos_Fabs(sIvl.GetMax()));
+  const SmBSplineCurve * apCurves[3] = { &crCenterLine, &crRail1Curve, &crRail2Curve };
+  for (ULONG i=0; i<sKnots.GetSize(); i++)
+    {
+      double dKnot = sKnots[i];
+      if (   (i > 0 && sKnots[i-1] == dKnot)
+          || dKnot < sIvl.GetMin() + dTol || dKnot > sIvl.GetMax() - dTol)
+        { continue; }
+      SmBoolean bCorner = FALSE;
+      for (ULONG j=0; j<3 && !bCorner; j++)
+        {
+          if (!apCurves[j]->GetNaturalInterval().ContainsValue(dKnot))
+            { continue; }
+          SmVector3d sBefore[2], sAfter[2];
+          SER(apCurves[j]->Evaluate(dKnot, 1, FALSE, sBefore, FALSE));
+          SER(apCurves[j]->Evaluate(dKnot, 1, TRUE,  sAfter,  FALSE));
+          if (   sBefore[1].LengthSquared() < SM_EFF_ZERO_SQ
+              || sAfter[1].LengthSquared()  < SM_EFF_ZERO_SQ)
+            { continue; }
+          double dAngle;
+          SER(sBefore[1].AngleBetween(sAfter[1], dAngle));
+          if (dAngle > dAngTolRad)
+            { bCorner = TRUE; }
+        }
+      if (bCorner)
+        { rCorners.Add(dKnot); }
+    }
+  return SM_SUCCESS;
+
+} // end sm_FilletCurveCorners
+
+/*******************************************************************//**
 PURPOSE: Create a fillet surface with a circular cross section.  This
     is a lofted surface or in some special cases a cylinder or a torus.
 
@@ -3190,10 +3294,71 @@ SmStatus SmCircularCrossSectionFSG::CreateSurface
     if (rFilletSolver.GetSolverType() == SM_FS_CONST_RADIUS) {
         //bNeedG1Continuity = TRUE; // fix it later
     }
-    SER(CreateSurfaceFromCurves(rFilletSolver.GetCreationContext(),
-        *pCenterLine,*pRail1Curve,*pRail2Curve,dThisApproxTol3d,
-        bNeedG1Continuity,pSurf1,pUV1,pSurf2,pUV2,rpFilletSurface));
 
+    // SolidCraft change: a skinned surface interpolates its cross sections smoothly, so where
+    // the center curve or a rail turns (a corner in a variable radius) it would overshoot.
+    // The surface is skinned piece by piece between such corners and the pieces joined there.
+    SmTArray<double> sCorners;
+    SER(sm_FilletCurveCorners(*pCenterLine, *pRail1Curve, *pRail2Curve,
+                              rFilletSolver.GetThisAngTolRad(), sCorners));
+    if (sCorners.GetSize() == 0)
+    {
+        SER(CreateSurfaceFromCurves(rFilletSolver.GetCreationContext(),
+            *pCenterLine,*pRail1Curve,*pRail2Curve,dThisApproxTol3d,
+            bNeedG1Continuity,pSurf1,pUV1,pSurf2,pUV2,rpFilletSurface));
+        return SM_SUCCESS;
+    }
+
+    const SmContext & crContext = rFilletSolver.GetCreationContext();
+    SmExtent1d sIvl = pRail1Curve->GetNaturalInterval();
+    SmTArray<double> sEnds;
+    sEnds.Add(sIvl.GetMin());
+    sEnds.Append(sCorners);
+    sEnds.Add(sIvl.GetMax());
+
+    SmBSplineSurface * pJoined = NULL;
+    SmObjDelete sDeleteJoined;
+    for (ULONG i=0; i+1<sEnds.GetSize(); i++)
+    {
+        SmExtent1d sPiece(sEnds[i], sEnds[i+1]);
+        SmBSplineCurve * apPieces[3] = { NULL, NULL, NULL };
+        SmBSplineCurve * apWholes[3] = { pCenterLine, pRail1Curve, pRail2Curve };
+        SmObjDelete asDelete[3];
+        for (ULONG j=0; j<3; j++)
+        {
+            SmCurve * pCopy = NULL;
+            SER(apWholes[j]->Copy(crContext, pCopy));
+            asDelete[j].SetObj(pCopy);
+            apPieces[j] = SM_CAST_PTR(SmBSplineCurve, pCopy); NER(apPieces[j]);
+            SmExtent1d sTrim = sPiece;
+            SER(apPieces[j]->Trim(sTrim));
+        }
+
+        SmBSplineSurface * pPiece = NULL;
+        SER(CreateSurfaceFromCurves(crContext, *apPieces[0], *apPieces[1], *apPieces[2],
+            dThisApproxTol3d, bNeedG1Continuity, pSurf1, pUV1, pSurf2, pUV2, pPiece));
+        NER(pPiece);
+        SmObjDelete sDeletePiece(pPiece);
+
+        if (pJoined == NULL)
+        {
+            sDeletePiece.Clear();
+            pJoined = pPiece;
+            sDeleteJoined.SetObj(pJoined);
+            continue;
+        }
+
+        // join the piece on at its u-min side; no knot removal there, the surface turns
+        SmBSplineSurface * pNext = NULL;
+        SER(pJoined->JoinSurface(crContext, pPiece, SM_SP_U, 0.0, pNext));
+        NER(pNext);
+        delete pJoined;
+        pJoined = pNext;
+        sDeleteJoined.SetObj(pJoined);
+    }
+
+    sDeleteJoined.Clear();
+    rpFilletSurface = pJoined;
     return SM_SUCCESS;
 
 } // end SmCircularCrossSectionFSG::CreateSurface

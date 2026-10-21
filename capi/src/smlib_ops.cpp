@@ -1057,38 +1057,43 @@ bool law_ok(int32_t degree, const double *knots, int64_t n_knots, const double *
     return true;
 }
 
-// Whether the law has a corner: a knot inside (0, 1) repeated `degree` times (where the spline
-// is only C0) with the slopes of the control legs on either side apart. SMLib's section fit
-// runs smoothly across such a corner and misses the law, so it is refused, never built wrong.
-bool law_has_corner(int32_t degree, const double *knots, const double *radii, int64_t n_radii)
+// Whether the law's radius is zero somewhere inside (0, 1), where the round would pinch to a
+// point (its ends may be zero). With control radii >= 0 it is zero at a parameter exactly when
+// every control radius whose basis function is nonzero there is: radii i - degree .. i inside the
+// span [knots[i], knots[i + 1]), and radii s + m - 1 - degree .. s - 1 at a knot first found at
+// index s and repeated m times.
+bool law_pinches(int32_t degree, const double *knots, const double *radii, int64_t n_radii)
 {
-    for (int64_t i = degree + 1; i < n_radii;)
+    auto all_zero = [&](int64_t from, int64_t to) {
+        for (int64_t j = std::max<int64_t>(from, 0); j <= to && j < n_radii; ++j)
+        {
+            if (radii[j] != 0.0)
+            {
+                return false;
+            }
+        }
+        return from <= to;
+    };
+    int64_t n_knots = n_radii + degree + 1;
+    for (int64_t i = degree; i + 1 < n_knots && i < n_radii; ++i)
+    {
+        if (knots[i] < knots[i + 1] && all_zero(i - degree, i))
+        {
+            return true;
+        }
+    }
+    for (int64_t s = degree + 1; s < n_radii;)
     {
         int64_t m = 1;
-        while (i + m < n_radii && knots[i + m] == knots[i])
+        while (s + m < n_radii && knots[s + m] == knots[s])
         {
             ++m;
         }
-        if (m > degree)
+        if (all_zero(s + m - 1 - degree, s - 1))
         {
-            return true; // the radius itself jumps
+            return true;
         }
-        // Repeated `degree` times, the curve passes through control radius i - 1 at the knot.
-        if (m == degree && i >= 2)
-        {
-            double hl = knots[i] - knots[i - 1];
-            double hr = knots[i + m] - knots[i];
-            if (hl > 0.0 && hr > 0.0)
-            {
-                double left = (radii[i - 1] - radii[i - 2]) / hl;
-                double right = (radii[i] - radii[i - 1]) / hr;
-                if (std::fabs(left - right) > 1e-9 * (1.0 + std::fabs(left) + std::fabs(right)))
-                {
-                    return true;
-                }
-            }
-        }
-        i += m;
+        s += m;
     }
     return false;
 }
@@ -1190,7 +1195,7 @@ extern "C" int32_t smlib_fillet_variable(const smlib_brep *brep, const double *p
     {
         return SMLIB_ERR_ARG;
     }
-    if (law_has_corner(degree, knots, radii, n_radii))
+    if (law_pinches(degree, knots, radii, n_radii))
     {
         return SMLIB_ERR_UNSUPPORTED;
     }

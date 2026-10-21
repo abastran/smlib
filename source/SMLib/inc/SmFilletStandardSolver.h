@@ -354,6 +354,10 @@ public:
 
     virtual SmBoolean OffsetRadiiCanChange();
 
+    virtual SmStatus  GetRadiusCornerParameters(SmTArray<double> & rParams);
+    virtual SmBoolean IsAtRadiusCorner(const SmTsectPnt & crTsectPnt);
+    virtual SmBoolean GetRadiusParameter(const SmTsectPnt & crTsectPnt, double & rdParam);
+
     virtual ULONG GetJacobianSize() const;
 
     virtual void GetName(TCHAR * pcMyName, size_t lMyNameAllocLen) { smos_WStrCpy(pcMyName,lMyNameAllocLen,_T("SmVariableRadiusFS")); }

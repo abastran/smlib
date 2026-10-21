@@ -76,6 +76,8 @@ radius that follows a clamped B-spline law (degree 1 to 3) over the edge's param
 end nearest a given point; it becomes an `SmBSplineFilletLaw` on SMLib's variable-radius solver,
 whose law curve carries the radius as x and, as SMLib's own laws do, the parameter itself as y
 (control points at the Greville abscissae), so a constant law can be extended past the edge's ends.
+Where the law has a corner the round turns and is split into faces there; a law whose radius is
+zero inside the edge (the round would pinch to a point) is `SMLIB_ERR_UNSUPPORTED`.
 
 `tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
 regression cases, both against analytic volumes and `smlib_brep_check` level 2.
@@ -472,3 +474,22 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   bisected (in both triangles on it, so the mesh stays closed) until none is; boundary edges and
   edges shorter than twice the tolerance are left alone. `tests/tess_kernel.cpp` checks spheres,
   tori and cylinders at 0.1 to 0.005 mm.
+- **Variable rounds whose radius has a corner** (`SmFilletExecutive.h`/`.cpp`,
+  `SmBSplineFilletLaw::GetCornerParameters`, `SmFilletExecutive::DoFillet`, `DoFilleting`,
+  `NoteRadiusCornerSurfaces`, `SplitFilletFacesAtRadiusCorners`; `SmFilletSolver.h`,
+  `SmFilletStandardSolver.h`/`.cpp`, `SmVariableRadiusFS::GetRadiusCornerParameters`,
+  `IsAtRadiusCorner`, `GetRadiusParameter`, `SmCircularCrossSectionFSG::CreateSurface`;
+  `SmFilletSolver.cpp`, `CalcFilletGeom`; `SmFilletIntersector.cpp`, `ComputeNextPoint`,
+  `FlushCurve`): a radius law whose slope jumps inside the edge (straight 4 to 2 and back to 4)
+  turns the round's center curve and rails there. The trace's tangent there was a central
+  difference across the corner, the curves were fitted through it with that one averaged
+  tangent, and one smooth surface was skinned across the turn: the round missed the law past
+  the corner (35.1 mm³ removed for 40.06) and failed the check (control net doubling back).
+  Now the corner is a through point of the trace, a step that would cross it ends on it, the
+  spans on either side take the tangents of their own side, the surface is skinned piece by
+  piece between corners and the pieces joined there, and once the round is in the body its
+  face is split along the turn into smooth faces (each surface cut back to its face, the new
+  edge the exact isoparameter curve).
+- **Face subdivision counted its V knots as U** (`SmBrep.cpp`,
+  `SmBrep::SubdivideFaceAtDiscontinuities`): the V pass took the number of U knots to split at
+  and read past the V knots (a null read for a surface with a U discontinuity only).
