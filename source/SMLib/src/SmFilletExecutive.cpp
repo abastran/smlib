@@ -1890,6 +1890,7 @@ SmStatus SmFilletExecutive::CreateFilletCorners
  (SmFilletErrorInfo * pOptFilletErrorInfo)
 {
   // for every vertex listed in m_vFilletedVertices array
+  SmBoolean bMissingCorner = FALSE;
   ULONG ii, lNumFVs = m_vFilletedVertices.GetSize();
   for (ii=0; ii<lNumFVs; ii++)
     {
@@ -1916,6 +1917,15 @@ SmBoolean bDebugMe = FALSE;
               sm_GraphicsLoop();
           }
 #endif // SM_DEBUG_CODE
+          // Every filleted vertex needs its corner: the corner topology, the smooth
+          // sequences and the merge all look it up. The map still holds the vertex's array
+          // of filleted edgeuses, which GetFilletCornerOfVertex() would hand out as its
+          // corner; drop it, finish the other corners (they own their arrays) and fail.
+          m_vVertexCornerMap.Remove(pVert);
+          delete pSolverEUs;
+          m_sErrorInfo.NoteError(pVert, SM_FIL_FAILURE, SM_FILERR_VERTEX_PROBLEM,
+                                 _T("Corner case not implemented"));
+          bMissingCorner = TRUE;
           continue;
         } // end no corner check
 
@@ -1930,6 +1940,9 @@ SmBoolean bDebugMe = FALSE;
     {
       *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
     }
+
+  if ( bMissingCorner )
+    { SER( SM_ERR ); }
 
   return SM_SUCCESS;
 
@@ -4693,6 +4706,7 @@ SmStatus SmFilletExecutive::CollectTangentEdgeSequence(
               rFilletSolvers[lIdx] = NULL;
 
               SmFilletCorner *pPrevCorner = pPrevFS->GetOtherFilletCorner( pCurrCorner );
+              NER( pPrevCorner );  // a vertex with no corner
               pCurrFS = pPrevFS;
               pPrevFS = pPrevCorner->GetTangentFilletSolver( pCurrFS );
               pCurrCorner = pPrevCorner;
@@ -4732,6 +4746,7 @@ SmStatus SmFilletExecutive::CollectTangentEdgeSequence(
           rFilletSolvers[lIdx] = NULL;
 
           SmFilletCorner *pNextCorner = pNextFS->GetOtherFilletCorner( pCurrCorner );
+          NER( pNextCorner );  // a vertex with no corner
           pCurrFS = pNextFS;
           pNextFS = pNextCorner->GetTangentFilletSolver( pCurrFS );
           pCurrCorner = pNextCorner;

@@ -1459,6 +1459,10 @@ static int iDebugLevel = 0; // Note: Can't call DebugLevel() from a static metho
           break;
     } // end switch on
 
+  // A corner takes pAllEUs; with none, nothing else will free it.
+  if ( pNewCorner == NULL )
+    { delete pAllEUs; }
+
   return pNewCorner;
 
 } // end SmFilletCorner::Create
