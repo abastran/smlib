@@ -153,3 +153,6 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   `SmProtoTopologyManager::GlueCoincidentBrepVertices`): for coincident vertices joined by
   several edges it went on through the edges after squeezing or gluing had already deleted the
   second vertex, gluing and squeezing with the freed vertex. It stops once that vertex is gone.
+- **Matrix type read uninitialised** (`NL_Math.cpp`, `N_InitRealMatrix`): it left the matrix type
+  unset, and `N_RealMatrixIsNULL` reads it (UBSan: invalid enum load, from fillets that join a
+  tangent chain). It is set now.
