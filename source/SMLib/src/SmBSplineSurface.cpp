@@ -907,6 +907,41 @@ SmStatus SmBSplineSurface::CopyAnalyticAsNurb
 } // end SmBSplineSurface::CopyAnalyticAsNurb
 
 /*******************************************************************//**
+PURPOSE: Static helper for CopyAndAddAnalytics: whether two surfaces give the same points at the
+  same UV parameters over crA's natural domain (a 7 x 7 grid, edges included), to within
+  SM_ZONE_TOL_3D or a billionth of the surface's size.
+***********************************************************************/
+static SmBoolean sm_SameParameterization( const SmSurface * crA, const SmSurface * crB )
+{
+  const SmExtent2d sDomain = crA->GetNaturalUVDomain() ;
+  const ULONG      lSteps  = 6 ;
+  SmTArray<SmPoint3d> sPointsA, sPointsB ;
+  SmExtent3d sBox ;
+  for (ULONG ii = 0; ii <= lSteps; ii++)
+    {
+      for (ULONG jj = 0; jj <= lSteps; jj++)
+        {
+          SmPoint2d sUV = sDomain.Evaluate( (double)ii / lSteps, (double)jj / lSteps ) ;
+          SmPoint3d sA, sB ;
+          if (   crA->EvaluatePoint( sUV, sA ) != SM_SUCCESS
+              || crB->EvaluatePoint( sUV, sB ) != SM_SUCCESS )
+            { return FALSE ; }
+          sPointsA.Add( sA ) ;
+          sPointsB.Add( sB ) ;
+          sBox.AddPoint3d( sA ) ;
+        }
+    }
+  const double dTol = smos_Max( SM_ZONE_TOL_3D, 1.0e-9 * sBox.GetSize().Length() ) ;
+  for (ULONG kk = 0; kk < sPointsA.GetSize(); kk++)
+    {
+      if ( !(sPointsA[kk].DistanceBetween( sPointsB[kk] ) <= dTol) )
+        { return FALSE ; }
+    }
+  return TRUE ;
+
+} // end sm_SameParameterization
+
+/*******************************************************************//**
 PURPOSE: Copy a BSpline surface. When it is geometrically possible, copy 
   the BSplineSurface as an analytic else as an exact copy of its current type.
 
@@ -978,6 +1013,24 @@ SmBoolean bDebugMe = FALSE;
   // arrive here - make sure it's a copy
   else 
     { 
+      rpNewSurface = new (crContext) SmBSplineSurface(*this);
+    }
+
+  // The copy goes to a face that keeps this surface's UV domain and trim curves, so an analytic
+  // copy must carry this surface's parameterization, not just its shape. The analytic types
+  // build their NURBS form in their own parameterization (a circle as SMLib's two-span arcs,
+  // for instance) and only match the domain; a NURBS surface parameterized otherwise (a rational
+  // half cylinder in four spans) would leave every trim curve on the copy pointing elsewhere.
+  // Where the two differ, the copy is an exact one instead.
+  SmBSplineSurface *pNewBSS = SM_CAST_PTR( SmBSplineSurface, rpNewSurface ) ;
+  if (   pNewBSS != NULL
+      && pNewBSS->GetType() != SmBSplineSurface_TYPE
+      && GetType() == SmBSplineSurface_TYPE
+      && (   GetGwNurbPointer() == NULL
+          || pNewBSS->GetOrCreateGwNurbPointer() == NULL   // the analytic's NURBS form is made lazily
+          || !sm_SameParameterization(this, pNewBSS) ) )
+    {
+      delete rpNewSurface;
       rpNewSurface = new (crContext) SmBSplineSurface(*this);
     }
 
