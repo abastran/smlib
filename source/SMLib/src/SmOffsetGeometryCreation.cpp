@@ -870,7 +870,9 @@ NOTES:
   to the BaseEdgeuse vertices.
   
       1) Use existing vertex of adjacent object if exists.
-      2) Intersect curve with Extended surface of adjacent face (convex, concave edge)
+      2) Intersect curve with Extended surface of adjacent face (convex, concave edge);
+         where the adjacent face collapsed in an inset (a round thinner than the wall),
+         with that of the face beyond it (SmOffsetExecutive::GetEdgeuseAcrossCollapsedFace)
       3) Intersection of edges extended in parameter space (tangent edge case)
       4) Take a wild guess??
 
@@ -958,7 +960,13 @@ static ULONG lDebugCount = 0 ;
             {
               // When next edgeuse is either a tangentSector or lamina
               // set up to try trimming 3Dcurve to BCWEdgeuse/ExtendedUVCurve intersection point
-              if (   pBCW->GetEdge()->IsLamina()
+              // across a collapsed face: trim to the extended surface of the face beyond it
+              if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pBCW->GetRadial(), pBaseVertex))
+                {
+                  SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                  if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                }
+              else if (   pBCW->GetEdge()->IsLamina()
                   || pBCW->IsTangentSector(dTanTolDeg)) 
                 {
                   // save it and this baseEdgeuse in the Tan lists
@@ -986,7 +994,12 @@ static ULONG lDebugCount = 0 ;
               if (pOBCCW != pOtherBaseEdgeuse) 
                 {
                   // When next edgeuse is either a tengentSector or lamina
-                  if (   pOBCCW->GetEdge()->IsLamina()
+                  if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pOBCCW->GetRadial(), pBaseVertex))
+                    {
+                      SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                      if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                    }
+                  else if (   pOBCCW->GetEdge()->IsLamina()
                       || pOBCCW->IsTangentSector(dTanTolDeg)) 
                     {
                       // save it and this baseEdgeuse in the Tan lists
@@ -1029,7 +1042,12 @@ static ULONG lDebugCount = 0 ;
           // correct surface to be used during intersection.
           if (pBCCW != pBaseEdgeuse) 
             {
-              if (   pBCCW->GetEdge()->IsLamina()
+              if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pBCCW->GetRadial(), pBaseVertex))
+                {
+                  SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                  if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                }
+              else if (   pBCCW->GetEdge()->IsLamina()
                   || pBCCW->IsTangentSector(dTanTolDeg)) 
                 {
                   // When next edgeuse is either a tengentSector or lamina
@@ -1056,7 +1074,12 @@ static ULONG lDebugCount = 0 ;
               if (pOBCW != pOtherBaseEdgeuse) 
                 {
                   // When next edgeuse is either a tengentSector or lamina
-                  if (   pOBCW->GetEdge()->IsLamina()
+                  if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pOBCW->GetRadial(), pBaseVertex))
+                    {
+                      SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                      if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                    }
+                  else if (   pOBCW->GetEdge()->IsLamina()
                       || pOBCW->IsTangentSector(dTanTolDeg)) 
                     {
                       // save it and this baseEdgeuse in the Tan lists
