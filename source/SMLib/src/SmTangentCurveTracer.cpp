@@ -1046,13 +1046,18 @@ SmStatus SmSurfaceIntersector::FindTangentCurves
         {
           SmCurve *pC = r3DCurves[ii];
           if (pC->IsDegenerate()) continue;
+          // a tangential curve traced by the regular marcher can lie across
+          // anywhere in the band where the surfaces are within tolerance of
+          // each other, which is wide for high order contact
+          double dCovTol = (   !sNewCross[k] && ii < rCurveTypes.GetSize()
+                            && rCurveTypes[ii] == SM_TC_TANGENT) ? 0.02*dSize : dNearTol;
           bCovered = TRUE;
           for (size_t i=0; i<rC.size() && bCovered; i += std::max((size_t)1, rC.size()/40))
             {
               SmExtent1d sIvl = pC->GetNaturalInterval();
               double dParam, dDist; SmBoolean bOk;
               if (pC->DropPoint(sIvl, SmPoint3d(rC[i].P.x, rC[i].P.y, rC[i].P.z), NULL, m_dThisApproxTol3d*10.0,
-                                NULL, bOk, dParam, dDist, SM_SO_MINIMIZE) != SM_SUCCESS || !bOk || dDist > dNearTol)
+                                NULL, bOk, dParam, dDist, SM_SO_MINIMIZE) != SM_SUCCESS || !bOk || dDist > dCovTol)
                 bCovered = FALSE;
             }
         }
