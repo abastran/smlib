@@ -715,6 +715,17 @@ int32_t smlib_loft(const int64_t *kinds, int64_t n_kinds, const double *reals, i
 int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
                           const double direction[3], double pitch, double turns, double tolerance, smlib_brep **out);
 
+/* ---- Imprint (src/smlib_imprint.cpp) ------------------------------------------------------ */
+
+/* The tool cut nothing: no face of the body meets it. */
+#define SMLIB_ERR_NO_CUT (-1104)
+
+/* A new body: `body` with each of its faces that `tool` (a sheet or a solid) meets cut along the
+ * intersection, the pieces kept as faces of one body. Both inputs are left unchanged. A tool that
+ * meets no face is SMLIB_ERR_NO_CUT. Trim and Split Face build on it: they choose which pieces to
+ * keep. */
+int32_t smlib_imprint(const smlib_brep *body, const smlib_brep *tool, smlib_brep **out);
+
 #ifdef __cplusplus
 }
 #endif
