@@ -95,6 +95,21 @@ int32_t smlib_brep_volume(const smlib_brep *brep, double relative_accuracy, doub
 /* Face, edge and vertex counts, in that order. */
 int32_t smlib_brep_counts(const smlib_brep *brep, int64_t out[3]);
 
+/* ---- Primitives (src/smlib_primitives.cpp) ----------------------------------------------- */
+
+/* A cylinder about +Z: its base circle's centre `origin`, radius and height (mm, > 0). */
+int32_t smlib_make_cylinder(const double origin[3], double radius, double height, smlib_brep **out);
+
+/* A sphere from its centre and radius (mm, > 0). */
+int32_t smlib_make_sphere(const double center[3], double radius, smlib_brep **out);
+
+/* A cone or frustum about +Z: its base centre `origin`, base radius (> 0), top radius (>= 0,
+ * 0 for a pointed cone, different from the base radius) and height (> 0), in mm. */
+int32_t smlib_make_cone(const double origin[3], double base_radius, double top_radius, double height, smlib_brep **out);
+
+/* A ring torus about +Z from its centre, with major radius > minor radius > 0 (mm). */
+int32_t smlib_make_torus(const double center[3], double major_radius, double minor_radius, smlib_brep **out);
+
 /* ---- History (src/smlib_history.cpp) ------------------------------------------------------ */
 
 /* Face and edge history out of an operation: tag each operand, run the operation on the tagged

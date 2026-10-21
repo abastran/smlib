@@ -74,7 +74,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     smlib_make_box(in.byte() & 1 ? origin : nullptr, extent, &box);
     while (in.size > 0)
     {
-        switch (in.byte() % 7)
+        switch (in.byte() % 8)
         {
         case 0:
         {
@@ -182,6 +182,35 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 smlib_brep_free(imported);
             }
             smlib_flat_free(flat);
+            break;
+        }
+        case 6:
+        {
+            // A primitive from arbitrary numbers, exported to flat arrays whole.
+            double at[3] = {in.real(), in.real(), in.real()};
+            double a = in.real(), b = in.real(), c = in.real();
+            smlib_brep *p = nullptr;
+            switch (in.byte() % 4)
+            {
+            case 0:
+                smlib_make_cylinder(in.byte() & 1 ? at : nullptr, a, b, &p);
+                break;
+            case 1:
+                smlib_make_sphere(at, a, &p);
+                break;
+            case 2:
+                smlib_make_cone(at, a, b, c, &p);
+                break;
+            default:
+                smlib_make_torus(at, a, b, &p);
+                break;
+            }
+            smlib_flat *flat = nullptr;
+            if (p != nullptr && smlib_brep_export(p, &flat) == SMLIB_OK)
+            {
+                smlib_flat_free(flat);
+            }
+            smlib_brep_free(p);
             break;
         }
         default:
