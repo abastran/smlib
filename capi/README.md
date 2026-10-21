@@ -299,3 +299,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   copy then wrote past the new knot vector, a heap overflow. A surface of revolution given a
   sweep domain from 360 degrees made such a knot. Such knots and bounds are now refused
   (`NL_YES`), so the caller's operation fails instead of corrupting memory.
+- **An arc moved past its turn** (`SmEllipse.cpp`, `SmEllipse::AdjustSTEPInterval`): it found the
+  new interval's NURBS parameters through the polar converter of the current arc, which clamps an
+  angle outside that arc to its ends. A full circle given [360, 540] degrees (a torus face whose
+  minor range starts a turn on) had both ends clamped to one parameter, so the circle had no
+  parametric length, and the torus rebuilt on it had NaN knots (the overflow above, then a failed
+  import). An angle outside a full-turn arc is now taken whole turns back into it, the NURBS
+  parameter moving by the circle's NURBS length per turn; outside a partial arc, the arc's NURBS
+  interval continues in proportion to the angle.
