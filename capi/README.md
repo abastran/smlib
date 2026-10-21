@@ -141,13 +141,21 @@ units and length rule. The conversion is `src/smlib_flat.cpp`, a USD-free port o
 - A cone with a negative semi-angle is rebuilt in the equivalent positive-angle form on import.
   Its second export therefore differs from its first, and from then on the arrays are stable.
 - Attributes, materials and colours are not carried.
+- Shell order (an addition to SmuConvert): SMLib takes a region's first shell as the one that
+  encloses it, and a body whose first shell is an inner one fails its check (test 12, "inner
+  shell is not geometrically inside its containing outer shell"; tangency-labs/solidcore#388).
+  Export writes the enclosing shell first. Import takes a region's shells in any order and puts
+  first the one that SMLib's containment test (`SmShell::IsInnerShellOf`, the ray casts of
+  test 12) finds enclosing all the others, trying the largest bounding box first; a region
+  where none can be shown to enclose the others keeps its order.
 
 Import validates everything first (counts, indices, lengths, kinds, finite values, NURBS
 orders and knots, closed loops, radial cycles), so malformed arrays return
 `SM_ERR_INVALID_INPUT` without building anything. A failing import's dump holds its arrays as
 text, which `smlib_flat_read` reads back for replay. `tests/flat_roundtrip.cpp` round-trips a box,
 cylinder, cone, sphere, torus, two filleted boxes, a boolean and an inclined cut, checking each
-one's exported curve kinds, then feeds the import hostile
+one's exported curve kinds, imports an island inside a void with its regions and shells in
+every order, then feeds the import hostile
 and randomly mutated arrays.
 
 ## Surface/surface intersection

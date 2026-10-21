@@ -193,6 +193,9 @@ int32_t smlib_brep_is_manifold_solid(const smlib_brep *brep, int32_t *out);
  *  - Region 0 is the infinite region. Regions own consecutive blocks of shells, shells own
  *    consecutive blocks of faceuses, faces own consecutive blocks of loops, loops own
  *    consecutive blocks of edgeuses, all in array order.
+ *  - Every region but the infinite one has one shell that encloses it, the region's others
+ *    lying inside that one. Export writes it first; import takes a region's shells in any order
+ *    and puts first the one SMLib's containment test (ray casts) finds enclosing the others.
  *  - Each face has exactly two faceuses (one per side), so #faceuses = 2 * #faces.
  *  - An edgeuse record is one mated pair of SMLib edgeuses: the use of an edge by one loop
  *    (seen from the face's "same" side) and its mate on the other side.

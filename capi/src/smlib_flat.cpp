@@ -33,6 +33,7 @@
 #include <SmLine.h>
 #include <SmLoop.h>
 #include <SmPlane.h>
+#include <SmRegion.h>
 #include <SmShell.h>
 #include <SmSphere.h>
 #include <SmSurface.h>
@@ -3069,6 +3070,64 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
  PURPOSE: FlatBrep -> new SmBrep. Port of SMU_BrepConvert::BrepMove_OneUsdBrepToSMLib, with
           the healer enabled (SmuConvert's default).
  ***********************************************************************/
+// SMLib takes the first shell of every region but the infinite one as the shell that encloses
+// the region, the others lying inside it (SmBrep::AssertValid test 12; BrepData has no other way
+// to say which one it is). The arrays may list a region's shells in any order, so the one that
+// encloses all the others is put first, decided by SMLib's own containment test
+// (SmShell::IsInnerShellOf, the ray casts test 12 runs). Candidates go largest bounding box
+// first, as an enclosing shell's box holds every other's, so the first one tried is nearly
+// always it. A region where no shell can be shown to enclose the others keeps its order.
+void PutEnclosingShellsFirst(SmBrep &rBrep)
+{
+    SmTArray<SmRegion *> sRegions;
+    rBrep.GetRegions(sRegions);
+    const SmRegion *pInfinite = rBrep.GetInfiniteRegion();
+    for (ULONG ii = 0; ii < sRegions.GetSize(); ++ii)
+    {
+        SmRegion *pRegion = sRegions[ii];
+        if (pRegion == NULL || pRegion == pInfinite)
+        {
+            continue;
+        }
+        SmTArray<SmShell *> sShells;
+        pRegion->GetShells(sShells);
+        if (sShells.GetSize() < 2)
+        {
+            continue;
+        }
+        std::vector<std::pair<double, SmShell *>> vCandidates;
+        for (ULONG jj = 0; jj < sShells.GetSize(); ++jj)
+        {
+            SmShell *pShell = sShells[jj];
+            SmExtent3d sBox;
+            if (pShell->IsFaceuseShell() && pShell->IsClosed() && pShell->CalculateBoundingBox(sBox) == SM_SUCCESS)
+            {
+                SmVector3d sSize = sBox.GetSize();
+                vCandidates.emplace_back(sSize.x * sSize.y * sSize.z, pShell);
+            }
+        }
+        // stable: equal boxes keep the arrays' order
+        std::stable_sort(vCandidates.begin(), vCandidates.end(),
+                         [](const std::pair<double, SmShell *> &a, const std::pair<double, SmShell *> &b) { return a.first > b.first; });
+        for (const std::pair<double, SmShell *> &rCandidate : vCandidates)
+        {
+            bool bEncloses = true;
+            for (ULONG jj = 0; jj < sShells.GetSize() && bEncloses; ++jj)
+            {
+                bEncloses = sShells[jj] == rCandidate.second || sShells[jj]->IsInnerShellOf(rCandidate.second) == TRUE;
+            }
+            if (bEncloses)
+            {
+                if (rCandidate.second != sShells[0])
+                {
+                    pRegion->SetList(rCandidate.second); // the circular list now starts at it
+                }
+                break;
+            }
+        }
+    }
+}
+
 SmStatus BrepFromFlat(const FlatBrep &F, const SmContext &crSmContext, SmBrep *&prSmBrep_ii)
 {
     prSmBrep_ii = NULL;
@@ -3122,6 +3181,7 @@ SmStatus BrepFromFlat(const FlatBrep &F, const SmContext &crSmContext, SmBrep *&
     {
         return topologyStatus;
     }
+    PutEnclosingShellsFirst(*pBrep_ii);
 
     prSmBrep_ii = pBrep_ii;
     sCleanBrep.Clear();

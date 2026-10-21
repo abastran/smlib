@@ -365,6 +365,161 @@ smlib_flat *RoundTrip(const char *name, smlib_brep *b, bool normalizes = false, 
     return flat1;
 }
 
+// A region's shells may come in any order: import puts the one that encloses the others first,
+// as SMLib requires (solidcore#388). An island inside a void: a cube of 50 hollowed by a cube of
+// 40, joined with a cube of 20 inside the cavity, which a cube of 10 hollows in turn. Each order
+// of the regions (the infinite one first) and of the shells within each region must import as a
+// valid body of the same volume.
+void NestedShellOrder()
+{
+    auto box = [](double lo, double size) {
+        const double o[3] = {lo, lo, lo}, s[3] = {size, size, size};
+        smlib_brep *b = nullptr;
+        CHECK(smlib_make_box(o, s, &b) == SMLIB_OK);
+        return b;
+    };
+    smlib_brep *b50 = box(-25, 50), *b40 = box(-20, 40), *b20 = box(-10, 20), *b10 = box(-5, 10);
+    smlib_brep *hollow = nullptr, *joined = nullptr, *nested = nullptr;
+    CHECK(smlib_boolean(b50, b40, SMLIB_BOOLEAN_SUBTRACT, &hollow) == SMLIB_OK);
+    CHECK(hollow && smlib_boolean(hollow, b20, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+    CHECK(joined && smlib_boolean(joined, b10, SMLIB_BOOLEAN_SUBTRACT, &nested) == SMLIB_OK);
+    smlib_flat *flat = nullptr;
+    CHECK(nested && smlib_brep_export(nested, &flat) == SMLIB_OK);
+    for (smlib_brep *b : {b50, b40, b20, b10, hollow, joined, nested})
+    {
+        smlib_brep_free(b);
+    }
+    if (flat == nullptr)
+    {
+        return;
+    }
+    const double want = 50.0 * 50 * 50 - 40.0 * 40 * 40 + 20.0 * 20 * 20 - 10.0 * 10 * 10;
+    const Arrays a = Snapshot(flat);
+    smlib_flat_free(flat);
+
+    // Each shell's block: its counts and its faceuses. Faceuse shells only here.
+    struct Shell
+    {
+        int64_t faceuses, wires, point;
+        std::vector<int64_t> face, orientation;
+    };
+    const std::vector<int64_t> &regionShells = a.i.at(SMLIB_FLAT_REGION_SHELL_COUNT);
+    std::vector<std::vector<Shell>> regions;
+    size_t shell = 0, fu = 0;
+    for (int64_t n : regionShells)
+    {
+        regions.emplace_back();
+        for (int64_t k = 0; k < n; ++k, ++shell)
+        {
+            Shell s;
+            s.faceuses = a.i.at(SMLIB_FLAT_SHELL_FACEUSE_COUNT)[shell];
+            s.wires = a.i.at(SMLIB_FLAT_SHELL_WIRE_EDGE_COUNT)[shell];
+            s.point = a.i.at(SMLIB_FLAT_SHELL_POINT_TYPE)[shell];
+            CHECK(s.faceuses > 0 && s.wires == 0 && s.point == 0);
+            const std::vector<int64_t> &face = a.i.at(SMLIB_FLAT_FACEUSE_FACE), &orient = a.i.at(SMLIB_FLAT_FACEUSE_ORIENTATION);
+            s.face.assign(face.begin() + static_cast<ptrdiff_t>(fu), face.begin() + static_cast<ptrdiff_t>(fu + s.faceuses));
+            s.orientation.assign(orient.begin() + static_cast<ptrdiff_t>(fu), orient.begin() + static_cast<ptrdiff_t>(fu + s.faceuses));
+            fu += static_cast<size_t>(s.faceuses);
+            regions.back().push_back(s);
+        }
+    }
+    // The infinite region with the 50 cube's outside; the 50 hollow; the void between 40 and 20;
+    // the 20 hollow; the void inside 10.
+    CHECK(regions.size() == 5);
+    size_t multi = 0;
+    for (auto &r : regions)
+    {
+        multi += r.size() > 1;
+    }
+    CHECK(multi == 3);
+
+    // Every order: regions 1.. permuted, then the shells of every region.
+    std::vector<size_t> regionOrder;
+    for (size_t r = 1; r < regions.size(); ++r)
+    {
+        regionOrder.push_back(r);
+    }
+    int orders = 0, good = 0;
+    do
+    {
+        std::vector<std::vector<size_t>> shellOrder(regions.size());
+        for (size_t r = 0; r < regions.size(); ++r)
+        {
+            for (size_t k = 0; k < regions[r].size(); ++k)
+            {
+                shellOrder[r].push_back(k);
+            }
+        }
+        for (;;)
+        {
+            Arrays p = a;
+            std::vector<int64_t> &rsc = p.i[SMLIB_FLAT_REGION_SHELL_COUNT], &rt = p.i[SMLIB_FLAT_REGION_TYPE];
+            std::vector<int64_t> &sfc = p.i[SMLIB_FLAT_SHELL_FACEUSE_COUNT], &swc = p.i[SMLIB_FLAT_SHELL_WIRE_EDGE_COUNT],
+                                 &spt = p.i[SMLIB_FLAT_SHELL_POINT_TYPE], &ff = p.i[SMLIB_FLAT_FACEUSE_FACE],
+                                 &fo = p.i[SMLIB_FLAT_FACEUSE_ORIENTATION];
+            rsc.clear();
+            rt.clear();
+            sfc.clear();
+            swc.clear();
+            spt.clear();
+            ff.clear();
+            fo.clear();
+            std::vector<size_t> order = {0};
+            order.insert(order.end(), regionOrder.begin(), regionOrder.end());
+            for (size_t r : order)
+            {
+                rsc.push_back(static_cast<int64_t>(regions[r].size()));
+                rt.push_back(a.i.at(SMLIB_FLAT_REGION_TYPE)[r]);
+                for (size_t k : shellOrder[r])
+                {
+                    const Shell &s = regions[r][k];
+                    sfc.push_back(s.faceuses);
+                    swc.push_back(s.wires);
+                    spt.push_back(s.point);
+                    ff.insert(ff.end(), s.face.begin(), s.face.end());
+                    fo.insert(fo.end(), s.orientation.begin(), s.orientation.end());
+                }
+            }
+            smlib_flat *f = FromArrays(p);
+            smlib_brep *b = nullptr;
+            int32_t s = smlib_brep_import(f, &b);
+            double v = 0.0;
+            int64_t len = 0, bad = -1;
+            char buf[4096] = {0};
+            if (s == SMLIB_OK)
+            {
+                CHECK(smlib_brep_volume(b, 1e-9, &v) == SMLIB_OK);
+                CHECK(smlib_brep_check(b, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK);
+            }
+            orders++;
+            if (s == SMLIB_OK && bad == 0 && std::fabs(v - want) <= 1e-9 * want)
+            {
+                good++;
+            }
+            else
+            {
+                std::fprintf(stderr, "nested shells, order %d: import %d, volume %.12g (want %.12g), failed checks %lld %s\n", orders,
+                             static_cast<int>(s), v, want, static_cast<long long>(bad), buf);
+                failures++;
+            }
+            smlib_brep_free(b);
+            smlib_flat_free(f);
+
+            // the next shell order, odometer-wise over the regions
+            size_t r = 0;
+            while (r < shellOrder.size() && !std::next_permutation(shellOrder[r].begin(), shellOrder[r].end()))
+            {
+                r++;
+            }
+            if (r == shellOrder.size())
+            {
+                break;
+            }
+        }
+    } while (std::next_permutation(regionOrder.begin(), regionOrder.end()));
+    std::printf("nested shells: %d of %d region and shell orders import as a valid body of volume %.12g\n", good, orders, want);
+}
+
 // Imports `a`; expects a failure status (and no crash). Returns the status.
 int32_t ExpectReject(const Arrays &a, const char *what)
 {
@@ -752,6 +907,8 @@ int main(int argc, char **argv)
             smlib_flat_free(f);
         }
     }
+
+    NestedShellOrder();
 
     // The accessors' argument checks.
     {
