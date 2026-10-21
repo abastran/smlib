@@ -330,3 +330,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   face), the drop crossed the gap, the failure was ignored, and the body came back with an edge
   as loose as the gap. A drop farther than ten times the edge's tolerance now fails the local
   operation (offset and shell, which close such gaps later, are unchanged).
+- **An inward shell with no cavity** (`SmOffsetExecutive.cpp`, `ShellBrep`): an inward wall at
+  or past the body's inradius leaves an empty offset (or one that is no closed solid), and the
+  difference then handed the body back unhollowed as a success. Such a shell now fails
+  (`SM_ERR_INVALID_INPUT` for an empty offset, `SM_ERR` for an open one).

@@ -7,7 +7,9 @@
 
 #include "../src/smlib_shim.h"
 
+#include <SmApiBrep.h>
 #include <SmApiPrimitives.h>
+#include <SmApiQueries.h>
 #include <SmVector3d.h>
 
 #include <cmath>
@@ -49,7 +51,7 @@ smlib_brep *cylinder(double x, double y, double z, double r, double h)
     return new smlib_brep{p};
 }
 
-double volume(const smlib_brep *b)
+double volume_of(const smlib_brep *b)
 {
     double v = -1.0;
     CHECK(smlib_brep_volume(b, 1e-7, &v) == SMLIB_OK);
@@ -104,17 +106,17 @@ int main()
     // through cylinder.
     smlib_brep *rod = cylinder(10, 10, -1, 4, 22);
     CHECK(smlib_boolean(cube, rod, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
-    CHECK(near(volume(r), 8000.0 - PI * 16.0 * 20.0, 1e-6));
+    CHECK(near(volume_of(r), 8000.0 - PI * 16.0 * 20.0, 1e-6));
     CHECK(sound(r));
     smlib_brep *holed = r;
     r = nullptr;
     CHECK(smlib_boolean(cube, rod, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK);
-    CHECK(near(volume(r), 8000.0 + PI * 16.0 * 2.0, 1e-6));
+    CHECK(near(volume_of(r), 8000.0 + PI * 16.0 * 2.0, 1e-6));
     done(r);
     // A blind hole, ending inside.
     smlib_brep *pin = cylinder(10, 10, 10, 4, 15);
     CHECK(smlib_boolean(cube, pin, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
-    CHECK(near(volume(r), 8000.0 - PI * 16.0 * 10.0, 1e-6));
+    CHECK(near(volume_of(r), 8000.0 - PI * 16.0 * 10.0, 1e-6));
     done(r);
 
     // The rim of the hole is one closed circular edge.
@@ -128,7 +130,7 @@ int main()
         // centroid at R + r·(10 − 3π)/(12 − 3π) from the axis (Pappus).
         double area = (1.0 - PI / 4.0);
         double c = 4.0 + (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI);
-        CHECK(near(volume(r), volume(holed) - 2.0 * PI * c * area, 1e-5));
+        CHECK(near(volume_of(r), volume_of(holed) - 2.0 * PI * c * area, 1e-5));
         done(r);
     }
     else
@@ -140,7 +142,7 @@ int main()
     if (s == SMLIB_OK)
     {
         // A 1 × 1 triangle, centroid at R + 1/3.
-        CHECK(near(volume(r), volume(holed) - 2.0 * PI * (4.0 + 1.0 / 3.0) * 0.5, 1e-5));
+        CHECK(near(volume_of(r), volume_of(holed) - 2.0 * PI * (4.0 + 1.0 / 3.0) * 0.5, 1e-5));
         done(r);
     }
     else
@@ -192,7 +194,7 @@ int main()
     smlib_brep *touching = box(20, 0, 0, 10, 20, 20);
     if (smlib_boolean(cube, touching, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK)
     {
-        CHECK(near(volume(r), 12000.0, 1e-9));
+        CHECK(near(volume_of(r), 12000.0, 1e-9));
         done(r);
     }
 
@@ -246,8 +248,37 @@ int main()
     CHECK(smlib_shell(cube, nullptr, 0, 0.1, -10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
     if (smlib_shell(cube, lid, 1, 0.1, -9.5, &r, nullptr) == SMLIB_OK)
     {
-        CHECK(near(volume(r), 8000.0 - 1.0 * 1.0 * 10.5, 1e-6));
+        CHECK(near(volume_of(r), 8000.0 - 1.0 * 1.0 * 10.5, 1e-6));
         done(r);
+    }
+    // tangency-labs/solidcore#380: SMLib itself, past the shim's guard. A closed inward shell
+    // whose offset leaves nothing handed the cube back unhollowed as a success; it fails now,
+    // open or closed, and leaves the input as it was.
+    {
+        SmTArray<SmFace *> faces;
+        cube->p->GetFaces(faces);
+        SmTArray<const SmFace *> lidface;
+        for (ULONG i = 0; i < faces.GetSize(); ++i)
+        {
+            SmPoint3d lo;
+            SmPoint3d hi;
+            if (SmApiFaceBoundingBox(faces[i], TRUE, lo, hi) == SM_SUCCESS && lo[2] > 19.9)
+            {
+                lidface.Add(faces[i]);
+            }
+        }
+        CHECK(lidface.GetSize() == 1);
+        SmTArray<const SmFace *> none;
+        for (double wall : {10.0, 12.0, 15.0})
+        {
+            for (const SmTArray<const SmFace *> *open : {&none, &lidface})
+            {
+                SmBrep *res = nullptr;
+                CHECK(SmApiShellBrepFull(cube->p, -wall, TRUE, TRUE, TRUE, *open, res) != SM_SUCCESS && res == nullptr);
+                delete res;
+            }
+        }
+        CHECK(near(volume_of(cube), 8000.0, 1e-9) && sound(cube));
     }
 
     // SMLib defect 6 (SmOffsetExecutive::RemoveExcessFaces deleted faces its face maps still
@@ -281,7 +312,7 @@ int main()
         if (smlib_shell(ell, top, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK)
         {
             // Floor 1 thick under a cavity 19 tall, its plan the L inset by 1: 2 * 38 * 4 - 4 * 4.
-            CHECK(std::fabs(volume(r) - (volume(ell) - 19.0 * (2.0 * 38.0 * 4.0 - 16.0))) < 1e-4);
+            CHECK(std::fabs(volume_of(r) - (volume_of(ell) - 19.0 * (2.0 * 38.0 * 4.0 - 16.0))) < 1e-4);
             done(r);
         }
         else
@@ -302,7 +333,7 @@ int main()
         CHECK(smlib_shell(slab, top, 1, 0.1, -4.0, &r, nullptr) == SMLIB_OK);
         if (r != nullptr)
         {
-            CHECK(std::fabs(volume(r) - (6000.0 - 12.0 * 2.0 * 26.0)) < 1e-6);
+            CHECK(std::fabs(volume_of(r) - (6000.0 - 12.0 * 2.0 * 26.0)) < 1e-6);
             done(r);
         }
         CHECK(smlib_shell(slab, top, 1, 0.1, -5.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
@@ -316,20 +347,20 @@ int main()
         CHECK(smlib_offset_faces(cube, top, 1, 0.1, 5.0, &r, nullptr) == SMLIB_OK);
         if (r != nullptr)
         {
-            CHECK(std::fabs(volume(r) - 10000.0) < 1e-6);
+            CHECK(std::fabs(volume_of(r) - 10000.0) < 1e-6);
             done(r);
         }
         CHECK(smlib_offset_faces(cube, top, 1, 0.1, -5.0, &r, nullptr) == SMLIB_OK);
         if (r != nullptr)
         {
-            CHECK(std::fabs(volume(r) - 6000.0) < 1e-6);
+            CHECK(std::fabs(volume_of(r) - 6000.0) < 1e-6);
             done(r);
         }
         const double two[6] = {10, 10, 20, 20, 10, 10};
         CHECK(smlib_offset_faces(cube, two, 2, 0.1, 2.0, &r, nullptr) == SMLIB_OK);
         if (r != nullptr)
         {
-            CHECK(std::fabs(volume(r) - 22.0 * 20.0 * 22.0) < 1e-6);
+            CHECK(std::fabs(volume_of(r) - 22.0 * 20.0 * 22.0) < 1e-6);
             done(r);
         }
         CHECK(smlib_offset_faces(cube, top, 1, 0.1, -20.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
@@ -382,13 +413,13 @@ int main()
         CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_OK);
         if (r != nullptr)
         {
-            CHECK(std::fabs(volume(r) - (8000.0 - wedge)) < 1e-6);
+            CHECK(std::fabs(volume_of(r) - (8000.0 - wedge)) < 1e-6);
             done(r);
         }
         CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, -5.0 * deg, &r, nullptr) == SMLIB_OK);
         if (r != nullptr)
         {
-            CHECK(std::fabs(volume(r) - (8000.0 + wedge)) < 1e-6);
+            CHECK(std::fabs(volume_of(r) - (8000.0 + wedge)) < 1e-6);
             done(r);
         }
         const double top[3] = {10, 10, 20};
