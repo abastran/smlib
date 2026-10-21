@@ -184,6 +184,17 @@ intersection (SMLib's boolean with `SM_BO_IMPRINT`, the tool kept), leaving one 
 are the pieces. Trim and Split Face build on it and choose which pieces to keep; a tool that
 meets nothing is `SMLIB_ERR_NO_CUT`.
 
+## Extend
+
+`smlib_extend_sheet(sheet, point, tol, distance, mode, &out)` continues a one-face sheet past the
+side its edge nearest `point` runs along. The face must be its surface's whole parameter box
+(for a B-spline, the whole surface); anything else is `SMLIB_ERR_UNSUPPORTED`. A B-spline surface
+is SMLib's extended surface (`SMLIB_EXTEND_NATURAL` continues its end spans, `_TANGENT` and
+`_CURVATURE` add a G1 or G2 run-off). An analytic surface keeps its geometry: its box grows by
+the parameter step that crosses `distance`, which must be the same all along the side
+(`SMLIB_ERR_NOT_EXACT` otherwise, or where the box would pass a pole or wrap round); only a plane
+takes the G1 and G2 modes, as itself.
+
 ## Diagnostics
 
 - **Log:** `smlib_set_log` receives one line per call, written after it returns. Example:
