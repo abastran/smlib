@@ -149,3 +149,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   and `SmMerge::PiecewiseMerge` ignored its first `IntersectInsertRelate`, so a boolean went on
   with half-imprinted, inconsistent Breps (use-after-free reads in later steps). Both stop with
   the error now.
+- **Vertex used after a squeeze** (`SmProtoTopology.cpp`,
+  `SmProtoTopologyManager::GlueCoincidentBrepVertices`): for coincident vertices joined by
+  several edges it went on through the edges after squeezing or gluing had already deleted the
+  second vertex, gluing and squeezing with the freed vertex. It stops once that vertex is gone.
