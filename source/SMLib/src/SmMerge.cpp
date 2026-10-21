@@ -391,7 +391,7 @@ ULONG lCount      = 1 ; lCount++ ;
   // iteration?  No, ManifoldBoolean() needs the Relate part each time.
   // Maybe think of a way around repeating Intersect and Insert each time...
 
-  m_vTI.IntersectInsertRelate();
+  SER(m_vTI.IntersectInsertRelate());
   m_vTI.m_pOther->GetSurfaces( sSurfaces );
 
   // reinitizialize Brep<=>Other entity maps

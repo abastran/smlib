@@ -1232,8 +1232,13 @@ if ( iDebugLevel > 0 ) // After ResolveIntersections(): DumpAndDraw Brep(blue), 
   // Imprint Intersections, now we'll modify the Breps.
   eStat = this->ImprintIntersections();
 
-  // If that didn't work, inform the public
-  SE_MSG( eStat, _T("\nSmProtoExecutive: Error returned from ImprintIntersections().\n") );
+  // If that didn't work, the Breps are partly imprinted and no longer consistent: stop here, so
+  // that no caller goes on to relate, classify or measure them.
+  if ( eStat != SM_SUCCESS )
+    {
+      if(m_pProtoTopoMgr) { delete m_pProtoTopoMgr ; m_pProtoTopoMgr = NULL; }
+      SER_MSG( eStat, _T("\nSmProtoExecutive: Error returned from ImprintIntersections().\n") );
+    }
 
 #ifdef SM_DEBUG_CODE
 if ( iDebugLevel > 0 ) // After ImprintIntersections(): DumpAndDraw Brep(blue), Other(green), m_pProtoTopoMgr(cyan)
