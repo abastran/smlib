@@ -330,3 +330,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   or past the body's inradius leaves an empty offset (or one that is no closed solid), and the
   difference then handed the body back unhollowed as a success. Such a shell now fails
   (`SM_ERR_INVALID_INPUT` for an empty offset, `SM_ERR` for an open one).
+- **Offset edges on a closed intersection curve** (`SmOffsetGeometryCreation.cpp`,
+  `TrimExtendedEdge`): two trim points on a closed curve bound two arcs, and the edge always took
+  the interval between them. The rim of a hemisphere, two arcs of one circle, became the same
+  long arc twice and the cavity no solid. The edge now takes the arc that runs where its base
+  edge does when that arc is an interval of the curve (a trim point on the seam), and reports no
+  curve when it would cross the seam.

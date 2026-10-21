@@ -324,6 +324,30 @@ int main()
         smlib_brep_free(legs[1]);
     }
 
+    // tangency-labs/solidcore#403: a hemisphere r10 (a sphere cut by a box, its rim two arcs of
+    // 270 and 90 degrees) shelled 2 open at the flat face. The rim's offset is a closed circle,
+    // which both arcs were trimmed to as the same 270 degrees: the flat face got the long arc
+    // twice and the cavity was no solid. Each arc now takes the part of the circle it runs along.
+    {
+        const double centre[3] = {0, 0, 0};
+        smlib_brep *ball = nullptr;
+        CHECK(smlib_make_sphere(centre, 10.0, &ball) == SMLIB_OK);
+        smlib_brep *upper = box(-20, -20, 0, 40, 40, 20);
+        smlib_brep *half = nullptr;
+        CHECK(smlib_boolean(ball, upper, SMLIB_BOOLEAN_INTERSECT, &half) == SMLIB_OK && sound(half));
+        const double flat[3] = {3, 2, 0};
+        CHECK(smlib_shell(half, flat, 1, 0.1, -2.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 2.0 / 3.0 * PI * (1000.0 - 512.0), 1e-5));
+            done(r);
+        }
+        for (smlib_brep *b : {ball, upper, half})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // A box 20 x 10 x 30 open at the top with walls 4 thick: the sides need room 4 from each
     // other (10 > 8), the floor's is far, so the shell goes through even though the box's
     // smallest half extent is 5; walls of 5 leave none.

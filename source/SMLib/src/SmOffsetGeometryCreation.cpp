@@ -1361,6 +1361,40 @@ SmBoolean bDebugMe2 = FALSE;
     
     } // end iter twice
   
+  // On a closed 3DCurve the two trim points bound two arcs, and the interval between them is
+  // only one of them: the edge takes the arc that runs where the base edge does. When a trim
+  // point lies on the curve's seam it may be either end of the curve's interval, so the other
+  // arc is an interval too.
+  SmExtent1d sNatIvl = p3DCurve->GetNaturalInterval();
+  double     dSeamTol = SM_EFF_ZERO * (1.0 + sNatIvl.GetMaxDimension()) ;
+  if (   sTrimIvl.GetLength() > dSeamTol
+      && p3DCurve->IsClosed(sNatIvl, m_dThisApproxTol3d))
+    {
+      SmPoint3d sBaseMid, sInMid, sOutMid;
+      SER(((SmEdgeuse *)pBaseEdgeuse)->NormalizedEvaluate(0.5,FALSE,sBaseMid));  // TRUE = UV Eval, FALSE = 3d Eval
+      SER(p3DCurve->EvaluatePoint(sTrimIvl.Evaluate(0.5),sInMid));
+      double dOutMid = sTrimIvl.GetMax() + 0.5*(sNatIvl.GetLength() - sTrimIvl.GetLength());
+      if (dOutMid > sNatIvl.GetMax()) { dOutMid -= sNatIvl.GetLength(); }
+      SER(p3DCurve->EvaluatePoint(dOutMid,sOutMid));
+      if (sOutMid.DistanceBetween(sBaseMid) < sInMid.DistanceBetween(sBaseMid))
+        {
+          SmPoint3d sSeam, sLo, sHi;
+          SER(p3DCurve->EvaluatePoint(sNatIvl.GetMin(),sSeam));
+          SER(p3DCurve->EvaluatePoint(sTrimIvl.GetMin(),sLo));
+          SER(p3DCurve->EvaluatePoint(sTrimIvl.GetMax(),sHi));
+          if (sLo.DistanceBetween(sSeam) <= m_dThisApproxTol3d)
+            { sTrimIvl = SmExtent1d(sTrimIvl.GetMax(), sNatIvl.GetMax()); }
+          else if (sHi.DistanceBetween(sSeam) <= m_dThisApproxTol3d)
+            { sTrimIvl = SmExtent1d(sNatIvl.GetMin(), sTrimIvl.GetMin()); }
+          else
+            {
+              // The arc runs across the seam: no interval of this curve gives it.
+              bGoodEdge = FALSE;
+              return SM_SUCCESS;
+            }
+        }
+    }
+
   // cull zero length curves
   double dScaledZero = SM_EFF_ZERO * (1.0 + sTrimIvl.GetMaxDimension()) ;
   if(sTrimIvl.GetLength() > dScaledZero)
