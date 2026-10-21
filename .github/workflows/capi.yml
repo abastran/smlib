@@ -48,6 +48,6 @@ jobs:
       - name: Library size
         shell: bash
         run: ls -l build/*.a build/Release/*.lib 2>/dev/null || true
-      - name: macOS: both architectures in the archive
+      - name: 'macOS: both architectures in the archive'
         if: runner.os == 'macOS'
         run: lipo -info build/libsmlib.a
