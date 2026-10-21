@@ -336,3 +336,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   long arc twice and the cavity no solid. The edge now takes the arc that runs where its base
   edge does when that arc is an interval of the curve (a trim point on the seam), and reports no
   curve when it would cross the seam.
+- **Pointer maps in insertion order** (`SmMapPtrToPtr.h`, `SmMapPtrToPtr`, `SmMapPtrToPtrs`; through
+  them `SmRelation`): they were `std::unordered_map`s and `std::unordered_set`s keyed by
+  pointers, and handed out their keys and values (`GetAllKeys`, `GetSeconds`, `GetSecond`) in
+  hash order, which is address order. The offset and shell walk them to process edges and
+  faces, so the same call could give a different answer wherever the heap put its objects (a
+  box with a cylinder on its side shelled to 1001 or 1006 by turns in one process, and a host
+  whose threads allocate meanwhile moves the heap with its load). They now hand everything out
+  in the order it was inserted, so every run does the same work.
