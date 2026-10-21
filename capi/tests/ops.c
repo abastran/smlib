@@ -75,6 +75,37 @@ int main(void)
         smlib_brep_free(r);
         r = NULL;
     }
+    /* Two cubes sharing an edge: their union is closed but not manifold (four faces on that
+     * edge); smlib_boolean hands it out, two solids of the two volumes, and refuses it only
+     * without SMLIB_RESULT_NONMANIFOLD. Cubes sharing only a vertex are manifold edge by edge. */
+    {
+        smlib_brep *p = box(0, 0, 0, 10, 10, 10);
+        smlib_brep *q = box(10, 10, 0, 10, 10, 10);
+        smlib_brep *v = box(10, 10, 10, 10, 10, 10);
+        CHECK(smlib_boolean(p, q, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK && r != NULL);
+        if (r != NULL)
+        {
+            CHECK(near(volume(r), 2000.0));
+            CHECK(smlib_brep_solid_count(r, &n) == SMLIB_OK && n == 2);
+            smlib_brep_free(r);
+            r = NULL;
+        }
+        CHECK(smlib_boolean_with(p, q, SMLIB_BOOLEAN_UNION, 0, &r) == SMLIB_ERR_NOT_SOLID && r == NULL);
+        CHECK(smlib_boolean_with(p, q, SMLIB_BOOLEAN_UNION, SMLIB_RESULT_NONMANIFOLD, &r) == SMLIB_OK);
+        smlib_brep_free(r);
+        r = NULL;
+        CHECK(smlib_boolean(p, v, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK && r != NULL);
+        if (r != NULL)
+        {
+            CHECK(near(volume(r), 2000.0));
+            smlib_brep_free(r);
+            r = NULL;
+        }
+        CHECK(smlib_boolean_with(p, q, SMLIB_BOOLEAN_UNION, 2, &r) == SMLIB_ERR_ARG && r == NULL);
+        smlib_brep_free(p);
+        smlib_brep_free(q);
+        smlib_brep_free(v);
+    }
     CHECK(smlib_boolean(a, b, 7, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_boolean(NULL, b, SMLIB_BOOLEAN_UNION, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_boolean(a, NULL, SMLIB_BOOLEAN_UNION, &r) == SMLIB_ERR_ARG);

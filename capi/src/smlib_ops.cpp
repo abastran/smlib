@@ -305,15 +305,52 @@ int32_t chamfer_edges(SmBrep *b, const std::vector<SmEdge *> &edges, double dist
     return status(b->StitchAndOrient());
 }
 
+// Whether `r` is closed though not manifold: solids touching each other along an edge or at a
+// vertex. Bounded regions, no wire edges or shell vertices, and every edge shared by its faces
+// in pairs (four edgeuses per pair of face sides: none bounds a face on one side only).
+bool closed_nonmanifold(const SmBrep &r)
+{
+    SmTArray<SmRegion *> regions;
+    r.GetRegions(regions);
+    if (regions.GetSize() < 2)
+    {
+        return false;
+    }
+    SmTArray<SmVertex *> points;
+    r.GetShellVertices(points);
+    if (points.GetSize() > 0)
+    {
+        return false;
+    }
+    SmTArray<SmEdge *> edges;
+    r.GetEdges(edges);
+    for (ULONG i = 0; i < edges.GetSize(); ++i)
+    {
+        SmEdge *e = edges[i];
+        if (e == nullptr || e->IsWire())
+        {
+            return false;
+        }
+        SmTArray<SmEdgeuse *> uses;
+        e->GetEdgeuses(uses);
+        if (uses.GetSize() < 4 || uses.GetSize() % 4 != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Hands a finished operation's body to the caller: it must have faces, and a solid input must
-// give a closed manifold solid.
-int32_t finish(Owned r, bool solid_in, smlib_brep **out)
+// give a closed manifold solid, or (`nonmanifold`) a closed one whose solids touch along an edge
+// or at a vertex.
+int32_t finish(Owned r, bool solid_in, smlib_brep **out, bool nonmanifold = false)
 {
     if (r == nullptr || r->GetNumFaces() == 0)
     {
         return SMLIB_ERR_EMPTY;
     }
-    if (solid_in && !r->IsManifoldSolid())
+    if (solid_in && !r->IsManifoldSolid() && !(nonmanifold && closed_nonmanifold(*r)))
     {
         return SMLIB_ERR_NOT_SOLID;
     }
@@ -559,6 +596,11 @@ int32_t move_faces(SmBrep *b, const std::vector<SmFace *> &picked, double distan
 
 extern "C" int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out)
 {
+    return smlib_boolean_with(a, b, op, SMLIB_RESULT_NONMANIFOLD, out);
+}
+
+extern "C" int32_t smlib_boolean_with(const smlib_brep *a, const smlib_brep *b, int32_t op, int32_t flags, smlib_brep **out)
+{
     SmBooleanOperationType kind;
     switch (op)
     {
@@ -574,11 +616,12 @@ extern "C" int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32
     default:
         return SMLIB_ERR_ARG;
     }
-    if (!valid(a) || !valid(b) || out == nullptr)
+    if (!valid(a) || !valid(b) || out == nullptr || (flags & ~SMLIB_RESULT_NONMANIFOLD) != 0)
     {
         return SMLIB_ERR_ARG;
     }
-    Call c("smlib_boolean", handle(a) + ", " + handle(b) + ", op=" + std::to_string(op));
+    const bool nonmanifold = (flags & SMLIB_RESULT_NONMANIFOLD) != 0;
+    Call c("smlib_boolean", handle(a) + ", " + handle(b) + ", op=" + std::to_string(op) + ", flags=" + std::to_string(flags));
     c.input("a", a);
     c.input("b", b);
     return c.run(
@@ -609,9 +652,9 @@ extern "C" int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32
             {
                 // Not what SM_API documents; SMLib owns A now, so leave it be.
                 ca.release();
-                return finish(Owned(r), solid_in, out);
+                return finish(Owned(r), solid_in, out, nonmanifold);
             }
-            return finish(std::move(ca), solid_in, out);
+            return finish(std::move(ca), solid_in, out, nonmanifold);
         }
     );
 }
