@@ -432,6 +432,58 @@ int32_t smlib_flat_set_f64(smlib_flat *flat, int32_t id, const double *data, int
 int32_t smlib_flat_write(const smlib_flat *flat, const char *path);
 int32_t smlib_flat_read(const char *path, smlib_flat **out);
 
+/* ---- Operations (src/smlib_ops.cpp) ----------------------------------------------------- */
+
+/* SMLib reported success, but a solid input gave a result that is not a closed manifold solid. */
+#define SMLIB_ERR_NOT_SOLID (-1100)
+/* A selection point is farther than the tolerance from every edge (face). */
+#define SMLIB_ERR_PICK_NONE (-1101)
+/* A selection point is as near to two edges (faces) as the body's modelling tolerance can tell. */
+#define SMLIB_ERR_PICK_AMBIGUOUS (-1102)
+
+/* Selecting edges and faces. Operations that act on some edges or faces take them as points
+ * (`points`: x, y, z for each of `n_points`, at most 4096). Each point selects the edge (face)
+ * nearest to it; it must lie within `tolerance` (> 0) of it, and every other edge (face) within
+ * `tolerance` must be farther by more than the body's modelling tolerance. A point that selects
+ * nothing fails the call with SMLIB_ERR_PICK_NONE, one that cannot decide with
+ * SMLIB_ERR_PICK_AMBIGUOUS; either way, when `out_failed_point` is not NULL, the index of that
+ * point is written to it (the one exception to "outputs only on SMLIB_OK"). Points that select
+ * the same edge (face) count once. */
+
+#define SMLIB_BOOLEAN_UNION 0
+/* a minus b. */
+#define SMLIB_BOOLEAN_SUBTRACT 1
+#define SMLIB_BOOLEAN_INTERSECT 2
+
+/* A new body: `a` and `b` combined by `op` (SMLIB_BOOLEAN_*); both inputs are left unchanged.
+ * A result that is the empty set (an intersection of disjoint bodies, a subtraction of a body
+ * that encloses `a`) is SMLIB_ERR_EMPTY. A result of several separate solids (a union of
+ * disjoint bodies) is one body: smlib_brep_solid_count tells how many. */
+int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out);
+
+/* The number of separate solid regions of `brep` (voids not counted). */
+int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
+
+/* A new body: `brep` with the selected edges rounded at constant `radius` (> 0) by a circular
+ * cross-section. Each selected edge brings its whole tangent chain: every edge that continues
+ * a rounded edge within 0.5 degrees at a shared vertex is rounded too. */
+int32_t smlib_fillet(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double radius,
+                     smlib_brep **out, int64_t *out_failed_point);
+
+/* A new body: `brep` with the selected edges (and their tangent chains, as for smlib_fillet)
+ * cut by an equal-distance chamfer, `distance` (> 0) back from the edge along each face, with
+ * bevelled corners. The setback is measured at each edge's midpoint; SMLib keeps the chord
+ * across the chamfer constant along an edge, so on an edge whose dihedral angle varies the
+ * setback varies with it. */
+int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
+                      smlib_brep **out, int64_t *out_failed_point);
+
+/* A new body: `brep` hollowed to a wall of `thickness` (non-zero; negative: the wall lies
+ * inside the original surface, positive: outside), open at the selected faces. `n_points` may
+ * be 0 (and `points` NULL) for a closed hollow body. */
+int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double thickness,
+                    smlib_brep **out, int64_t *out_failed_point);
+
 #ifdef __cplusplus
 }
 #endif

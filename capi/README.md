@@ -35,6 +35,30 @@ manifold check and native file read/write), SMLib's own validity check (`smlib_b
 exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history and the flat
 arrays below. SolidCraft's kernel adapter adds the rest, one shim at a time, each with a case in
 a fuzz target.
+history, the flat arrays below and the operations. SolidCraft's kernel adapter adds the rest,
+one shim at a time, each with a case in a fuzz target.
+
+## Operations
+
+`src/smlib_ops.cpp`: `smlib_boolean` (union, subtract, intersect), `smlib_fillet`,
+`smlib_chamfer` and `smlib_shell`. Each copies its inputs and works on the copies, so tagged
+operands (`smlib_history_tag`) give a result whose history `smlib_history_read` reads. An empty
+boolean result is `SMLIB_ERR_EMPTY`; several solids come back as one body
+(`smlib_brep_solid_count`). A solid input that gives anything but a closed manifold solid is
+`SMLIB_ERR_NOT_SOLID`.
+
+Edges and faces are chosen by points, never by SMLib's internal order: each point takes the
+nearest edge (face), which must lie within the caller's tolerance and be nearer than any other
+by more than the body's modelling tolerance (`SMLIB_ERR_PICK_NONE`, `SMLIB_ERR_PICK_AMBIGUOUS`,
+with the point's index). Fillets and chamfers take each picked edge's whole tangent chain
+(edges meeting within 0.5°). A chamfer's distance is the setback along each face at the edge's
+midpoint; it is cut by SMLib's constant-radius solver with a linear section, whose ball radius
+is the setback times tan(a/2), a being the angle between the faces there. A shell's thickness
+is negative inward, positive outward; an inward wall at least half the body's smallest
+bounding-box extent can leave no cavity and is refused before SMLib sees it.
+
+`tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
+regression cases, both against analytic volumes and `smlib_brep_check` level 2.
 
 ## Flat B-rep arrays
 
@@ -99,6 +123,9 @@ build-fuzz/smlib_fuzz -max_total_time=120 corpus/
 
 `fuzz/fuzz_history.cpp` (`smlib_fuzz_history`) does the same for the history shims, through a
 real boolean of two tagged boxes.
+
+`fuzz/fuzz_ops.cpp` (`smlib_fuzz_ops`) chains the operations on boxes, half the values pulled
+into ranges SMLib can build so the kernel runs too, the rest arbitrary.
 
 `SMLIB_FUZZ_SMB=<file.smb>` adds a second starting body for the flat-array case. Point it at a
 body with NURBS faces, such as `blend.smb`, which the round-trip test writes to its scratch
