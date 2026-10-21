@@ -956,9 +956,14 @@ USAGE NOTES----
 ***********************************************************************/
 SmStatus SmEdgeDefinition::Destruct()
 {
-    delete m_pXSectCurve3d ;  m_pXSectCurve3d  = NULL;
-    delete m_pXSectUVCurve1 ; m_pXSectUVCurve1 = NULL;
-    delete m_pXSectUVCurve2 ; m_pXSectUVCurve2 = NULL;
+    // A curve with an owner was implanted in a Brep (MakeEdgeInFace sets the owner): the Brep
+    // deletes it with its Edge, so deleting it here would leave that Edge on freed memory.
+    if( m_pXSectCurve3d  != NULL && m_pXSectCurve3d ->GetOwner() == NULL ) { delete m_pXSectCurve3d ; }
+    if( m_pXSectUVCurve1 != NULL && m_pXSectUVCurve1->GetOwner() == NULL ) { delete m_pXSectUVCurve1 ; }
+    if( m_pXSectUVCurve2 != NULL && m_pXSectUVCurve2->GetOwner() == NULL ) { delete m_pXSectUVCurve2 ; }
+    m_pXSectCurve3d  = NULL;
+    m_pXSectUVCurve1 = NULL;
+    m_pXSectUVCurve2 = NULL;
 
     return SM_SUCCESS ;
 
@@ -1459,6 +1464,9 @@ static int iDebugMe2=0;
 
       if(eStat != SM_SUCCESS )
       {
+          // MakeEdgeInFace can fail after it has implanted the curves in a new Edge of Brep1
+          // (it sets each implanted curve's owner). Those belong to Brep1 now; Destruct()
+          // deletes only the others.
           this->Destruct(); // Get rid of our curves, which were not consumed.
           SER( eStat) ;
       }
@@ -1541,8 +1549,10 @@ static int iDebugMe2=0;
           // Note, we'll just leave the Edge in Brep1.
           m_pXSectCurve3d = m_pXSectUVCurve1 = NULL;
 
-          // We also have to delete the copy, which would have gone into Brep2.
-          delete pCopyCurve; pCopyCurve = NULL;
+          // We also have to delete the copy, which would have gone into Brep2, unless
+          // MakeEdgeInFace implanted it in a new Edge before failing (it then has an owner).
+          if(pCopyCurve != NULL && pCopyCurve->GetOwner() == NULL) { delete pCopyCurve; }
+          pCopyCurve = NULL;
 
           SER( eStat) ;
       }
