@@ -24,7 +24,10 @@ GENERAL NOTES:
 #define SmApiStatus    long
 
 
-#if defined(_WIN32)
+#if defined(SM_STATIC)
+// Built into a static library, nothing exported (SolidCraft change).
+#  define SMAPI_EXPORT
+#elif defined(_WIN32)
 #  ifdef SM_API_EXPORTS
 #    define SMAPI_EXPORT __declspec(dllexport)
 #  else

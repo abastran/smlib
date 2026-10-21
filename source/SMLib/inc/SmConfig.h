@@ -59,6 +59,13 @@
 //#define SM_REUSE_UVCURVES
 
 
+// The seed SmFace.cpp and SmShell.cpp give srand() before their random sampling. Upstream
+// seeds from the clock, so results can differ from run to run; define SM_RAND_SEED (an
+// unsigned constant) to make them repeat. (SolidCraft change.)
+#ifndef SM_RAND_SEED
+#define SM_RAND_SEED ((unsigned)time(NULL))
+#endif
+
 // The following define determines if we use exception handling
 // to notify of memory errors
 #ifndef _DEBUG

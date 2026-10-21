@@ -39,7 +39,12 @@
 #include <stdlib.h>
 
 #if defined(_WIN32)
+// SM_STATIC: built into a static library, nothing exported (SolidCraft change).
+#if defined(SM_STATIC)
+#define SM_EXPORT
+#else
 #define SM_EXPORT   __declspec( dllexport )
+#endif
 #define SM_EXPORT_TEMPLATE
 
 typedef int SmBoolean;

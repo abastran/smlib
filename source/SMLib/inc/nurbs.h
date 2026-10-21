@@ -15,7 +15,9 @@
 
 #include <NL_Nurbsdef.h>
 
-#ifdef _WIN32
+#if defined(SM_STATIC)
+ #define GW_EXPORT
+#elif defined(_WIN32)
  #define GW_EXPORT   __declspec( dllexport )
 #elif defined(__GNUC__) && __GNUC__ >= 4
  #define GW_EXPORT __attribute__((visibility("default")))

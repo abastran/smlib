@@ -885,7 +885,7 @@ SmBoolean SmShell::IsInnerShellOf
       if(IsFaceuseShell())     { pInnerFaceuse->GetPointsInFace(lSmpCnt, sSmpUV, sSmpPV) ; }
       else if(IsWireShell())   { SmExtent1d sIvl = pInnerWireEdge->GetInterval() ;
                                  SmPoint3d sPoint, sDir ;
-                                 srand((unsigned)time(NULL)) ;
+                                 srand(SM_RAND_SEED) ;
                                  for(jj=0;jj<lSmpCnt;jj++)
                                    {
                                      SmCurve *pCurve = pInnerWireEdge->GetCurve() ;
@@ -902,7 +902,7 @@ SmBoolean SmShell::IsInnerShellOf
                                }
       else if(IsVertexShell()) { SmVector3d sPoint = pInnerShellVertex->GetPoint() ;
                                  SmVector3d sDir ;
-                                 srand((unsigned)time(NULL)) ;
+                                 srand(SM_RAND_SEED) ;
                                  for(jj=0;jj<lSmpCnt;jj++)
                                    {
                                      // pick varying directions for the vector
