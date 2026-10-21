@@ -128,6 +128,20 @@ int32_t smlib_history_tag(const smlib_brep *brep, int32_t operand, smlib_brep **
  * big; `buf` may be NULL when `cap` is 0). */
 int32_t smlib_history_read(const smlib_brep *result, int64_t *buf, int64_t cap, int64_t *out_len);
 
+/* ---- Validity (smlib_check.cpp) ----------------------------------------------------------- */
+
+/* Runs SMLib's own validity checks on `brep`: SmBrep::ValidatePointers, then, only when the
+ * pointers are sound, AssertValid over the whole topology graph (SM_WALK). Both run at test
+ * `level`: 0 the fewest tests, 1 adds the geometry checks, 2 every test (the slow ones too).
+ *
+ * The number of failed tests goes to *out_failures, 0 meaning SMLib finds the body valid. The
+ * report, one line per failed test, is written NUL-terminated to `buf` and its length (without
+ * the NUL) to *out_len. A failing check is still SMLIB_OK; the status only says the check ran.
+ * When `cap` is too small, nothing goes to `buf` or *out_failures: the call returns
+ * SMLIB_ERR_BUFFER with the needed length in *out_len (`buf` may be NULL with `cap` 0). */
+int32_t smlib_brep_check(const smlib_brep *brep, int32_t level, char *buf, int64_t cap, int64_t *out_len,
+                         int64_t *out_failures);
+
 #ifdef __cplusplus
 }
 #endif

@@ -30,9 +30,9 @@ links it) on Windows.
 - **Handles belong to the caller,** who frees them with `smlib_brep_free`.
 - **Calls are serialised.** SMLib keeps process-global state, so one lock serialises every call.
 
-So far the API covers what's needed to prove the build: init, copy, free, box, volume, counts
-and native file read/write. SolidCraft's kernel adapter adds the rest, one shim at a time, each
-with a case in the fuzz target.
+So far the API covers what's needed to prove the build (init, copy, free, box, volume, counts
+and native file read/write) and SMLib's own validity check (`smlib_brep_check`). SolidCraft's
+kernel adapter adds the rest, one shim at a time, each with a case in a fuzz target.
 
 ## Diagnostics
 
@@ -46,8 +46,9 @@ with a case in the fuzz target.
 
 ## Fuzzing
 
-`fuzz/fuzz_capi.cpp` is a libFuzzer target that calls every shim with arbitrary arguments. SMLib
-itself is built with ASan and UBSan for it:
+`fuzz/fuzz_capi.cpp` is a libFuzzer target that calls every shim with arbitrary arguments, and
+each `fuzz/fuzz_<area>.cpp` is one more (`smlib_fuzz_<area>`) for shims that need bodies the C
+API can't make yet, broken ones included. SMLib itself is built with ASan and UBSan for them:
 
 ```sh
 cmake -S capi -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DSMLIB_CAPI_FUZZ=ON -DSMLIB_CAPI_TESTS=OFF
@@ -82,3 +83,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   fixes the seed (`-DSMLIB_RAND_SEED=`; leave it empty for upstream's behaviour).
 - **`SM_STATIC`** (`SmTypes.h`, `SmApiTypes.h`, `nurbs.h`): built into a static library, nothing
   is marked `__declspec(dllexport)`/`dllimport` on Windows.
+- **Seam-curve leak** (`SmFace.cpp`, `SmFace::HasSeamProblem`): it copied its seam
+  classification curve and then disowned the original, leaking a few KB on every call for each
+  periodic face (cylinders, cones, spheres, tori). AssertValid runs it on every such face. The
+  original is now handed over instead of copied.
