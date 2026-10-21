@@ -140,3 +140,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   merged by `CombineProtoVertex`) lists it twice, but the destructor removed it once. The
   ProtoVertex's destructor then wrote through the freed ProtoEdge (heap use-after-free in
   `~SmProtoTopologyManager`, ASan, on box − cylinder and on shells). Every entry is removed now.
+- **Implanted curves deleted** (`SmProtoTopology.cpp`, `SmEdgeDefinition::Destruct` and
+  `Imprint`): `MakeEdgeInFace` can fail after it has made a new Edge of the curves it was given;
+  the EdgeDefinition then deleted them anyway, and the Edge used them after the free. Curves with
+  an owner (which `MakeEdgeInFace` sets) are left to their Brep now.
