@@ -235,3 +235,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   it deleted offset faces that its face maps (`m_vFUToF`, `m_vEToF`, `m_vVToF`,
   `m_vBlendToFaces`) still held, and `PiecewiseMerge` read them next. They are dropped from
   the maps first.
+- **A curve sweep that keeps the profile where it lies** (`SmPrimitiveCreation.h`,
+  `SmSweepOptions::bProfileAtPathStart`; `SmPrimitiveCreation::CreateCurveSweep`): upstream
+  sweeps a profile with its first point (or its bounding-box centre) moved onto the path, so a
+  profile beside the path loses its offset round a bend. With the new option, off by default,
+  the path's start is the profile's reference point: the profile is carried as it lies relative
+  to the path. `smlib_sweep` uses it.
