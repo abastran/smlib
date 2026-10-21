@@ -130,7 +130,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             smlib_brep *tool = nullptr;
             if (smlib_make_box(org, ext, &tool) == SMLIB_OK)
             {
-                st = smlib_boolean(target, tool, static_cast<int32_t>(in.byte() % 4), &r);
+                int32_t which = static_cast<int32_t>(in.byte() % 5);
+                // 0..3: a boolean (3 is refused); 4: the box imprinted on the body.
+                st = which == 4 ? smlib_imprint(target, tool, &r) : smlib_boolean(target, tool, which, &r);
                 smlib_brep_free(tool);
             }
             break;

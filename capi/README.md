@@ -164,6 +164,13 @@ sample, the API writes NaN, while the runner drops the sample. `tests/ssi.cpp` c
 cases against their closed forms and rejects hostile inputs; `fuzz/fuzz_ssi.cpp`
 (`smlib_fuzz_ssi`, run with `-timeout=10`) fuzzes the constructors and all three methods.
 
+## Imprint
+
+`smlib_imprint(body, tool, &out)` cuts each face of `body` that `tool` meets along the
+intersection (SMLib's boolean with `SM_BO_IMPRINT`, the tool kept), leaving one body whose faces
+are the pieces. Trim and Split Face build on it and choose which pieces to keep; a tool that
+meets nothing is `SMLIB_ERR_NO_CUT`.
+
 ## Diagnostics
 
 - **Log:** `smlib_set_log` receives one line per call, written after it returns. Example:
