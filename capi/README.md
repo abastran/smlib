@@ -31,8 +31,9 @@ links it) on Windows.
 - **Calls are serialised.** SMLib keeps process-global state, so one lock serialises every call.
 
 So far the API covers what's needed to prove the build (init, copy, free, box, volume, counts
-and native file read/write) and SMLib's own validity check (`smlib_brep_check`). SolidCraft's
-kernel adapter adds the rest, one shim at a time, each with a case in a fuzz target.
+and native file read/write), SMLib's own validity check (`smlib_brep_check`) and exact mass
+properties (`smlib_brep_mass_properties`, `smlib_brep_area`). SolidCraft's kernel adapter adds
+the rest, one shim at a time, each with a case in a fuzz target.
 
 ## Diagnostics
 
@@ -88,3 +89,5 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   too, as on every other platform, instead of instantiating each listed `SmTArray<T>` in every
   file. The Windows archive drops from about 1 GB to 146 MB; linked programs are byte-for-byte
   the same size. It also lets MinGW compile `SmHashTable.h`.
+- **Apex leak** (`SmPrimitiveCreation.cpp`, `CreateCone`): a cone with a zero radius at one end
+  built that end's circle and, having no cap to give it to, leaked it.
