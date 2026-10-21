@@ -283,3 +283,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   profile beside the path loses its offset round a bend. With the new option, off by default,
   the path's start is the profile's reference point: the profile is carried as it lies relative
   to the path. `smlib_sweep` uses it.
+- **Knot checks before clamping** (`NL_Iges.cpp`, `N_IgesClampSrf`): it assumed finite,
+  nondecreasing knots and bounds inside them. A NaN knot left a span index unset, and the knot
+  copy then wrote past the new knot vector, a heap overflow. A surface of revolution given a
+  sweep domain from 360 degrees made such a knot. Such knots and bounds are now refused
+  (`NL_YES`), so the caller's operation fails instead of corrupting memory.
