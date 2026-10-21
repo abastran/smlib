@@ -18180,7 +18180,8 @@ SmBoolean bDebugMe = FALSE;
   // for U and V directions
   for(ii=0;ii<2;ii++)
     {
-      ULONG lArraySize = (ii==0) ? sUKnotsAtSplit.GetSize() : sUKnotsAtSplit.GetSize() ;
+      // SolidCraft change: the V pass counts the V knots (it took the U count and read past them)
+      ULONG lArraySize = (ii==0) ? sUKnotsAtSplit.GetSize() : sVKnotsAtSplit.GetSize() ;
 
       // for every KnotSplit - build and accumulate curves to split Face
       for(jj=0;jj<lArraySize;jj++)

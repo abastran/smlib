@@ -206,6 +206,15 @@ public:
   virtual SmBoolean CanMakeAnalytic()      { return ! OffsetRadiiCanChange(); } // default behavior.
   virtual SmBoolean OffsetRadiiCanChange() { return TRUE; }
 
+  // SolidCraft change: the parameters on the filleted edge where the fillet radius has a corner
+  // (its slope jumps), appended to rParams; and whether an intersection point lies at one.
+  // None by default.
+  virtual SmStatus  GetRadiusCornerParameters(SmTArray<double> & rParams) { SM_REF1(rParams); return SM_SUCCESS; }
+  virtual SmBoolean IsAtRadiusCorner(const SmTsectPnt & crTsectPnt)      { SM_REF1(crTsectPnt); return FALSE; }
+  // SolidCraft change: the edge parameter of an intersection point, FALSE where the solver
+  // has no radius corners.
+  virtual SmBoolean GetRadiusParameter(const SmTsectPnt & crTsectPnt, double & rdParam) { SM_REF2(crTsectPnt, rdParam); return FALSE; }
+
   // side effects
   virtual SmStatus  CalcFilletGeom           (); // after SmFilletCorner:: Builds topology, Compute filletSurface and railCurve geometry
   virtual SmStatus  CalcCylinderFilletGeom   (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);

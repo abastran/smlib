@@ -224,6 +224,9 @@ protected:
   SmSelfIntersectionHandler * m_pSelfIntersectionHandler; // This object processes problems with self intersecting fillet surfaces.  
                                                           // default = returns an error.
 
+  SmTArray<SmSurface*>      m_vRadiusCornerSurfaces; // SolidCraft change: copies of the fillet surfaces that turn where their radius
+                                                     // has a corner, owned; their faces are split there after the merge
+
   // gwc: Only one of m_bDoPiecewiseMerge, m_bDoTopologyInsertion, and m_bDoGlobalMerge should be TRUE in any SmFilletExecutive.
   //      They are 3 different ways to do the same thing; move m_pFilletBrep Topology and Geometry into m_pTargetBrep. 
 
@@ -395,6 +398,8 @@ public:
   SmStatus DoSurfaceFilleting        (SmFilletErrorInfo * pOptFilletErrorInfo = NULL); // note: increments unlocked mark value
   SmStatus DoPiecewiseMerge          ();                                               // note: increments unlocked mark value
   SmStatus LoadFilletSolver          (SmFilletSolver * pFS);
+  SmStatus NoteRadiusCornerSurfaces();        // SolidCraft change: copy fillet surfaces that turn where the radius has a corner
+  SmStatus SplitFilletFacesAtRadiusCorners(); // SolidCraft change: split those fillet faces where the radius turns
   SmStatus RemoveTopoEdges           ();
   void     RemoveFromTopoEdges( SmFilletEdge * pTopoEdge )
   {
@@ -738,6 +743,18 @@ public:
 
   virtual SmBoolean IsLinearLaw() const                 { return FALSE; }
 
+  // The parameters inside the fillet edge's interval where the radius has a corner: where its
+  // slope jumps, so the fillet's center curve and rails turn there. None by default.
+  virtual SmStatus GetCornerParameters
+  (
+    const SmExtent1d &,  ///< [in] : crCurveInterval = interval defining range of fillet edge                                <br>
+    SmBoolean,           ///< [in] : bReverseOrientation: TRUE = parameters run from interval end to interval start           <br>
+    SmTArray<double> &   ///< [out]: rParams = corner parameters in the interval, ascending (appended)                        <br>
+  ) const
+  {
+      return SM_SUCCESS;
+  }
+
   // Use the following method to apply a single radius function along a sequence of
   // smoothly-meeting edges.  See Notes in the method's header file.
   // Note, this is no longer a user-level call: users should call SmFilletExecutve::CreateSequenceOfLaws().
@@ -896,6 +913,13 @@ public:
     if(m_pLawCurve->GetDegree() == 1) { return TRUE; }
     return FALSE;
   }
+
+  virtual SmStatus GetCornerParameters
+  (
+    const SmExtent1d & crCurveInterval,      ///< [in] : interval defining range of fillet edge                             <br>
+    SmBoolean bReverseOrientation,           ///< [in] : TRUE = parameters run from interval end to interval start          <br>
+    SmTArray<double> & rParams               ///< [out]: corner parameters in the interval, ascending (appended)            <br>
+  ) const;
 
   SmBSplineCurve * GetLawCurve()                { return m_pLawCurve; }
   SmBSplineCurve * GetExtendedCurve()           { return m_pExtendedLaw; }

@@ -23,6 +23,7 @@
 //  #include <SmCFace.h>
 #include <SmAssertArray.h>
 #include <SmAttribute.h>
+#include <SmCrvOnSurf.h>
 
 //#define VALIDATE_TOPOLOGY 1
 
@@ -534,6 +535,12 @@ SmFilletExecutive::~SmFilletExecutive()
     {
       SmSurface * pSurf = sExtSurfaces[ii];
       if (pSurf) { delete pSurf; pSurf = NULL ; }
+    }
+
+  // SolidCraft change: copies of fillet surfaces left by a DoFilleting without DoFillet
+  for (i=0; i<m_vRadiusCornerSurfaces.GetSize(); i++)
+    {
+      delete m_vRadiusCornerSurfaces[i] ; m_vRadiusCornerSurfaces[i] = NULL ;
     }
 
   // delete filletCorners
@@ -1602,10 +1609,195 @@ SmStatus SmFilletExecutive::DoFillet()
   eStat = DoFilleting();  // note: increments unlocked mark value
   SER( eStat );
 
+  // SolidCraft change: a fillet surface turns where its radius has a corner; the face is
+  // split there into faces that are smooth, with an edge along the turn.
+  SER( SplitFilletFacesAtRadiusCorners() );
+
   // all done
   return SM_SUCCESS;
 
 } // end SmFilletExecutive::DoFillet
+
+/*******************************************************************//**
+PURPOSE: Give an edge whose curve is a curve on a surface along an
+   isoparameter line that isoparameter curve, exactly, as its curve.
+
+NOTES: SolidCraft change, for SplitFilletFacesAtRadiusCorners. Other edges
+   are left as they are.
+***********************************************************************/
+static SmStatus sm_ReplaceIsoCrvOnSurf
+ (SmBrep * pBrep,   // i/o: Brep of the edge
+  SmEdge * pEdge)   // i/o: edge
+{
+  SmCrvOnSurf * pCOS = SM_CAST_PTR(SmCrvOnSurf, pEdge->GetCurve());
+  if (pCOS == NULL || pCOS->GetBaseSurface() == NULL || pCOS->GetUVCurve() == NULL)
+    { return SM_SUCCESS; }
+
+  // the edge's ends in the surface's parameters
+  SmExtent1d sIvl = pEdge->GetInterval();
+  SmPoint3d sUV0, sUV1;
+  SER(pCOS->GetUVCurve()->EvaluatePoint(sIvl.GetMin(), sUV0));
+  SER(pCOS->GetUVCurve()->EvaluatePoint(sIvl.GetMax(), sUV1));
+  const SmSurface * pSurface = pCOS->GetBaseSurface();
+  SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
+  double dTol = SM_EFF_ZERO_SQRT * (1.0 + sDomain.GetSize().Length());
+  SmSurfParamType eIso;
+  double dIso, dFrom, dTo;
+  if (smos_Fabs(sUV0.x - sUV1.x) <= dTol)
+    { eIso = SM_SP_U; dIso = sUV0.x; dFrom = sUV0.y; dTo = sUV1.y; }
+  else if (smos_Fabs(sUV0.y - sUV1.y) <= dTol)
+    { eIso = SM_SP_V; dIso = sUV0.y; dFrom = sUV0.x; dTo = sUV1.x; }
+  else
+    { return SM_SUCCESS; }  // not along an isoparameter line
+  if (smos_Fabs(dTo - dFrom) <= dTol)
+    { return SM_SUCCESS; }
+
+  SmBSplineCurve * pIso = NULL;
+  SER(pSurface->CreateIsoParametricCurve(*pBrep->GetContext(), eIso, dIso, 0.0, pIso));
+  NER(pIso);
+  SmObjDelete sDeleteIso(pIso);
+
+  // the isoparameter curve runs along the other parameter: keep the edge's part, its way round
+  SmExtent1d sNatural = pIso->GetNaturalInterval();
+  SmExtent1d sPart(smos_Max(sNatural.GetMin(), smos_Min(dFrom, dTo)), smos_Min(sNatural.GetMax(), smos_Max(dFrom, dTo)));
+  if (sPart.GetLength() <= dTol)
+    { return SM_SUCCESS; }
+  SER(pIso->Trim(sPart));
+  if (dTo < dFrom)
+    {
+      SmExtent1d sReversed;
+      SER(pIso->ReverseParameterization(pIso->GetNaturalInterval(), sReversed));
+    }
+
+  // it must run between the edge's own ends
+  SmPoint3d sEnd0, sEnd1, sIso0, sIso1;
+  SER(pCOS->EvaluatePoint(sIvl.GetMin(), sEnd0));
+  SER(pCOS->EvaluatePoint(sIvl.GetMax(), sEnd1));
+  SmExtent1d sIsoIvl = pIso->GetNaturalInterval();
+  SER(pIso->EvaluatePoint(sIsoIvl.GetMin(), sIso0));
+  SER(pIso->EvaluatePoint(sIsoIvl.GetMax(), sIso1));
+  double dEdgeTol = pEdge->GetTolerance();
+  if (!sIso0.CloserThan(dEdgeTol, sEnd0) || !sIso1.CloserThan(dEdgeTol, sEnd1))
+    { return SM_SUCCESS; }
+
+  sDeleteIso.Clear();
+  SER(pBrep->ReplaceCurve(pEdge, pIso));
+  return SM_SUCCESS;
+
+} // end sm_ReplaceIsoCrvOnSurf
+
+/*******************************************************************//**
+PURPOSE: Keep copies of the fillet surfaces of solvers whose radius has a
+   corner, where those surfaces turn (a C0 knot).
+
+NOTES: SolidCraft change. SmCircularCrossSectionFSG::CreateSurface joins such
+   a surface from smooth pieces, C0 where the radius turns, and SMLib's check
+   refuses a face (and the edges round it) with a kink inside. The merge gives
+   the target Brep copies of the fillet faces and deletes m_pFilletBrep, so
+   SplitFilletFacesAtRadiusCorners finds the faces again by these copies.
+***********************************************************************/
+SmStatus SmFilletExecutive::NoteRadiusCornerSurfaces()
+{
+  for (ULONG i=0; i<m_vFilletSolvers.GetSize(); i++)
+    {
+      SmFilletSolver * pFS = m_vFilletSolvers[i];
+      SmTArray<double> sCorners;
+      if (pFS == NULL)
+        { continue; }
+      SER(pFS->GetRadiusCornerParameters(sCorners));
+      if (sCorners.GetSize() == 0)
+        { continue; }
+      for (ULONG j=0; j<pFS->m_vFilletGeoms.GetSize(); j++)
+        {
+          SmFilletGeom * pFG = pFS->m_vFilletGeoms[j];
+          SmSurface * pSurface = (pFG != NULL) ? pFG->GetFilletSurface() : NULL;
+          if (pSurface == NULL)
+            { continue; }
+          SmTArray<double> sUKnots, sVKnots;
+          SER(pSurface->FindKnotsByMaxContinuity(SM_CT_C0, FALSE, sUKnots, sVKnots));
+          if (sUKnots.GetSize() == 0 && sVKnots.GetSize() == 0)
+            { continue; }
+          SmSurface * pCopy = NULL;
+          SER(pSurface->Copy(*GetContext(), pCopy));
+          NER(pCopy);
+          m_vRadiusCornerSurfaces.Add(pCopy);
+        }
+    }
+  return SM_SUCCESS;
+
+} // end SmFilletExecutive::NoteRadiusCornerSurfaces
+
+/*******************************************************************//**
+PURPOSE: Split the faces of the target Brep on the surfaces noted by
+   NoteRadiusCornerSurfaces at their C0 knots.
+
+NOTES: SolidCraft change. Each face becomes faces that are smooth, with an
+   edge along the turn. Deletes the noted copies.
+***********************************************************************/
+SmStatus SmFilletExecutive::SplitFilletFacesAtRadiusCorners()
+{
+  SmObjsDelete<SmSurface*> sDeleteCopies(&m_vRadiusCornerSurfaces);
+  if (m_vRadiusCornerSurfaces.GetSize() == 0)
+    { return SM_SUCCESS; }
+  NER(m_pTargetBrep);
+
+  SmTArray<SmFace*> sFaces;
+  m_pTargetBrep->GetFaces(sFaces);
+  for (ULONG i=0; i<sFaces.GetSize(); i++)
+    {
+      // the merge gives the target an exact copy of each fillet surface
+      SmSurface * pSurface = sFaces[i]->GetSurface();
+      SmBoolean bFillet = FALSE;
+      for (ULONG j=0; j<m_vRadiusCornerSurfaces.GetSize() && pSurface != NULL && !bFillet; j++)
+        { bFillet = (*m_vRadiusCornerSurfaces[j] == *pSurface); }
+      if (!bFillet)
+        { continue; }
+      SmTArray<SmFace*> sPieces;
+      SER(m_pTargetBrep->SubdivideFaceAtDiscontinuities(sFaces[i], sPieces, SM_CT_C0));
+      // Each face's surface is cut at the turns to the side the face lies on, so the turn is
+      // its boundary, then back to the face (whose trims end within tolerance of the turn).
+      sPieces.Add(sFaces[i]);
+      for (ULONG j=0; j<sPieces.GetSize(); j++)
+        {
+          SmFace    * pPiece = sPieces[j];
+          SmSurface * pPieceSurface = pPiece->GetSurface(); NER(pPieceSurface);
+          SmExtent2d  sBox;
+          SER(pPiece->CalculateUVDomainFromUVTrimCurves(sBox));
+          SmPoint2d   sMid = (sBox.GetMin() + sBox.GetMax()) / 2.0;
+          SmExtent2d  sDomain = pPieceSurface->GetNaturalUVDomain();
+          SmPoint2d   sLo = sDomain.GetMin();
+          SmPoint2d   sHi = sDomain.GetMax();
+          SmTArray<double> sUKnots, sVKnots;
+          SER(pPieceSurface->FindKnotsByMaxContinuity(SM_CT_C0, FALSE, sUKnots, sVKnots));
+          for (ULONG k=0; k<sUKnots.GetSize(); k++)
+            {
+              if (sUKnots[k] <= sLo.x || sUKnots[k] >= sHi.x) { continue; }
+              if (sUKnots[k] < sMid.x) { sLo.x = sUKnots[k]; } else { sHi.x = sUKnots[k]; }
+            }
+          for (ULONG k=0; k<sVKnots.GetSize(); k++)
+            {
+              if (sVKnots[k] <= sLo.y || sVKnots[k] >= sHi.y) { continue; }
+              if (sVKnots[k] < sMid.y) { sLo.y = sVKnots[k]; } else { sHi.y = sVKnots[k]; }
+            }
+          SmExtent2d sSide(sLo, sHi);
+          if (!(sSide == sDomain))
+            { SER(pPieceSurface->TrimWithDomain(sSide)); }
+          SER(pPiece->ShrinkGeometry());
+        }
+
+      // The split's edges lie along isoparameter lines of the surface as it was, as curves on
+      // that surface (with its turn inside); each becomes that isoparameter curve itself.
+      for (ULONG j=0; j<sPieces.GetSize(); j++)
+        {
+          SmTArray<SmEdge*> sEdges;
+          sPieces[j]->GetEdges(sEdges);
+          for (ULONG k=0; k<sEdges.GetSize(); k++)
+            { SER(sm_ReplaceIsoCrvOnSurf(m_pTargetBrep, sEdges[k])); }
+        }
+    }
+  return SM_SUCCESS;
+
+} // end SmFilletExecutive::SplitFilletFacesAtRadiusCorners
 
 /*******************************************************************//**
 PURPOSE: Get the Fillet Corner associated with a vertex if there is
@@ -3072,6 +3264,10 @@ SmBoolean bDebugMe = FALSE ;
       sm_GraphicsLoop();
     }
 #endif // SM_DEBUG_CODE
+
+  // SolidCraft change: remember the fillet surfaces that turn at a radius corner, whose faces
+  // DoFillet splits there once they are in the target Brep.
+  SER( NoteRadiusCornerSurfaces() );
 
   SmTemporaryChangeValue<SmBoolean> sChange(m_pTargetBrep->m_bEditingEnabled,TRUE);
 
@@ -6152,6 +6348,61 @@ SmStatus SmBSplineFilletLaw::Evaluate
   return SM_SUCCESS;
 
 } // end SmBSplineFilletLaw::Evaluate
+
+/*******************************************************************//**
+PURPOSE: The edge parameters where the radius has a corner: an interior knot
+   of the law curve where its slope from the left and from the right differ.
+
+NOTES:  SolidCraft change. The fillet's center curve and rails turn at such a
+   parameter, so the fillet solver traces through it and keeps the turn
+   instead of fitting a smooth curve across it.
+***********************************************************************/
+SmStatus SmBSplineFilletLaw::GetCornerParameters
+ (const SmExtent1d & crCurveInterval,     // in : interval defining range of fillet edge
+  SmBoolean          bReverseOrientation, // in : TRUE = parameters run from interval end to interval start
+  SmTArray<double> & rParams)             // out: corner parameters in the interval, ascending (appended)
+ const
+{
+  NER(m_pLawCurve);
+  double dMapLength = m_vEdgeMap.GetLength();
+  if (crCurveInterval.GetLength() <= 0.0 || dMapLength <= 0.0)
+    { return SM_SUCCESS; }
+
+  SmTArray<double> sKnots;
+  SER(m_pLawCurve->GetKnots(sKnots));
+  SmExtent1d sIvl = m_pLawCurve->GetNaturalInterval();
+  SmTArray<double> sCorners;
+  for (ULONG i=0; i<sKnots.GetSize(); i++)
+    {
+      double dLawT = sKnots[i];
+      if (   (i > 0 && sKnots[i-1] == dLawT)
+          || dLawT <= sIvl.GetMin() || dLawT >= sIvl.GetMax()
+          || dLawT <= m_vEdgeMap.GetMin() || dLawT >= m_vEdgeMap.GetMax())
+        { continue; }
+
+      // slopes in the lower and the upper interval at the knot
+      SmVector3d sLeft[2], sRight[2];
+      SER(m_pLawCurve->Evaluate(dLawT, 1, FALSE, sLeft, FALSE));
+      SER(m_pLawCurve->Evaluate(dLawT, 1, TRUE, sRight, FALSE));
+      double dLeft  = sLeft[1].x;
+      double dRight = sRight[1].x;
+      if (smos_Fabs(dLeft - dRight) <= SM_EFF_ZERO * (1.0 + smos_Fabs(dLeft) + smos_Fabs(dRight)))
+        { continue; }
+
+      // the edge parameter of the knot (the inverse of the map in Evaluate)
+      double dT = (dLawT - m_vEdgeMap.GetMin()) / dMapLength;
+      double dParam = bReverseOrientation ? crCurveInterval.GetMax() - dT * crCurveInterval.GetLength()
+                                          : crCurveInterval.GetMin() + dT * crCurveInterval.GetLength();
+      sCorners.Add(dParam);
+    }
+
+  if (bReverseOrientation)
+    { sCorners.ReverseArray(0, sCorners.GetSize()); }
+  rParams.Append(sCorners);
+
+  return SM_SUCCESS;
+
+} // end SmBSplineFilletLaw::GetCornerParameters
 
 /*******************************************************************//**
 PURPOSE:

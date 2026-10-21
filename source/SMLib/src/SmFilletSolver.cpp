@@ -1850,13 +1850,19 @@ static int sbDumpFVUs=0;
             }
         } // end need to split check
 
+      // SolidCraft change: the corners of the radius law are through points too, so the trace
+      // has a point where the fillet turns.
+      SmTArray<double> sThroughKnots;
+      sThroughKnots.Append(m_vG1Knots);
+      SER(GetRadiusCornerParameters(sThroughKnots));
+
       // Now, compute 'through points' from all internal G1 knots
       // and add them to sAllTsectPnts (and sDeletePnts arrays to stop mem leaks)
-      for (ULONG k=0; k<m_vG1Knots.GetSize(); k++)
+      for (ULONG k=0; k<sThroughKnots.GetSize(); k++)
         {
           // get position and tangent at G1 knot
           SmPoint3d sPV[2];
-          double dKnot = m_vG1Knots[k];
+          double dKnot = sThroughKnots[k];
           SER(pEdgeCurve->Evaluate(dKnot,1,TRUE,sPV));
 
           // locals

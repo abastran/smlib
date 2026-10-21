@@ -483,6 +483,54 @@ int main()
         delete b;
     }
 
+    // tangency-labs/solidcore#430: a variable round whose radius law has a corner. SMLib traced
+    // the round smoothly across the corner, averaging the tangents of its two sides, and skinned
+    // one smooth surface over it: it missed the law past the corner and failed its own check.
+    // The trace now ends a step at the corner with the tangents of each side, the surface is
+    // skinned piece by piece, and the face is split there. On the cube's edge y = z = 20, the
+    // round takes (1 - pi/4) r^2 per unit length; for 4 -> 2 -> 4 that is the same as for a
+    // straight 4 -> 2 along the whole edge.
+    {
+        const double PI4 = 1.0 - PI / 4.0;
+        const double edge[3] = {10, 20, 20};
+        const double from0[3] = {0, 20, 20};
+        const double from1[3] = {20, 20, 20};
+        const double v_knots[5] = {0, 0, 0.5, 1, 1};
+        const double v_radii[3] = {4, 2, 4};
+        const double removed = PI4 * 20.0 * (16.0 + 8.0 + 4.0) / 3.0;
+        for (const double *from : {from0, from1})
+        {
+            CHECK(smlib_fillet_variable(cube, edge, 0.1, from, 1, v_knots, 5, v_radii, 3, &r) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(8000.0 - volume_of(r), removed, 1e-4));
+                done(r);
+            }
+        }
+        // Two corners (4, 2, 4, 2 at 0, 0.25, 0.75, 1): the straight 4 -> 2 in three pieces.
+        const double w_knots[6] = {0, 0, 0.25, 0.75, 1, 1};
+        const double w_radii[4] = {4, 2, 4, 2};
+        CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 1, w_knots, 6, w_radii, 4, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(8000.0 - volume_of(r), removed, 1e-4));
+            done(r);
+        }
+        // The same law as a quadratic with a corner at 0.5 (the knot repeated twice): 4, 3, 2
+        // then 2, 3, 4, evenly spaced, are the straight halves again.
+        const double q_knots[8] = {0, 0, 0, 0.5, 0.5, 1, 1, 1};
+        const double q_radii[5] = {4, 3, 2, 3, 4};
+        CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 2, q_knots, 8, q_radii, 5, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(8000.0 - volume_of(r), removed, 1e-4));
+            done(r);
+        }
+        // A radius of zero inside the edge would pinch the round to a point: refused.
+        const double p_radii[3] = {4, 0, 4};
+        CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 1, v_knots, 5, p_radii, 3, &r) == SMLIB_ERR_UNSUPPORTED && r == nullptr);
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
