@@ -15683,12 +15683,12 @@ static ULONG lCount      = 1 ; lCount++ ;
       sCrvClassU.SetTgtLoopsOnly(bOuterLoopOnly) ;
       sCrvClassU.SetOKToSetTolerance(FALSE) ;
 
-      // init output
-      rCrvClassU = sCrvClassU ;
-
-      // switch pSeamConstU ownership to rCrvClassU
-      rCrvClassU.SetIsCurveOwned(TRUE) ;
+      // init output: hand pSeamConstU itself to rCrvClassU. (SolidCraft fork: assigning
+      // while sCrvClassU still owned it deep-copied the curve, and the original, disowned
+      // afterwards, leaked on every call. rCrvClassU's UV curve points into the original.)
       sCrvClassU.SetIsCurveOwned(FALSE) ;
+      rCrvClassU = sCrvClassU ;
+      rCrvClassU.SetIsCurveOwned(TRUE) ;
 
       // classify the SeamCurve3d against this face
       CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
@@ -15830,12 +15830,12 @@ static ULONG lCount      = 1 ; lCount++ ;
       sCrvClassV.SetTgtLoopsOnly(bOuterLoopOnly) ; 
       sCrvClassV.SetOKToSetTolerance(FALSE) ;
 
-      // init output
-      rCrvClassV = sCrvClassV ;
-
-      // switch pSeamConstV ownership to pCrvClassU
-      rCrvClassV.SetIsCurveOwned(TRUE) ;
+      // init output: hand pSeamConstV itself to rCrvClassV. (SolidCraft fork: assigning
+      // while sCrvClassV still owned it deep-copied the curve, and the original, disowned
+      // afterwards, leaked on every call. rCrvClassV's UV curve points into the original.)
       sCrvClassV.SetIsCurveOwned(FALSE) ;
+      rCrvClassV = sCrvClassV ;
+      rCrvClassV.SetIsCurveOwned(TRUE) ;
 
 
       // classify the SeamCurve3d against this face (works for composites)
