@@ -28,7 +28,11 @@
 #include <SmContext.h>
 #endif
 
-#ifdef _WIN32
+// On Windows a DLL build instantiates and exports these arrays here, in every file that includes
+// this header. A static build (SM_STATIC) exports nothing, so it instantiates them where they are
+// used, as every other platform does; that keeps each object file a few MB smaller.
+// (SolidCraft change.)
+#if defined(_WIN32) && !defined(SM_STATIC)
 #define SM_TARRAY_TEMPLATE_PREDECLARATION(x) template class SM_EXPORT SmTArray<x>
 #else
 #define SM_TARRAY_TEMPLATE_PREDECLARATION(x)

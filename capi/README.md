@@ -69,11 +69,8 @@ real boolean of two tagged boxes.
 | Windows from Linux/macOS (MSVC ABI) | clang-cl + the `cargo xwin` SDK: `-DCMAKE_TOOLCHAIN_FILE=$PWD/capi/cmake/clang-cl-xwin.cmake [-DSMLIB_XWIN_ARCH=aarch64]` | by hand |
 | FreeBSD, RISC-V | not yet in CI; SMLib has no architecture-specific code | — |
 
-On Windows the archive is about 1 GB, although a linked program is only a few MB. Under
-`_WIN32`, upstream's headers instantiate every `SmTArray<T>` explicitly in every file
-(`SM_TARRAY_TEMPLATE_PREDECLARATION`), so each object is about 7 MB. A clean clang-cl build takes
-about 10 minutes at `-j8`. Turning those into `extern template` declarations would fix it; that's
-not done yet.
+On Windows the archive is about 150 MB and a clean clang-cl build takes a few minutes, now that
+a static build no longer instantiates every `SmTArray<T>` in every file (see below).
 
 ## Changes from upstream
 
@@ -87,3 +84,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   classification curve and then disowned the original, leaking a few KB on every call for each
   periodic face (cylinders, cones, spheres, tori). AssertValid runs it on every such face. The
   original is now handed over instead of copied.
+- **`SM_TARRAY_TEMPLATE_PREDECLARATION`** (`SmTArray.h`): under `SM_STATIC` it is empty on Windows
+  too, as on every other platform, instead of instantiating each listed `SmTArray<T>` in every
+  file. The Windows archive drops from about 1 GB to 146 MB; linked programs are byte-for-byte
+  the same size. It also lets MinGW compile `SmHashTable.h`.
