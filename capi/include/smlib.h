@@ -191,10 +191,15 @@ int32_t smlib_brep_is_manifold_solid(const smlib_brep *brep, int32_t *out);
  *
  * What is not carried: UV trim curves of faces on analytic surfaces (SMLib's are expressed in
  * its internal NURBS form of the analytic surface, which is not the USD parameterisation), so
- * SMLib rebuilds them from the 3D edges on import; edge curves are always exported as NURBS
- * (lines, circles and ellipses as their exact NURBS form; other curve kinds approximated to the
- * B-rep's tolerance); surfaces that are neither analytic nor NURBS are approximated likewise.
- * Attributes, materials and colours are not carried.
+ * SMLib rebuilds them from the 3D edges on import. Edge curves keep their SMLib class where it
+ * is a line, circle or ellipse (SmLine, SmCircle, SmEllipse); B-splines stay NURBS, and other
+ * curve kinds are approximated as NURBS to the B-rep's tolerance; surfaces that are neither
+ * analytic nor NURBS are approximated likewise. A line, circle or ellipse edge comes back with
+ * the parameterisation its kind defines (a line's by the distance along its direction vector,
+ * a circle's or ellipse's by angle in degrees, as SMLib has it), not the original's; on a
+ * NURBS face, its UV trims are re-mapped to match, or dropped (and rebuilt by SMLib) when the
+ * two parameterisations are not affinely related. Attributes, materials and colours are not
+ * carried.
  *
  * Length rules below: n_x is the length of the array named. "per X" means one entry per X. */
 
@@ -372,7 +377,8 @@ typedef struct smlib_flat smlib_flat;
 #define SMLIB_FLAT_SURFACE_SPHERE 4
 #define SMLIB_FLAT_SURFACE_TORUS 5
 
-/* EDGE_CURVE_TYPE and WIRE_EDGE_CURVE_TYPE values. Export writes only NURBS. */
+/* EDGE_CURVE_TYPE and WIRE_EDGE_CURVE_TYPE values. Export writes LINE, CIRCLE and ELLIPSE for
+ * SMLib's SmLine, SmCircle and SmEllipse curves and NURBS for everything else. */
 #define SMLIB_FLAT_CURVE_NURBS 0
 #define SMLIB_FLAT_CURVE_LINE 1
 #define SMLIB_FLAT_CURVE_CIRCLE 2
