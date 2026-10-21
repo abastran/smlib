@@ -388,3 +388,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   so the check read their right order as out of sequence and refused a valid body. Where two
   faces round an edge leave it within 0.5° of each other, it now orders every face by the
   direction to its point 20 edge tolerances into the face, square to the edge.
+- **Analytic copies keep the parameterization** (`SmBSplineSurface.cpp`,
+  `SmBSplineSurface::CopyAndAddAnalytics`): splitting a face copies its surface for the new face,
+  as an analytic one where the shape is one, and the new face keeps the old UV domain and trim
+  curves. The analytic types build their NURBS form in their own parameterization (a circle as
+  SMLib's two-span arcs) and match only the domain, so a NURBS face parameterized otherwise (a
+  rational half cylinder in four spans) came out of a boolean with trims millimetres off its edges
+  (edge tolerances of 0.78 mm, ValidatePointers failing). An analytic copy that does not give the
+  same points at the same parameters is replaced by an exact copy.
