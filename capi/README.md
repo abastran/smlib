@@ -32,9 +32,9 @@ links it) on Windows.
 
 So far the API covers what's needed to prove the build (init, copy, free, box, volume, counts,
 manifold check and native file read/write), SMLib's own validity check (`smlib_brep_check`),
-exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history and the flat
-arrays below. SolidCraft's kernel adapter adds the rest, one shim at a time, each with a case in
-a fuzz target.
+exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history, the flat
+arrays and surface/surface intersection below. SolidCraft's kernel adapter adds the rest, one
+shim at a time, each with a case in a fuzz target.
 
 ## Flat B-rep arrays
 
@@ -74,6 +74,35 @@ text, which `smlib_flat_read` reads back for replay. `tests/flat_roundtrip.cpp` 
 cylinder, cone, sphere, torus, two filleted boxes, a boolean and an inclined cut, checking each
 one's exported curve kinds, then feeds the import hostile
 and randomly mutated arrays.
+
+## Surface/surface intersection
+
+`src/smlib_ssi.cpp` intersects two surfaces described in plain C, without a B-rep:
+
+- `smlib_surface_plane`, `_cylinder`, `_cone`, `_sphere`, `_torus` and `_nurbs` take exactly the
+  fields of an SSI corpus (`ssi-corpus`) case file (`cases/data/<id>.json`) and build the surface the way the corpus runner
+  (`runner/ssi_runner.cpp`) does: the same SMLib constructors, parameterisations and domains.
+  Angles are in degrees, as in the case files. Every argument is validated first (finite,
+  bounded, non-parallel axes, positive radii, consistent counts, non-decreasing knot vectors with
+  a non-empty domain, positive weights), and anything else returns `SMLIB_ERR_ARG`.
+- `smlib_ssi(a, b, method, approx_tol, samples_per_curve, &result)` runs
+  `SmSurface::GlobalSurfaceIntersect` (0), `SmAdvSurfaceIntersector` (1) or
+  `SmSurfaceIntersector` (2), as the runner's `gsi`, `adv` and `basic` modes do, with both
+  surfaces' edges seeding curves and `approx_tol <= 0` meaning SMLib's default.
+- Each curve is sampled as the runner samples it: `samples_per_curve` parameters spaced evenly
+  over the 3D curve's natural interval, each UV curve likewise over its own interval, and both
+  surfaces evaluated at the UV samples. The result gives per curve its SMLib type (crossing,
+  tangent, touching and so on), whether the method returned UV curves (GlobalSurfaceIntersect's
+  analytic special cases return none), and the samples copied into caller buffers. TOUCHING curves
+  are listed again as isolated points.
+- A failing call's dump holds both surfaces as a corpus case file, `<n>-smlib_ssi-case.txt`, that
+  the corpus runner replays.
+
+Through this API, all 119 corpus cases give bit-for-bit the runner's output (curve counts,
+types and every sample), in all three modes. One difference: where SMLib cannot evaluate a
+sample, the API writes NaN, while the runner drops the sample. `tests/ssi.cpp` checks corpus-like
+cases against their closed forms and rejects hostile inputs; `fuzz/fuzz_ssi.cpp`
+(`smlib_fuzz_ssi`, run with `-timeout=10`) fuzzes the constructors and all three methods.
 
 ## Diagnostics
 
