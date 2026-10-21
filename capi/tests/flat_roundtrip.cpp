@@ -61,7 +61,7 @@ std::vector<int32_t> IntIds()
 std::vector<int32_t> RealIds()
 {
     std::vector<int32_t> v;
-    for (int32_t id = SMLIB_FLAT_TOLERANCE; id <= SMLIB_FLAT_FACE_TORUS_MINOR_RADIUS; ++id)
+    for (int32_t id = SMLIB_FLAT_TOLERANCE; id <= SMLIB_FLAT_VERTEX_TOLERANCE; ++id)
     {
         v.push_back(id);
     }
@@ -130,6 +130,20 @@ double Compare(const Arrays &a, const Arrays &b, const char *what)
         // out 4.6e-5 wider), with an all-NURBS export too. Its length still has to match.
         if (kv.first == SMLIB_FLAT_EXTENT && x.size() == y.size())
         {
+            continue;
+        }
+        // An edge's or vertex's own tolerance is what SMLib finds it needs: building the edge
+        // again from the exported curves may need more (blend1: 2e-5 then 1.1e-4), never less.
+        if ((kv.first == SMLIB_FLAT_EDGE_TOLERANCE || kv.first == SMLIB_FLAT_VERTEX_TOLERANCE) && x.size() == y.size())
+        {
+            for (size_t k = 0; k < x.size(); ++k)
+            {
+                if (y[k] < x[k] * (1.0 - 1e-9))
+                {
+                    std::fprintf(stderr, "  %s: real array %d [%zu]: %.17g then less, %.17g\n", what, kv.first, k, x[k], y[k]);
+                    return INFINITY;
+                }
+            }
             continue;
         }
         if (x.size() != y.size())
@@ -388,9 +402,11 @@ int Hostile(const char *name, const smlib_flat *flat)
         ExpectReject(a, what);
         cases++;
     }
+    // (EDGE_ and VERTEX_TOLERANCE may be empty: they are optional.)
     for (auto &kv : base.f)
     {
-        if (kv.second.empty())
+        bool optional = kv.first == SMLIB_FLAT_EDGE_TOLERANCE || kv.first == SMLIB_FLAT_VERTEX_TOLERANCE;
+        if (kv.second.empty() || (optional && kv.second.size() == 1))
         {
             continue;
         }
@@ -458,7 +474,19 @@ int Hostile(const char *name, const smlib_flat *flat)
         Arrays x = base;
         x.f[SMLIB_FLAT_EXTENT].push_back(1.0);
         ExpectReject(x, "extent of 7");
-        cases += 3;
+        // Export writes a tolerance per edge and per vertex; one too many is refused.
+        CHECK(base.f.at(SMLIB_FLAT_EDGE_TOLERANCE).size() == base.i.at(SMLIB_FLAT_EDGE_CURVE_TYPE).size());
+        CHECK(base.f.at(SMLIB_FLAT_VERTEX_TOLERANCE).size() == base.i.at(SMLIB_FLAT_VERTEX_POINT_TYPE).size());
+        Arrays t = base;
+        t.f[SMLIB_FLAT_EDGE_TOLERANCE].push_back(1e-5);
+        ExpectReject(t, "an edge tolerance too many");
+        Arrays z = base;
+        if (!z.f[SMLIB_FLAT_VERTEX_TOLERANCE].empty())
+        {
+            z.f[SMLIB_FLAT_VERTEX_TOLERANCE][0] = 0.0;
+            ExpectReject(z, "a zero vertex tolerance");
+        }
+        cases += 5;
     }
     return cases;
 }
@@ -679,7 +707,7 @@ int main(int argc, char **argv)
         int64_t n = 0;
         const int64_t one = 1;
         const double half = 0.5;
-        for (int32_t id : {0, 33, 100, 164, -1, 1000})
+        for (int32_t id : {0, 33, 100, 166, -1, 1000})
         {
             CHECK(smlib_flat_get_i64(f, id, &pi, &n) == SMLIB_ERR_ARG);
             CHECK(smlib_flat_get_f64(f, id, &pf, &n) == SMLIB_ERR_ARG);

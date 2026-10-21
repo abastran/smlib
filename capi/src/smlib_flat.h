@@ -116,7 +116,9 @@
     F(SMLIB_FLAT_FACE_TORUS_AXIS, face_torus_axis)                                                 \
     F(SMLIB_FLAT_FACE_TORUS_REF_DIRECTION, face_torus_ref_direction)                               \
     F(SMLIB_FLAT_FACE_TORUS_MAJOR_RADIUS, face_torus_major_radius)                                 \
-    F(SMLIB_FLAT_FACE_TORUS_MINOR_RADIUS, face_torus_minor_radius)
+    F(SMLIB_FLAT_FACE_TORUS_MINOR_RADIUS, face_torus_minor_radius)                                 \
+    F(SMLIB_FLAT_EDGE_TOLERANCE, edge_tolerance)                                                   \
+    F(SMLIB_FLAT_VERTEX_TOLERANCE, vertex_tolerance)
 
 namespace smlib_flat_impl
 {

@@ -128,6 +128,27 @@ SmVector3d GetVec3(const std::vector<double> &v, size_t i)
 
 /* ---- Helpers ported from SmuConvert's anonymous namespace ------------------------------------ */
 
+// An edge's or vertex's zone tolerance, or where larger the B-rep's own or the largest of the
+// faces around it: SMLib holds an approximated edge (a fillet's rail) to its faces' and its
+// B-rep's tolerance, which may be more than the edge's own, and the arrays' edge tolerance bounds
+// the edge's distance from its faces.
+template <typename T>
+double ZoneTolWithFaces(const T *pTopology, double dBrepZoneTol)
+{
+    double dTol = std::max(static_cast<double>(SmTol::GetZoneTol3d(pTopology)), dBrepZoneTol);
+    SmTArray<SmFace *> sFaces;
+    pTopology->GetFaces(sFaces);
+    for (ULONG ii = 0; ii < sFaces.GetSize(); ++ii)
+    {
+        const double dFace = static_cast<double>(SmTol::GetZoneTol3d(sFaces[ii]));
+        if (std::isfinite(dFace) && dFace > dTol)
+        {
+            dTol = dFace;
+        }
+    }
+    return dTol;
+}
+
 template <typename T>
 void AccumulateMaximumTopologyTolerance(const SmTArray<T *> &rTopologies, double &dMaximumTolerance)
 {
@@ -1262,6 +1283,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
     // The arrays store the tolerance needed to preserve the source topology: the largest
     // effective face, edge, or vertex tolerance.
     double sZoneTol3d = GetMaxZoneTol3d(pBrep_ii);
+    const double dBrepZoneTol = static_cast<double>(SmTol::GetZoneTol3d(pBrep_ii));
     SmXSectTol3d sXSectTol3d = SM_ZONE_TO_XSECTTOL3D(sZoneTol3d);
     SmApproxTol3d sApproxTol3d = SmTol::GetApproxTol3d(sXSectTol3d);
 
@@ -1752,6 +1774,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
 
         F.edge_vertices.push_back(smu_CompactLocalIndex(rEdgeData.m_lStartVertex, sVertexShellIdx));
         F.edge_vertices.push_back(smu_CompactLocalIndex(rEdgeData.m_lEndVertex, sVertexShellIdx));
+        F.edge_tolerance.push_back(SM_ZONE_TO_XSECTTOL3D(ZoneTolWithFaces(pEdge, dBrepZoneTol)));
 
         SmStatus s = WriteEdgeCurve(sEdgeOut, sEdgeExports[jj], pEdge->GetCurve(), rEdgeData.m_vInterval, sApproxTol3d);
         if (s != SM_SUCCESS)
@@ -1770,6 +1793,13 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         const SmPoint3d &crPt = pBrepData_ii->m_vVertices[jj].m_vPoint;
         F.vertex_point_type.push_back(1); // BrepPointAPI
         Push3(F.vertex_position, crPt.x, crPt.y, crPt.z);
+        const SmVertex *pVertex = pBrepData_ii->m_vVertices[jj].m_pVertex;
+        double dVertexTol = sXSectTol3d;
+        if (pVertex != NULL)
+        {
+            dVertexTol = SM_ZONE_TO_XSECTTOL3D(ZoneTolWithFaces(pVertex, dBrepZoneTol));
+        }
+        F.vertex_tolerance.push_back(dVertexTol);
     }
 
     return SM_SUCCESS;
@@ -2154,6 +2184,15 @@ bool Validate(const FlatBrep &F, Shape &S)
     {
         return false;
     }
+    // Per-edge and per-vertex tolerances: none, or one each, as TOLERANCE is.
+    auto tolerances_ok = [](const std::vector<double> &t, size_t n)
+    {
+        return t.empty() || (t.size() == n && std::all_of(t.begin(), t.end(), [](double x) { return std::isfinite(x) && x > 0.0 && x <= 1.0; }));
+    };
+    if (!tolerances_ok(F.vertex_tolerance, S.vertices))
+    {
+        return false;
+    }
 
     // Loops
     if (F.loop_edgeuse_count.size() != S.loops || F.loop_vertex.size() != S.loops)
@@ -2178,6 +2217,10 @@ bool Validate(const FlatBrep &F, Shape &S)
     // Edges and wire edges
     S.edges = F.edge_curve_type.size();
     if (S.edges > static_cast<size_t>(kMaxTopology) || S.edges + S.wire_edges > static_cast<size_t>(kMaxTopology) || S.wire_edges + S.edgeuses > static_cast<size_t>(kMaxTopology))
+    {
+        return false;
+    }
+    if (!tolerances_ok(F.edge_tolerance, S.edges))
     {
         return false;
     }
@@ -2929,6 +2972,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             SmEdgeData &rEdgeData = pData->m_vEdges[iLocal];
             rEdgeData.ReSet();
             rEdgeData.m_sZoneTol3d = sZoneTol3d;
+            if (!F.edge_tolerance.empty())
+            {
+                SmXSectTol3d sEdgeTol = F.edge_tolerance[iLocal];
+                rEdgeData.m_sZoneTol3d = SmTol::GetZoneTol3d(sEdgeTol);
+            }
             double dEdgeMin = F.edge_range[2 * iLocal];
             double dEdgeMax = F.edge_range[2 * iLocal + 1];
             // circle/ellipse edge range is radians; SMLib SmCircle/SmEllipse use degrees
@@ -3000,6 +3048,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         SmVertexData &rVertexData = pData->m_vVertices[nPointShells + v];
         rVertexData.ReSet();
         rVertexData.m_sZoneTol3d = sZoneTol3d;
+        if (!F.vertex_tolerance.empty())
+        {
+            SmXSectTol3d sVertexTol = F.vertex_tolerance[v];
+            rVertexData.m_sZoneTol3d = SmTol::GetZoneTol3d(sVertexTol);
+        }
         rVertexData.m_lFlags = 0;
         rVertexData.m_lUserIndex1 = 0;
         rVertexData.m_lUserIndex2 = 0;

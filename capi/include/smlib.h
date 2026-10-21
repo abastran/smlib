@@ -383,6 +383,13 @@ typedef struct smlib_flat smlib_flat;
 #define SMLIB_FLAT_FACE_TORUS_REF_DIRECTION 161
 #define SMLIB_FLAT_FACE_TORUS_MAJOR_RADIUS 162 /* 1 per torus */
 #define SMLIB_FLAT_FACE_TORUS_MINOR_RADIUS 163 /* 1 per torus */
+/* Per face edge (as EDGE_CURVE_TYPE) and per vertex (as VERTEX_POINT_TYPE): its own tolerance,
+ * in TOLERANCE's terms (twice the edge's or vertex's zone tolerance). Export writes both; import
+ * reads them when given (each finite, > 0, at most 1), else every edge and vertex takes
+ * TOLERANCE. An approximated edge (a fillet's rail) may need more than the body's tolerance, and
+ * only it then carries more. */
+#define SMLIB_FLAT_EDGE_TOLERANCE 164
+#define SMLIB_FLAT_VERTEX_TOLERANCE 165
 
 /* FACE_SURFACE_TYPE values. */
 #define SMLIB_FLAT_SURFACE_NURBS 0

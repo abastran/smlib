@@ -116,6 +116,11 @@ and NURBS; and analytic angles and face ranges in radians. Tokens become small i
 3-vectors are flattened. `include/smlib.h` documents every array: its meaning, element type,
 units and length rule. The conversion is `src/smlib_flat.cpp`, a USD-free port of
 `source/BREP_SM_USD/src/SmuConvert.cpp`, and it keeps that converter's behaviour:
+- Tolerances (an addition to SmuConvert): besides the B-rep's one `TOLERANCE`, export writes
+  each edge's and vertex's own (`EDGE_TOLERANCE`, `VERTEX_TOLERANCE`, as twice its zone
+  tolerance), and import gives each edge and vertex its own when they are present. So one loose
+  edge (a fillet's approximated rail) no longer makes the whole body loose on the way back.
+  Building an edge again may raise its tolerance (SMLib measures what it needs), never lower it.
 - UV trim curves are carried only for faces on NURBS surfaces. On analytic faces, SMLib's trims
   live in its internal NURBS form of the surface rather than the analytic parameterisation, so
   they are not exported and SMLib rebuilds them from the 3D edges on import.
