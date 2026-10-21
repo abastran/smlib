@@ -55,6 +55,9 @@ cmake --build build-fuzz --target smlib_fuzz
 build-fuzz/smlib_fuzz -max_total_time=120 corpus/
 ```
 
+`fuzz/fuzz_history.cpp` (`smlib_fuzz_history`) does the same for the history shims, through a
+real boolean of two tagged boxes.
+
 ## Targets
 
 | Target | How | Checked by |
