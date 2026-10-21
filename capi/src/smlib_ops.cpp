@@ -20,6 +20,7 @@
 #include <SmFaceuse.h>
 #include <SmFilletExecutive.h>
 #include <SmFilletStandardSolver.h>
+#include <SmLoopuse.h>
 #include <SmOffsetGeometryCreation.h>
 #include <SmRegion.h>
 #include <SmSSIData.h>
@@ -265,31 +266,29 @@ bool chamfer_radius(SmEdge *e, double distance, double &radius)
     return std::isfinite(radius) && radius > 0.0;
 }
 
-// Chamfers `edges` of `b` in place, edge i `distances[i]` back along each face: a
-// constant-radius solver with a linear cross-section per edge (SMLib's constant-distance solver,
-// which SmApiChamferFillet uses, leaves a hole rim open), bevelled corners, then stitching as
+// Chamfers `edges` of `b` in place, edge i with its first edgeuse's surface offset `first[i]`
+// and the other's `second[i]` (equal for an equal-distance chamfer): a constant-radius solver
+// with a linear cross-section per edge (SMLib's constant-distance solver, which
+// SmApiChamferFillet uses, leaves a hole rim open), bevelled corners, then stitching as
 // SmApiFilletEdges does. The executive refers to `b` until it is destroyed, so it lives here
 // alone and is gone before the caller hands `b` on or frees it.
-int32_t chamfer_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &distances)
+int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &first, const std::vector<double> &second)
 {
     SmTArray<SmEdge *> es;
     SmTArray<SmFilletSurfaceGeneratorType> kinds;
     SmTArray<SmFilletSolverType> solvers;
-    SmTArray<double> radii;
-    for (size_t i = 0; i < edges.size() && i < distances.size(); ++i)
+    SmTArray<double> r0;
+    SmTArray<double> r1;
+    for (size_t i = 0; i < edges.size() && i < first.size() && i < second.size(); ++i)
     {
-        double radius = 0.0;
-        if (!chamfer_radius(edges[i], distances[i], radius))
-        {
-            return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
-        }
         es.Add(edges[i]);
         kinds.Add(SM_FSG_LINEAR);
         solvers.Add(SM_FS_CONST_RADIUS);
-        radii.Add(radius);
+        r0.Add(first[i]);
+        r1.Add(second[i]);
     }
     SmFilletExecutive exec(*SmApiGetOrCreateContext(), b);
-    int32_t s = status(exec.SetFilletParameters(b, es, kinds, solvers, radii, nullptr, -1.0, -1.0, -1.0, -1.0));
+    int32_t s = status(exec.SetFilletParameters(b, es, kinds, solvers, r0, nullptr, -1.0, -1.0, -1.0, -1.0, 1, 1.0, &r1));
     if (s != SMLIB_OK)
     {
         return s;
@@ -312,6 +311,98 @@ int32_t chamfer_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::
         return s;
     }
     return status(b->StitchAndOrient());
+}
+
+// Chamfers `edges` of `b` in place, edge i `distances[i]` back along each face.
+int32_t chamfer_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &distances)
+{
+    std::vector<double> radii;
+    for (size_t i = 0; i < edges.size() && i < distances.size(); ++i)
+    {
+        double radius = 0.0;
+        if (!chamfer_radius(edges[i], distances[i], radius))
+        {
+            return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
+        }
+        radii.push_back(radius);
+    }
+    return chamfer_offsets(b, edges, radii, radii);
+}
+
+SmFaceuse *outer_faceuse(const SmBrep *b, const SmFace *f);
+
+// The outward unit normal, at `u`'s edge's midpoint, of the face the edgeuse `u` bounds, and the
+// unit direction into that face square to the edge.
+bool face_frame(const SmBrep *b, SmEdgeuse *u, SmVector3d &normal, SmVector3d &into)
+{
+    SmEdge *e = u->GetEdge();
+    SmLoopuse *lu = u->GetLoopuse();
+    SmFace *f = lu == nullptr || lu->GetFaceuse() == nullptr ? nullptr : lu->GetFaceuse()->GetFace();
+    SmFaceuse *fu = f == nullptr ? nullptr : outer_faceuse(b, f);
+    SmSurface *surf = f == nullptr ? nullptr : f->GetSurface();
+    if (e == nullptr || fu == nullptr || surf == nullptr)
+    {
+        return false;
+    }
+    SmPoint3d p;
+    SmPoint2d uv;
+    if (u->EvaluateBinormal(e->GetInterval().Evaluate(0.5), FALSE, p, into, nullptr, nullptr, &uv) != SM_SUCCESS ||
+        surf->EvaluateNormal(uv, TRUE, TRUE, normal) != SM_SUCCESS)
+    {
+        return false;
+    }
+    double len = normal.Length();
+    if (!(len > 0.0) || !std::isfinite(len))
+    {
+        return false;
+    }
+    normal = normal * ((fu->GetOrientation() == SM_OT_SAME ? 1.0 : -1.0) / len);
+    return true;
+}
+
+// The surface offsets of `e` (its blend edgeuse's surface first) at which chamfer_offsets cuts
+// a chamfer `d1` back along the face whose outward normal at the edge's midpoint leans most along
+// `up`, and `second` back along the other (`angle`: the angle in radians the chamfer makes with
+// the first face). In the section square to the edge, with b0, b1 the directions into the faces
+// and theta the angle between them, setbacks s0, s1 lie at offsets
+// r0 = (s1 - s0 cos theta) / sin theta and r1 = (s0 - s1 cos theta) / sin theta (s tan(theta/2)
+// both, for equal setbacks); an angle phi to the first face gives s1 = s0 sin phi / sin(theta + phi).
+bool sides_offsets(const SmBrep *b, SmEdge *e, double d1, double second, bool angle, const SmVector3d &up, double &r0, double &r1)
+{
+    SmEdgeuse *u0 = e->GetBlendEdgeuse();
+    SmEdgeuse *u1 = u0 == nullptr ? nullptr : u0->GetRadial();
+    SmVector3d n0;
+    SmVector3d n1;
+    SmVector3d b0;
+    SmVector3d b1;
+    if (u1 == nullptr || !face_frame(b, u0, n0, b0) || !face_frame(b, u1, n1, b1))
+    {
+        return false;
+    }
+    double c = std::max(-1.0, std::min(1.0, b0.Dot(b1)));
+    double sn = std::sqrt(std::max(0.0, 1.0 - c * c));
+    if (!(sn > 1e-6))
+    {
+        return false;
+    }
+    double s0 = d1;
+    double s1 = second;
+    if (angle)
+    {
+        double d = std::sin(std::acos(c) + second);
+        if (!(d > 1e-9))
+        {
+            return false;
+        }
+        s1 = d1 * std::sin(second) / d;
+    }
+    if (n1.Dot(up) > n0.Dot(up))
+    {
+        std::swap(s0, s1);
+    }
+    r0 = (s1 - s0 * c) / sn;
+    r1 = (s0 - s1 * c) / sn;
+    return std::isfinite(r0) && std::isfinite(r1) && r0 > 0.0 && r1 > 0.0;
 }
 
 // Whether `r` is closed though not manifold: solids touching each other along an edge or at a
@@ -954,6 +1045,65 @@ extern "C" int32_t smlib_fillet_variable(const smlib_brep *brep, const double *p
             // executive inside round_edges. The size is the start radius.
             std::vector<double> size{std::max(radii[0], radii[n_radii - 1])};
             s = round_edges(w.get(), picked, size, SMLIB_BLEND_ROUND, {law.get()});
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            return finish(std::move(w), solid_in, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_chamfer_sides(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
+                                       double second, int32_t second_is_angle, const double *first, smlib_brep **out, int64_t *out_failed_point)
+{
+    bool angle = second_is_angle == 1;
+    bool second_ok = angle ? std::isfinite(second) && second > 1e-6 && second < SM_PI - 1e-6 : size_ok(second);
+    if (!valid(brep) || out == nullptr || !points_ok(points, n_points, false) || !tolerance_ok(tolerance) || !size_ok(distance) ||
+        (second_is_angle != 0 && second_is_angle != 1) || !second_ok || first == nullptr || !finite(first, 3))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    SmVector3d up(first[0], first[1], first[2]);
+    if (!(up.Length() > 0.0))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_chamfer_sides", handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", distance=" + num(distance) +
+                                      ", second=" + num(second) + ", angle=" + std::to_string(second_is_angle) + ", first=" + vec(first, 3));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            int32_t s = SMLIB_OK;
+            Owned w = copy_of(brep, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            std::vector<SmEdge *> picked;
+            s = pick_edges(w.get(), points, n_points, tolerance, picked, out_failed_point);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            std::vector<double> unused(picked.size(), distance);
+            tangent_chains(picked, unused);
+            bool solid_in = w->IsManifoldSolid();
+            std::vector<double> r0;
+            std::vector<double> r1;
+            for (SmEdge *e : picked)
+            {
+                double a = 0.0;
+                double b = 0.0;
+                if (!sides_offsets(w.get(), e, distance, second, angle, up, a, b))
+                {
+                    return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
+                }
+                r0.push_back(a);
+                r1.push_back(b);
+            }
+            s = chamfer_offsets(w.get(), picked, r0, r1);
             if (s != SMLIB_OK)
             {
                 return s;

@@ -527,6 +527,15 @@ int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, 
 int32_t smlib_fillet_variable(const smlib_brep *brep, const double *point, double tolerance, const double *start, int32_t degree,
                               const double *knots, int64_t n_knots, const double *radii, int64_t n_radii, smlib_brep **out);
 
+/* A new body: `brep` with the selected edges and their tangent chains (as for smlib_fillet) cut
+ * by an unequal chamfer with bevelled corners: `distance` (> 0) back from the edge along the face
+ * whose outward normal at the edge's midpoint leans most along `first` (non-zero), and along the
+ * other face `second` (> 0) back, or (`second_is_angle` 1) at the angle `second` (radians, in
+ * (0, pi)) the chamfer makes with the first face. Setbacks are measured at each edge's
+ * midpoint, as for smlib_chamfer. */
+int32_t smlib_chamfer_sides(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
+                            double second, int32_t second_is_angle, const double *first, smlib_brep **out, int64_t *out_failed_point);
+
 /* A new body: `brep` hollowed to a wall of `thickness` (non-zero; negative: the wall lies
  * inside the original surface, positive: outside), open at the selected faces. `n_points` may
  * be 0 (and `points` NULL) for a closed hollow body. An inward wall that leaves no room inside
