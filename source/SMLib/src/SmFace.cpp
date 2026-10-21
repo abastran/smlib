@@ -21180,7 +21180,7 @@ SmStatus  SmFace::GetPointsInFace
   if(lPointCount > 1)
     {
       // seed the random number generator
-      srand((unsigned)time(NULL)) ;
+      srand(SM_RAND_SEED) ;
     }
 
   // check input - return SM_ERR for degenerate surface
