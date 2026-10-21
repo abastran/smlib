@@ -31,7 +31,7 @@ jobs:
         include:
           - { name: Linux x86_64, runner: ubuntu-22.04 }
           - { name: Linux aarch64, runner: ubuntu-22.04-arm }
-          - { name: macOS universal, runner: macos-14, cmake: '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' }
+          - { name: macOS universal, runner: macos-14, cmake: '"-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' }
           - { name: Windows x64 (MSVC), runner: windows-latest, cmake: '-A x64' }
           - { name: Windows ARM64 (MSVC), runner: windows-11-arm, cmake: '-A ARM64' }
     steps:
