@@ -16,8 +16,10 @@
 #include <SmVector3d.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 #include <vector>
 
 namespace
@@ -96,6 +98,115 @@ bool near(double got, double want, double rel)
         std::fprintf(stderr, "  got %.9g, want %.9g\n", got, want);
     }
     return ok;
+}
+
+// A sphere of radius `r` about the origin in six patches, each on its own sphere surface turned
+// to it, as an importer hands over a cube projected onto the sphere: the topology of a box, its
+// faces sphere patches (reference direction to the patch's middle, longitude and latitude in
+// [-45, 45] degrees), its edges the great-circle arcs between the corners.
+smlib_brep *cube_sphere(double r)
+{
+    using V = std::array<double, 3>;
+    auto unit = [](V a) {
+        double l = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+        return V{a[0] / l, a[1] / l, a[2] / l};
+    };
+    smlib_brep *b = box(-1, -1, -1, 2, 2, 2);
+    smlib_flat *f = nullptr;
+    CHECK(smlib_brep_export(b, &f) == SMLIB_OK);
+    smlib_brep_free(b);
+    const int64_t *ev = nullptr;
+    const int64_t *loops = nullptr;
+    const int64_t *uses = nullptr;
+    const int64_t *kinds = nullptr;
+    const double *vp = nullptr;
+    int64_t n_ev = 0, n_loops = 0, n_uses = 0, n_faces = 0, n_vp = 0;
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGE_VERTICES, &ev, &n_ev) == SMLIB_OK);
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_LOOP_EDGEUSE_COUNT, &loops, &n_loops) == SMLIB_OK);
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGEUSE_EDGE, &uses, &n_uses) == SMLIB_OK);
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_FACE_SURFACE_TYPE, &kinds, &n_faces) == SMLIB_OK);
+    CHECK(smlib_flat_get_f64(f, SMLIB_FLAT_VERTEX_POSITION, &vp, &n_vp) == SMLIB_OK);
+    CHECK(n_faces == 6 && n_loops == 6 && n_ev == 24 && n_vp == 24);
+    std::vector<double> position, centre, axis, ref, radius, range;
+    for (int64_t i = 0; i < n_vp / 3; ++i)
+    {
+        V u = unit({vp[3 * i], vp[3 * i + 1], vp[3 * i + 2]});
+        for (double x : u)
+        {
+            position.push_back(r * x);
+        }
+    }
+    for (int64_t e = 0; e < n_ev / 2; ++e)
+    {
+        V a = unit({vp[3 * ev[2 * e]], vp[3 * ev[2 * e] + 1], vp[3 * ev[2 * e] + 2]});
+        V z = unit({vp[3 * ev[2 * e + 1]], vp[3 * ev[2 * e + 1] + 1], vp[3 * ev[2 * e + 1] + 2]});
+        V n = unit({a[1] * z[2] - a[2] * z[1], a[2] * z[0] - a[0] * z[2], a[0] * z[1] - a[1] * z[0]});
+        for (int k = 0; k < 3; ++k)
+        {
+            centre.push_back(0.0);
+            axis.push_back(n[k]);
+            ref.push_back(a[k]);
+        }
+        radius.push_back(r);
+        range.push_back(0.0);
+        range.push_back(std::acos(a[0] * z[0] + a[1] * z[1] + a[2] * z[2]));
+    }
+    std::vector<double> s_centre, s_axis, s_ref, s_radius, s_range;
+    int64_t at = 0;
+    for (int64_t i = 0; i < n_faces && at < n_uses; ++i)
+    {
+        // The patch's direction: the middle of its loop's corners (one loop per face, in order).
+        V mid{0, 0, 0};
+        for (int64_t k = 0; k < loops[i]; ++k)
+        {
+            int64_t e = uses[at + k];
+            for (int j = 0; j < 2; ++j)
+            {
+                for (int q = 0; q < 3; ++q)
+                {
+                    mid[q] += vp[3 * ev[2 * e + j] + q];
+                }
+            }
+        }
+        at += loops[i];
+        V d = unit(mid);
+        V up = std::fabs(d[2]) > 0.5 ? V{1, 0, 0} : V{0, 0, 1};
+        for (int q = 0; q < 3; ++q)
+        {
+            s_centre.push_back(0.0);
+            s_axis.push_back(up[q]);
+            s_ref.push_back(d[q]);
+        }
+        s_radius.push_back(r);
+        for (double x : {-PI / 4.0, -PI / 4.0, PI / 4.0, PI / 4.0})
+        {
+            s_range.push_back(x);
+        }
+    }
+    std::vector<int64_t> circles(static_cast<size_t>(n_ev / 2), SMLIB_FLAT_CURVE_CIRCLE);
+    std::vector<int64_t> spheres(static_cast<size_t>(n_faces), SMLIB_FLAT_SURFACE_SPHERE);
+    CHECK(smlib_flat_set_i64(f, SMLIB_FLAT_EDGE_CURVE_TYPE, circles.data(), static_cast<int64_t>(circles.size())) == SMLIB_OK);
+    CHECK(smlib_flat_set_i64(f, SMLIB_FLAT_FACE_SURFACE_TYPE, spheres.data(), static_cast<int64_t>(spheres.size())) == SMLIB_OK);
+    for (int id : {SMLIB_FLAT_EDGE_LINE_ORIGIN, SMLIB_FLAT_EDGE_LINE_DIRECTION, SMLIB_FLAT_FACE_PLANE_ORIGIN, SMLIB_FLAT_FACE_PLANE_AXIS,
+                   SMLIB_FLAT_FACE_PLANE_REF_DIRECTION})
+    {
+        CHECK(smlib_flat_set_f64(f, id, nullptr, 0) == SMLIB_OK);
+    }
+    const std::pair<int, const std::vector<double> *> arrays[] = {
+        {SMLIB_FLAT_VERTEX_POSITION, &position},       {SMLIB_FLAT_EDGE_CIRCLE_CENTER, &centre},
+        {SMLIB_FLAT_EDGE_CIRCLE_AXIS, &axis},          {SMLIB_FLAT_EDGE_CIRCLE_REF_DIRECTION, &ref},
+        {SMLIB_FLAT_EDGE_CIRCLE_RADIUS, &radius},      {SMLIB_FLAT_EDGE_RANGE, &range},
+        {SMLIB_FLAT_FACE_SPHERE_CENTER, &s_centre},    {SMLIB_FLAT_FACE_SPHERE_AXIS, &s_axis},
+        {SMLIB_FLAT_FACE_SPHERE_REF_DIRECTION, &s_ref}, {SMLIB_FLAT_FACE_SPHERE_RADIUS, &s_radius},
+        {SMLIB_FLAT_FACE_RANGE, &s_range}};
+    for (const auto &a : arrays)
+    {
+        CHECK(smlib_flat_set_f64(f, a.first, a.second->data(), static_cast<int64_t>(a.second->size())) == SMLIB_OK);
+    }
+    smlib_brep *out = nullptr;
+    CHECK(smlib_brep_import(f, &out) == SMLIB_OK);
+    smlib_flat_free(f);
+    return out;
 }
 
 } // namespace
@@ -529,6 +640,35 @@ int main()
         // A radius of zero inside the edge would pinch the round to a point: refused.
         const double p_radii[3] = {4, 0, 4};
         CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 1, v_knots, 5, p_radii, 3, &r) == SMLIB_ERR_UNSUPPORTED && r == nullptr);
+    }
+
+    // tangency-labs/solidcore#423: a sphere r2 in six patches (each on its own sphere surface),
+    // cut flat at z = 1, its rim rounded R1. The clean-up after filleting removed every
+    // topological edge in the body, the seams between the sphere's own patches too, and merged
+    // the five patches into one face that no patch's parameterization could carry: the result
+    // failed the check (loop orientation, rails half a millimetre off). It now leaves the
+    // target's own faces apart. The round's section is the square 1 x 1 less the quarter disc,
+    // centred on the circle of radius 1 at z = 0: 2 pi - pi^2 / 2 comes off the 9 pi.
+    {
+        smlib_brep *ball = cube_sphere(2.0);
+        CHECK(ball != nullptr && sound(ball) && near(volume_of(ball), 32.0 * PI / 3.0, 1e-6));
+        smlib_brep *lid = box(-3, -3, 1, 6, 6, 3);
+        smlib_brep *cut = nullptr;
+        CHECK(smlib_boolean(ball, lid, SMLIB_BOOLEAN_SUBTRACT, &cut) == SMLIB_OK && sound(cut));
+        const double rim[3] = {std::sqrt(3.0), 0, 1};
+        if (cut != nullptr && smlib_fillet(cut, rim, 1, 0.5, 1.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), 7.0 * PI + PI * PI / 2.0, 5e-5));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the rim of the cut sphere in patches rounded R1");
+        }
+        for (smlib_brep *b : {ball, lid, cut})
+        {
+            smlib_brep_free(b);
+        }
     }
 
     // Booleans that split, vanish or touch.

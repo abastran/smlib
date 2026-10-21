@@ -497,3 +497,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
 - **Face subdivision counted its V knots as U** (`SmBrep.cpp`,
   `SmBrep::SubdivideFaceAtDiscontinuities`): the V pass took the number of U knots to split at
   and read past the V knots (a null read for a surface with a U discontinuity only).
+- **The clean-up after filleting kept to the fillet** (`SmMerge.h`/`.cpp`, `SmMerge::BooleanPostProcess`;
+  `SmFilletExecutive.cpp`, `DoFilleting`): it removed every topological edge in the body,
+  between the target's own faces too. On a sphere in six patches (each on its own sphere
+  surface, as an importer hands over a cube projected onto it) cut flat, an R1 round on the rim
+  merged the five patches into one face whose surface no patch's parameterization could carry:
+  loops of the wrong orientation, rails up to half a millimetre off their surfaces. It now
+  removes no edge the target had and no edge between two of its faces, as booleans clean up
+  only the edges of their intersection.
