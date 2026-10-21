@@ -94,6 +94,40 @@ int32_t smlib_brep_volume(const smlib_brep *brep, double relative_accuracy, doub
 /* Face, edge and vertex counts, in that order. */
 int32_t smlib_brep_counts(const smlib_brep *brep, int64_t out[3]);
 
+/* ---- History (src/smlib_history.cpp) ------------------------------------------------------ */
+
+/* Face and edge history out of an operation: tag each operand, run the operation on the tagged
+ * copies, read the result's history. SMLib carries the tags itself through every split, merge,
+ * copy and coincidence the operation makes, so any operation works, and the history is what the
+ * operation did, never a guess from geometry.
+ *
+ * Indices are positions in a body's face and edge order (the order SMLib lists them in, which
+ * smlib_brep_copy keeps): operand indices in the tagged copy's, result indices in the result's. */
+
+#define SMLIB_HISTORY_VERSION 1
+
+/* How a result face relates to its origins (solidcraft_geom::brep::history::Change). */
+#define SMLIB_CHANGE_KEPT 0      /* one origin, still that whole face, boundary unchanged */
+#define SMLIB_CHANGE_MODIFIED 1  /* one origin, trimmed differently */
+#define SMLIB_CHANGE_SPLIT 2     /* one origin, which other result faces also came from */
+#define SMLIB_CHANGE_MERGED 3    /* several origins (coincident or joined faces) */
+#define SMLIB_CHANGE_GENERATED 4 /* no origin: new to the operation */
+
+/* A copy of `brep` whose face i and edge i are tagged as face i and edge i of operand `operand`
+ * (0 <= operand < 2^30). Tags a tagged body afresh. */
+int32_t smlib_history_tag(const smlib_brep *brep, int32_t operand, smlib_brep **out);
+
+/* The history of `result`, as int64 values in `buf` (`cap` of them):
+ *   SMLIB_HISTORY_VERSION, face count F, edge count E, then
+ *   F faces, in face order:  change, n, then n (operand, face) origins, sorted;
+ *   E edges, in edge order:  m, then the m result faces it bounds (ascending),
+ *                            n, then n (operand, edge) origins, sorted.
+ * An edge with no origin (n = 0) is new: it lies where its faces meet (a boolean's intersection
+ * curve). Untagged faces and edges have no origin. Writes the length to *out_len; when it is more
+ * than `cap`, writes nothing else and returns SMLIB_ERR_BUFFER (call again with a buffer that
+ * big; `buf` may be NULL when `cap` is 0). */
+int32_t smlib_history_read(const smlib_brep *result, int64_t *buf, int64_t cap, int64_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

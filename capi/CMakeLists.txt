@@ -88,6 +88,12 @@ if(SMLIB_CAPI_TESTS)
   set(SMOKE_DUMP_DIR ${CMAKE_CURRENT_BINARY_DIR}/smoke-dumps)
   file(MAKE_DIRECTORY ${SMOKE_DUMP_DIR})
   set_tests_properties(smlib_smoke PROPERTIES ENVIRONMENT "SMLIB_SMOKE_DUMP_DIR=${SMOKE_DUMP_DIR}")
+  # History through booleans of primitives; runs SM_API itself, so it sees SMLib's headers.
+  add_executable(smlib_history_test tests/history.cpp)
+  target_include_directories(smlib_history_test SYSTEM PRIVATE src ${SRC}/SM_API/inc ${SRC}/SMLib/inc)
+  target_compile_definitions(smlib_history_test PRIVATE ${SMLIB_DEFINES})
+  target_link_libraries(smlib_history_test PRIVATE smlib)
+  add_test(NAME smlib_history COMMAND smlib_history_test)
 endif()
 
 if(SMLIB_CAPI_FUZZ)
