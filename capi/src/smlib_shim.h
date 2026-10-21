@@ -211,6 +211,43 @@ private:
     std::vector<std::pair<const char *, std::function<void(const std::string &)>>> m_texts;
 };
 
+// An operation's result with tolerances that hold the gaps it was built with. Where an
+// operation leaves a vertex off the ends of its edges, or an edge off its faces, by a little more
+// than their tolerances (intersection curves found to the brep's tolerance, ending a few
+// hundred-thousandths of a millimetre from where they meet another edge), each such vertex's or
+// edge's tolerance grows to cover its gap, as SMLib's ValidateAndUpdateTolerances does. Only
+// when every gap is below SMLib's own bound for gaps that are rounding, a 1/800 of the body's
+// size: larger ones are left for the check to refuse.
+inline void settle_tolerances(SmBrep *r)
+{
+    if (r == nullptr)
+    {
+        return;
+    }
+    SmBoolean violated = FALSE;
+    double trim = 0.0;
+    double vertex_edge = 0.0;
+    double vertex_face = 0.0;
+    double edge_face = 0.0;
+    if (r->ValidateAndUpdateTolerances(TRUE, violated, trim, vertex_edge, vertex_face, nullptr, SM_LEVEL_0, nullptr, nullptr, nullptr,
+                                       nullptr, nullptr, nullptr, &edge_face) != SM_SUCCESS ||
+        !violated)
+    {
+        return;
+    }
+    SmExtent3d box;
+    if (r->CalculateBoundingBox(box) != SM_SUCCESS)
+    {
+        return;
+    }
+    const double bound = box.GetSize().Length() / 800.0;
+    if (!(std::max(std::max(vertex_edge, vertex_face), edge_face) < bound))
+    {
+        return;
+    }
+    r->ValidateAndUpdateTolerances(FALSE, violated, trim, vertex_edge, vertex_face);
+}
+
 // Hands `p` to the caller, or deletes it when it is no usable body.
 inline int32_t take(SmBrep *p, smlib_brep **out)
 {

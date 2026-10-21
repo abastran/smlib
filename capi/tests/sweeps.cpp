@@ -236,6 +236,44 @@ int main()
     expect("screw sweep down", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, -1.0, 3.0, 1e-4, &b), &b,
            screw, 2e-3);
 
+    // A thread's groove cut from a shaft: the ISO 68-1 trapezoid of an M10x1.5 and an M8x1.25,
+    // from the root out past the surface, screwed a pitch past each end of a 20 mm shaft. The cut
+    // is a valid solid (its vertices hold the gaps the intersection leaves) and takes the
+    // groove's volume within the shaft: per turn 2 pi * integral of the groove's width * r dr
+    // from the root to the shaft's radius (the screw motion keeps volume as a revolution does).
+    const double sizes[2][2] = {{10.0, 1.5}, {8.0, 1.25}};
+    for (const auto &dp : sizes)
+    {
+        const double d = dp[0];
+        const double p = dp[1];
+        const double radius = d / 2.0;
+        const double length = 20.0;
+        const double h = p * std::sqrt(3.0) / 2.0;
+        const double slope = std::tan(PI / 6.0);
+        const double r0 = d / 2.0 - 5.0 * h / 8.0;
+        const double w0 = p / 8.0;
+        const double r1 = radius + 0.05 * p;
+        const double w1 = (p / 4.0 + 2.0 * (r1 - r0) * slope) / 2.0;
+        List groove;
+        groove.polygon({0, r0, -p - w0, 0, r1, -p - w1, 0, r1, -p + w1, 0, r0, -p + w0});
+        smlib_brep *tool = nullptr;
+        smlib_brep *shaft = nullptr;
+        CHECK(smlib_screw_sweep(groove.kinds.data(), groove.nk(), groove.reals.data(), groove.nr(), O, Z, p, (length + 2.0 * p) / p, p * 1e-4,
+                                &tool) == SMLIB_OK);
+        CHECK(smlib_make_cylinder(O, radius, length, &shaft) == SMLIB_OK);
+        // Half width at r: w0 at the root, w1 at r1; the integral of 2 w(r) r dr to the radius.
+        const double slope_w = (w1 - w0) / (r1 - r0);
+        auto f = [&](double r) { return 2.0 * ((w0 - slope_w * r0) * r * r / 2.0 + slope_w * r * r * r / 3.0); };
+        const double per_turn = 2.0 * PI * (f(radius) - f(r0));
+        char name[64];
+        std::snprintf(name, sizeof name, "groove M%gx%g cut from a shaft", d, p);
+        b = nullptr;
+        expect(name, tool != nullptr && shaft != nullptr ? smlib_boolean(shaft, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG, &b,
+               PI * radius * radius * length - length / p * per_turn, 1e-4);
+        smlib_brep_free(tool);
+        smlib_brep_free(shaft);
+    }
+
     // Hostile lists: nothing is built, nothing crashes.
     const int64_t bad_kind[1] = {9};
     const double six[6] = {0, 0, 0, 1, 0, 0};
