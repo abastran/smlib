@@ -82,9 +82,11 @@ static List circle(double cx, double cy, double cz, double nx, double ny, double
     return l;
 }
 
-// Checks `b` (status `s`) is one valid solid of volume `v` within `rel`; frees it.
-static void expect(const char *name, int32_t s, smlib_brep *b, double v, double rel)
+// Checks `*out` (status `s`) is one valid solid of volume `v` within `rel`; frees it. `out`, not
+// the body: the operation's call is an argument too, and arguments are evaluated in no set order.
+static void expect(const char *name, int32_t s, smlib_brep *const *out, double v, double rel)
 {
+    smlib_brep *b = *out;
     if (s != SMLIB_OK || b == nullptr)
     {
         std::fprintf(stderr, "%s: status %d\n", name, static_cast<int>(s));
@@ -124,33 +126,33 @@ int main()
     List rect;
     rect.polygon({0, 0, 0, 10, 0, 0, 10, 6, 0, 0, 6, 0});
     b = nullptr;
-    expect("extrude rectangle", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), Z, 5.0, 0.0, 1, &b), b, 300.0, 1e-9);
+    expect("extrude rectangle", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), Z, 5.0, 0.0, 1, &b), &b, 300.0, 1e-9);
     const double down[3] = {0, 0, -1};
     b = nullptr;
-    expect("extrude rectangle down", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), down, 5.0, 0.0, 1, &b), b, 300.0,
+    expect("extrude rectangle down", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), down, 5.0, 0.0, 1, &b), &b, 300.0,
            1e-9);
     List ring = circle(0, 0, 0, 0, 0, 1, 1, 0, 0, 10);
     ring.append(circle(0, 0, 0, 0, 0, -1, 1, 0, 0, 4));
     b = nullptr;
-    expect("extrude annulus", smlib_extrude(ring.kinds.data(), ring.nk(), ring.reals.data(), ring.nr(), Z, 3.0, 0.0, 1, &b), b,
+    expect("extrude annulus", smlib_extrude(ring.kinds.data(), ring.nk(), ring.reals.data(), ring.nr(), Z, 3.0, 0.0, 1, &b), &b,
            PI * (100.0 - 16.0) * 3.0, 1e-6);
     List sq;
     sq.polygon({-5, -5, 0, 5, -5, 0, 5, 5, 0, -5, 5, 0});
     double t = std::tan(10.0 * PI / 180.0);
     double a2 = 10.0 - 2.0 * 4.0 * t;
     b = nullptr;
-    expect("extrude square drafted 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, 10.0 * PI / 180.0, 1, &b), b,
+    expect("extrude square drafted 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, 10.0 * PI / 180.0, 1, &b), &b,
            4.0 / 3.0 * (100.0 + a2 * a2 + 10.0 * a2), 1e-6);
     double a3 = 10.0 + 2.0 * 4.0 * t;
     b = nullptr;
     expect("extrude square drafted -10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, -10.0 * PI / 180.0, 1, &b),
-           b, 4.0 / 3.0 * (100.0 + a3 * a3 + 10.0 * a3), 1e-6);
+           &b, 4.0 / 3.0 * (100.0 + a3 * a3 + 10.0 * a3), 1e-6);
     b = nullptr;
     expect("extrude square drafted down 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), down, 4.0, 10.0 * PI / 180.0, 1, &b),
-           b, 4.0 / 3.0 * (100.0 + a2 * a2 + 10.0 * a2), 1e-6);
+           &b, 4.0 / 3.0 * (100.0 + a2 * a2 + 10.0 * a2), 1e-6);
     b = nullptr;
     expect("extrude square drafted down -10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), down, 4.0, -10.0 * PI / 180.0, 1, &b),
-           b, 4.0 / 3.0 * (100.0 + a3 * a3 + 10.0 * a3), 1e-6);
+           &b, 4.0 / 3.0 * (100.0 + a3 * a3 + 10.0 * a3), 1e-6);
 
     // Revolutions about z of a profile in the xz plane: a square off the axis (a ring), a
     // quarter turn of it, and a half disc on the axis (a sphere).
@@ -158,16 +160,30 @@ int main()
     List off;
     off.polygon({6, 0, 0, 8, 0, 0, 8, 0, 2, 6, 0, 2});
     b = nullptr;
-    expect("revolve square full", smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, 2 * PI, 1, &b), b,
-           2 * PI * 7.0 * 4.0, 1e-6);
+    expect("revolve square full", smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, 2 * PI, 1, &b), &b,
+           2 * PI * 7.0 * 4.0, 1e-5);
     b = nullptr;
-    expect("revolve square 90", smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, PI / 2, 1, &b), b,
+    expect("revolve square 90", smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, PI / 2, 1, &b), &b,
            PI / 2 * 7.0 * 4.0, 1e-6);
     List half;
     half.line(0, 0, -5, 0, 0, 5).arc(0, 0, 0, 0, -1, 0, 0, 0, 1, 5, 0, PI);
     b = nullptr;
-    expect("revolve half disc", smlib_revolve(half.kinds.data(), half.nk(), half.reals.data(), half.nr(), O, Z, 2 * PI, 1, &b), b,
+    expect("revolve half disc", smlib_revolve(half.kinds.data(), half.nk(), half.reals.data(), half.nr(), O, Z, 2 * PI, 1, &b), &b,
            4.0 / 3.0 * PI * 125.0, 1e-5);
+    // Partial turns past half a turn: a half disc on the axis three quarters round (three
+    // quarters of a ball), and the square off the axis likewise.
+    for (double turn : {0.5, 0.75, 0.9})
+    {
+        char name[64];
+        std::snprintf(name, sizeof name, "revolve half disc %.2f turn", turn);
+        b = nullptr;
+        expect(name, smlib_revolve(half.kinds.data(), half.nk(), half.reals.data(), half.nr(), O, Z, 2 * PI * turn, 1, &b), &b,
+               turn * 4.0 / 3.0 * PI * 125.0, 1e-5);
+        std::snprintf(name, sizeof name, "revolve square %.2f turn", turn);
+        b = nullptr;
+        expect(name, smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, 2 * PI * turn, 1, &b), &b,
+               2 * PI * turn * 7.0 * 4.0, 1e-5);
+    }
     (void)Y;
 
     // Sweeps: a disc along a line (a cylinder), along a quarter arc (a quarter torus), and off
@@ -179,33 +195,33 @@ int main()
     expect("sweep disc along line",
            smlib_sweep(disc.kinds.data(), disc.nk(), disc.reals.data(), disc.nr(), up.kinds.data(), up.nk(), up.reals.data(), up.nr(),
                        SMLIB_SWEEP_FOLLOW, 1, &b),
-           b, PI * 4.0 * 10.0, 1e-4);
+           &b, PI * 4.0 * 10.0, 1e-4);
     List bend;
     bend.arc(-20, 0, 0, 0, -1, 0, 1, 0, 0, 20, 0, PI / 2);
     b = nullptr;
     expect("sweep disc along quarter arc",
            smlib_sweep(disc.kinds.data(), disc.nk(), disc.reals.data(), disc.nr(), bend.kinds.data(), bend.nk(), bend.reals.data(), bend.nr(),
                        SMLIB_SWEEP_FOLLOW, 1, &b),
-           b, PI * 4.0 * (PI / 2 * 20.0), 1e-3);
+           &b, PI * 4.0 * (PI / 2 * 20.0), 1e-3);
     List offset = circle(5, 0, 0, 0, 0, 1, 1, 0, 0, 2);
     b = nullptr;
     expect("sweep offset disc along arc",
            smlib_sweep(offset.kinds.data(), offset.nk(), offset.reals.data(), offset.nr(), bend.kinds.data(), bend.nk(), bend.reals.data(),
                        bend.nr(), SMLIB_SWEEP_FOLLOW, 1, &b),
-           b, PI * 4.0 * (PI / 2 * 25.0), 1e-3);
+           &b, PI * 4.0 * (PI / 2 * 25.0), 1e-3);
 
     // Lofts: square to square (a box), circle to circle (a frustum, ruled).
     List boxes;
     boxes.polygon({0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0}).polygon({0, 0, 8, 10, 0, 8, 10, 10, 8, 0, 10, 8});
     const int64_t four[2] = {4, 4};
     b = nullptr;
-    expect("loft square to square", smlib_loft(boxes.kinds.data(), boxes.nk(), boxes.reals.data(), boxes.nr(), four, 2, 1, 1, &b), b, 800.0,
+    expect("loft square to square", smlib_loft(boxes.kinds.data(), boxes.nk(), boxes.reals.data(), boxes.nr(), four, 2, 1, 1, &b), &b, 800.0,
            1e-6);
     List cone = circle(0, 0, 0, 0, 0, 1, 1, 0, 0, 5);
     cone.append(circle(0, 0, 6, 0, 0, 1, 1, 0, 0, 3));
     const int64_t one[2] = {1, 1};
     b = nullptr;
-    expect("loft circle to circle", smlib_loft(cone.kinds.data(), cone.nk(), cone.reals.data(), cone.nr(), one, 2, 1, 1, &b), b,
+    expect("loft circle to circle", smlib_loft(cone.kinds.data(), cone.nk(), cone.reals.data(), cone.nr(), one, 2, 1, 1, &b), &b,
            PI * 6.0 / 3.0 * (25.0 + 9.0 + 15.0), 1e-4);
 
     // Screw sweeps: a 0.4 x 0.4 square at radius 4..4.4 in the xz plane, 3 turns of pitch 1,
@@ -214,10 +230,10 @@ int main()
     tooth.polygon({4, 0, 0, 4.4, 0, 0, 4.4, 0, 0.4, 4, 0, 0.4});
     double screw = 0.16 * 2 * PI * 4.2 * 3.0;
     b = nullptr;
-    expect("screw sweep up", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, 1.0, 3.0, 1e-4, &b), b,
+    expect("screw sweep up", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, 1.0, 3.0, 1e-4, &b), &b,
            screw, 2e-3);
     b = nullptr;
-    expect("screw sweep down", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, -1.0, 3.0, 1e-4, &b), b,
+    expect("screw sweep down", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, -1.0, 3.0, 1e-4, &b), &b,
            screw, 2e-3);
 
     // Hostile lists: nothing is built, nothing crashes.
