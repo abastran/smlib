@@ -556,6 +556,15 @@ int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_poin
 int32_t smlib_offset_faces(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
                            smlib_brep **out, int64_t *out_failed_point);
 
+/* The faces of `brep` under the points tilted by `angle` radians (0 < |angle| < 89.94 degrees)
+ * about the line where each meets the neutral plane (`neutral_origin`, `neutral_normal`), so
+ * that a positive angle leans them in going along `pull`; the faces around them extended or
+ * trimmed to meet them (SMLib's local operation, as smlib_offset_faces). Each face must be flat
+ * and parallel to `pull`: SMLIB_ERR_UNSUPPORTED otherwise. The hinge is where a line along
+ * `pull` from a point inside the face meets the neutral plane. */
+int32_t smlib_draft(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, const double neutral_origin[3],
+                    const double neutral_normal[3], const double pull[3], double angle, smlib_brep **out, int64_t *out_failed_point);
+
 /* A new solid: the sheet `brep` (not a closed solid: SMLIB_ERR_ARG) thickened by `thickness`
  * (non-zero) along its surfaces' normals (negative: against them), or by half of it each way
  * when `symmetric` is non-zero. The sheet and its offset are joined by ruled walls along the

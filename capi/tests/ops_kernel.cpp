@@ -341,6 +341,38 @@ int main()
         }
     }
 
+    // Draft: the cube's side x = 20 tilted 5 degrees about its line on z = 0, leaning in going
+    // up (+z): a wedge of 20 x 20 tan(5 deg) / 2 x 20 comes off; -5 degrees adds it. The top
+    // isn't parallel to the pull and the rod's wall isn't flat: not supported.
+    {
+        const double side[3] = {20, 10, 10};
+        const double origin[3] = {0, 0, 0};
+        const double up[3] = {0, 0, 1};
+        const double deg = 3.14159265358979323846 / 180.0;
+        const double wedge = 0.5 * 20.0 * 20.0 * std::tan(5.0 * deg) * 20.0;
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume(r) - (8000.0 - wedge)) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, -5.0 * deg, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume(r) - (8000.0 + wedge)) < 1e-6);
+            done(r);
+        }
+        const double top[3] = {10, 10, 20};
+        CHECK(smlib_draft(cube, top, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_UNSUPPORTED);
+        const double wall[3] = {14, 10, 5};
+        CHECK(smlib_draft(rod, wall, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_UNSUPPORTED);
+        const double flat[3] = {1, 0, 0};
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, flat, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 0.0, &r, nullptr) == SMLIB_ERR_ARG);
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 90.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
+        CHECK(smlib_draft(cube, side, 1, 0.1, nullptr, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
+    }
+
     // Thicken: a sheet (the cube's top face alone, SMLib's own way of making one is not in the
     // C API; a solid is refused).
     CHECK(smlib_thicken(cube, 1.0, 0, &r) == SMLIB_ERR_ARG);
