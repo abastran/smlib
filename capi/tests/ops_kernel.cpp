@@ -251,6 +251,33 @@ int main()
         smlib_brep_free(plate);
     }
 
+    // tangency-labs/solidcore#417: a box 297 x 100 x 60 with its vertical edges rounded R5, then
+    // its top rim rounded R5: on each corner the round of the corner round's arc is a ball
+    // centered on that round's axis, which SMLib's torus turned the long way round (the
+    // section's rail points, taken where the ball's offset faces collapse onto the axis, carry
+    // no angle; on a smaller box it happened to turn the right way). Each straight edge loses
+    // (1 - pi/4) 25 along 287 or 90, each corner the square 5 x 5 less the quarter disc, turned
+    // a quarter about the axis: (pi/2) (62.5 - 125/3).
+    {
+        smlib_brep *block = box(0, 0, 0, 297, 100, 60);
+        const double corners[12] = {0, 0, 30, 297, 0, 30, 0, 100, 30, 297, 100, 30};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(block, corners, 4, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
+        const double rim[3] = {148.5, 0, 60};
+        if (rounded != nullptr && smlib_fillet(rounded, rim, 1, 0.1, 5.0, &r, nullptr) == SMLIB_OK)
+        {
+            double removed = 754.0 * 25.0 * (1.0 - PI / 4.0) + 4.0 * (PI / 2.0) * (62.5 - 125.0 / 3.0);
+            CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the top rim of the block with R5 corners rounded R5");
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(block);
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
