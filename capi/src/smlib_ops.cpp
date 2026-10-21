@@ -934,6 +934,42 @@ bool law_ok(int32_t degree, const double *knots, int64_t n_knots, const double *
     return true;
 }
 
+// Whether the law has a corner: a knot inside (0, 1) repeated `degree` times (where the spline
+// is only C0) with the slopes of the control legs on either side apart. SMLib's section fit
+// runs smoothly across such a corner and misses the law, so it is refused, never built wrong.
+bool law_has_corner(int32_t degree, const double *knots, const double *radii, int64_t n_radii)
+{
+    for (int64_t i = degree + 1; i < n_radii;)
+    {
+        int64_t m = 1;
+        while (i + m < n_radii && knots[i + m] == knots[i])
+        {
+            ++m;
+        }
+        if (m > degree)
+        {
+            return true; // the radius itself jumps
+        }
+        // Repeated `degree` times, the curve passes through control radius i - 1 at the knot.
+        if (m == degree && i >= 2)
+        {
+            double hl = knots[i] - knots[i - 1];
+            double hr = knots[i + m] - knots[i];
+            if (hl > 0.0 && hr > 0.0)
+            {
+                double left = (radii[i - 1] - radii[i - 2]) / hl;
+                double right = (radii[i] - radii[i - 1]) / hr;
+                if (std::fabs(left - right) > 1e-9 * (1.0 + std::fabs(left) + std::fabs(right)))
+                {
+                    return true;
+                }
+            }
+        }
+        i += m;
+    }
+    return false;
+}
+
 // The radius law along `e`: the B-spline (radius as its x) over the edge's parameter interval,
 // reversed when `start` is nearer the interval's end than its start. Null if it can't be built.
 std::unique_ptr<SmBSplineFilletLaw> law_along(SmEdge *e, const double start[3], int32_t degree, const double *knots, int64_t n_knots,
@@ -1015,6 +1051,10 @@ extern "C" int32_t smlib_fillet_variable(const smlib_brep *brep, const double *p
         !tolerance_ok(tolerance) || !law_ok(degree, knots, n_knots, radii, n_radii))
     {
         return SMLIB_ERR_ARG;
+    }
+    if (law_has_corner(degree, knots, radii, n_radii))
+    {
+        return SMLIB_ERR_UNSUPPORTED;
     }
     Call c("smlib_fillet_variable", handle(brep) + ", point=" + vec(point, 3) + ", tolerance=" + num(tolerance) + ", start=" + vec(start, 3) +
                                         ", degree=" + std::to_string(degree) + ", knots=" + vec(knots, static_cast<int>(n_knots)) +
