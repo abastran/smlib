@@ -59,7 +59,9 @@ target_include_directories(smlib_api PRIVATE ${SRC}/SM_API/inc ${SRC}/SMLib/inc)
 target_compile_definitions(smlib_api PRIVATE ${SMLIB_DEFINES})
 target_compile_options(smlib_api PRIVATE ${SMLIB_WARNINGS})
 
-add_library(smlib STATIC src/smlib_c.cpp $<TARGET_OBJECTS:smlib_core> $<TARGET_OBJECTS:smlib_api>)
+# The shims: every capi/src/*.cpp, one file per area, all sharing src/smlib_shim.h.
+file(GLOB CAPI_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+add_library(smlib STATIC ${CAPI_SOURCES} $<TARGET_OBJECTS:smlib_core> $<TARGET_OBJECTS:smlib_api>)
 target_include_directories(smlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 target_include_directories(smlib SYSTEM PRIVATE ${SRC}/SM_API/inc ${SRC}/SMLib/inc)
 target_compile_definitions(smlib PRIVATE ${SMLIB_DEFINES})
