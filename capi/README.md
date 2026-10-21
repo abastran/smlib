@@ -135,3 +135,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   the same size. It also lets MinGW compile `SmHashTable.h`.
 - **Apex leak** (`SmPrimitiveCreation.cpp`, `CreateCone`): a cone with a zero radius at one end
   built that end's circle and, having no cap to give it to, leaked it.
+- **ProtoEdge left in its ProtoVertex** (`SmProtoTopology.cpp`, `SmProtoEdge::~SmProtoEdge`): a
+  ProtoVertex lists a ProtoEdge once per end, so one bounding both ends of an edge (closed, or
+  merged by `CombineProtoVertex`) lists it twice, but the destructor removed it once. The
+  ProtoVertex's destructor then wrote through the freed ProtoEdge (heap use-after-free in
+  `~SmProtoTopologyManager`, ASan, on box − cylinder and on shells). Every entry is removed now.
