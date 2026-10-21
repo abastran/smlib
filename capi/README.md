@@ -451,3 +451,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   only where its continuation does not fold over the domain the merge uses: the normal may not
   vanish or turn back between neighbouring points of a 21 x 21 grid over that domain; otherwise
   the faces stay as they are, with the edge between them.
+- **Triangles held to the chord tolerance** (`SmTess.cpp`/`.h`, new
+  `SmTess::RefineTrianglesToChordHeight`, called from `AddQuadBoundaries`): the subdivision tree
+  bounds each cell's chord height, but the triangles made in it were never measured. The cell strip
+  beside a sphere's seam, filled by ear clipping without interior vertices from a reflex corner,
+  became a fan of slivers 13 times the tolerance off the surface (r 12 at 0.05 and 0.01 mm), and
+  the two triangles of a cell on a sphere or torus lay up to 1.26 times it off
+  (tangency-labs/solidcore#390). Each triangle is now measured at its UV centroid and inner edge
+  midpoints, along the surface normal, and one beyond the tolerance has its longest inner edge
+  bisected (in both triangles on it, so the mesh stays closed) until none is; boundary edges and
+  edges shorter than twice the tolerance are left alone. `tests/tess_kernel.cpp` checks spheres,
+  tori and cylinders at 0.1 to 0.005 mm.

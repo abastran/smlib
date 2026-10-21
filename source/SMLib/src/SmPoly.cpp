@@ -7568,8 +7568,7 @@ SmStatus SmPolyBrep::CombineCoincidentVertices
   SmTArray<SmPolyEdge*>   & rDeletedEdges,             // out: List of stale deleted PolyEdge pointers
                                                        //       (when Verts connect to a commonPolyFace but not a CommonPolyEdge,
                                                        //        these PolyEdges are 1st created and then deleted in this method)
-  SmTArray<SmPolyFace*>   & rFacesUpdated,             // out: List of PolyFaces attached to deleted PolyEdges
-                                                       //       (some of these may be stale)
+  SmTArray<SmPolyFace*>   & rFacesUpdated,             // out: List of PolyFaces attached to deleted PolyEdges, each once
   SmTArray<SmPolyVertex*> * pOptDeletedPolyVertices,   // out: optional array of additional deleted PolyVertices, NULL to ignore, default:[NULL]
   SmTArray<SmPolyVertex*> * pOptSurvivingPolyVertices) // out: optional associated surviving PolyVertices, NULL to ignore, default:[NULL]
 {
@@ -7710,8 +7709,11 @@ SmBoolean bDebugMe = FALSE ;
       for(ii=0;ii<lNumDelEdges;ii++)
         {
           SmPolyEdge *pE = rDeletedEdges[ii] ;
+          // SolidCraft: once each. A PolyFace holding a deleted PolyEdge and one of its radial
+          // partners (a slit) was listed twice; the callers squeeze each listed PolyFace, and a
+          // squeeze deletes it, so the second entry was a deleted PolyFace.
           if( pE->GetPolyFace() )
-            { rFacesUpdated.Add( pE->GetPolyFace() ) ; }
+            { rFacesUpdated.AddUnique( pE->GetPolyFace() ) ; }
         } // end iter every DelEdge - adding attached PolyFaces to the rFacesUpdated list
     } // end when a common PolyEdge was found branch
   else // when no common PolyEdge was found branch
@@ -7752,9 +7754,9 @@ SmBoolean bDebugMe = FALSE ;
 
           // use the last NewEdge as the CommonEdge - and add CommonFace and NewFace to the FacesUpdated list
           pCommonEdge = pNewEdge ;
-          rFacesUpdated.Add( pCommonFace ) ;
+          rFacesUpdated.AddUnique( pCommonFace ) ;
           if(pNewFace != NULL )
-            { rFacesUpdated.Add( pNewFace ) ; }
+            { rFacesUpdated.AddUnique( pNewFace ) ; }
 
           break ;
         } // end iter every PolyFace connected to both SurvivingVertex and VertexToDelete
