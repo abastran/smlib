@@ -18,8 +18,54 @@
 #include <SmObject.h>
 #endif
 
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
+
+/*******************************************************************/ /**
+ PURPOSE: A set of pointers that lists its members in the order they were
+ inserted.
+
+ NOTES: The maps below hand out their keys and values in insertion order, never
+ in the order of their addresses: an algorithm that walks them then does the
+ same work whatever addresses the heap gives its objects. (std::unordered_set
+ iterates in hash order, and the hash of a pointer is its address.)
+ ***********************************************************************/
+template<class PtrType>
+class SmInsertionOrderedPtrSet
+{
+private:
+  std::vector<PtrType>                m_vMembers;  // in insertion order
+  std::unordered_map<PtrType, size_t> m_vIndex;    // member -> its place in m_vMembers
+
+public:
+  using const_iterator = typename std::vector<PtrType>::const_iterator;
+
+  bool insert(const PtrType& rValue)
+  {
+    if (m_vIndex.find(rValue) != m_vIndex.end()) { return false; }
+    m_vIndex.emplace(rValue, m_vMembers.size());
+    m_vMembers.push_back(rValue);
+    return true;
+  }
+  size_t erase(const PtrType& rValue)
+  {
+    auto it = m_vIndex.find(rValue);
+    if (it == m_vIndex.end()) { return 0; }
+    size_t lAt = it->second;
+    m_vIndex.erase(it);
+    m_vMembers.erase(m_vMembers.begin() + lAt);
+    for (size_t ii = lAt; ii < m_vMembers.size(); ii++) { m_vIndex[m_vMembers[ii]] = ii; }
+    return 1;
+  }
+  size_t count(const PtrType& rValue) const { return m_vIndex.count(rValue); }
+  size_t size()  const { return m_vMembers.size(); }
+  bool   empty() const { return m_vMembers.empty(); }
+  const_iterator begin() const { return m_vMembers.begin(); }
+  const_iterator end()   const { return m_vMembers.end(); }
+};
 
 /*******************************************************************/ /**
  PURPOSE: A templated class for maps between pointers of KeyTYPE and ValTYPE.
@@ -38,10 +84,36 @@ private:
 
   using CRKeyType   = const KeyType&;
   using RValueType  = ValueType&;
-  using CRValueType = const ValueType&; // below uses SmAllocator to force memory allocation for maps through same allocators as the rest of the library.
-  using MapType = std::unordered_map<KeyType, ValueType, std::hash<KeyType>, std::equal_to<KeyType>, SmAllocator<std::pair<const KeyType, ValueType>>> ;
+  using CRValueType = const ValueType&;
+  // Each key's value and the order in which the key was first inserted.
+  struct Entry
+  {
+    ValueType          m_Value;
+    unsigned long long m_lSeq;
+  };
+  // below uses SmAllocator to force memory allocation for maps through same allocators as the rest of the library.
+  using MapType = std::unordered_map<KeyType, Entry, std::hash<KeyType>, std::equal_to<KeyType>, SmAllocator<std::pair<const KeyType, Entry>>> ;
 
   MapType* m_pMap; // not a value to avoid warning C4251
+  unsigned long long m_lNextSeq = 0;
+
+  // the map's entries in insertion order
+  std::vector<typename MapType::const_iterator> Ordered() const
+  {
+    std::vector<typename MapType::const_iterator> sItems;
+    sItems.reserve(m_pMap->size());
+    for (auto it = m_pMap->begin(); it != m_pMap->end(); ++it) { sItems.push_back(it); }
+    std::sort(sItems.begin(), sItems.end(),
+              [](const typename MapType::const_iterator& a, const typename MapType::const_iterator& b)
+              { return a->second.m_lSeq < b->second.m_lSeq; });
+    return sItems;
+  }
+  Entry& Slot(CRKeyType rKey)
+  {
+    auto sFound = m_pMap->try_emplace(rKey, Entry{ nullptr, m_lNextSeq });
+    if (sFound.second) { m_lNextSeq++; }
+    return sFound.first->second;
+  }
 
  public:
   SmMapPtrToPtr(const SmContext* cpContext = nullptr);
@@ -49,18 +121,25 @@ private:
   virtual ~SmMapPtrToPtr();
   SmMapPtrToPtr& operator=(const SmMapPtrToPtr&);
 
-  void Insert(CRKeyType rKey, CRValueType rValue) { (*m_pMap)[rKey] = rValue; }
-  void Insert(const SmMapPtrToPtr& rOther)        { m_pMap->insert(rOther.m_pMap->begin(), rOther.m_pMap->end()); }
+  void Insert(CRKeyType rKey, CRValueType rValue) { Slot(rKey).m_Value = rValue; }
+  // adds rOther's keys that this map lacks (keeping its own values), in rOther's order
+  void Insert(const SmMapPtrToPtr& rOther)
+  {
+    for (const auto& it : rOther.Ordered())
+    {
+      if (m_pMap->find(it->first) == m_pMap->end()) { Slot(it->first).m_Value = it->second.m_Value; }
+    }
+  }
   void Remove(CRKeyType rKey)                     { m_pMap->erase(rKey); }
 
   ValueType At(CRKeyType rKey) const
   {
     auto it = m_pMap->find(rKey);
-    if (it != m_pMap->end()) { return it->second; }
+    if (it != m_pMap->end()) { return it->second.m_Value; }
     else                     { return nullptr; }
   }
   // inserts new element if rKey is not contained
-  RValueType operator[](CRKeyType rKey)       { return (*m_pMap)[rKey]; }
+  RValueType operator[](CRKeyType rKey)       { return Slot(rKey).m_Value; }
   ValueType  operator[](CRKeyType rKey) const { return At(rKey); }
   SmBoolean Contains(CRKeyType rKey) const { return m_pMap->find(rKey) != m_pMap->end(); }
 
@@ -69,11 +148,12 @@ private:
   ULONG Count() const { return (ULONG)m_pMap->size(); }
   SmBoolean IsEmpty() const { return m_pMap->empty(); }
 
+  // the first key inserted that maps to rVal
   KeyType Get1stKeyFor(CRValueType rVal) const
   {
-      for (const std::pair<KeyType, ValueType>& sPair : *m_pMap)
+      for (const auto& it : Ordered())
       {
-          if (sPair.second == rVal) { return sPair.first; }
+          if (it->second.m_Value == rVal) { return it->first; }
       }
       return nullptr;
   };
@@ -109,12 +189,38 @@ private:
   using CRKeyType = const KeyType&;
   using RValueType = ValueType&;
   using CRValueType = const ValueType&;
-  using ValueSetType = std::unordered_set<ValueType>;
+  using ValueSetType = SmInsertionOrderedPtrSet<ValueType>;
   using RValueSetType = ValueSetType&;
-  using CRValueSetType = const ValueSetType&; // below uses SmAllocator to force memory allocation for maps through same allocators as the rest of the library.
-  using MapType = std::unordered_map<KeyType, ValueSetType, std::hash<KeyType>, std::equal_to<KeyType>, SmAllocator<std::pair<const KeyType, ValueSetType>>> ;
+  using CRValueSetType = const ValueSetType&;
+  // Each key's values and the order in which the key was first inserted.
+  struct Entry
+  {
+    ValueSetType       m_Values;
+    unsigned long long m_lSeq;
+  };
+  // below uses SmAllocator to force memory allocation for maps through same allocators as the rest of the library.
+  using MapType = std::unordered_map<KeyType, Entry, std::hash<KeyType>, std::equal_to<KeyType>, SmAllocator<std::pair<const KeyType, Entry>>> ;
 
   MapType* m_pMap; // not a value to avoid warning C4251
+  unsigned long long m_lNextSeq = 0;
+
+  // the map's entries in insertion order
+  std::vector<typename MapType::const_iterator> Ordered() const
+  {
+    std::vector<typename MapType::const_iterator> sItems;
+    sItems.reserve(m_pMap->size());
+    for (auto it = m_pMap->begin(); it != m_pMap->end(); ++it) { sItems.push_back(it); }
+    std::sort(sItems.begin(), sItems.end(),
+              [](const typename MapType::const_iterator& a, const typename MapType::const_iterator& b)
+              { return a->second.m_lSeq < b->second.m_lSeq; });
+    return sItems;
+  }
+  Entry& Slot(CRKeyType rKey)
+  {
+    auto sFound = m_pMap->try_emplace(rKey, Entry{ ValueSetType(), m_lNextSeq });
+    if (sFound.second) { m_lNextSeq++; }
+    return sFound.first->second;
+  }
 
  public:
   SmMapPtrToPtrs(const SmContext* cpContext = nullptr);
@@ -122,16 +228,23 @@ private:
   virtual ~SmMapPtrToPtrs();
   SmMapPtrToPtrs& operator=(const SmMapPtrToPtrs&);
 
-  void Insert(CRKeyType rKey, CRValueType rValue) { (*m_pMap)[rKey].insert(rValue); }
-  void Insert(const SmMapPtrToPtrs& rOther)       { m_pMap->insert(rOther.m_pMap->begin(), rOther.m_pMap->end()); };
+  void Insert(CRKeyType rKey, CRValueType rValue) { Slot(rKey).m_Values.insert(rValue); }
+  // adds rOther's keys that this map lacks (keeping its own values), in rOther's order
+  void Insert(const SmMapPtrToPtrs& rOther)
+  {
+    for (const auto& it : rOther.Ordered())
+    {
+      if (m_pMap->find(it->first) == m_pMap->end()) { Slot(it->first).m_Values = it->second.m_Values; }
+    }
+  };
   void Remove(CRKeyType rKey)                     { m_pMap->erase(rKey); }
   void Remove(CRKeyType rKey, CRValueType rValue)
   {
     auto it = m_pMap->find(rKey);
     if (it != m_pMap->end())
     {
-      it->second.erase(rValue);
-      if (it->second.empty())
+      it->second.m_Values.erase(rValue);
+      if (it->second.m_Values.empty())
       {
         m_pMap->erase(rKey);
       }
@@ -142,11 +255,11 @@ private:
   {
     static const ValueSetType emptyValueSet{};
     auto it = m_pMap->find(rKey);
-    if (it != m_pMap->end()) { return it->second; }
+    if (it != m_pMap->end()) { return it->second.m_Values; }
     else                     { return emptyValueSet; }
   }
   // inserts new element if rKey is not contained
-  RValueSetType operator[](CRKeyType rKey) { return (*m_pMap)[rKey]; }
+  RValueSetType operator[](CRKeyType rKey) { return Slot(rKey).m_Values; }
   CRValueSetType  operator[](CRKeyType rKey) const { return At(rKey); }
   SmBoolean Contains(CRKeyType rKey) const { return m_pMap->find(rKey) != m_pMap->end(); }
 
@@ -178,6 +291,7 @@ SmMapPtrToPtr<KeyTYPE, ValTYPE>::SmMapPtrToPtr(const SmMapPtrToPtr& other)
 {
     m_cpContext = other.m_cpContext;
     m_pMap = new MapType(*other.m_pMap);
+    m_lNextSeq = other.m_lNextSeq;
 }
 
 template<class KeyTYPE, class ValTYPE>
@@ -192,8 +306,10 @@ template<class KeyTYPE, class ValTYPE>
 SmMapPtrToPtr<KeyTYPE, ValTYPE>& SmMapPtrToPtr<KeyTYPE, ValTYPE>::operator=(const SmMapPtrToPtr<KeyTYPE, ValTYPE>& rOther)
 {
     m_cpContext = rOther.m_cpContext;
+    MapType* pCopy = new MapType(*rOther.m_pMap);
     delete m_pMap;
-    m_pMap = new MapType(*rOther.m_pMap);
+    m_pMap = pCopy;
+    m_lNextSeq = rOther.m_lNextSeq;
     return *this;
 }
 
@@ -208,10 +324,9 @@ void SmMapPtrToPtr<KeyTYPE, ValTYPE>::GetAllKeys(SmTArray<KeyType>& rKeys) const
 {
     rKeys.ReSet();
     rKeys.SetDataSize(Count());
-    for (const auto& [rKey, rValue] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        SM_REF1(rValue);
-        rKeys.Add(rKey);
+        rKeys.Add(it->first);
     }
 }
 
@@ -220,10 +335,9 @@ void SmMapPtrToPtr<KeyTYPE, ValTYPE>::GetAllValues(SmTArray<ValueType>& rValues)
 {
     rValues.ReSet();
     rValues.SetDataSize(Count());
-    for (const auto& [rKey, rValue] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        SM_REF1(rKey);
-        rValues.Add(rValue);
+        rValues.Add(it->second.m_Value);
     }
 }
 
@@ -234,10 +348,10 @@ void SmMapPtrToPtr<KeyTYPE, ValTYPE>::GetAllKeyValuePairs(SmTArray<KeyType>& rKe
     rKeys.SetDataSize(Count());
     rValues.ReSet();
     rValues.SetDataSize(Count());
-    for (const auto& [rKey, rValue] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        rKeys.Add(rKey);
-        rValues.Add(rValue);
+        rKeys.Add(it->first);
+        rValues.Add(it->second.m_Value);
     }
 }
 
@@ -270,9 +384,9 @@ const
         return;
     }
 
-    for (const auto& [rKey, rValue] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        smos_sprintf(sBuff, _T("\t [%p] = %p\n"), rKey, rValue);
+        smos_sprintf(sBuff, _T("\t [%p] = %p\n"), it->first, it->second.m_Value);
         smos_WriteBuffer(sBuff);
     }
 }
@@ -288,10 +402,10 @@ void SmMapPtrToPtr<KeyTYPE, ValTYPE>::DumpAsObjects() const
     smos_WriteBuffer(sBuff);
     SmObject::Dump();
 
-    for (const auto& [rKey, rValue] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        SmObject* pKey = (SmObject*)rKey;
-        SmObject* pValue = (SmObject*)rValue;
+        SmObject* pKey = (SmObject*)it->first;
+        SmObject* pValue = (SmObject*)it->second.m_Value;
 
         ULONG lKeyType = (ULONG)pKey->GetType();
         ULONG lValType = (ULONG)pValue->GetType();
@@ -321,6 +435,7 @@ SmMapPtrToPtrs<KeyTYPE, ValTYPE>::SmMapPtrToPtrs(const SmMapPtrToPtrs& other)
 {
     m_cpContext = other.m_cpContext;
     m_pMap = new MapType(*other.m_pMap);
+    m_lNextSeq = other.m_lNextSeq;
 }
 
 template<class KeyTYPE, class ValTYPE>
@@ -335,8 +450,10 @@ template<class KeyTYPE, class ValTYPE>
 SmMapPtrToPtrs<KeyTYPE, ValTYPE>& SmMapPtrToPtrs<KeyTYPE, ValTYPE>::operator=(const SmMapPtrToPtrs<KeyTYPE, ValTYPE>& rOther)
 {
     m_cpContext = rOther.m_cpContext;
+    MapType* pCopy = new MapType(*rOther.m_pMap);
     delete m_pMap;
-    m_pMap = new MapType(*rOther.m_pMap);
+    m_pMap = pCopy;
+    m_lNextSeq = rOther.m_lNextSeq;
     return *this;
 }
 
@@ -351,10 +468,9 @@ void SmMapPtrToPtrs<KeyTYPE, ValTYPE>::GetAllKeys(SmTArray<KeyType>& rKeys) cons
 {
     rKeys.ReSet();
     rKeys.SetDataSize(Count());
-    for (const auto& [rKey, rValueSet] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        SM_REF1(rValueSet);
-        rKeys.Add(rKey);
+        rKeys.Add(it->first);
     }
 }
 
@@ -363,10 +479,9 @@ void SmMapPtrToPtrs<KeyTYPE, ValTYPE>::GetAllValues(SmTArray<ValueType>& rValues
 {
     rValues.ReSet();
     rValues.SetDataSize(Count());
-    for (const auto& [rKey, rValueSet] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        SM_REF1(rKey);
-        for (const auto& rValue : rValueSet)
+        for (const auto& rValue : it->second.m_Values)
         {
             rValues.Add(rValue);
         }
@@ -380,10 +495,10 @@ void SmMapPtrToPtrs<KeyTYPE, ValTYPE>::GetAllKeyValuePairs(SmTArray<KeyType>& rK
     rKeys.SetDataSize(Count());
     rValues.ReSet();
     rValues.SetDataSize(Count());
-    for (const auto& [rKey, rValueSet] : *m_pMap)
+    for (const auto& it : Ordered())
     {
-        rKeys.Add(rKey);
-        for (const auto& rValue : rValueSet)
+        rKeys.Add(it->first);
+        for (const auto& rValue : it->second.m_Values)
         {
             rValues.Add(rValue);
         }
@@ -419,10 +534,11 @@ const
         return;
     }
 
-    for (const auto& [rKey, rValueSet] : *m_pMap)
+    for (const auto& it : Ordered())
     {
+        KeyType rKey = it->first;
         smos_sprintf(sBuff, _T("\t [%p] = {"), rKey);
-        for (const auto& rValue : rValueSet)
+        for (const auto& rValue : it->second.m_Values)
         {
             smos_sprintf(sBuff, _T("%p, "), rValue);
             smos_WriteBuffer(sBuff);
@@ -443,8 +559,9 @@ void SmMapPtrToPtrs<KeyTYPE, ValTYPE>::DumpAsObjects() const
     smos_WriteBuffer(sBuff);
     SmObject::Dump();
 
-    for (const auto& [rKey, rValueSet] : *m_pMap)
+    for (const auto& it : Ordered())
     {
+        KeyType rKey = it->first;
         SmObject* pKey = (SmObject*)rKey;
         ULONG lKeyType = (ULONG)pKey->GetType();
 
@@ -454,7 +571,7 @@ void SmMapPtrToPtrs<KeyTYPE, ValTYPE>::DumpAsObjects() const
             : _T("Not A Named TYPE"),
             pKey);
 
-        for (const auto& rValue : rValueSet)
+        for (const auto& rValue : it->second.m_Values)
         {
             SmObject* pValue = (SmObject*)rValue;
             ULONG lValType = (ULONG)pValue->GetType();

@@ -348,6 +348,47 @@ int main()
         }
     }
 
+    // tangency-labs/solidcore#403: the same shell gives the same answer every time, wherever the
+    // heap puts SMLib's objects. SMLib's pointer maps (SmMapPtrToPtr, SmRelation) handed out
+    // their keys in hash order, which is address order, so the offset processed edges and faces
+    // in an order that changed from call to call: a 47.5 x 45 x 30 box joined with a cylinder
+    // r7.5 along x whose seam lies on the box's front face, shelled 1 open at the bottom,
+    // failed with 1001 or 1006 by turns. Heap blocks of varying size between the calls move
+    // the objects about.
+    {
+        smlib_brep *block = box(0, 0, 0, 47.5, 45, 30);
+        SmBrep *bar = nullptr;
+        CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 7.5, 30.0, bar) == SM_SUCCESS && bar != nullptr);
+        CHECK(SmApiRotate(bar, SmVector3d(0, 0, 0), SmVector3d(0, 1, 0), 90.0) == SM_SUCCESS);
+        CHECK(SmApiTranslate(bar, SmVector3d(47.5, 0, 10)) == SM_SUCCESS);
+        smlib_brep side{bar};
+        smlib_brep *joined = nullptr;
+        CHECK(smlib_boolean(block, &side, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK && sound(joined));
+        const double bottom[3] = {23.75, 22.5, 0};
+        std::vector<std::vector<char>> spacers;
+        int32_t first = 0;
+        double first_volume = 0.0;
+        for (int i = 0; i < 6; ++i)
+        {
+            spacers.emplace_back(static_cast<size_t>(16 + 97 * i * i));
+            int32_t got = smlib_shell(joined, bottom, 1, 0.1, -1.0, &r, nullptr);
+            double v = got == SMLIB_OK ? volume_of(r) : 0.0;
+            if (i == 0)
+            {
+                first = got;
+                first_volume = v;
+            }
+            CHECK(got == first && v == first_volume);
+            smlib_brep_free(r);
+            r = nullptr;
+        }
+        delete bar;
+        for (smlib_brep *b : {block, joined})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // A box 20 x 10 x 30 open at the top with walls 4 thick: the sides need room 4 from each
     // other (10 > 8), the floor's is far, so the shell goes through even though the box's
     // smallest half extent is 5; walls of 5 leave none.
