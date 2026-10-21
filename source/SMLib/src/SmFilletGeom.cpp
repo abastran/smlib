@@ -7649,6 +7649,26 @@ SmStatus SmFilletEdge::CalcEdgeOnExtendedEdge
     pEdge->GetFaces(sFaces);
     if (sFaces.GetSize() < 2) SER(SM_ERR);
 
+    // Past a tangent side edge (SmFilletNx1Corner::MakeCornerTopology), the
+    // extended edge bounds the end face and a face that is not the side face
+    // this edge runs in. Its extension is where that side face meets the end
+    // face's extension (the one of the edge's faces the corner extended).
+    SmFace * pSideFace = GetOriginalFace();
+    if ( pSideFace != NULL && ! sFaces.IsIn( pSideFace ) )
+      {
+        SmFace * pEndFace = NULL;
+        for (ULONG i=0; i<sFaces.GetSize(); i++) {
+            if (pOptCorner->GetExtendedSurface(sFaces[i]) != NULL) {
+                pEndFace = sFaces[i];
+                break;
+            }
+        }
+        NER(pEndFace);
+        sFaces.ReSet();
+        sFaces.Add(pSideFace);
+        sFaces.Add(pEndFace);
+      }
+
     SmBSplineSurface * pSurface1 = NULL;
     SmBSplineSurface * pSurface2 = NULL;
     for (ULONG i=0; i<2; i++) {

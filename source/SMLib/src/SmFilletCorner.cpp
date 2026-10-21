@@ -288,6 +288,41 @@ static SmBoolean sm_CheckTangentialEdgeuse
 } // end sm_CheckTangentialEdgeuse
 
 /********************************************************************
+PURPOSE: Determine whether the two faces of an edgeuse's edge meet
+            tangentially (same normal, within a tolerance) at one of
+            its vertices
+NOTES:
+    A flat face running smoothly onto a round across the edge.
+    Unlike sm_CheckTangentialEdgeuse(), the faces are compared at the
+    vertex, and a knife edge (opposite normals) is not tangential.
+********************************************************************/
+static SmBoolean sm_CheckTangentialEdgeuseAtVertex
+ (SmEdgeuse      * pEU,
+  const SmVertex * cpVertex,
+  double           dAngTolDeg)
+{
+  SmEdge * pEdge = pEU->GetEdge();
+  if ( pEdge == NULL || pEdge->GetCurve() == NULL || pEdge->IsClosed() || ! pEdge->IsManifold() )
+    { return FALSE; }
+
+  SmExtent1d sIvl = pEdge->GetInterval();
+  SmPoint3d  sLo, sHi;
+  if (   pEdge->GetCurve()->EvaluatePoint( sIvl.GetMin(), sLo ) != SM_SUCCESS
+      || pEdge->GetCurve()->EvaluatePoint( sIvl.GetMax(), sHi ) != SM_SUCCESS )
+    { return FALSE; }
+  SmPoint3d sAt = cpVertex->GetPoint();
+  double    dT  = ( sLo.DistanceBetweenSquared( sAt ) <= sHi.DistanceBetweenSquared( sAt ) ) ? sIvl.GetMin() : sIvl.GetMax();
+
+  SmVector3d sPnt1, sPnt2, sBin1, sBin2, sNorm1, sNorm2;
+  if (   pEU->EvaluateBinormal( dT, FALSE, sPnt1, sBin1, NULL, &sNorm1 ) != SM_SUCCESS
+      || pEU->GetRadial()->EvaluateBinormal( dT, FALSE, sPnt2, sBin2, NULL, &sNorm2 ) != SM_SUCCESS )
+    { return FALSE; }
+
+  return ( sNorm1.Dot( sNorm2 ) > 0.0 && sNorm1.IsParallelTo( sNorm2, dAngTolDeg ) ) ? TRUE : FALSE;
+
+} // end sm_CheckTangentialEdgeuseAtVertex
+
+/********************************************************************
 PURPOSE: Classify a face's corner at a given vertex as convex or
     concave by examining the shape of the face->Corners bounding edgeuses.
     For a 3x2 vertex (pOptRefEU NULL), this checks for mixed convexity:
@@ -504,6 +539,42 @@ static SmBoolean same_convexity_edges // rtn: TRUE=convexities are the same, FAL
   return( pEdgeuse2->IsConvexRadialSector(5) ? FALSE : TRUE );
 
 } // end same_convexity_edges
+
+/*******************************************************************//**
+PURPOSE: Determine whether two edges at a vertex have the same or
+            opposite convexity, the second one anywhere round the vertex.
+
+NOTES:
+  same_convexity_edges() finds the second edge's edgeuse as the corner
+  mate of the first's, so the two must share a face. Here the second
+  edge's edgeuse is the one in the region of the first edge's concave
+  sector.
+***********************************************************************/
+static SmBoolean same_convexity_edges_round_vertex // rtn: TRUE=convexities are the same, FALSE=opposite
+ (SmEdgeuse * pEdgeuse1,                         // in : edgeuse of first edge
+  SmEdge    * pEdge2)                            // in : second edge
+{
+  SmEdgeuse * pConcaveEU1 =   pEdgeuse1->IsConvexRadialSector(5)
+                            ? (    pEdgeuse1->GetEdge()->IsManifold()
+                                 ? pEdgeuse1->GetMate()->GetRadial()
+                                 : NULL
+                              )
+                            : pEdgeuse1 ;
+  if ( pConcaveEU1 == NULL || pConcaveEU1->GetShell() == NULL ) { SE(SM_ERR) ; return FALSE ; }
+  SmRegion * pRegion = pConcaveEU1->GetShell()->GetRegion() ;
+
+  SmTArray< SmEdgeuse* > sEUs ;
+  pEdge2->GetEdgeuses( sEUs ) ;
+  for ( ULONG ii=0; ii<sEUs.GetSize(); ii++ )
+    {
+      if ( sEUs[ii]->GetShell() != NULL && sEUs[ii]->GetShell()->GetRegion() == pRegion )
+        { return( sEUs[ii]->IsConvexRadialSector(5) ? FALSE : TRUE ) ; }
+    }
+
+  SE(SM_ERR) ;
+  return FALSE ;
+
+} // end same_convexity_edges_round_vertex
 
 /********************************************************************
 PURPOSE: Find all edgeuses (usually two) of this corner which bound
@@ -6049,6 +6120,52 @@ int iDebugLevel = 0;
   bSideEdgeSameCvxty[0] = same_convexity_edges(pFilEdgeuse, pEU[0], m_cpVertex, iDebugLevel );
   bSideEdgeSameCvxty[1] = same_convexity_edges(pFilEdgeuse, pEU[1], m_cpVertex, iDebugLevel );
 
+  // A side edge whose two faces meet tangentially at the vertex (a flat top
+  // running smoothly onto a round) is no edge of the corner: the side face the
+  // rail runs on continues across it. When the edge reached past it round the
+  // vertex has the filleted edge's convexity and the other side edge the
+  // opposite one, the corner is the mixed-convexity one of that edge
+  // (pCornerEU): its end face lies between it and the other side edge, and it
+  // is the edge extended into the side face. pEU stays the neighbour on the
+  // fillet's side face, which the rail ends against. lCornerEUs counts the
+  // corner's edges.
+  SmEdgeuse * pCornerEU[2] = { pEU[0], pEU[1] };
+  ULONG       lCornerEUs   = lTotalEUs;
+  if ( ! bClosedSideEdge && lTotalEUs > 3 )
+    {
+      double dTanTolDeg = SM_RAD2DEG( GetTangencyTolRadians() );
+      for ( ULONG kk=0; kk<2; kk++ )
+        {
+          ULONG lOther = 1 - kk;
+          if (   bSideEdgeSameCvxty[ lOther ]
+              || sm_CheckTangentialEdgeuseAtVertex( pEU[ lOther ], m_cpVertex, dTanTolDeg ) )
+            { continue; }
+
+          ULONG lOtherIdx = ( kk == 0 ) ? lIndex1 : lIndexA;
+          ULONG lIdx      = ( kk == 0 ) ? lIndexA : lIndex1;
+          ULONG lSkipped  = 0;
+          SmEdgeuse * pNextEU = pEU[ kk ];
+          while (   lTotalEUs - lSkipped > 3
+                 && sm_CheckTangentialEdgeuseAtVertex( pNextEU, m_cpVertex, dTanTolDeg ) )
+            {
+              lIdx = ( kk == 0 ) ? ( (lIdx + lTotalEUs) - 1 ) % lTotalEUs : ( lIdx + 1 ) % lTotalEUs;
+              if ( lIdx == lFilEUIndex || lIdx == lOtherIdx )
+                { lSkipped = 0; break; }
+              pNextEU = (*m_pAllEUs)[ lIdx ];
+              lSkipped++;
+            }
+
+          if (   lSkipped > 0
+              && same_convexity_edges_round_vertex( pFilEdgeuse, pNextEU->GetEdge() ) )
+            {
+              pCornerEU[ kk ]           = pNextEU;
+              bSideEdgeSameCvxty[ kk ]  = TRUE;
+              lCornerEUs               -= lSkipped;
+              break;
+            }
+        }
+    }
+
   SmBoolean bMixedCvxty = ! bSideEdgeSameCvxty[0] || ! bSideEdgeSameCvxty[1];
 
 
@@ -6123,13 +6240,14 @@ int iDebugLevel = 0;
           // No, extend the edge with the same convexity, because it shares
           // a face with the fillet rail-to-be which it will intersect.
           // [bd, 3 Feb 06]
-          SmEdgeuse * pExtendEdgeuse = pEU[ lThisRailIdx ];
+          // (Past a tangent side edge, the corner's side edge: see pCornerEU.)
+          SmEdgeuse * pExtendEdgeuse = pCornerEU[ lThisRailIdx ];
 
 
           // Find original EndFace to be extended:
           //   the EndFace between the extended edge and the other side edge.
           pEndFace = sm_GetFaceByTwoEdgeuses(
-                          pExtendEdgeuse, pEU[ lOtherRailIdx ], NULL );
+                          pExtendEdgeuse, pCornerEU[ lOtherRailIdx ], NULL );
           pExtendEdge = pExtendEdgeuse->GetEdge();
 
           // Point Edgeuse to the Fillet (side) Face containing the cliff edge.
@@ -6173,7 +6291,7 @@ int iDebugLevel = 0;
   // more than one end face), don't do it here.
   // That would be the case if lTotalEUs > 3.
 
-  if ( !bMixedCvxty && lTotalEUs > 3 )
+  if ( !bMixedCvxty && lCornerEUs > 3 )
     {
       // Simple convex corner, OR more than one end face,
       // just let global merge do the work.
@@ -6243,7 +6361,7 @@ int iDebugLevel = 0;
           // face->Surface connected to the 1st cliff side edge.
           // gwc:TODO in the future, new Surfaces can be defined which are
           //   tangent continuous with both side edges.
-          if ( lTotalEUs > 3 )
+          if ( lCornerEUs > 3 )
             {
               MSG(_T("Building a FilletEndFace between two different faces - may be a G0 endPatch"));
               // Use the side edge that is a cliff edge.
@@ -6357,7 +6475,7 @@ int iDebugLevel = 0;
         {
           pNewFilletEdge2->SetFilletEdgeType( SM_FE_ON_EDGE );
 
-          if (lTotalEUs <= 3)
+          if (lCornerEUs <= 3)
             {
               // Register this edge and process it later
               // when removing topological vertices
@@ -6386,7 +6504,7 @@ int iDebugLevel = 0;
       else
         {
           pNewFilletEdge1->SetFilletEdgeType( SM_FE_ON_EDGE );
-          if ( lTotalEUs <= 3 )
+          if ( lCornerEUs <= 3 )
             {
               m_pExecutive->AddTopoEdges( pNewFilletEdge1 );
             }
