@@ -484,6 +484,139 @@ int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_po
 int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double thickness,
                     smlib_brep **out, int64_t *out_failed_point);
 
+/* ---- Surface/surface intersection (src/smlib_ssi.cpp) ------------------------------------
+ *
+ * Two surfaces described in plain C, intersected by one of SMLib's SSI entry points, with each
+ * intersection curve sampled into caller buffers.
+ *
+ * The constructors take exactly the fields of an SSI corpus case file (ssi-corpus,
+ * cases/data/<id>.json, built as its runner/ssi_runner.cpp builds them), so a case replays
+ * through this API unchanged. Angles are in DEGREES, as in the case files and SMLib's analytic
+ * surfaces. Each surface's UV domain is SMLib's natural UV domain of the surface built
+ * (smlib_surface_domain); for planes that is (u, v) itself, for the other analytic kinds it is
+ * the parameterisation of SMLib's internal NURBS form, as the runner uses it.
+ *
+ * Every input is validated first; anything non-finite, out of range or inconsistent returns
+ * SMLIB_ERR_ARG without touching SMLib. Coordinates, lengths and plane ranges are limited to
+ * +-SMLIB_SURFACE_MAX_COORD. Axes must be non-zero and not parallel; they need not be unit or
+ * orthogonal (SMLib normalises them as the runner's surfaces do). */
+
+/* A surface with its UV domain, owned by the caller (smlib_surface_free). */
+typedef struct smlib_surface smlib_surface;
+
+#define SMLIB_SURFACE_MAX_COORD 1e8
+#define SMLIB_SURFACE_MAX_DEGREE 25
+/* Most control points along one direction, and in all (nu * nv). */
+#define SMLIB_SURFACE_MAX_POLES 1000000
+
+/* A plane through `origin` spanned by `xaxis` and `yaxis`: P(u, v) = origin + u*x + v*y with x, y
+ * the axes made unit, for u in [u[0], u[1]], v in [v[0], v[1]] (each u[0] < u[1]). */
+int32_t smlib_surface_plane(const double origin[3], const double xaxis[3], const double yaxis[3], const double u[2],
+                            const double v[2], smlib_surface **out);
+
+/* A cylinder of `radius` about the axis through `origin` along z = unit(xaxis x yaxis), angle
+ * `angle_deg` = [a0, a1] from xaxis towards yaxis (a0 < a1, within [-360, 360], a1 - a0 <= 360),
+ * for z in `height` = [h0, h1] (h0 < h1) measured from `origin`. */
+int32_t smlib_surface_cylinder(const double origin[3], const double xaxis[3], const double yaxis[3], double radius,
+                               const double angle_deg[2], const double height[2], smlib_surface **out);
+
+/* A full (360 degree) cone with its apex at `apex`, axis z = unit(xaxis x yaxis), radius
+ * h * tan(half_angle_deg) at distance h along z, for h in `height` = [h0, h1], 0 <= h0 < h1
+ * (h0 = 0 includes the apex). half_angle_deg in [0.01, 89]. */
+int32_t smlib_surface_cone(const double apex[3], const double xaxis[3], const double yaxis[3], double half_angle_deg,
+                           const double height[2], smlib_surface **out);
+
+/* A sphere of `radius` at `center`: longitude `lon_deg` (from xaxis towards yaxis; within
+ * [-360, 360], span <= 360) and latitude `lat_deg` (within [-90, 90]), each increasing. */
+int32_t smlib_surface_sphere(const double center[3], const double xaxis[3], const double yaxis[3], double radius,
+                             const double lon_deg[2], const double lat_deg[2], smlib_surface **out);
+
+/* A ring torus at `center` about z = unit(xaxis x yaxis): major radius R (the case files' "R"),
+ * minor radius r ("r"), 0 < r < R; `major_deg` the angle round z from xaxis, `minor_deg` the
+ * angle round the tube (each within [-360, 360], increasing, span <= 360). */
+int32_t smlib_surface_torus(const double center[3], const double xaxis[3], const double yaxis[3], double major_radius,
+                            double minor_radius, const double major_deg[2], const double minor_deg[2], smlib_surface **out);
+
+/* A (rational) B-spline surface of degrees 1..SMLIB_SURFACE_MAX_DEGREE with nu x nv control
+ * points (nu > degree_u, nv > degree_v). `points` holds nu * nv Cartesian points (x, y, z),
+ * point (i, j) (i along u, j along v) at points[3 * (i * nv + j)], as in the case files;
+ * `weights` likewise nu * nv weights in [1e-6, 1e6], or NULL for all 1. Knot vectors hold
+ * nu + degree_u + 1 (nv + degree_v + 1) finite, non-decreasing values with a non-empty domain,
+ * no end knot repeated more than degree + 1 times and no interior knot more than degree times.
+ * Unclamped knot vectors are accepted. */
+int32_t smlib_surface_nurbs(int32_t degree_u, int32_t degree_v, int32_t nu, int32_t nv, const double *knots_u,
+                            int64_t n_knots_u, const double *knots_v, int64_t n_knots_v, const double *points,
+                            const double *weights, smlib_surface **out);
+
+void smlib_surface_free(smlib_surface *s);
+
+/* The surface's UV domain as [u0, u1, v0, v1]: what smlib_ssi intersects within. */
+int32_t smlib_surface_domain(const smlib_surface *s, double out[4]);
+
+/* The surface's point at (u, v) in its UV domain's parameterisation. */
+int32_t smlib_surface_evaluate(const smlib_surface *s, double u, double v, double out[3]);
+
+/* smlib_ssi methods. */
+#define SMLIB_SSI_GLOBAL 0   /* SmSurface::GlobalSurfaceIntersect: analytic special cases, else 1 */
+#define SMLIB_SSI_ADVANCED 1 /* SmAdvSurfaceIntersector (the general NURBS path) */
+#define SMLIB_SSI_BASIC 2    /* SmSurfaceIntersector (the basic intersector) */
+
+/* Curve types: SMLib's SmTsectCurveType. */
+#define SMLIB_SSI_NONE (-1)          /* the method reported no type for this curve */
+#define SMLIB_SSI_UNKNOWN 0
+#define SMLIB_SSI_TOUCHING 1         /* a degenerate curve: one point where the surfaces touch */
+#define SMLIB_SSI_CROSSING 2         /* a transversal curve */
+#define SMLIB_SSI_TANGENT 3          /* a curve along which the surfaces are tangent */
+#define SMLIB_SSI_COINCIDENT 4       /* where the surfaces butt up against each other */
+#define SMLIB_SSI_NEAR_TANGENT 5     /* a curve with a small angle of intersection */
+#define SMLIB_SSI_REGION_BOUNDARY 6  /* bounds a region where the surfaces coincide */
+
+#define SMLIB_SSI_MAX_SAMPLES 100000
+
+/* The intersection of `a` and `b`, each within its UV domain, owned by the caller
+ * (smlib_ssi_result_free). */
+typedef struct smlib_ssi_result smlib_ssi_result;
+
+/* Intersects `a` and `b` (both surfaces' edges used to seed curves) with `method` at
+ * approximation tolerance `approx_tol` (<= 0: SMLib's default, 1/1000 of the surfaces' size)
+ * and samples each curve at `samples_per_curve` (2..SMLIB_SSI_MAX_SAMPLES) parameters, as the
+ * corpus runner does (it uses 4001): the 3D curve at t_i = t0 + (t1 - t0) * i / (n - 1) over
+ * its natural interval [t0, t1], each UV curve likewise over its own natural interval, and `a`
+ * and `b` evaluated at the UV samples. A result over 10^7 samples in all returns SMLIB_ERR_ARG.
+ * The status is SMLib's when the intersector fails. On failure the dump holds both surfaces as
+ * an SSI corpus case file (`<n>-smlib_ssi-case.txt`) that the corpus runner replays. */
+int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int32_t method, double approx_tol,
+                  int32_t samples_per_curve, smlib_ssi_result **out);
+
+void smlib_ssi_result_free(smlib_ssi_result *r);
+
+int32_t smlib_ssi_curve_count(const smlib_ssi_result *r, int32_t *out);
+
+/* smlib_ssi_curve_info flags: which UV curves the method returned. GlobalSurfaceIntersect's
+ * analytic special cases (plane, cylinder, cone, sphere, torus pairs) return none. */
+#define SMLIB_SSI_HAS_UV_A 1
+#define SMLIB_SSI_HAS_UV_B 2
+
+/* Curve `i`: its SMLIB_SSI_* type, SMLIB_SSI_HAS_UV_* flags, sample count (samples_per_curve),
+ * SMLib's deviation estimate and the 3D curve's natural parameter interval. Any out-pointer may
+ * be NULL. */
+int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, int32_t *type, int32_t *flags, int32_t *samples,
+                             double *deviation, double interval[2]);
+
+/* Copies curve `i`'s samples: `xyz` (3 per sample), `uv_a` and `uv_b` (2 per sample, the UV
+ * curves on a and b), `a_at_uv` and `b_at_uv` (3 per sample, a and b evaluated at those UVs).
+ * Each buffer may be NULL to skip it; `cap` is the buffers' capacity in samples, and less than
+ * the sample count returns SMLIB_ERR_BUFFER. A value SMLib could not evaluate, and every UV
+ * value of a UV curve the method did not return (with the surface at it), is NaN; the corpus
+ * runner drops such samples instead (and writes empty arrays for a missing UV curve). */
+int32_t smlib_ssi_curve_samples(const smlib_ssi_result *r, int32_t i, int64_t cap, double *xyz, double *uv_a, double *uv_b,
+                                double *a_at_uv, double *b_at_uv);
+
+/* Isolated points: the TOUCHING curves again, each as its first sample (UVs NaN where the
+ * method returned no UV curve). */
+int32_t smlib_ssi_point_count(const smlib_ssi_result *r, int32_t *out);
+int32_t smlib_ssi_point(const smlib_ssi_result *r, int32_t i, double xyz[3], double uv_a[2], double uv_b[2]);
+
 #ifdef __cplusplus
 }
 #endif
