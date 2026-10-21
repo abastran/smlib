@@ -1480,6 +1480,26 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
   // point search below.
   SmTArray<SmExtent2d> sTangentSeeds1, sTangentSeeds2;
 
+  // SolidCraft change: 3D curves traced from low-angle start points and then
+  // rejected; later low-angle start points on them are not traced again.
+  SmTArray<SmCurve*> sRejectedCurves;
+  SmObjsDelete<SmCurve*> sCleanRejected(&sRejectedCurves);
+
+  // SolidCraft change: smallest normal angle worth tracing from. On a
+  // transversal loop of radius r between surfaces of relative curvature
+  // radius R the normals differ by about r/R. Loops of radius above the
+  // tolerance on surfaces curved at model scale stay above tol/modelSize,
+  // while tangent curves and tangent points (angle at round-off level, or
+  // tol-sized offsets from a contact point) fall below it.
+  double dMinLoopAngleRad = 0.0;
+  {
+    SmExtent3d sBox1, sBox2;
+    SER(m_cpSurface[0]->CalculateBoundingBox(m_vUVDomain[0],&sBox1));
+    SER(m_cpSurface[1]->CalculateBoundingBox(m_vUVDomain[1],&sBox2));
+    double dModelSize = smos_Max(sBox1.GetSize().Length(),sBox2.GetSize().Length());
+    dMinLoopAngleRad = (dModelSize > m_dThisApproxTol3d) ? 2.0*m_dThisApproxTol3d/dModelSize : SM_PI;
+  }
+
   // Now for each node pair do a test to see if produces a unique start point
   // Note that our first pass at this is naive and slow.
   for (ULONG i=0; i<sSolutions.GetSize(); i++) 
@@ -1503,6 +1523,16 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
       SM_ASSERT(pNode2->GetOwnerObject() == pBezPatch2->mBA_pSurface) ;
 
       // Skip cases where surface normals are very close
+      // SolidCraft change: a low-angle start point is no longer skipped
+      // outright. A small closed loop between nearly tangent surfaces (a plane
+      // dipping into a paraboloid or a sphere) has normals within a fraction of
+      // a degree everywhere along it, so the angle tests below dropped every
+      // start point on it and the loop was lost. Such a start point is now
+      // traced on probation: the result is kept only when it is a closed,
+      // transversal loop larger than the tolerance (see below); anything else
+      // (tangent curves, coincident regions, tangent points) is discarded as
+      // before.
+      SmBoolean bLowAngleStart = FALSE;
       {
         SmVector3d sNorm1, sNorm2;
         SER(sBSS1.EvaluateNormal(sUVGuess1,TRUE,TRUE,sNorm1));
@@ -1512,11 +1542,12 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
         SER(sNorm1.AngleBetween(sNorm2,dAngleRad));
         if (dAngleRad > SM_PI/2.0) dAngleRad = SM_PI - dAngleRad;
         if (SM_RAD2DEG(dAngleRad) < 5.0) 
-          { // SolidCraft change: keep it as a seed for the tangent point search and FindTangentCurves()
+          { // SolidCraft change: a seed for the tangent point search and FindTangentCurves(),
+            // and a probation start for a small loop
             sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
             sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
             m_vTangentSeeds.Add(sUVGuess1); m_vTangentSeeds.Add(sUVGuess2);
-            continue;
+            bLowAngleStart = TRUE;
           }
       }
 
@@ -1646,12 +1677,20 @@ SmBoolean bDebugMe = FALSE;
           SER(sNorm1.AngleBetween(sNorm2,dAngleRad)) ;
           if (dAngleRad > SM_PI/2.0) dAngleRad = SM_PI - dAngleRad ;
 
-          // skip this node pair when angle between normals is small
+          // probation for this node pair when angle between normals is small;
+          // skip it when the angle is too small for a loop above tolerance
           if (SM_RAD2DEG(dAngleRad) < 2.0) 
-            { // SolidCraft change: keep it as a seed for the tangent point search and FindTangentCurves()
-              sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
-              sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+            { // SolidCraft change: a seed for the tangent point search and FindTangentCurves()
+              if (!bLowAngleStart)
+                {
+                  sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
+                  sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+                }
               m_vTangentSeeds.Add(sUV); m_vTangentSeeds.Add(sUV2);
+              bLowAngleStart = TRUE;
+            }
+          if (bLowAngleStart && dAngleRad < dMinLoopAngleRad)
+            {
               continue;
             }
         }
@@ -1659,6 +1698,8 @@ SmBoolean bDebugMe = FALSE;
       // skip start points that are already on xsect curves
       SmBoolean bPointIsOnCurve = IsPointOnCurve(sSurfPnt,r3DCurves);
       if ( bPointIsOnCurve ) 
+        { continue; }
+      if ( bLowAngleStart && IsPointOnCurve(sSurfPnt,sRejectedCurves) )
         { continue; }
           
       // If we made it this far then we have a point which should serve as
@@ -1698,9 +1739,58 @@ SmBoolean bDebugMe = FALSE;
           SER(ReverseCurveDirection());
         }
 
+      // SolidCraft change: a low-angle start point only yields output when it
+      // traced a closed loop that is not a single point within tolerance.
+      SmBoolean bKeepCurve = TRUE;
+      if (bLowAngleStart)
+        {
+          bKeepCurve = FALSE;
+          if (m_bCurveIsClosed)
+            {
+              SmTsectPnt *aPntData[130];
+              SmTArray<SmTsectPnt*> sLoopPnts(130,aPntData);
+              m_vCurvePoints.GetAllNodes(sLoopPnts);
+              if (sLoopPnts.GetSize() > 2)
+                {
+                  SmExtent3d sLoopBox(sLoopPnts[0]->CrvPos());
+                  for (ULONG lPnt=1; lPnt<sLoopPnts.GetSize(); lPnt++)
+                    { sLoopBox.Union(SmExtent3d(sLoopPnts[lPnt]->CrvPos()),sLoopBox); }
+                  bKeepCurve = (sLoopBox.GetSize().Length() > 2.0*m_dThisApproxTol3d) ? TRUE : FALSE;
+                }
+            }
+        }
+
       // turn m_vCurvePoints into an intersection curve
+      ULONG lNumCurves = r3DCurves.GetSize();
       SER(FlushCurve(r3DCurves,rSurface1UVCurves,rSurface2UVCurves,rCurveTypes,rDeviations));
       m_pStartPoint = NULL;
+
+      // drop a probationary curve that is not a transversal loop, and
+      // remember it and its start point so nearby start points are not
+      // traced again
+      SmBoolean bReject =    bLowAngleStart
+                          && (   r3DCurves.GetSize() == lNumCurves
+                              || !bKeepCurve
+                              || rCurveTypes.GetLast() == SM_TC_TANGENT
+                              || rCurveTypes.GetLast() == SM_TC_COINCIDENT
+                              || rCurveTypes.GetLast() == SM_TC_TOUCHING);
+      if (bReject)
+        {
+          while (r3DCurves.GetSize() > lNumCurves)
+            {
+              sRejectedCurves.Add(r3DCurves.GetLast());
+              r3DCurves.RemoveLast();
+              if (rSurface1UVCurves.GetSize() > lNumCurves)
+                { SmObjDelete sDelUV1(rSurface1UVCurves.GetLast()); rSurface1UVCurves.RemoveLast(); }
+              if (rSurface2UVCurves.GetSize() > lNumCurves)
+                { SmObjDelete sDelUV2(rSurface2UVCurves.GetLast()); rSurface2UVCurves.RemoveLast(); }
+              if (rCurveTypes.GetSize() > lNumCurves) rCurveTypes.RemoveLast();
+              if (rDeviations.GetSize() > lNumCurves) rDeviations.RemoveLast();
+            }
+          SmBSplineCurve *pStartPnt = NULL;
+          SER(SmBSplineCurve::CreateDegenerateCurve(*m_cpContext,3,sSurfPnt,pStartPnt));
+          sRejectedCurves.Add(pStartPnt);
+        }
     
     } // end iter every node/node solution result
 
