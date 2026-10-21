@@ -662,7 +662,7 @@ SmApiStatus SmApiRemoveCurveKnots
     if( pCurve == NULL )
         return SM_ERR_INVALID_INPUT;
 
-    SmBSplineCurve* pBSC = dynamic_cast<SmBSplineCurve*>( pCurve );
+    SmBSplineCurve* pBSC = (((pCurve) && (pCurve)->IsKindOf(SmBSplineCurve_TYPE)) ? static_cast<SmBSplineCurve*>(pCurve) : NULL);
     if( pBSC != NULL )
     {
         double dTol = SmTol::GetApproxTol3d(pCurve);
@@ -1351,7 +1351,7 @@ SmApiStatus SmApiOrderCurves
     pCurves.RemoveAll();
     for( ULONG ii = 0; ii < sOrderedCurves.GetSize(); ii++ )
     {
-        SmBSplineCurve* pBSC = dynamic_cast<SmBSplineCurve*>( sOrderedCurves[ii] );
+        SmBSplineCurve* pBSC = (((sOrderedCurves[ii]) && (sOrderedCurves[ii])->IsKindOf(SmBSplineCurve_TYPE)) ? static_cast<SmBSplineCurve*>(sOrderedCurves[ii]) : NULL);
         if( pBSC == NULL )
             return SM_ERR;
         pCurves.Add( pBSC );

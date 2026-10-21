@@ -62,7 +62,9 @@
 // The following define determines if we use exception handling
 // to notify of memory errors
 #ifndef _DEBUG
+#if defined(__cpp_exceptions)
 #define SM_USE_EXCEPTIONS 1
+#endif
 #endif
 
 // If we want a couple of extra fields in the topology

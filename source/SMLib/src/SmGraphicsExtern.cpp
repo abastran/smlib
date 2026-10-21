@@ -1063,10 +1063,12 @@ SmStatus SmPolygonSLAOutput::CompletedPolygonOutput()
       sFout << "endsolid STL file created by SMLib" << std::endl ;
     }
 
+#if defined(__GXX_RTTI) || defined(_CPPRTTI)
   std::ofstream * pFileOut = dynamic_cast<std::ofstream*>( &sFout );
 
   if ( pFileOut )
   { pFileOut->close(); }
+#endif // without RTTI the owned ofstream is closed when it is destroyed
 
   return SM_SUCCESS;
 

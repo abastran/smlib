@@ -413,40 +413,40 @@ static SmBoolean sm_AreConnected // rtn: TRUE = Topos are connected neighbors in
   if(pTopo1 == pTopo2 )
     { return TRUE; }
 
-  const SmFace *pFace1 = dynamic_cast<const SmFace*> ( pTopo1) ;
+  const SmFace *pFace1 = (((pTopo1) && (pTopo1)->IsKindOf(SmFace_TYPE)) ? static_cast<const SmFace*>(pTopo1) : NULL) ;
   if(pFace1 != NULL )
   {
-      const SmEdge *pEdge2 = dynamic_cast<const SmEdge*> ( pTopo2) ;
+      const SmEdge *pEdge2 = (((pTopo2) && (pTopo2)->IsKindOf(SmEdge_TYPE)) ? static_cast<const SmEdge*>(pTopo2) : NULL) ;
       if(pEdge2 != NULL )
         { return sm_AreConnected( pEdge2, pFace1) ; }
 
-      const SmVertex *pVertex2 = dynamic_cast<const SmVertex*> ( pTopo2) ;
+      const SmVertex *pVertex2 = (((pTopo2) && (pTopo2)->IsKindOf(SmVertex_TYPE)) ? static_cast<const SmVertex*>(pTopo2) : NULL) ;
       if(pVertex2 != NULL )
         { return sm_AreConnected( pVertex2, pFace1) ; }
   }
 
-  const SmEdge *pEdge1 = dynamic_cast<const SmEdge*> (pTopo1) ;
+  const SmEdge *pEdge1 = (((pTopo1) && (pTopo1)->IsKindOf(SmEdge_TYPE)) ? static_cast<const SmEdge*>(pTopo1) : NULL) ;
 
   if(pEdge1 != NULL )
   {
-      const SmFace *pFace2 = dynamic_cast<const SmFace*> ( pTopo2) ;
+      const SmFace *pFace2 = (((pTopo2) && (pTopo2)->IsKindOf(SmFace_TYPE)) ? static_cast<const SmFace*>(pTopo2) : NULL) ;
       if(pFace2 != NULL )
         { return sm_AreConnected( pEdge1, pFace2) ; }
 
-      const SmVertex *pVertex2 = dynamic_cast<const SmVertex*> ( pTopo2) ;
+      const SmVertex *pVertex2 = (((pTopo2) && (pTopo2)->IsKindOf(SmVertex_TYPE)) ? static_cast<const SmVertex*>(pTopo2) : NULL) ;
       if(pVertex2 != NULL )
         { return sm_AreConnected( pVertex2, pEdge1) ; }
   }
 
-  const SmVertex *pVertex1 = dynamic_cast<const SmVertex*> ( pTopo1) ;
+  const SmVertex *pVertex1 = (((pTopo1) && (pTopo1)->IsKindOf(SmVertex_TYPE)) ? static_cast<const SmVertex*>(pTopo1) : NULL) ;
 
   if(pVertex1 != NULL )
   {
-      const SmFace *pFace2 =  dynamic_cast<const SmFace*> ( pTopo2) ;
+      const SmFace *pFace2 =  (((pTopo2) && (pTopo2)->IsKindOf(SmFace_TYPE)) ? static_cast<const SmFace*>(pTopo2) : NULL) ;
       if(pFace2 != NULL )
         { return sm_AreConnected( pVertex1, pFace2) ; }
 
-      const SmEdge *pEdge2 =  dynamic_cast<const SmEdge*> ( pTopo2) ;
+      const SmEdge *pEdge2 =  (((pTopo2) && (pTopo2)->IsKindOf(SmEdge_TYPE)) ? static_cast<const SmEdge*>(pTopo2) : NULL) ;
       if(pEdge2 != NULL )
         { return sm_AreConnected( pVertex1, pEdge2) ; }
   }

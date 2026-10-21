@@ -2951,7 +2951,7 @@ static SmBoolean sm_IsLoopUVGapWithinTolerance
   const SmPoint3d & crEndPoint,      // in : surface point at crEndUV
   SmXSectTol3d      sXSectTol3d)     // in : intersection tolerance of the adjoining edges
 {
-  const SmBSplineSurface * pSurface = dynamic_cast<const SmBSplineSurface *>(&crSurface);
+  const SmBSplineSurface * pSurface = (((&crSurface) && (&crSurface)->IsKindOf(SmBSplineSurface_TYPE)) ? static_cast<const SmBSplineSurface*>(&crSurface) : NULL);
   if(pSurface == NULL)
     { return FALSE; }
 
