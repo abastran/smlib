@@ -332,6 +332,51 @@ int main()
         delete bore;
     }
 
+    // tangency-labs/solidcore#418: a bar of stadium section (25 x 19 and two half discs r9.5)
+    // 14 long along x, a slot x 3.5..9.5 cutting away the y < 0 half of one round end, and the
+    // edge between the flat top and the slot floor (6 long) rounded r. At each of its ends the
+    // top runs on tangentially onto the round end; the corner past that tangent edge is the
+    // slot wall, whose extension the round ends on. SMLib took the tangent edge for the side
+    // edge and the round for the end face (1001). Each round takes (1 - pi/4) r^2 along 6, a
+    // chamfer of setback 2 the triangle of 2 x 2.
+    {
+        const int64_t kinds[4] = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC};
+        const double reals[36] = {0, 0,  -9.5, 0, 25, -9.5, 0, 25, 0,   1, 0, 0, 0, 0, -1, 9.5, 0, PI,
+                                  0, 25, 9.5,  0, 0,  9.5,  0, 0,  0,   1, 0, 0, 0, 0, 1,  9.5, 0, PI};
+        const double along[3] = {1, 0, 0};
+        smlib_brep *bar = nullptr;
+        CHECK(smlib_extrude(kinds, 4, reals, 36, along, 14.0, 0.0, 1, &bar) == SMLIB_OK);
+        smlib_brep *slot = box(3.5, -12, -10, 6, 12, 20);
+        smlib_brep *slotted = nullptr;
+        CHECK(smlib_boolean(bar, slot, SMLIB_BOOLEAN_SUBTRACT, &slotted) == SMLIB_OK && sound(slotted));
+        const double floor_edge[3] = {6.5, 0, 9.5};
+        for (double radius : {0.5, 2.0, 4.0})
+        {
+            if (slotted != nullptr && smlib_fillet(slotted, floor_edge, 1, 0.1, radius, &r, nullptr) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volume_of(slotted) - 6.0 * radius * radius * (1.0 - PI / 4.0), 1e-8));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"the slot floor's top edge of the stadium bar rounded");
+            }
+        }
+        if (slotted != nullptr && smlib_chamfer(slotted, floor_edge, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(slotted) - 6.0 * 2.0, 1e-8));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the slot floor's top edge of the stadium bar chamfered");
+        }
+        for (smlib_brep *b : {bar, slot, slotted})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);

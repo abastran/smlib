@@ -404,3 +404,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   the smooth-sequence walk called it as a corner through its virtual table (a crash). Such a
   vertex now leaves the map, its array and the corner's edgeuse list are freed, and the fillet
   fails (SM_ERR); a walk that finds no corner at a vertex fails too.
+- **A round ending past a tangent side edge** (`SmFilletCorner.cpp`,
+  `SmFilletNx1Corner::MakeCornerTopology`; `SmFilletGeom.cpp`, `SmFilletEdge::CalcEdgeOnExtendedEdge`):
+  at a vertex where the filleted edge's side face runs on tangentially across a side edge (a flat
+  top onto a rounded end) and the other side edge has the opposite convexity (a slot's floor
+  meeting its wall), the corner took the tangent edge for the side edge to extend and found no end
+  face between it and the other side edge, so it used the round, which the fillet never meets
+  (1001). The corner now skips tangent side edges round the vertex: when the edge reached past
+  them has the filleted edge's convexity, it is the side edge to extend and the end face is the
+  face between it and the other side edge (the slot wall). That extended edge runs in the side
+  face, so its curve is where the side face meets the end face's extension rather than the
+  extension of the edge's own two faces.
