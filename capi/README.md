@@ -355,3 +355,7 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   and edge/face; a face's coincident vertices and edges) visit only the pairs that a box search,
   or a shared vertex or edge, leaves possible, in the order the all-pairs loops did. Every test
   still runs on every pair that could fail it, so the reports are the same.
+- **Trimming curves of a degenerate face** (`SmBrep.cpp`, `CreateFaceInRegionFromSurface`): it
+  made a face's boundary curves and then let `MakeFaceWithCurves` refuse a surface degenerate to
+  a curve or a point, which returns before it takes the curves, so they leaked (a box at
+  `z = 1e200`). The surface is refused before the curves are made.

@@ -74,6 +74,16 @@ int main(void)
     CHECK(smlib_brep_counts(NULL, counts) == SMLIB_ERR_ARG);
     smlib_brep_free(NULL);
 
+    /* Boxes SMLib cannot make, so far from the origin for their size that their faces come out
+       degenerate, fail with no body and leave nothing behind (tangency-labs/solidcore#377; LSan
+       finds a leak in an ASan build, `leaks --atExit -- smlib_smoke` on macOS). */
+    const double far_origins[3][3] = {{0.0, 0.0, 1e200}, {1e95, 0.0, 0.0}, {1e294, 1e294, 1e294}};
+    const double far_sizes[3][3] = {{1.0, 1.0, 1.0}, {0.5, 0.5, 0.5}, {1e-3, 1e-3, 1e-3}};
+    for (int i = 0; i < 3; ++i)
+    {
+        CHECK(smlib_make_box(far_origins[i], far_sizes[i], &none) != SMLIB_OK && none == NULL);
+    }
+
     /* One log line per call; the call in flight is visible to a crash handler. */
     smlib_set_log(on_log, NULL);
     smlib_brep *logged = NULL;
