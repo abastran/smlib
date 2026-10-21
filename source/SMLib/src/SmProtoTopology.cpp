@@ -1372,6 +1372,227 @@ SmBoolean SmEdgeDefinition::IsInteriorPoint(
 
 
 /*******************************************************************//**
+PURPOSE: static helper: a copy of a clamped B-spline curve whose end span is
+         continued exactly, its polynomial unchanged, to a new end parameter.
+
+USAGE NOTES---- SolidCraft fork. The end span is made a Bezier segment (its
+  inner knot inserted up to the degree, which leaves the curve as it is), and
+  that segment's polynomial is taken over the longer interval by de Casteljau's
+  subdivision at a parameter outside [0, 1] (in homogeneous coordinates, so a
+  rational curve keeps its shape too). Nothing else changes: the curve is the
+  same over its old interval and only that one span grows. Fails (leaving
+  rpNew NULL) for any other curve kind, an unclamped or trimmed B-spline, or a
+  new end that is not outside the old one.
+***********************************************************************/
+static SmStatus sm_CreateExactlyExtendedCurve
+ (const SmContext &crContext, // in : context for the new curve
+  const SmCurve   *cpCurve,   // in : curve to continue
+  SmBoolean        bAtEnd,    // in : TRUE = continue its end, FALSE = its start
+  double           dNewEnd,   // in : the new end (or start) parameter, outside the natural interval
+  SmCurve        *&rpNew)     // out: the continued copy, owned by the caller
+{
+  rpNew = NULL;
+  const SmBSplineCurve *pCrv = dynamic_cast<const SmBSplineCurve *>( cpCurve) ;
+  if(pCrv == NULL || pCrv->GetOwner() != NULL )
+    { return SM_ERR; }
+  SmExtent1d sNat = pCrv->GetNaturalInterval();
+  if(bAtEnd ? !(dNewEnd > sNat.GetMax()) : !(dNewEnd < sNat.GetMin()) )
+    { return SM_ERR; }
+
+  SmCurve *pCopyCrv = NULL;
+  SER( pCrv->Copy( crContext, pCopyCrv)) ;
+  SmObjDelete sCleanCopy( pCopyCrv) ;
+  SmBSplineCurve *pCopy = SM_CAST_PTR( SmBSplineCurve, pCopyCrv) ; NER( pCopy) ;
+
+  ULONG lDeg = pCopy->GetDegree();
+  SmTArray<double> sKnots;
+  SmTArray<ULONG>  sMults;
+  SER( pCopy->GetKnots( sKnots, &sMults)) ;
+  ULONG lNum = sKnots.GetSize();
+  if(   lDeg < 1 || lNum < 2 || sMults.GetSize() != lNum
+     || sMults[0] != lDeg + 1 || sMults[lNum - 1] != lDeg + 1
+     || !SM_ARE_SAME( sKnots[0], sNat.GetMin()) || !SM_ARE_SAME( sKnots[lNum - 1], sNat.GetMax()) )
+    { return SM_ERR; }
+
+  // The end span's inner knot, up to the degree: the span is then one Bezier segment.
+  ULONG lInner = bAtEnd ? lNum - 2 : 1;
+  if(lInner != 0 && lInner != lNum - 1 && sMults[lInner] < lDeg )
+    {
+      SmTArray<double> sInsert;
+      for(ULONG ii=sMults[lInner]; ii<lDeg; ii++) { sInsert.Add( sKnots[lInner]) ; }
+      SER( pCopy->InsertKnots( sInsert)) ;
+      SER( pCopy->GetKnots( sKnots, &sMults)) ;
+      lNum = sKnots.GetSize();
+      if(sMults.GetSize() != lNum || lNum < 2 )
+        { return SM_ERR; }
+    }
+
+  SmTArray<SmPoint3d> sPts;
+  SmTArray<double>    sWts;
+  SER( pCopy->GetControlPolygon( sPts, sWts)) ;
+  ULONG lNumPts = sPts.GetSize();
+  if(lNumPts < lDeg + 1 || (sWts.GetSize() != 0 && sWts.GetSize() != lNumPts) )
+    { return SM_ERR; }
+  SmBoolean bRational = sWts.GetSize() != 0;
+
+  // The segment over [a, b] in Bezier form, homogeneous; s = the new end on its [0, 1].
+  double dA = bAtEnd ? sKnots[lNum - 2] : sKnots[0];
+  double dB = bAtEnd ? sKnots[lNum - 1] : sKnots[1];
+  if(!(dB - dA > 0.0) )
+    { return SM_ERR; }
+  double dS = (dNewEnd - dA) / (dB - dA);
+  ULONG  lFirst = bAtEnd ? lNumPts - 1 - lDeg : 0;
+  SmTArray<SmPoint3d> sH( lDeg + 1, NULL, lDeg + 1) ;
+  SmTArray<double>    sHW( lDeg + 1, NULL, lDeg + 1) ;
+  for(ULONG ii=0; ii<=lDeg; ii++)
+    {
+      double dW = bRational ? sWts[lFirst + ii] : 1.0;
+      sH[ii]  = sPts[lFirst + ii] * dW;
+      sHW[ii] = dW;
+    }
+  // de Casteljau at s: the end piece's points are the first of each level (from a to the new
+  // end), the start piece's the last of each level (from the new start to b).
+  SmTArray<SmPoint3d> sNewPts( lDeg + 1, NULL, lDeg + 1) ;
+  SmTArray<double>    sNewWts( lDeg + 1, NULL, lDeg + 1) ;
+  for(ULONG lLevel=0; lLevel<=lDeg; lLevel++)
+    {
+      if(bAtEnd ) { sNewPts[lLevel] = sH[0];             sNewWts[lLevel] = sHW[0]; }
+      else        { sNewPts[lDeg - lLevel] = sH[lDeg - lLevel]; sNewWts[lDeg - lLevel] = sHW[lDeg - lLevel]; }
+      for(ULONG ii=0; ii+lLevel<lDeg; ii++)
+        {
+          sH[ii]  = sH[ii] * (1.0 - dS) + sH[ii + 1] * dS;
+          sHW[ii] = sHW[ii] * (1.0 - dS) + sHW[ii + 1] * dS;
+        }
+    }
+  for(ULONG ii=0; ii<=lDeg; ii++)
+    {
+      if(!(sNewWts[ii] > 0.0) )
+        { return SM_ERR; }
+      sPts[lFirst + ii] = sNewPts[ii] / sNewWts[ii];
+      if(bRational ) { sWts[lFirst + ii] = sNewWts[ii]; }
+    }
+  if(bAtEnd ) { sKnots[lNum - 1] = dNewEnd; }
+  else        { sKnots[0]        = dNewEnd; }
+
+  SmBSplineCurve *pNew = NULL;
+  SER( SmBSplineCurve::CreateCanonical( crContext, pCopy->GetDim(), lDeg, sPts, SM_CF_UNSPECIFIED, sMults, sKnots,
+                                        SM_KT_UNSPECIFIED, bRational ? &sWts : NULL, NULL, pNew )) ;
+  NER( pNew) ;
+  rpNew = pNew;
+  return SM_SUCCESS;
+
+} // end static sm_CreateExactlyExtendedCurve
+
+/*******************************************************************//**
+PURPOSE: Continue this EdgeDefinition's curves past one end of its interval to
+         the point nearest a ProtoVertex that lies beyond that end.
+
+USAGE NOTES---- SolidCraft fork, for SmEdgeDefinition::Imprint. Applies only
+  where the interval ends where the curves do (an intersection curve stops at
+  the face boundary it was traced to) and the ProtoVertex lies ahead of the
+  end along the curve's tangent, within a twentieth of the interval. The 3d
+  curve and each UV curve are continued exactly (sm_CreateExactlyExtendedCurve)
+  to the parameter where the continued 3d curve passes nearest the ProtoVertex;
+  that point must be within tolerance of the ProtoVertex and nearer than the
+  old end, and each UV curve must map within tolerance of it on its Face.
+  Returns TRUE when the curves and interval were replaced; otherwise nothing
+  changes.
+***********************************************************************/
+SmBoolean SmEdgeDefinition::ExtendEndToProtoVertex
+ (SmBoolean         bAtEnd, // in : TRUE = the interval's end, FALSE = its start
+  const SmPoint3d & crPV,   // in : the ProtoVertex's position
+  const SmPoint3d & crEnd,  // in : the curve's point at that end
+  double            dGap)   // in : their distance
+{
+  SmBoolean bRet = FALSE;
+  if(m_pXSectCurve3d == NULL || m_pXSectCurve3d->GetOwner() != NULL )
+    { return bRet; }
+  double     dEnd = bAtEnd ? m_pXSectInterval.GetMax() : m_pXSectInterval.GetMin();
+  SmExtent1d sNat = m_pXSectCurve3d->GetNaturalInterval();
+  if(!SM_ARE_SAME( dEnd, bAtEnd ? sNat.GetMax() : sNat.GetMin()) )
+    { return bRet; }
+  SmCurve *apUV[2] = { m_pXSectUVCurve1, m_pXSectUVCurve2 };
+  for(int iCrv = 0; iCrv < 2; iCrv++)
+    {
+      if(apUV[iCrv] == NULL )
+        { continue; }
+      SmExtent1d sUVNat = apUV[iCrv]->GetNaturalInterval();
+      if(apUV[iCrv]->GetOwner() != NULL || !SM_ARE_SAME( dEnd, bAtEnd ? sUVNat.GetMax() : sUVNat.GetMin()) )
+        { return bRet; }
+    }
+
+  // Where along the tangent the ProtoVertex lies: it must be ahead of the end.
+  SmVector3d asD[2];
+  if(m_pXSectCurve3d->Evaluate( dEnd, 1, TRUE, asD) != SM_SUCCESS )
+    { return bRet; }
+  double dSpeed2 = asD[1].LengthSquared();
+  if(!(dSpeed2 > 0.0) )
+    { return bRet; }
+  double dAhead = (crPV - crEnd).Dot( asD[1]) / dSpeed2;
+  if(!bAtEnd ) { dAhead = -dAhead; }
+  if(   !(dAhead > SM_EFF_ZERO * (1.0 + smos_Fabs( dEnd)))
+     || !(dAhead <= 0.05 * m_pXSectInterval.GetLength()) )
+    { return bRet; }
+
+  // The continued 3d curve, twice as far, and the parameter on it nearest the ProtoVertex.
+  const SmContext &crCtx = *m_cpContext;
+  double   dFar  = bAtEnd ? dEnd + 2.0 * dAhead : dEnd - 2.0 * dAhead;
+  SmCurve *pFar  = NULL;
+  if(sm_CreateExactlyExtendedCurve( crCtx, m_pXSectCurve3d, bAtEnd, dFar, pFar) != SM_SUCCESS || pFar == NULL )
+    { delete pFar; return bRet; }
+  SmExtent1d sFarIvl( bAtEnd ? dEnd : dFar, bAtEnd ? dFar : dEnd) ;
+  SmBoolean  bFound = FALSE;
+  double     dNew = dEnd, dDist = SM_BIG_DOUBLE, dGuess = bAtEnd ? dEnd + dAhead : dEnd - dAhead;
+  SmStatus   eDrop = pFar->DropPoint( sFarIvl, crPV, NULL, m_dTol, &dGuess, bFound, dNew, dDist, SM_SO_MINIMIZE) ;
+  delete pFar; pFar = NULL;
+  if(   eDrop != SM_SUCCESS || !bFound
+     || !(dDist < dGap) || !(dDist <= m_dTol)
+     || (bAtEnd ? !(dNew > dEnd) : !(dNew < dEnd)) )
+    { return bRet; }
+
+  // All three curves continued to dNew.
+  SmCurve *pNew3d = NULL;
+  SmCurve *apNewUV[2] = { NULL, NULL };
+  SmBoolean bOk = sm_CreateExactlyExtendedCurve( crCtx, m_pXSectCurve3d, bAtEnd, dNew, pNew3d) == SM_SUCCESS && pNew3d != NULL;
+  for(int iCrv = 0; iCrv < 2 && bOk; iCrv++)
+    {
+      if(apUV[iCrv] == NULL )
+        { continue; }
+      bOk = sm_CreateExactlyExtendedCurve( crCtx, apUV[iCrv], bAtEnd, dNew, apNewUV[iCrv]) == SM_SUCCESS && apNewUV[iCrv] != NULL;
+    }
+
+  // Each UV curve's new end must lie on its Face's surface at the new 3d end.
+  SmPoint3d sNewEnd;
+  bOk = bOk && pNew3d->EvaluatePoint( dNew, sNewEnd) == SM_SUCCESS;
+  for(int iCrv = 0; iCrv < 2 && bOk; iCrv++)
+    {
+      if(apNewUV[iCrv] == NULL )
+        { continue; }
+      SmFace *pFace = (GetSrcTopo_TYPE( iCrv + 1) == SM_PC_FACE) ? SM_CAST_PTR( SmFace, GetSrcTopo( iCrv + 1)) : NULL;
+      SmPoint3d sUV, sOnFace;
+      bOk =    pFace != NULL && pFace->GetSurface() != NULL
+            && apNewUV[iCrv]->EvaluatePoint( dNew, sUV) == SM_SUCCESS
+            && pFace->GetSurface()->EvaluatePoint( SmPoint2d( sUV[0], sUV[1]), sOnFace) == SM_SUCCESS
+            && sOnFace.DistanceBetween( sNewEnd) <= m_dTol;
+    }
+
+  if(bOk )
+    {
+      delete m_pXSectCurve3d; m_pXSectCurve3d = pNew3d; pNew3d = NULL;
+      if(apNewUV[0] != NULL ) { delete m_pXSectUVCurve1; m_pXSectUVCurve1 = apNewUV[0]; apNewUV[0] = NULL; }
+      if(apNewUV[1] != NULL ) { delete m_pXSectUVCurve2; m_pXSectUVCurve2 = apNewUV[1]; apNewUV[1] = NULL; }
+      if(bAtEnd ) { m_pXSectInterval.SetMax( dNew) ; }
+      else        { m_pXSectInterval.SetMin( dNew) ; }
+      bRet = TRUE;
+    }
+  delete pNew3d;
+  delete apNewUV[0];
+  delete apNewUV[1];
+  return bRet;
+
+} // end SmEdgeDefinition::ExtendEndToProtoVertex
+
+/*******************************************************************//**
 PURPOSE: Imprint this EdgeDefinition into both Breps.
 
 USAGE NOTES---- 
@@ -1451,6 +1672,11 @@ static int iDebugMe=0;
             { continue; }
           double dGap = sEndPt.DistanceBetween(rPV);
           if(!(dGap > SM_EFF_ZERO * (1.0 + sEndPt.GetMaxDimension())))
+            { continue; }
+          // The ProtoVertex can also lie past the end of the curve, which stops short of it (the
+          // same grazing crossing, the other way): the curve and its UV curves are then continued
+          // to the point nearest the ProtoVertex, each by its own end span's polynomial.
+          if(this->ExtendEndToProtoVertex(iEnd == 1, rPV, sEndPt, dGap) )
             { continue; }
           SmBoolean bFound = FALSE;
           double dParam = dEnd, dDist = SM_BIG_DOUBLE;

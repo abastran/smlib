@@ -373,6 +373,12 @@ class SM_EXPORT SmEdgeDefinition : public SmTopology
   // Working methods:
   SmStatus Imprint() ;
 
+  // Continue the curves past one end to the point nearest a ProtoVertex beyond it (SolidCraft fork)
+  SmBoolean ExtendEndToProtoVertex( SmBoolean         bAtEnd,   // in : TRUE = the interval's end, FALSE = its start
+                                    const SmPoint3d & crPV,     // in : the ProtoVertex's position
+                                    const SmPoint3d & crEnd,    // in : the curve's point at that end
+                                    double            dGap) ;   // in : their distance
+
   // Split a SmEdgeDefinition at the given parameter after splitting the owning ProtoEdge
   SmStatus Split( double                dT,        // in : Split parameter on ProtoEdge to be used to split this EdgeDefinition
                   SmProtoVertex       * pMidPV,    // in : pMidPV = ProtoVertex at ProtoEdge split point
