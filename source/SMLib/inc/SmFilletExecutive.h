@@ -304,7 +304,9 @@ public:
     double                                     dXSectTol,         ///< [in] : default (if <= 0): 0.05                              <br>
     ULONG                                      lContinuity=1,     ///< [in] : 1, 2, or 3 for G1, G2, or G3                         <br>
                                                                   ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE      <br>
-    double                                     dThumbweight=1.0   ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE      <br>
+    double                                     dThumbweight=1.0,  ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE      <br>
+    SmTArray< double >                       * pOptSecondRadii=NULL ///< [in] : SM_FS_CONST_RADIUS only: per edge, the offset of   <br>
+                                                                  ///<        the second edgeuse's surface (unequal chamfers)     <br>
   );  
 
   // Same parameters on each edge, taking edge numbers instead of pointers.

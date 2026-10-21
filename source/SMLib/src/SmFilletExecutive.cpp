@@ -876,8 +876,11 @@ SmStatus SmFilletExecutive::SetFilletParameters
   ULONG                                      lContinuity,     // 1, 2, or 3 for G1, G2, or G3                   
                                                               // Used only when rXSectTypes[ii] == SM_FSG_BLEND_CURVE
                                                               // default:[1]                                    
-  double                                     dThumbweight)    // Used only when eXSectType == SM_FSG_BLEND_CURVE
+  double                                     dThumbweight,    // Used only when eXSectType == SM_FSG_BLEND_CURVE
                                                               // default:[1.0]
+  SmTArray< double >                       * pOptSecondRadii) // SM_FS_CONST_RADIUS only: the offset of the second
+                                                              // edgeuse's surface per edge (rRadiusValues gives the
+                                                              // first's), for an unequal chamfer. default:[NULL]
 {
   m_bIsInitialized = FALSE;
 
@@ -981,9 +984,20 @@ SmStatus SmFilletExecutive::SetFilletParameters
         {
           case SM_FS_CONST_RADIUS:
             {
+              double * pSecond = NULL;
+              if ( pOptSecondRadii != NULL )
+                {
+                  if ( pOptSecondRadii->GetSize() != lNumFilletedEdges )
+                    {
+                      GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
+                                 _T("SetFilletParameters: second radii size mismatch.") );
+                      return SM_ERR_INVALID_INPUT;
+                    }
+                  pSecond = &(*pOptSecondRadii)[ii];
+                }
               pFS = new(*pContext) SmConstantRadiusFS( *pContext,
                   dApproxTol, dAngTolRad, dTanTolRad,
-                  dRadius, pEU );
+                  dRadius, pEU, pSecond );
               break;
             }
           case SM_FS_CONST_DIST:
