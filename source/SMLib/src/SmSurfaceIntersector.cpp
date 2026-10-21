@@ -6473,6 +6473,7 @@ SmStatus SmSurfaceIntersector::DoIntersection
   if (pSurface1UVCurves) { pSurface1UVCurves->ReSet() ; }
   if (pSurface2UVCurves) { pSurface2UVCurves->ReSet() ; }
   if (pDeviations)       { pDeviations->ReSet();        }
+  m_vTangentSeeds.ReSet(); // SolidCraft change: filled by FindInteriorCurves(), used by FindTangentCurves()
 
   // 
   // 
@@ -6992,6 +6993,10 @@ SmBoolean bDebugMe = FALSE ;
   SER(FindInteriorCurves(s3DCurves,sSurface1UVCurves,sSurface2UVCurves,
                          sCurveTypes,sDeviations));
 //    }
+
+  // SolidCraft change: trace the tangential curves the marcher above cannot follow
+  SER(FindTangentCurves(s3DCurves,sSurface1UVCurves,sSurface2UVCurves,
+                        sCurveTypes,sDeviations));
 
   // remove degenerate Curves whose points lie on nonNegenerate intersections
   for (long ii=0; (ULONG)ii<s3DCurves.GetSize() && s3DCurves.GetSize() > 0; ii++) 
