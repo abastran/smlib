@@ -6056,6 +6056,11 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
           {
               for(kk=0;kk<lNumEdges1;kk++)
               {
+                  // Squeezing or gluing for an earlier common Edge deleted pBrep1Vtx2: stop,
+                  // every later step would use it (and the Edges it ended) after the free.
+                  if(sDeletedVertices1[jj] == pBrep1Vtx2 )
+                    { break; }
+
                   SmEdge *pE1 = sBrep1Edges[kk];
                   double dLen1 = pE1->GetCurve()->ApproximateLength( pE1->GetInterval(), 5) ;
                   if(dLen1 < sXSectTol1 )
@@ -6148,6 +6153,11 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
           {
               for(kk=0;kk<lNumEdges2;kk++)
               {
+                  // Squeezing or gluing for an earlier common Edge deleted pBrep2Vtx2: stop,
+                  // every later step would use it (and the Edges it ended) after the free.
+                  if(sDeletedVertices2[jj] == pBrep2Vtx2 )
+                    { break; }
+
                   SmEdge *pE2 = sBrep2Edges[kk];
                   double dLen2 = pE2->GetCurve()->ApproximateLength( pE2->GetInterval(), 5) ;
                   if(dLen2 < sXSectTol2 )
