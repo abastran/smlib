@@ -251,6 +251,23 @@ SmStatus SmOffsetExecutive::ShellBrep
     if (pOffsetBrep) { delete pOffsetBrep; pOffsetBrep = NULL ; }
   }
 
+  // An inset of a solid whose offset leaves nothing (a wall as thick as the body's inradius or
+  // thicker) has no cavity to take away: the difference would hand back the input unhollowed.
+  // An offset that is not a closed solid bounds no cavity either.
+  if (dOffsetDistance < 0.0 && bInputIsManifoldSolid)
+    {
+      SmStatus eNoCavity = SM_SUCCESS;
+      if (pBrepShell == NULL || pBrepShell->GetNumFaces() == 0)
+        { eNoCavity = SM_ERR_INVALID_INPUT; }
+      else if (!pBrepShell->IsManifoldSolid())
+        { eNoCavity = SM_ERR; }
+      if (eNoCavity != SM_SUCCESS)
+        {
+          delete pBrepShell;
+          SER(eNoCavity);
+        }
+    }
+
   // when offset result is not manifold
   if (!pBrepShell->IsManifoldSolid()) 
     {
