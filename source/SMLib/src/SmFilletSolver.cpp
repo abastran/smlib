@@ -5482,7 +5482,7 @@ SmStatus SmFilletSolver::StepSolve
       // locals
       double dTFound;
       double dRadius;
-      SetupOffsetValues( *pCurrentPoint, &dRadius );
+      SER( SetupOffsetValues( *pCurrentPoint, &dRadius ));
 
       // branch on SolverType
       if ( GetSolverType() == SM_FS_CONST_DIST )
@@ -5549,7 +5549,7 @@ SmStatus SmFilletSolver::StepSolve
               // Parameter gets stored in here:
               rNextPoint.m_adUserDoubles[0] = sSolutions[0].m_vStart[0];
 
-              SetupOffsetValues( rNextPoint, &dRadius );
+              SER( SetupOffsetValues( rNextPoint, &dRadius ));
             }
 
           // Create iso-curve

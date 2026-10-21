@@ -11,6 +11,8 @@
 #include <SmApiFillets.h>
 #include <SmApiPrimitives.h>
 #include <SmApiQueries.h>
+#include <SmBSplineCurve.h>
+#include <SmFilletExecutive.h>
 #include <SmVector3d.h>
 
 #include <algorithm>
@@ -416,6 +418,69 @@ int main()
         }
         smlib_brep_free(rounded);
         smlib_brep_free(block);
+    }
+
+    // tangency-labs/solidcore#458: a variable round whose law SMLib cannot evaluate past the edge's
+    // ends (a constant law curve laid out with no slope, radius 2 as x and 0 as y, as the shim
+    // once built it; extending a curve of zero speed fails). SmVariableRadiusFS::SetupOffsetValues
+    // and SmTemporaryRadiusChange::SetUp ignored the failed evaluation and offset the surfaces by
+    // an uninitialised radius (it went on to fail, so only a memory checker sees the read). Now
+    // the evaluation's failure stops it: the round fails, or is the round of radius 2.
+    {
+        SmBrep *b = nullptr;
+        CHECK(SmApiBrepCopy(cube->p, b) == SM_SUCCESS && b != nullptr);
+        SmTArray<SmEdge *> all;
+        b->GetEdges(all);
+        SmTArray<SmEdge *> top_edge;
+        for (ULONG i = 0; i < all.GetSize(); ++i)
+        {
+            SmVertex *v0 = nullptr;
+            SmVertex *v1 = nullptr;
+            all[i]->GetVertices(v0, v1);
+            SmPoint3d m = (v0->GetPoint() + v1->GetPoint()) * 0.5;
+            if (std::fabs(m.x - 10) < 1e-9 && std::fabs(m.y - 20) < 1e-9 && std::fabs(m.z - 20) < 1e-9)
+            {
+                top_edge.Add(all[i]);
+            }
+        }
+        CHECK(top_edge.GetSize() == 1);
+        const SmContext &ctx = *SmApiGetOrCreateContext();
+        SmTArray<SmPoint3d> cps;
+        cps.Add(SmPoint3d(2, 0, 0));
+        cps.Add(SmPoint3d(2, 0, 0));
+        SmTArray<ULONG> mults;
+        mults.Add(2);
+        mults.Add(2);
+        SmTArray<double> unique;
+        unique.Add(0.0);
+        unique.Add(1.0);
+        SmBSplineCurve *flat = nullptr;
+        CHECK(SmBSplineCurve::CreateCanonical(ctx, 3, 1, cps, SM_CF_UNSPECIFIED, mults, unique, SM_KT_UNSPECIFIED, nullptr, nullptr,
+                                              flat) == SM_SUCCESS && flat != nullptr);
+        if (top_edge.GetSize() == 1 && flat != nullptr)
+        {
+            SmBSplineFilletLaw law(flat, SmExtent1d(0.0, 1.0));
+            SmTArray<SmFilletLaw *> laws;
+            laws.Add(&law);
+            SmTArray<double> values;
+            values.Add(2.0);
+            SmTArray<SmFilletSurfaceGeneratorType> sections;
+            sections.Add(SM_FSG_CIRCULAR);
+            SmTArray<SmFilletSolverType> solvers;
+            solvers.Add(SM_FS_VARIABLE_RADIUS);
+            SmFilletExecutive exec(ctx, b);
+            SmStatus st = exec.SetFilletParameters(b, top_edge, sections, solvers, values, &laws, -1.0, -1.0, -1.0, -1.0, 1, 1.0);
+            if (st == SM_SUCCESS)
+            {
+                st = exec.DoFillet();
+            }
+            if (st == SM_SUCCESS && b->StitchAndOrient() == SM_SUCCESS)
+            {
+                smlib_brep got{b};
+                CHECK(near(volume_of(&got), 8000.0 - 4.0 * 20.0 * (1.0 - PI / 4.0), 1e-6));
+            }
+        }
+        delete b;
     }
 
     // Booleans that split, vanish or touch.

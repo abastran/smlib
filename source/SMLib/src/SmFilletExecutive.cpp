@@ -5103,7 +5103,8 @@ SmStatus SmTemporaryRadiusChange::SetUp()
 
   SmBoolean bRev = FALSE;  // Already checked this, and don't care about derivs.
   double adValues[3];
-  pLaw->Evaluate( dEdgeT, sEdgeIvl, bRev, adValues );
+  // A failed evaluation leaves adValues unset: change nothing and report it.
+  SER( pLaw->Evaluate( dEdgeT, sEdgeIvl, bRev, adValues ));
   double dEndRad = adValues[0];
 
   if ( pBSpLaw != NULL )

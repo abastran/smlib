@@ -417,3 +417,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   face between it and the other side edge (the slot wall). That extended edge runs in the side
   face, so its curve is where the side face meets the end face's extension rather than the
   extension of the edge's own two faces.
+- **A radius law that cannot be evaluated** (`SmFilletStandardSolver.cpp`,
+  `SmVariableRadiusFS::SetupOffsetValues`; `SmFilletExecutive.cpp`, `SmTemporaryRadiusChange::SetUp`;
+  `SmFilletSolver.cpp`, `StepSolve`): both ignored the status of the law's evaluation, which fails
+  where the law must be extended past the edge's ends and its curve can't be (a constant law
+  curve of zero speed), and set the offset surfaces to an uninitialised radius. They now return
+  the failure (`SetUp` changing nothing), and the stepping checks `SetupOffsetValues`.
