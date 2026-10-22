@@ -1311,7 +1311,8 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
 
     // A curved face SMLib made without UV trims (MakeFaceWithCurves attaches them only when its
     // 3D curves were made from them) gets SMLib's own, made as SMLib makes them when it needs
-    // them, so every exported trim is SMLib's.
+    // them, so every exported trim is SMLib's; the edge and vertex tolerances grow to cover the
+    // gaps it measures, as SMLib keeps them consistent with its trims.
     {
         SmTArray<SmFace *> sFaces;
         pBrep_ii->GetFaces(sFaces);
@@ -1324,7 +1325,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
                 continue;
             }
             double dMeanGap = 0.0, dMaxGap = 0.0, dMeanVertexGap = 0.0, dMaxVertexGap = 0.0, dMeanCurveGap = 0.0, dMaxCurveGap = 0.0;
-            SmStatus made = pFace->CreateUVTrimCurves(FALSE, NULL, NULL, dMeanGap, dMaxGap, dMeanVertexGap, dMaxVertexGap, dMeanCurveGap, dMaxCurveGap);
+            SmStatus made = pFace->CreateUVTrimCurves(TRUE, NULL, NULL, dMeanGap, dMaxGap, dMeanVertexGap, dMaxVertexGap, dMeanCurveGap, dMaxCurveGap);
             if (made != SM_SUCCESS)
             {
                 return made;
