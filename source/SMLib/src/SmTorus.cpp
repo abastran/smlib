@@ -1648,7 +1648,8 @@ SmAssertReportLabel sAssertTorus_list[] =
   /*  1 */ {SM_AT_RADIUS,           _T("Minor Radius"),          _T("m_dMinorRadius is greater than zero") },
   /*  2 */ {SM_AT_PARAMETERIZATION, _T("Same Parameterization"), _T("Curve and Surface have same paramterization") },
   /*  3 */ {SM_AT_GEOMETRIC,        _T("Overlapping Domain"),    _T("Analytic U Direction Domain too large: Tori can't overlap themselves") },
-  /*  4 */ {SM_AT_GEOMETRIC,        _T("Overlapping Domain"),    _T("Analytic V Direction Domain too large: Tori can't overlap themselves") }
+  /*  4 */ {SM_AT_GEOMETRIC,        _T("Overlapping Domain"),    _T("Analytic V Direction Domain too large: Tori can't overlap themselves") },
+  /*  5 */ {SM_AT_GEOMETRIC,        _T("Self Intersection"),     _T("Spindle torus: Analytic V Direction Domain runs through an apex on the axis") }
 } ;
 
 /*******************************************************************//**
@@ -1680,17 +1681,25 @@ SmBoolean SmTorus::AssertValid
   bRtn &= SM_ASSERT_VALUE_REPORT(0, SM_LEVEL_0, (m_dMajorRadius > 0.0), 0.0, m_dMajorRadius, _T("")) ;
   bRtn &= SM_ASSERT_VALUE_REPORT(1, SM_LEVEL_0, (m_dMinorRadius > 0.0), 0.0, m_dMinorRadius, _T("")) ;
 
-  // check for self intersections
+  /*  5 */ // check for self intersections
   if(m_dMajorRadius < m_dMinorRadius)
     {
-      // surface will self intersect unless saved by trimming
-      double dAngleLimitDeg =  90.0 
-                             + smos_ArcCosine(m_dMajorRadius / m_dMinorRadius) 
-                             * 180.0 / SM_PI ;
-      SmExtent1d sSelfIntersectIvl(dAngleLimitDeg, 360.0 - dAngleLimitDeg) ;
-      if(!sSelfIntersectIvl.AreDisjointPeriodic(m_vAnalUVDomain.GetUInterval(), 360.0))
+      // A spindle torus: its minor circles cross the axis where MajRadius + MinRadius * cos(V) = 0,
+      // at the apexes V = +-(90 + asin(MajRadius/MinRadius)) degrees, and the inner sheet between
+      // them passes through the outer sheet there. Like a sphere's poles (SmSphere tests 4 and 5),
+      // an apex may bound the V domain but not lie inside it.
+      double dApexDeg = 90.0 + smos_ArcSine(m_dMajorRadius / m_dMinorRadius) * 180.0 / SM_PI ;
+      SmExtent1d sApexIvlV = m_vAnalUVDomain.GetVInterval() ;
+      const double adApexDeg[2] = { dApexDeg, -dApexDeg } ;
+      for(ULONG ii=0;ii<2;ii++)
         {
-          bRtn &= FALSE ;
+          double dMappedApex = 0.0, dDistToMin = 0.0, dDistToMax = 0.0 ;
+          SmBoolean bContains = sApexIvlV.ContainsPeriodicValue(adApexDeg[ii], 360, &dMappedApex, &dDistToMin, &dDistToMax, SM_EFF_ZERO_DEG) ;
+          bRtn &= SM_ASSERT_VALUE_REPORT(5, SM_LEVEL_0,
+                                         (   bContains == FALSE
+                                          || SM_IS_ZERO_TO_TOL(dDistToMin, SM_EFF_ZERO_DEG)
+                                          || SM_IS_ZERO_TO_TOL(dDistToMax, SM_EFF_ZERO_DEG)),
+                                         SM_EFF_ZERO_DEG, smos_Min(dDistToMin, dDistToMax), _T("")) ;
         }
     } // end majorRadius < minorRadius check
 
