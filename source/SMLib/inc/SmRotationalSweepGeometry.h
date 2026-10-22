@@ -48,6 +48,19 @@ public:
 
     virtual SmSweepGeometryCreation *Copy();
 
+    // SolidCraft: the analytic surface pCurve sweeps turning dAngleDeg about the axis through
+    // crBasePt along crAxis, bounded to the curve and the turn, or NULL when it is none (a
+    // line parallel to the axis a cylinder, another line off it a cone, an arc centred on it a
+    // sphere, an arc in a plane through it a torus). The one rule both the topology sweep and
+    // SmPrimitiveCreation's full turn use.
+    static SmStatus AnalyticSurface(const SmContext   & crContext,
+                                    const SmCurve     * pCurve,
+                                    const SmPoint3d   & crBasePt,
+                                    const SmVector3d  & crAxis,
+                                    double              dAngleDeg,
+                                    double              dEps,
+                                    SmBSplineSurface *& rpSurface);
+
     SmStatus VertexSweepHigher(const SmContext & crContext,
                              const SmVertex *pOriginalVertex,
                              SmCurve *& rpNewCurve,

@@ -903,10 +903,17 @@ SmStatus SmTorus::CreateIsoParametricCurve
   else // get angles to min/max points inside periodic interval
     {
       SmVector3d sCircleZAxis = sXAxis * sYAxis ;
+      // SolidCraft: the angles are the circle's own, measured from its centre. Upstream measured
+      // them from the torus's origin, which for the minor circle is not its centre: the iso
+      // curve then got an interval outside the torus's own (a turn starting at 135 degrees on
+      // a 13.1 x 1.5 torus came out as 5.04..365.04 against -225..135, later collapsing to a
+      // zero-length circle).
+      SmVector3d sCircleMinVec = sNurbMinPoint - sCircleCenter ;
+      SmVector3d sCircleMaxVec = sNurbMaxPoint - sCircleCenter ;
       double dMinAngRad, dMaxAngRad ;
       double dMinAngDeg, dMaxAngDeg ;
-      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMinVec, dMinAngRad)  );
-      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMaxVec, dMaxAngRad)  );
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sCircleMinVec, dMinAngRad)  );
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sCircleMaxVec, dMaxAngRad)  );
       sAnalDomain.ContainsPeriodicValue(dMinAngRad * 180.0 / SM_PI, 360.0, &dMinAngDeg) ; 
       sAnalDomain.ContainsPeriodicValue(dMaxAngRad * 180.0 / SM_PI, 360.0, &dMaxAngDeg) ;
       

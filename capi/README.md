@@ -505,6 +505,19 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   cylinder face, and nothing that looks for one (a thread on the wall) found it. An arc swept
   square to its plane is now the same `SmCylinder`, its frame turned so the arc runs from angle 0
   and bounded to the arc's angles.
+- **A revolved curve is its analytic surface** (`SmRotationalSweepGeometry.cpp`, new
+  `SmRotationalSweepGeometry::AnalyticSurface`, used by `EdgeSweepHigher` and by
+  `SmPrimitiveCreation::CreateRotationalSweep`'s full turn): upstream swept every profile curve as a
+  B-spline surface of revolution (a turn short of 360) or an `SmSurfOfRevolution` (a whole turn,
+  `USE_NEW_ANALYTICS`), made an analytic face only for a profile of one curve (a whole circle, a
+  half circle on the axis), and its analytic copy (`CopyAndAddAnalytics`) recognises no cylinder or
+  torus and parameterises its cones and spheres otherwise than the faces' trims. A revolved
+  profile had no cylinder, cone, sphere or torus faces. Each curve is now swept by one rule: a line
+  parallel to the axis an `SmCylinder`, another line off it an `SmCone`, a line square to it a
+  plane (as before), an arc centred on the axis an `SmSphere`, an arc in a plane through it an
+  `SmTorus`; each with Z along the axis and X into the curve's half-plane, bounded to the turn and
+  the curve's extent. Anything else stays a surface of revolution. The one-curve special case
+  (`sm_CreateAnalyticRotationalSweep`) is gone: the rule covers it.
 - **Analytic copies keep the parameterization** (`SmBSplineSurface.cpp`,
   `SmBSplineSurface::CopyAndAddAnalytics`): splitting a face copies its surface for the new face,
   as an analytic one where the shape is one, and the new face keeps the old UV domain and trim
