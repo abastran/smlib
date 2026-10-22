@@ -80,7 +80,7 @@ SmApiStatus SmApiChamferFillet
 
     pFS->SetFilletSurfaceGenerator( &sFSGLinear );
 
-    sFilExec.LoadFilletSolver( pFS );
+    SER( sFilExec.LoadFilletSolver( pFS ) );
   }
 
   SER( sFilExec.CreateFilletCorners() );
@@ -159,7 +159,7 @@ SmApiStatus SmApiCircularFillet
 
     pFS->SetFilletSurfaceGenerator( &sFSGCircular );
 
-    sFilExec.LoadFilletSolver( pFS );
+    SER( sFilExec.LoadFilletSolver( pFS ) );
   }
 
   SER( sFilExec.CreateFilletCorners() );
@@ -168,7 +168,7 @@ SmApiStatus SmApiCircularFillet
 
   // This operation requires stitching for some reason
   // DoFilleting should be examined so that it results in a valid brep
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_CHECK_VALIDITY
   SM_ASSERT_VALID( pBrep );

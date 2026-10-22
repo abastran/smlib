@@ -223,14 +223,14 @@ SmBoolean bDebugMe0 = FALSE;
     sMin.y = rIntervals[lSurface1Index+1].GetMin();
     sMax.x = rIntervals[lSurface1Index].GetMax();
     sMax.y = rIntervals[lSurface1Index+1].GetMax();
-    sDomain1.SetMinMax(sMin,sMax);
+    SER( sDomain1.SetMinMax(sMin,sMax) );
     SmVector2d sSize2 = sDomain2.GetSize();
     sSize2 = m_dSurfaceExtensionFactor * sSize2;
     sMin.x = sDomain2.GetMin().x - sSize2.x;
     sMin.y = sDomain2.GetMin().y - sSize2.y;
     sMax.x = sDomain2.GetMax().x + sSize2.x;
     sMax.y = sDomain2.GetMax().y + sSize2.y;
-    sDomain2.SetMinMax(sMin,sMax);
+    SER( sDomain2.SetMinMax(sMin,sMax) );
 
     double dRadDiff = m_dFilletRadii[0] - m_dFilletRadii[1];
     // Will first solve for the regular tangent case on the cross-section plane
@@ -682,7 +682,7 @@ SmBoolean bDebugMe=FALSE;
         SmVector3d sV1 = sS1 - sP1;
         SmVector3d sZVec = sV1 * sV;
         double dRadius = sV1.Length();
-        sZVec.Unitize();
+        (void)sZVec.Unitize(); // SolidCraft: a zero vector stays zero
 
         // Project sP2 onto plane with normal sZVec
         sP2 = sP2.ProjectPointToPlane(sP1,sZVec);
@@ -830,17 +830,17 @@ SmBoolean bDebugMe=FALSE;
                         sPV[1],pSurf));
                     SmPoint2d sUVMin = SmPoint2d(sCrvIvl.GetMin(),0.0);
                     SmPoint2d sUVMax = SmPoint2d(sCrvIvl.GetMax(),1.0);
-                    pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax));
+                    SER( pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax)) );
                     pDerivSurfs[i] = pSurf;
                 }
                 SmTArray<double> sKnotsLocal;
-                pRail1Curve->GetKnots( sKnotsLocal );
+                SER( pRail1Curve->GetKnots( sKnotsLocal ) );
                 double dStartKnotMid = (sKnotsLocal[0] + sKnotsLocal[1]) / 2.0;
-                pRail1Curve->InsertOneKnot(dStartKnotMid,1);
-                pRail2Curve->InsertOneKnot(dStartKnotMid,1);
+                SER( pRail1Curve->InsertOneKnot(dStartKnotMid,1) );
+                SER( pRail2Curve->InsertOneKnot(dStartKnotMid,1) );
                 double dEndKnotMid = (sKnotsLocal[sKnotsLocal.GetSize()-2] + sKnotsLocal.GetLast()) / 2.0;
-                pRail1Curve->InsertOneKnot(dEndKnotMid,1);
-                pRail2Curve->InsertOneKnot(dEndKnotMid,1);
+                SER( pRail1Curve->InsertOneKnot(dEndKnotMid,1) );
+                SER( pRail2Curve->InsertOneKnot(dEndKnotMid,1) );
             }
             SER(SmBSplineSurface::CreateSkinnedSurface(crContext,
                 sCrossSections,FALSE,SM_SP_U,dThisApproxTol3d,
@@ -1063,14 +1063,14 @@ SmBoolean bDebugMe0 = FALSE;
     sMin.y = rIntervals[lSurface1Index+1].GetMin();
     sMax.x = rIntervals[lSurface1Index].GetMax();
     sMax.y = rIntervals[lSurface1Index+1].GetMax();
-    sDomain1.SetMinMax(sMin,sMax);
+    SER( sDomain1.SetMinMax(sMin,sMax) );
     SmVector2d sSize2 = sDomain2.GetSize();
     sSize2 = m_dSurfaceExtensionFactor * sSize2;
     sMin.x = sDomain2.GetMin().x - sSize2.x;
     sMin.y = sDomain2.GetMin().y - sSize2.y;
     sMax.x = sDomain2.GetMax().x + sSize2.x;
     sMax.y = sDomain2.GetMax().y + sSize2.y;
-    sDomain2.SetMinMax(sMin,sMax);
+    SER( sDomain2.SetMinMax(sMin,sMax) );
 
     // Will first solve for the regular tangent case on the cross-section plane
     SmBoolean bFoundSolution = FALSE;

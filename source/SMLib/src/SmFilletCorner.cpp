@@ -144,7 +144,9 @@ static SmBoolean sm_TestG1Continuity // rtn: TRUE = Edge EndTangents at vertex a
   double      dParam1 = (pEdge1->GetStartVertex() == pVert) ? sIvl1.GetMin() : sIvl1.GetMax() ;
 
   // get Edge1 tangent at vertex
-  pCrv1->Evaluate(dParam1,1,TRUE,sPV1) ;
+  // SolidCraft change: a tangent that cannot be evaluated is no tangency
+  if (pCrv1->Evaluate(dParam1,1,TRUE,sPV1) != SM_SUCCESS)
+   { return FALSE ; }
 
   // locals
   SmVector3d  sPV2[2];
@@ -153,7 +155,8 @@ static SmBoolean sm_TestG1Continuity // rtn: TRUE = Edge EndTangents at vertex a
   double      dParam2 = (pEdge2 == pEdge1 || pEdge2->GetStartVertex() != pVert) ? sIvl2.GetMax() : sIvl2.GetMin() ;
 
   // get Edge2 tangent at vertex
-  pCrv2->Evaluate(dParam2,1,TRUE,sPV2);
+  if (pCrv2->Evaluate(dParam2,1,TRUE,sPV2) != SM_SUCCESS)
+   { return FALSE ; }
   
 #ifdef SM_DEBUG_CODE
     if ( iDebugLevel > 0 ) 
@@ -449,10 +452,10 @@ static SmBoolean sm_CheckFaceComplimentaryCornerConcavity (
 
   // Check if binormal of each edgeuse is pointing opposite way of
   // the tangent of the other edgeuse
-  sBinVec1.Unitize();
-  sBinVec2.Unitize();
-  sTangent1.Unitize();
-  sTangent2.Unitize();
+  (void)sBinVec1.Unitize(); // SolidCraft: a zero vector stays zero
+  (void)sBinVec2.Unitize(); // SolidCraft: a zero vector stays zero
+  (void)sTangent1.Unitize(); // SolidCraft: a zero vector stays zero
+  (void)sTangent2.Unitize(); // SolidCraft: a zero vector stays zero
   double dVal1 = sBinVec1.Dot(sTangent2);
   double dVal2 = sBinVec2.Dot(sTangent1);
 
@@ -564,7 +567,7 @@ static SmBoolean same_convexity_edges_round_vertex // rtn: TRUE=convexities are 
   SmRegion * pRegion = pConcaveEU1->GetShell()->GetRegion() ;
 
   SmTArray< SmEdgeuse* > sEUs ;
-  pEdge2->GetEdgeuses( sEUs ) ;
+  (void)pEdge2->GetEdgeuses( sEUs ) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   for ( ULONG ii=0; ii<sEUs.GetSize(); ii++ )
     {
       if ( sEUs[ii]->GetShell() != NULL && sEUs[ii]->GetShell()->GetRegion() == pRegion )
@@ -935,7 +938,7 @@ static SmStatus sm_CreatePlanarSurface
       // Adjust the newPlane->UVDomain to fit the given points
       double dSize = sXAxis.Length() + sYAxis.Length();
       SmExtent2d sExt(SmPoint2d(-dSize,-dSize),SmPoint2d(dSize,dSize));
-      pPlane->AdjustSTEPUVDomain(sExt);
+      SER( pPlane->AdjustSTEPUVDomain(sExt) );
 
       // set output
       rpNewSurface = pPlane;
@@ -969,7 +972,7 @@ PURPOSE: For use in Variable-radius fillet creation for corner
 
 NOTES:
 ********************************************************************/
-static void sm_GetFilletRadius
+static SmStatus sm_GetFilletRadius // SolidCraft change: returns the status of the angle
  (SmPoint3d  sSurfPnt,
   SmVector3d sSurfNormal,
   SmPoint3d  sSurfPnt2,
@@ -985,10 +988,10 @@ static void sm_GetFilletRadius
     }
 
   SmVector3d sAxis = sSurfNormal*sSurfNormal2;
-  sAxis.Unitize();
+  (void)sAxis.Unitize(); // SolidCraft: a zero axis stays zero; the angle below then fails
 
-  double dAngRad;
-  sAxis.CCWAngleBetween(sSurfNormal,sSurfNormal2,dAngRad);
+  double dAngRad = 0.0;
+  SER(sAxis.CCWAngleBetween(sSurfNormal,sSurfNormal2,dAngRad));
   if (dAngRad > SM_PI) 
     {
       dAngRad = SM_PI - dAngRad;
@@ -997,6 +1000,7 @@ static void sm_GetFilletRadius
   double dLeng    = sSurfPnt.DistanceBetween(sSurfPnt2);
   rdRadius        = dLeng/2.0/smos_Sine(dAngRad/2.0);
   rdAngleSpanRad  = dAngRad;
+  return SM_SUCCESS;
 
 } // end sm_GetFilletRadius
 
@@ -1648,13 +1652,13 @@ SmStatus SmFilletCorner::CalcCornerVertGeom()
 
           // Set sNewIvl to a single point, at the other end, prior to adding new value.
           if ( bAtFilletStart )
-            { sNewIvl.SetMinMax( sNewIvl.GetMax(), sNewIvl.GetMax() ); }
+            { (void)sNewIvl.SetMinMax( sNewIvl.GetMax(), sNewIvl.GetMax() ); } // SolidCraft: an empty interval at one parameter, it cannot fail
           else
-            { sNewIvl.SetMinMax( sNewIvl.GetMin(), sNewIvl.GetMin() ); }
+            { (void)sNewIvl.SetMinMax( sNewIvl.GetMin(), sNewIvl.GetMin() ); } // SolidCraft: an empty interval at one parameter, it cannot fail
 
           sNewIvl.AddValue( dEdgeT );
 
-          sNewIvl.Intersect( sCurrIvl, sNewIvl ); // Use the shortest interval.  [B663]
+          SER( sNewIvl.Intersect( sCurrIvl, sNewIvl ) ); // Use the shortest interval.  [B663]
 
           // Check whether anything changes.
           SmExtent1d sCurrLawIvl( pVRFS->GetFilletLawInterval() );
@@ -1874,8 +1878,8 @@ SmBoolean SmFilletCorner::CheckAndFixDegeneracy()
           SmFilletVertexuse * pVU = (SmFilletVertexuse*)sVertexuses[jj];
 
           // move vertexuse to 1st FilletVertex
-          pFV->Remove(pVU);
-          pFV0->PostInsert(pVU);
+          (void)pFV->Remove(pVU); // SolidCraft: taken from this vertex's own list, it cannot fail
+          (void)pFV0->PostInsert(pVU); // SolidCraft: inserting fails only out of memory
 
           // set associated TsectPnt type to SM_IP_SINGULARITY
           SmTsectPnt & rTsectPnt = pVU->GetTsectPnt();
@@ -1925,8 +1929,9 @@ SmBoolean SmFilletCorner::CheckAndFixDegeneracy()
             {
               // refine the filletVertex->TsectPnt->UVpoint position
               SmPoint2d sUV;
-              pVU->ComputeUVPoint(sUV);
-              rTsectPnt.UVPos(lRailIndex) = sUV;
+              // SolidCraft change: only a computed point refines the position
+              if (pVU->ComputeUVPoint(sUV) == SM_SUCCESS)
+                { rTsectPnt.UVPos(lRailIndex) = sUV; }
               break;
             }
         } // end iter every original vertex->Vertexuse
@@ -2260,7 +2265,7 @@ SmStatus SmFilletCorner::CreateCornerPatch()
               SER(SmBSplineCurve::CreatePointCurve(m_crContext,        /* parameterized from 0 to 1 */
                                                   sPt,
                                                   pUVPointCurve));
-              pUVPointCurve->ConvertTo2D() ; // gwc: converts z=0.0 to z=NL_NOZ values - should not be a problem
+              SER( pUVPointCurve->ConvertTo2D()  ); // gwc: converts z=0.0 to z=NL_NOZ values - should not be a problem
               sDelete1.SetObj(pUVPointCurve);
             }
 
@@ -2354,7 +2359,7 @@ SmStatus SmFilletCorner::SqueezeEdge
       SmFilletEdge * pFE = (SmFilletEdge*)pVU->GetEdgeuse()->GetEdge();
       if (pFE->GetFilletEdgeType() == SM_FE_RAIL) 
         {
-          pDeleteFV->Remove(pVU);
+          SER( pDeleteFV->Remove(pVU) );
           SER(pSurvivingFV->PostInsert(pVU));
         }
       else 
@@ -2470,7 +2475,7 @@ SmBoolean bDebugMe=FALSE;
 #endif // SM_DEBUG_CODE
 
       // get associated FilletEdge->BrepEdges (destined for m_pFilletBrep) that coincide with this m_pPseudoBrep->Edges (usually 1, can be 2 for split cases, Setbacks, etc.)
-      pFE->GetFilletBrepEdges( sEdges );
+      SER( pFE->GetFilletBrepEdges( sEdges ) );
 
       // For every FilletEdge->m_pFilletBrep->Edge
       for (jj=0; jj<sEdges.GetSize(); jj++)
@@ -2534,7 +2539,7 @@ SmBoolean bDebugMe=FALSE;
 
           // If any Faces were split, check whether objects sitting on the
           // original Face are now in the new split Face.
-          pFilletExec->UpdateTopologyChanges( &sFaceAttr, pFace );
+          SER( pFilletExec->UpdateTopologyChanges( &sFaceAttr, pFace ) );
 
           // Right now Just register no intersections
           SER( rTI.RegisterExistingSSI( pFace->GetSurface(),           // in : surf1
@@ -2788,7 +2793,7 @@ SmStatus SmFilletCorner::MakeVariableRadiusFillet
   // Now, derive dOffsetOrientation2
   SmVector3d sSurfNormal;
   SER(pOppositeFillet->EvaluateNormal(sUV,TRUE,TRUE,sSurfNormal));
-  sSurfNormal.Unitize();
+  (void)sSurfNormal.Unitize(); // SolidCraft: a zero normal stays zero
   SmVector3d sOffsetVec = sEndArcCenter - sOppositeStart;
   if (sSurfNormal.Dot(sOffsetVec) < -SM_EFF_ZERO) 
     { dOffsetOrientation2 = -1.0; }
@@ -2824,13 +2829,13 @@ SmStatus SmFilletCorner::MakeVariableRadiusFillet
   // to derive radius
   double dOppositeRad;
   double dAngleSpan;
-  sm_GetFilletRadius(sOppositeStart,
+  SER( sm_GetFilletRadius(sOppositeStart,
                      sSurfNormal,
                      sSurfPnt2,
                      sSurfNormal2,
                      dOffsetOrientation2,
                      dOppositeRad,
-                     dAngleSpan);
+                     dAngleSpan) );
 
   // Create a temorary center curve
   SmCurve * pOppositeCurve = pOppositeEdge->GetCurve() ; NER(pOppositeCurve);
@@ -3832,7 +3837,7 @@ SmStatus SmFilletCorner::MakeFaceBrep()
         SER(m_vEdges[1]->GetEndTangent(FALSE,sTangent1));
         SER(m_vEdges[2]->GetEndTangent(TRUE,sTangent2));
         sPatchNormal = sTangent1 * sTangent2;
-        sPatchNormal.Unitize();
+        (void)sPatchNormal.Unitize(); // SolidCraft: a zero normal stays zero
 
         // get Surface UVPoint for vertex location
         SmPoint3d  sPnt      = m_vEdges[2]->GetVertex()->GetPoint();
@@ -3851,7 +3856,7 @@ SmStatus SmFilletCorner::MakeFaceBrep()
         // get Surface Normal at vertex location
         SmVector3d sSurfNormal;
         SER(pSurface->EvaluateNormal(sUV,TRUE,TRUE,sSurfNormal));
-        sSurfNormal.Unitize();
+        (void)sSurfNormal.Unitize(); // SolidCraft: a zero normal stays zero
 
         // when SurfaceNormal and PatchNormal are aligned eLoopOrient = SM_OT_SAME
         if (sSurfNormal.Dot(sPatchNormal) < -SM_EFF_ZERO)
@@ -3938,7 +3943,7 @@ SmStatus SmFilletCorner::MakeFaceBrep()
         SER(pCrv2->Evaluate(pCrv2->GetNaturalInterval().GetMin(),1,TRUE,sPV1));
         sTangent2 = sPV1[1];
         sPatchNormal = sTangent1 * sTangent2;
-        sPatchNormal.Unitize();
+        (void)sPatchNormal.Unitize(); // SolidCraft: a zero normal stays zero
 
         // get Surface UVPoint for vertex location
         SmPoint3d sPnt = sPV1[0];
@@ -3952,7 +3957,7 @@ SmStatus SmFilletCorner::MakeFaceBrep()
         // get Surface Normal at vertex location
         SmVector3d sSurfNormal;
         SER(pSurface->EvaluateNormal(sUV,TRUE,TRUE,sSurfNormal));
-        sSurfNormal.Unitize();
+        (void)sSurfNormal.Unitize(); // SolidCraft: a zero normal stays zero
 
         // when SurfaceNormal and PatchNormal are aligned eLoopOrient = SM_OT_SAME
         if (sSurfNormal.Dot(sPatchNormal) < -SM_EFF_ZERO)
@@ -4037,14 +4042,14 @@ SmStatus SmFilletCorner::UpdateSplitFace( SmFace* pOrigFace, SmFace *pSplitFace 
   this->GetFilletVertices( sFVs );
   for ( ULONG ii=0; ii<sFVs.GetSize(); ii++ )
   {
-      sFVs[ii]->UpdateSplitFace( pOrigFace, pSplitFace );
+      SER( sFVs[ii]->UpdateSplitFace( pOrigFace, pSplitFace ) );
   }
 
   SmTArray< SmFilletEdge* > sFEs;
   this->GetFilletEdges( sFEs );
   for ( ULONG ii=0; ii<sFEs.GetSize(); ii++ )
   {
-      sFEs[ii]->UpdateSplitFace( pOrigFace, pSplitFace );
+      SER( sFEs[ii]->UpdateSplitFace( pOrigFace, pSplitFace ) );
   }
 
   return SM_SUCCESS;
@@ -4480,7 +4485,7 @@ SmStatus SmFillet1x1Corner::MakeCornerTopology
   pFilletEdge->SetFilletEdgeType(SM_FE_CROSS_SECTION);
 
   //
-  pFilletEdge->GetEdgeuses(sFilEdgeuses);
+  SER( pFilletEdge->GetEdgeuses(sFilEdgeuses) );
   if (sFilEdgeuses.GetSize() != 2) 
     { SER(SM_ERR); }
 
@@ -4785,7 +4790,7 @@ SmStatus SmFillet3x2MixedConvexityCorner::CreateCornerPatch()
     {
       SmFilletVertexuse * pVU = (SmFilletVertexuse*)sVUs[j];
       //SmFilletEdge      * pFE = (SmFilletEdge*)pVU->GetEdgeuse()->GetEdge();
-      pCornerV->Remove(pVU);
+      SER( pCornerV->Remove(pVU) );
       SER(pSurvivingFV->PostInsert(pVU));
     }
 
@@ -5186,7 +5191,7 @@ iDebugLevel = DebugLevel();
 
   // get edgeuses marking filletEdge sector
   SmTArray<SmEdgeuse*> sFilEdgeuses;
-  pFilletEdge->GetEdgeuses(sFilEdgeuses);
+  SER( pFilletEdge->GetEdgeuses(sFilEdgeuses) );
   if (sFilEdgeuses.GetSize() != 2) { SER(SM_ERR); }
 
   // set FilletEdgeuse->FilletGeom pointers
@@ -5676,7 +5681,7 @@ SmStatus SmFilletConvexNxNCorner::AdjustTopology
 #endif // SM_DEBUG_CODE
 
     // Move pVU2 from pAdjustVert to pNewVert
-    pAdjustVert->Remove(pVU2);
+    SER( pAdjustVert->Remove(pVU2) );
     SER(pNewVert->PostInsert(pVU2));
 
     SmVertexuse * pVU3 = pNextEU->GetVertexuse();
@@ -5684,7 +5689,7 @@ SmStatus SmFilletConvexNxNCorner::AdjustTopology
         pVU3 = pNextEU->GetMate()->GetVertexuse();
     }
     // Move pVU3 from pAdjustVert to pNewVert
-    pAdjustVert->Remove(pVU3);
+    SER( pAdjustVert->Remove(pVU3) );
     SER(pNewVert->PostInsert(pVU3));
 
     m_vVertices.InsertAt(lFoundVertIndex,pNewVert);
@@ -6526,11 +6531,11 @@ int iDebugLevel = 0;
           // without having the filletSurface - do so
 
           // set filletVertex->Positions
-          CalcCornerVertGeom() ;
+          SER( CalcCornerVertGeom()  );
 
           // set FilletSideEdge->Curves
-          pNewFilletEdge1->CalcCornerEdgeGeom() ;
-          pNewFilletEdge2->CalcCornerEdgeGeom() ;
+          SER( pNewFilletEdge1->CalcCornerEdgeGeom()  );
+          SER( pNewFilletEdge2->CalcCornerEdgeGeom()  );
 
           // When proposing an extended surface
           if ( pNewExtendSurface )
@@ -6538,14 +6543,14 @@ int iDebugLevel = 0;
               // get extendedSurface/OtherSideEdge coincidence to within tolerance
               SmBoolean  bFoundCoincidence = FALSE ;
               SmSolution sSolution ;
-              pNewExtendSurface->SimpleCoincidenceChecker(
+              SER( pNewExtendSurface->SimpleCoincidenceChecker(
                   pNewExtendSurface->GetNaturalUVDomain(),
                   *pOtherSideEdgeuse->GetEdge()->GetCurve(),
                   pOtherSideEdgeuse->GetEdge()->GetInterval(),
                   m_dThisApproxTol3d,
                   bFoundCoincidence,
                   sSolution
-              );
+              ) );
 
               // when extendedSurface/OtherSideEdge are not coincident
               if( bFoundCoincidence == FALSE )
@@ -7221,8 +7226,8 @@ SmStatus SmFilletNx2Corner::AdjustConcaveCornerTopology()
   double dEdgeParam2 = pVU2->GetTsectPnt().m_dCurveParameter;
   SmPoint3d sPnt1, sPnt2;
   SmCurve * pSideEdgeCurve = pSideEU1->GetEdge()->GetCurve();
-  pSideEdgeCurve->EvaluatePoint( dEdgeParam1,sPnt1 );
-  pSideEdgeCurve->EvaluatePoint( dEdgeParam2,sPnt2 );
+  SER( pSideEdgeCurve->EvaluatePoint( dEdgeParam1,sPnt1 ) );
+  SER( pSideEdgeCurve->EvaluatePoint( dEdgeParam2,sPnt2 ) );
 
   // See if we have coincident geometry, i.e. two rails intersect at this vertex.
   double dGapDist = sPnt1.DistanceBetween( sPnt2 );
@@ -7284,9 +7289,9 @@ SmStatus SmFilletNx2Corner::AdjustConcaveCornerTopology()
   }
   pNewVertL->SetStatus( SM_FIL_PROCESSED );
   pNewVertS->SetStatus( SM_FIL_PROCESSED );
-  pAdjustVert->Remove( pVUOnLargeFG );
+  SER( pAdjustVert->Remove( pVUOnLargeFG ) );
   SER( pNewVertL->PostInsert( pVUOnLargeFG ));
-  pAdjustVert->Remove( pVUOnSmallFG );
+  SER( pAdjustVert->Remove( pVUOnSmallFG ) );
   SER( pNewVertS->PostInsert( pVUOnSmallFG ));
 
   SmFilletEdge * pNewEdge = NULL;
@@ -7413,8 +7418,8 @@ SmStatus SmFilletNx1ClosedCorner::AdjustTangentCorner()
   // from the filleted vertex.
   SmPoint3d sPt;
   SmVector3d s1stDeriv1, s1stDeriv2;
-  (*m_pSolverEUs)[0]->NormalizedEvaluate( 0.0, FALSE, sPt, &s1stDeriv1 );   // TRUE = UV Eval, FALSE = 3d Eval
-  (*m_pSolverEUs)[0]->NormalizedEvaluate( 1.0, FALSE, sPt, &s1stDeriv2 );   // TRUE = UV Eval, FALSE = 3d Eval
+  SER( (*m_pSolverEUs)[0]->NormalizedEvaluate( 0.0, FALSE, sPt, &s1stDeriv1 ) );   // TRUE = UV Eval, FALSE = 3d Eval
+  SER( (*m_pSolverEUs)[0]->NormalizedEvaluate( 1.0, FALSE, sPt, &s1stDeriv2 ) );   // TRUE = UV Eval, FALSE = 3d Eval
 
   double dAngTolDeg = 2.0; //cbi: some places use 5 degrees; sort that all out.
   if ( !s1stDeriv1.IsParallelTo( s1stDeriv2, dAngTolDeg)  )
@@ -7436,10 +7441,10 @@ SmStatus SmFilletNx1ClosedCorner::AdjustTangentCorner()
 
   SmExtent2d sSrfDomain = pFilletSrf->GetNaturalUVDomain();
   // u runs the long way, v goes across the fillet.
-  pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 0,0 ), sSrfPt00 );
-  pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 1,0 ), sSrfPt10 );
-  pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 0,1 ), sSrfPt01 );
-  pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 1,1 ), sSrfPt11 );
+  SER( pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 0,0 ), sSrfPt00 ) );
+  SER( pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 1,0 ), sSrfPt10 ) );
+  SER( pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 0,1 ), sSrfPt01 ) );
+  SER( pFilletSrf->EvaluatePoint( sSrfDomain.Evaluate( 1,1 ), sSrfPt11 ) );
 
   double dDist0 = sSrfPt00.DistanceBetween( sSrfPt10 );  // We'll use these again.
   double dDist1 = sSrfPt01.DistanceBetween( sSrfPt11 );
@@ -7458,7 +7463,7 @@ SmStatus SmFilletNx1ClosedCorner::AdjustTangentCorner()
   // to the pt/vector start point plus its u-derivative.
   SmVector3d sSu00, sSv00;
   double dT;
-  pFilletSrf->Evaluate1stDerivatives( sSrfDomain.Evaluate(0,0), TRUE, TRUE, sSrfPt00, sSu00, sSv00 );
+  SER( pFilletSrf->Evaluate1stDerivatives( sSrfDomain.Evaluate(0,0), TRUE, TRUE, sSrfPt00, sSu00, sSv00 ) );
   SER( smgu_LineClosestPoint( sSrfPt00, sSu00, sSrfPt10, dT ) );
 
   // For convenience: collect all FilletVertexuses involved in the rails.
@@ -7503,7 +7508,7 @@ SmStatus SmFilletNx1ClosedCorner::AdjustTangentCorner()
           if ( dIntParam < -SM_EFF_ZERO )
             SER( SM_ERR );  // If this happens, we'll have to figure out something else.
 
-          smgu_AddSorted( dIntParam, ii, TRUE, sCrvParams, &sSortIndices );
+          SER( smgu_AddSorted( dIntParam, ii, TRUE, sCrvParams, &sSortIndices ) );
       }
 
       // Ok, we have to make a new fillet face in between.
@@ -7576,7 +7581,7 @@ SmBoolean bDebug_FVUs=FALSE;
 
       // Grab the correct rail.
       ULONG lRailIdx;
-      pOrigFG->GetRailIndexOfVertex( pThisFV, lRailIdx );
+      SER( pOrigFG->GetRailIndexOfVertex( pThisFV, lRailIdx ) );
       SmFilletEdge *pThisRail = pOrigFG->GetRail( lRailIdx );
 
       if ( lWhichEnd == 0 )
@@ -7633,7 +7638,7 @@ SmBoolean bDebug_FVUs=FALSE;
       // We have to update the fillet surfaces in the fillet geoms here.
       // A prerequisite to that is recalculating the vertex geom.
 
-      this->CalcCornerVertGeom();
+      SER( this->CalcCornerVertGeom() );
 
 #ifdef SM_DEBUG_CODE
       if ( bDebug_FVUs )
@@ -7773,7 +7778,7 @@ SmBoolean bDebug_FVUs=FALSE;
       for ( ULONG ii=0; ii<sUsedFVUsNew.GetSize(); ii++ )
         { ( (SmFilletVertex*)( sUsedFVUsNew[ii]->GetVertex() ))->SetStatus( SM_FIL_UNPROCESSED ); }
 
-      this->CalcCornerVertGeom();
+      SER( this->CalcCornerVertGeom() );
 
 #ifdef SM_DEBUG_CODE
       if ( bDebug_FVUs )
@@ -7790,7 +7795,7 @@ SmBoolean bDebug_FVUs=FALSE;
       // of the smoothly-closed rail, so just use the start parameter.
       SmVector3d sPtDer[2];
       SmExtent1d sRailIvl = pThisRail->GetInterval();
-      pThisRail->GetCurve()->Evaluate( sRailIvl.GetMin(), 1, FALSE, sPtDer );
+      SER( pThisRail->GetCurve()->Evaluate( sRailIvl.GetMin(), 1, FALSE, sPtDer ) );
 
 
       // Possible enhancement: We could avoid one ReCalcFilletGeom call.
@@ -7806,11 +7811,11 @@ SmBoolean bDebug_FVUs=FALSE;
       SmFilletGeom *pBackupFG = pFS->GetFilletGeomForSurfaces();
 
       pFS->SetFilletGeomForSurfaces( pOrigFG );
-      pOrigFG->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) );
+      SER( pOrigFG->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) ) );
 
       // Now the other FG
       pFS->SetFilletGeomForSurfaces( pNewFG );
-      pNewFG->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) );
+      SER( pNewFG->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) ) );
 
       pFS->SetFilletGeomForSurfaces( pBackupFG );
 
@@ -7852,8 +7857,8 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
     // from the filleted vertex.
     SmPoint3d sPt;
     SmVector3d s1stDeriv1, s1stDeriv2;
-    (*m_pSolverEUs)[0]->NormalizedEvaluate( 0.0, FALSE, sPt, &s1stDeriv1 );   // TRUE = UV Eval, FALSE = 3d Eval
-    (*m_pSolverEUs)[1]->NormalizedEvaluate( 0.0, FALSE, sPt, &s1stDeriv2 );   // TRUE = UV Eval, FALSE = 3d Eval
+    SER( (*m_pSolverEUs)[0]->NormalizedEvaluate( 0.0, FALSE, sPt, &s1stDeriv1 ) );   // TRUE = UV Eval, FALSE = 3d Eval
+    SER( (*m_pSolverEUs)[1]->NormalizedEvaluate( 0.0, FALSE, sPt, &s1stDeriv2 ) );   // TRUE = UV Eval, FALSE = 3d Eval
 
     double dAngTolDeg = 2.0; //cbi: some places use 5 degrees; sort that all out.
     if ( !s1stDeriv1.IsParallelTo( s1stDeriv2, dAngTolDeg)  )
@@ -7948,8 +7953,8 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
         SmTemporaryChangeValue<SmBoolean> sClean3(pBSplineSurface3 ? pBSplineSurface3->GetOutOfBoundsEnabled() : bTmp3, TRUE) ;
 
         SmPoint3d sSrf1Pt, sSrf2Pt;
-        pSrf1A->EvaluatePoint( rIntPtSrf1.UVPos( 0 ), sSrf1Pt );
-        pSrf2A->EvaluatePoint( rIntPtSrf2.UVPos( 0 ), sSrf2Pt );
+        SER( pSrf1A->EvaluatePoint( rIntPtSrf1.UVPos( 0 ), sSrf1Pt ) );
+        SER( pSrf2A->EvaluatePoint( rIntPtSrf2.UVPos( 0 ), sSrf2Pt ) );
 
 #ifdef SM_DEBUG_CODE
         if ( iDebugLevel > 0 ) {
@@ -7967,8 +7972,8 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
         }
 
         // The mates must agree as well for 4x2
-        pSrf1B->EvaluatePoint( rIntPtSrf1.UVPos( 1 ), sSrf1Pt );
-        pSrf2B->EvaluatePoint( rIntPtSrf2.UVPos( 1 ), sSrf2Pt );
+        SER( pSrf1B->EvaluatePoint( rIntPtSrf1.UVPos( 1 ), sSrf1Pt ) );
+        SER( pSrf2B->EvaluatePoint( rIntPtSrf2.UVPos( 1 ), sSrf2Pt ) );
 
 #ifdef SM_DEBUG_CODE
         if ( iDebugLevel > 0 ) {
@@ -8041,7 +8046,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
 
             // Grap the correct rail
             ULONG lRailIdx;
-            pOrigGeom->GetRailIndexOfVertex( pThisFV, lRailIdx );
+            SER( pOrigGeom->GetRailIndexOfVertex( pThisFV, lRailIdx ) );
             SmFilletEdge *pThisRail = pOrigGeom->GetRail( lRailIdx );
 
             SmExtent1d sRailIvl = pThisRail->GetInterval();
@@ -8050,7 +8055,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
             double dSplitParam = 0.0;
             double dDist = 0.0;
 
-            pThisRail->GetCurve()->DropPoint(sRailIvl,         // in : target curve allowed domain
+            SER( pThisRail->GetCurve()->DropPoint(sRailIvl,         // in : target curve allowed domain
                                              sVertexPos,       // in : Point to drop to curve
                                              NULL,             // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                                //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -8063,7 +8068,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
                                              bSuccess,         // out: TRUE = found a drop point
                                              dSplitParam,      // out: found drop curve param
                                              dDist,            // out: found drop distance
-                                             SM_SO_MINIMIZE) ; // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                                             SM_SO_MINIMIZE)  ); // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                                //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                                //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                                //      default:[SM_SO_MINIMIZE] to preserve original behavior
@@ -8186,7 +8191,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
             // We have to update the fillet surfaces in the fillet geoms here.
             // A prerequisite to that is recalculating the vertex geom.
 
-            this->CalcCornerVertGeom();
+            SER( this->CalcCornerVertGeom() );
 
 
             // We need a direction for ReCalcFilletGeom.
@@ -8194,7 +8199,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
             // so just evaluate the rail's tangent direction there.
 
             SmVector3d sPtDer[2]; // point and 1st derivative
-            pThisRail->GetCurve()->Evaluate( dSplitParam, 1, FALSE, sPtDer );
+            SER( pThisRail->GetCurve()->Evaluate( dSplitParam, 1, FALSE, sPtDer ) );
 
 
             // Possible enhancement: We could avoid one ReCalcFilletGeom call.
@@ -8212,11 +8217,11 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
             SmFilletGeom *pBackupFG = pFS->GetFilletGeomForSurfaces();
 
             pFS->SetFilletGeomForSurfaces( pOrigGeom );
-            pOrigGeom->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) );
+            SER( pOrigGeom->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) ) );
 
             // Now the other FG
             pFS->SetFilletGeomForSurfaces( pNewGeom );
-            pNewGeom->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) );
+            SER( pNewGeom->ReCalcFilletGeom( FALSE, &( sPtDer[1] ) ) );
 
             pFS->SetFilletGeomForSurfaces( pBackupFG );
 
@@ -8227,7 +8232,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
 
             // Grap the correct rail
             ULONG lOtherRailIdx;
-            pOtherGeom->GetRailIndexOfVertex( pThisFV, lOtherRailIdx );
+            SER( pOtherGeom->GetRailIndexOfVertex( pThisFV, lOtherRailIdx ) );
             SmFilletEdge *pOtherRail = pOtherGeom->GetRail( lOtherRailIdx );
 
             // The fillet vertex at which the other FG gets trimmed to
@@ -8237,7 +8242,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
             SmExtent1d sOtherRailIvl = pOtherRail->GetInterval();
 
             double dOtherSplitParam = 0;
-            pOtherRail->GetCurve()->DropPoint(sOtherRailIvl,    // in : target curve allowed domain
+            SER( pOtherRail->GetCurve()->DropPoint(sOtherRailIvl,    // in : target curve allowed domain
                                               sTrimPt,          // in : Point to drop to curve
                                               NULL,             // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                                 //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -8250,7 +8255,7 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
                                               bSuccess,         // out: TRUE = found a drop point
                                               dOtherSplitParam, // out: found drop curve param
                                               dDist,            // out: found drop distance
-                                              SM_SO_MINIMIZE) ; // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                                              SM_SO_MINIMIZE)  ); // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                                 //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                                 //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                                 //      default:[SM_SO_MINIMIZE] to preserve original behavior
@@ -8268,15 +8273,15 @@ SmStatus SmFilletNx2Corner::AdjustTangentCorner()
             // Trim sOtherRailIvl accordingly
             if ( lOtherWhichEnd == 0 )
             {
-                sOtherRailIvl.SetMinMax( dOtherSplitParam, sOtherRailIvl.GetMax() );
+                SER( sOtherRailIvl.SetMinMax( dOtherSplitParam, sOtherRailIvl.GetMax() ) );
             }
             else
             {
-                sOtherRailIvl.SetMinMax( sOtherRailIvl.GetMin(), dOtherSplitParam );
+                SER( sOtherRailIvl.SetMinMax( sOtherRailIvl.GetMin(), dOtherSplitParam ) );
             }
 
             // Finally, do the trim.
-            pOtherGeom->Trim( sOtherRailIvl ); // may snap sIvl by tol to existing knots
+            SER( pOtherGeom->Trim( sOtherRailIvl ) ); // may snap sIvl by tol to existing knots
 
         }  // end loop over two FilletGeom's of this FilletVert.
 
@@ -8389,8 +8394,8 @@ SmStatus SmFilletNx2Corner::AdjustTopology()
       SmPoint3d           sPnt1, sPnt2 ;  
       SmCurve           * pSideEdgeCurve = pSideEU1->GetEdge()->GetCurve() ;
 
-      pSideEdgeCurve->EvaluatePoint(dEdgeParam1,sPnt1) ;
-      pSideEdgeCurve->EvaluatePoint(dEdgeParam2,sPnt2) ;
+      SER( pSideEdgeCurve->EvaluatePoint(dEdgeParam1,sPnt1)  );
+      SER( pSideEdgeCurve->EvaluatePoint(dEdgeParam2,sPnt2)  );
 
       double dDist = sPnt1.DistanceBetween(sPnt2) ;
 
@@ -8511,7 +8516,7 @@ SmStatus SmFilletNx2Corner::AdjustTopology()
 
       // Find the vertexuse of rail which is on the
       // 'side' face and reconnect it to the newly created vertex.
-      pVertOnSideEdge->Remove( pVUOnSideFace );
+      SER( pVertOnSideEdge->Remove( pVUOnSideFace ) );
       SER(pVertOnSideFace->PostInsert( pVUOnSideFace ));
 
       // Recreate fillet edges
