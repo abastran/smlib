@@ -222,7 +222,7 @@ void bind_sweeps(BoundModule& m)
         for (auto* c : curves) arr.Add(c);
         SmBrep* r = nullptr;
         CHECK_STATUS(SmApiCreateTaperExtrude(arr, height, draftAngleDeg,
-                     static_cast<int>(endCaps), filletCorner ? TRUE : FALSE, r));
+                     static_cast<int>(endCaps), filletCorner ? SM_OC_FILLET_CORNER : SM_OC_LINEAR_EXTENSION, r));
         return r;
     }, py::return_value_policy::reference,
        py::arg("curves"), py::arg("height"), py::arg("draft_angle_deg"),

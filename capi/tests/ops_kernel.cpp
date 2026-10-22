@@ -461,7 +461,7 @@ int main()
                                   0, 25, 9.5,  0, 0,  9.5,  0, 0,  0,   1, 0, 0, 0, 0, 1,  9.5, 0, PI};
         const double along[3] = {1, 0, 0};
         smlib_brep *bar = nullptr;
-        CHECK(smlib_extrude(kinds, 4, reals, 36, along, 14.0, 0.0, 1, &bar) == SMLIB_OK);
+        CHECK(smlib_extrude(kinds, 4, reals, 36, along, 14.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &bar, nullptr) == SMLIB_OK);
         smlib_brep *slot = box(3.5, -12, -10, 6, 12, 20);
         smlib_brep *slotted = nullptr;
         CHECK(smlib_boolean(bar, slot, SMLIB_BOOLEAN_SUBTRACT, &slotted) == SMLIB_OK && sound(slotted));
@@ -1178,7 +1178,7 @@ int main()
         const double reals[24] = {0, 0, 0, 0, 0, 1, 1, 0, 0, r0, 0, PI, 0, 0, 0, 0, 0, 1, 1, 0, 0, r0, PI, 2 * PI};
         const double up[3] = {0, 0, 1};
         smlib_brep *frustum = nullptr;
-        CHECK(smlib_extrude(kinds, 2, reals, 24, up, h, a, 1, &frustum) == SMLIB_OK);
+        CHECK(smlib_extrude(kinds, 2, reals, 24, up, h, a, SMLIB_DRAFT_CORNER_TANGENT, 1, &frustum, nullptr) == SMLIB_OK);
         auto cone = [](double ra, double rb, double len) { return PI * len / 3.0 * (ra * ra + ra * rb + rb * rb); };
         auto inner = [&](double z) { return r0 - z * std::tan(a) - t / std::cos(a); };
         const double want = cone(r0, r0 - h * std::tan(a), h) - cone(inner(t), inner(h), h - t);

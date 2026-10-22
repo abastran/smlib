@@ -401,7 +401,9 @@ public:
     int                   iEndCaps,                               // in : 0=none, 1=at curves end, 2=at offset end, 3=both                            
     SmVector3d          & crCrvsNormal,                           // in : specified normal to plane of curves                                         
                                                                   //    : or enter [0,0,0] for us to compute it for you.                              
-    SmOffsetCornerType    eOffsetCorner = SM_OC_LINEAR_EXTENSION  // in : oneof SM_OC_LINEAR_EXTENSION or SM_OC_FILLET_CORNER                         
+    SmOffsetCornerType    eOffsetCorner = SM_OC_LINEAR_EXTENSION, // in : oneof SM_OC_LINEAR_EXTENSION, SM_OC_FILLET_CORNER or SM_OC_CURVE_EXTENSION 
+    SmTaperCornerRefusal* pOptRefusal = NULL,                     // out: SM_OC_CURVE_EXTENSION only: why a corner could not be closed, NULL to ignore 
+    SmPoint3d           * pOptRefusedCorner = NULL                // out: SM_OC_CURVE_EXTENSION only: that corner's point on the curves, NULL to ignore
   );
 
   SmStatus CreatePipeSweep

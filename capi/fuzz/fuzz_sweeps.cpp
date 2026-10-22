@@ -169,8 +169,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     switch (in.byte() % 7)
     {
     case 0:
-        drop(smlib_extrude(pk, nk, pr, nr, dir, in.in(-1.0, 200.0), in.byte() % 2 ? 0.0 : in.in(-1.7, 1.7), cap, &b), b);
+    {
+        // 3 is no corner rule: refused
+        int32_t corner = static_cast<int32_t>(in.byte() % 4);
+        drop(smlib_extrude(pk, nk, pr, nr, dir, in.in(-1.0, 200.0), in.byte() % 2 ? 0.0 : in.in(-1.7, 1.7), corner, cap, &b, nullptr), b);
         break;
+    }
     case 1:
     {
         double o[3] = {in.in(-200, 200), in.in(-200, 200), 0.0};

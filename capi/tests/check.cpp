@@ -81,7 +81,7 @@ static smlib_brep *comb(int teeth)
     const double up[3] = {0, 0, 1};
     smlib_brep *b = nullptr;
     CHECK(smlib_extrude(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), up, 3.0,
-                        0.0, 1, &b) == SMLIB_OK);
+                        0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr) == SMLIB_OK);
     return b;
 }
 

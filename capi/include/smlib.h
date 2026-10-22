@@ -786,12 +786,34 @@ int32_t smlib_ssi_point(const smlib_ssi_result *r, int32_t i, double xyz[3], dou
  * result must be a closed manifold solid (SMLIB_ERR_NOT_SOLID otherwise); with `cap` 0 it is the
  * swept sheet alone. */
 
+/* How a drafted extrusion closes the gap its offset opens at a sharp corner of the profile: each
+ * wall continues as itself (a line's plane, an arc's cone) until it meets its neighbour, the
+ * section's curves continued as themselves to where they cross; each continues straight along its
+ * end tangent (a flat face per side of the corner); or an arc about the corner closes it (a cone
+ * about the corner). Where the offsets overlap instead, all three trim them where they cross. */
+#define SMLIB_DRAFT_CORNER_CURVATURE 0
+#define SMLIB_DRAFT_CORNER_TANGENT 1
+#define SMLIB_DRAFT_CORNER_ROUND 2
+
+/* SMLIB_DRAFT_CORNER_CURVATURE could not close a corner: the continued curves do not meet there
+ * (two parallel lines, two circles that part). */
+#define SMLIB_ERR_CORNER_APART (-1108)
+/* SMLIB_DRAFT_CORNER_CURVATURE: a wall closes before the far end, its neighbours meeting across it
+ * (or its arc shrinking to its centre). */
+#define SMLIB_ERR_WALL_CLOSES (-1109)
+
 /* The planar profile extruded `distance` (> 0) along the unit `direction`, square to the
  * profile's plane. `draft` (radians, |draft| < pi/2) leans the walls: 0 straight, positive
  * inward (the far end smaller), negative outward; a drafted profile is one closed loop, its
- * curves in order, and its direction must be the profile's normal (either way round). */
+ * curves in order, and its direction must be the profile's normal (either way round). `corner`
+ * (one of SMLIB_DRAFT_CORNER_*, read only with a draft) closes its sharp corners. With
+ * SMLIB_DRAFT_CORNER_CURVATURE every curve at a corner must be a line or an arc (the walls of
+ * other curves have no exact continuation: SMLIB_ERR_NOT_EXACT); a corner it cannot close is
+ * SMLIB_ERR_CORNER_APART or SMLIB_ERR_WALL_CLOSES, or SMLIB_ERR_NOT_EXACT, and when `out_corner`
+ * is not NULL that corner's point on the profile is written there (for SMLIB_ERR_WALL_CLOSES of an
+ * arc that shrinks to its centre, the arc's middle). */
 int32_t smlib_extrude(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double direction[3],
-                      double distance, double draft, int32_t cap, smlib_brep **out);
+                      double distance, double draft, int32_t corner, int32_t cap, smlib_brep **out, double out_corner[3]);
 
 /* The planar profile turned `angle` radians (0 < angle <= 2 pi) right-handed about the axis
  * through `origin` along `direction`, which lies in the profile's plane; the profile may touch

@@ -1644,11 +1644,14 @@ SmApiStatus SmApiCreateTaperExtrude
     double dHeight,
     double dDraftAngleDeg,
     int iEndCaps,
-    SmBoolean bFilletCorner,
-    SmBrep*& rpResult
+    SmOffsetCornerType eCorner,
+    SmBrep*& rpResult,
+    SmTaperCornerRefusal* pOptRefusal,
+    SmPoint3d* pOptRefusedCorner
 )
 {
     rpResult = NULL;
+    if( pOptRefusal ) *pOptRefusal = SM_TCR_NONE;
     if( rCurves.GetSize() < 1 )
         return SM_ERR_INVALID_INPUT;
 
@@ -1662,10 +1665,9 @@ SmApiStatus SmApiCreateTaperExtrude
     SmObjDelete sBrepCleanup( pBrep );
 
     SmVector3d sNormal(0,0,0);
-    SmOffsetCornerType eCorner = bFilletCorner ? SM_OC_FILLET_CORNER : SM_OC_LINEAR_EXTENSION;
 
     SmPrimitiveCreation sPC( pBrep->GetInfiniteRegion() );
-    SER( sPC.CreateTaperExtrude( sCurveCopies, dHeight, dDraftAngleDeg, iEndCaps, sNormal, eCorner ) );
+    SER( sPC.CreateTaperExtrude( sCurveCopies, dHeight, dDraftAngleDeg, iEndCaps, sNormal, eCorner, pOptRefusal, pOptRefusedCorner ) );
 
     sBrepCleanup.Clear();
     rpResult = pBrep;

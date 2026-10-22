@@ -128,32 +128,32 @@ int main()
     List rect;
     rect.polygon({0, 0, 0, 10, 0, 0, 10, 6, 0, 0, 6, 0});
     b = nullptr;
-    expect("extrude rectangle", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), Z, 5.0, 0.0, 1, &b), &b, 300.0, 1e-9);
+    expect("extrude rectangle", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), Z, 5.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr), &b, 300.0, 1e-9);
     const double down[3] = {0, 0, -1};
     b = nullptr;
-    expect("extrude rectangle down", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), down, 5.0, 0.0, 1, &b), &b, 300.0,
+    expect("extrude rectangle down", smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), down, 5.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr), &b, 300.0,
            1e-9);
     List ring = circle(0, 0, 0, 0, 0, 1, 1, 0, 0, 10);
     ring.append(circle(0, 0, 0, 0, 0, -1, 1, 0, 0, 4));
     b = nullptr;
-    expect("extrude annulus", smlib_extrude(ring.kinds.data(), ring.nk(), ring.reals.data(), ring.nr(), Z, 3.0, 0.0, 1, &b), &b,
+    expect("extrude annulus", smlib_extrude(ring.kinds.data(), ring.nk(), ring.reals.data(), ring.nr(), Z, 3.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr), &b,
            PI * (100.0 - 16.0) * 3.0, 1e-6);
     List sq;
     sq.polygon({-5, -5, 0, 5, -5, 0, 5, 5, 0, -5, 5, 0});
     double t = std::tan(10.0 * PI / 180.0);
     double a2 = 10.0 - 2.0 * 4.0 * t;
     b = nullptr;
-    expect("extrude square drafted 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, 10.0 * PI / 180.0, 1, &b), &b,
+    expect("extrude square drafted 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, 10.0 * PI / 180.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr), &b,
            4.0 / 3.0 * (100.0 + a2 * a2 + 10.0 * a2), 1e-6);
     double a3 = 10.0 + 2.0 * 4.0 * t;
     b = nullptr;
-    expect("extrude square drafted -10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, -10.0 * PI / 180.0, 1, &b),
+    expect("extrude square drafted -10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), Z, 4.0, -10.0 * PI / 180.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr),
            &b, 4.0 / 3.0 * (100.0 + a3 * a3 + 10.0 * a3), 1e-6);
     b = nullptr;
-    expect("extrude square drafted down 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), down, 4.0, 10.0 * PI / 180.0, 1, &b),
+    expect("extrude square drafted down 10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), down, 4.0, 10.0 * PI / 180.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr),
            &b, 4.0 / 3.0 * (100.0 + a2 * a2 + 10.0 * a2), 1e-6);
     b = nullptr;
-    expect("extrude square drafted down -10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), down, 4.0, -10.0 * PI / 180.0, 1, &b),
+    expect("extrude square drafted down -10 deg", smlib_extrude(sq.kinds.data(), sq.nk(), sq.reals.data(), sq.nr(), down, 4.0, -10.0 * PI / 180.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr),
            &b, 4.0 / 3.0 * (100.0 + a3 * a3 + 10.0 * a3), 1e-6);
 
     // Revolutions about z of a profile in the xz plane: a square off the axis (a ring), a
@@ -627,14 +627,14 @@ int main()
     const int64_t bad_kind[1] = {9};
     const double six[6] = {0, 0, 0, 1, 0, 0};
     b = nullptr;
-    CHECK(smlib_extrude(bad_kind, 1, six, 6, Z, 1.0, 0.0, 1, &b) == SMLIB_ERR_ARG && b == nullptr);
+    CHECK(smlib_extrude(bad_kind, 1, six, 6, Z, 1.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr) == SMLIB_ERR_ARG && b == nullptr);
     const int64_t line_kind[1] = {SMLIB_CURVE_LINE};
-    CHECK(smlib_extrude(line_kind, 1, six, 5, Z, 1.0, 0.0, 1, &b) == SMLIB_ERR_ARG && b == nullptr);
+    CHECK(smlib_extrude(line_kind, 1, six, 5, Z, 1.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr) == SMLIB_ERR_ARG && b == nullptr);
     const double nan6[6] = {0, NAN, 0, 1, 0, 0};
-    CHECK(smlib_extrude(line_kind, 1, nan6, 6, Z, 1.0, 0.0, 1, &b) == SMLIB_ERR_ARG && b == nullptr);
+    CHECK(smlib_extrude(line_kind, 1, nan6, 6, Z, 1.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr) == SMLIB_ERR_ARG && b == nullptr);
     const int64_t nurbs_kind[3] = {SMLIB_CURVE_NURBS, 3, 1000000000};
-    CHECK(smlib_extrude(nurbs_kind, 3, six, 6, Z, 1.0, 0.0, 1, &b) == SMLIB_ERR_ARG && b == nullptr);
-    CHECK(smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), Z, -1.0, 0.0, 1, &b) == SMLIB_ERR_ARG);
+    CHECK(smlib_extrude(nurbs_kind, 3, six, 6, Z, 1.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr) == SMLIB_ERR_ARG && b == nullptr);
+    CHECK(smlib_extrude(rect.kinds.data(), rect.nk(), rect.reals.data(), rect.nr(), Z, -1.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr) == SMLIB_ERR_ARG);
     CHECK(smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, 7.0, 1, &b) == SMLIB_ERR_ARG);
     CHECK(smlib_loft(boxes.kinds.data(), boxes.nk(), boxes.reals.data(), boxes.nr(), four, 1, 1, 1, &b) == SMLIB_ERR_ARG);
     const int64_t wrong[2] = {4, 3};

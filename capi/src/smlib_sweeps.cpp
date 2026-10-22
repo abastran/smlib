@@ -481,15 +481,16 @@ int32_t joined(const Curves &path, std::unique_ptr<SmBSplineCurve> &out)
 } // namespace
 
 extern "C" int32_t smlib_extrude(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double direction[3],
-                                 double distance, double draft, int32_t cap, smlib_brep **out)
+                                 double distance, double draft, int32_t corner, int32_t cap, smlib_brep **out, double out_corner[3])
 {
     if (out == nullptr || direction == nullptr || !std::isfinite(distance) || !(distance > 1e-9 && distance < MAX_COORD) ||
-        !std::isfinite(draft) || std::fabs(draft) >= SM_PI / 2.0 - 1e-6 || (cap != 0 && cap != 1))
+        !std::isfinite(draft) || std::fabs(draft) >= SM_PI / 2.0 - 1e-6 || (cap != 0 && cap != 1) ||
+        (corner != SMLIB_DRAFT_CORNER_CURVATURE && corner != SMLIB_DRAFT_CORNER_TANGENT && corner != SMLIB_DRAFT_CORNER_ROUND))
     {
         return SMLIB_ERR_ARG;
     }
     Call c("smlib_extrude", list(n_kinds, n_reals) + ", direction=" + vec(direction, 3) + ", distance=" + num(distance) +
-                                ", draft=" + num(draft) + ", cap=" + std::to_string(cap));
+                                ", draft=" + num(draft) + ", corner=" + std::to_string(corner) + ", cap=" + std::to_string(cap));
     dump_curves(c, "profile", kinds, n_kinds, reals, n_reals);
     return c.run(
         [&]
@@ -536,7 +537,25 @@ extern "C" int32_t smlib_extrude(const int64_t *kinds, int64_t n_kinds, const do
                 }
                 double height = along > 0.0 ? distance : -distance;
                 double angle = draft * 180.0 / SM_PI;
-                s = status(SmApiCreateTaperExtrude(a, height, angle, cap ? 3 : 0, FALSE, r));
+                SmOffsetCornerType rule = corner == SMLIB_DRAFT_CORNER_TANGENT ? SM_OC_LINEAR_EXTENSION
+                                          : corner == SMLIB_DRAFT_CORNER_ROUND ? SM_OC_FILLET_CORNER
+                                                                               : SM_OC_CURVE_EXTENSION;
+                SmTaperCornerRefusal refusal = SM_TCR_NONE;
+                SmPoint3d at(0.0, 0.0, 0.0);
+                s = status(SmApiCreateTaperExtrude(a, height, angle, cap ? 3 : 0, rule, r, &refusal, &at));
+                if (refusal != SM_TCR_NONE)
+                {
+                    delete r;
+                    if (out_corner != nullptr)
+                    {
+                        out_corner[0] = at.x;
+                        out_corner[1] = at.y;
+                        out_corner[2] = at.z;
+                    }
+                    return refusal == SM_TCR_APART       ? SMLIB_ERR_CORNER_APART
+                           : refusal == SM_TCR_WALL_CLOSES ? SMLIB_ERR_WALL_CLOSES
+                                                           : SMLIB_ERR_NOT_EXACT;
+                }
             }
             if (s != SMLIB_OK)
             {
