@@ -177,6 +177,12 @@ int32_t smlib_brep_mass_properties(const smlib_brep *brep, double relative_accur
  * `relative_accuracy`, clamped to [1e-8, 1e-1]. */
 int32_t smlib_brep_area(const smlib_brep *brep, double relative_accuracy, double *out);
 
+/* The exact axis-aligned box of `brep`: the extrema of its vertices, edges and faces on their
+ * exact curves and surfaces (SmBrep::CalculateTightBoundingBox), not grown by tolerances or
+ * control hulls. Into `lo` the least x, y, z, into `hi` the greatest, in mm. A body with no
+ * geometry (an empty box) is SM_ERR_INVALID_INPUT. */
+int32_t smlib_brep_bounds(const smlib_brep *brep, double lo[3], double hi[3]);
+
 /* SMLib's own check that `brep` is one closed, manifold solid: *out = 1 if so, else 0. */
 int32_t smlib_brep_is_manifold_solid(const smlib_brep *brep, int32_t *out);
 
