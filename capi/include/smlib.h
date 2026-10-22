@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 /* Bumped whenever a declaration in this header changes. */
-#define SMLIB_ABI_VERSION 3
+#define SMLIB_ABI_VERSION 4
 
 #define SMLIB_OK 0
 /* A C++ exception escaped SMLib (out of memory, most likely). */
@@ -696,22 +696,17 @@ int32_t smlib_surface_evaluate(const smlib_surface *s, double u, double v, doubl
 #define SMLIB_SSI_NEAR_TANGENT 5     /* a curve with a small angle of intersection */
 #define SMLIB_SSI_REGION_BOUNDARY 6  /* bounds a region where the surfaces coincide */
 
-#define SMLIB_SSI_MAX_SAMPLES 100000
-
 /* The intersection of `a` and `b`, each within its UV domain, owned by the caller
  * (smlib_ssi_result_free). */
 typedef struct smlib_ssi_result smlib_ssi_result;
 
 /* Intersects `a` and `b` (both surfaces' edges used to seed curves) with `method` at
- * approximation tolerance `approx_tol` (<= 0: SMLib's default, 1/1000 of the surfaces' size)
- * and samples each curve at `samples_per_curve` (2..SMLIB_SSI_MAX_SAMPLES) parameters, as the
- * corpus runner does (it uses 4001): the 3D curve at t_i = t0 + (t1 - t0) * i / (n - 1) over
- * its natural interval [t0, t1], each UV curve likewise over its own natural interval, and `a`
- * and `b` evaluated at the UV samples. A result over 10^7 samples in all returns SMLIB_ERR_ARG.
- * The status is SMLib's when the intersector fails. On failure the dump holds both surfaces as
- * an SSI corpus case file (`<n>-smlib_ssi-case.txt`) that the corpus runner replays. */
-int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int32_t method, double approx_tol,
-                  int32_t samples_per_curve, smlib_ssi_result **out);
+ * approximation tolerance `approx_tol` (<= 0: SMLib's default, 1/1000 of the surfaces' size).
+ * Each curve the method returns is kept exactly as SMLib holds it: its 3D curve and its UV
+ * curves on `a` and `b`, each a (rational) B-spline (smlib_ssi_curve_nurbs). The status is
+ * SMLib's when the intersector fails. On failure the dump holds both surfaces as an SSI corpus
+ * case file (`<n>-smlib_ssi-case.txt`) that the corpus runner replays. */
+int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int32_t method, double approx_tol, smlib_ssi_result **out);
 
 void smlib_ssi_result_free(smlib_ssi_result *r);
 
@@ -722,23 +717,32 @@ int32_t smlib_ssi_curve_count(const smlib_ssi_result *r, int32_t *out);
 #define SMLIB_SSI_HAS_UV_A 1
 #define SMLIB_SSI_HAS_UV_B 2
 
-/* Curve `i`: its SMLIB_SSI_* type, SMLIB_SSI_HAS_UV_* flags, sample count (samples_per_curve),
- * SMLib's deviation estimate and the 3D curve's natural parameter interval. Any out-pointer may
- * be NULL. */
-int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, int32_t *type, int32_t *flags, int32_t *samples,
-                             double *deviation, double interval[2]);
+/* Curve `i`: its SMLIB_SSI_* type, SMLIB_SSI_HAS_UV_* flags, SMLib's deviation estimate and the
+ * 3D curve's natural parameter interval. Any out-pointer may be NULL. */
+int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, int32_t *type, int32_t *flags, double *deviation,
+                             double interval[2]);
 
-/* Copies curve `i`'s samples: `xyz` (3 per sample), `uv_a` and `uv_b` (2 per sample, the UV
- * curves on a and b), `a_at_uv` and `b_at_uv` (3 per sample, a and b evaluated at those UVs).
- * Each buffer may be NULL to skip it; `cap` is the buffers' capacity in samples, and less than
- * the sample count returns SMLIB_ERR_BUFFER. A value SMLib could not evaluate, and every UV
- * value of a UV curve the method did not return (with the surface at it), is NaN; the corpus
- * runner drops such samples instead (and writes empty arrays for a missing UV curve). */
-int32_t smlib_ssi_curve_samples(const smlib_ssi_result *r, int32_t i, int64_t cap, double *xyz, double *uv_a, double *uv_b,
-                                double *a_at_uv, double *b_at_uv);
+/* smlib_ssi_curve_nurbs `which`. */
+#define SMLIB_SSI_CURVE_3D 0
+#define SMLIB_SSI_CURVE_UV_A 1 /* on a, in a's UV */
+#define SMLIB_SSI_CURVE_UV_B 2 /* on b, in b's UV */
 
-/* Isolated points: the TOUCHING curves again, each as its first sample (UVs NaN where the
- * method returned no UV curve). */
+/* One of curve `i`'s curves exactly as SMLib holds it, a (rational) B-spline: SMLib's lines,
+ * circles and ellipses are B-splines too, and its intersection curves are B-splines it fitted
+ * within the approximation tolerance. Its `degree`, `n_points` control points and `n_knots`
+ * (n_points + degree + 1) knots, all of them; then into `points` its control points, cartesian
+ * (3 values each for the 3D curve, 2 for a UV curve), into `weights` one weight per point (all 1
+ * for a polynomial curve) and into `knots` the knots. Any out-pointer or buffer may be NULL (a
+ * NULL buffer to learn the counts first); a buffer under its count (`cap_points` points,
+ * `cap_knots` knots) returns SMLIB_ERR_BUFFER, with the counts written. A UV curve the method did
+ * not return is SMLIB_ERR_EMPTY; a curve SMLib does not hold as a B-spline is
+ * SMLIB_ERR_UNSUPPORTED (it is never approximated). */
+int32_t smlib_ssi_curve_nurbs(const smlib_ssi_result *r, int32_t i, int32_t which, int32_t *degree, int64_t *n_points,
+                              int64_t *n_knots, int64_t cap_points, double *points, double *weights, int64_t cap_knots,
+                              double *knots);
+
+/* Isolated points: the TOUCHING curves again, each as the start of its 3D curve and of its UV
+ * curves (UVs NaN where the method returned no UV curve). */
 int32_t smlib_ssi_point_count(const smlib_ssi_result *r, int32_t *out);
 int32_t smlib_ssi_point(const smlib_ssi_result *r, int32_t i, double xyz[3], double uv_a[2], double uv_b[2]);
 

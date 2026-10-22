@@ -3,12 +3,13 @@
 
 // Surface/surface intersection: plain-C surface descriptions (built exactly as the SSI corpus
 // runner, ssi-corpus/runner/ssi_runner.cpp, builds them from a case file), SMLib's three SSI
-// entry points, and the curves sampled the way that runner samples them.
+// entry points, and the curves they return, exactly as SMLib holds them.
 
 #include "smlib_shim.h"
 
 #include <SmAdvSurfaceIntersector.h>
 #include <SmAxis2Placement.h>
+#include <SmBSplineCurve.h>
 #include <SmBSplineSurface.h>
 #include <SmCone.h>
 #include <SmCurve.h>
@@ -23,6 +24,7 @@
 #include <SmSurfaceIntersector.h>
 #include <SmTorus.h>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <set>
@@ -35,14 +37,24 @@ smlib_surface::~smlib_surface()
 namespace
 {
 
+// A curve as SMLib holds it: its (rational) B-spline. `dim` 0: none (the method returned no
+// such curve, or SMLib's curve is not a B-spline).
+struct Nurbs
+{
+    int32_t dim = 0;
+    int32_t degree = 0;
+    std::vector<double> knots;   // all of them
+    std::vector<double> points;  // cartesian, dim per control point
+    std::vector<double> weights; // one per control point
+};
+
 struct Curve
 {
     int32_t type;
     int32_t flags;
     double deviation;
     double interval[2];
-    // Per sample: 3, 2, 2, 3, 3 values.
-    std::vector<double> xyz, uv_a, uv_b, a_at_uv, b_at_uv;
+    Nurbs c3, uv_a, uv_b;
 };
 
 struct Point
@@ -54,7 +66,6 @@ struct Point
 
 struct smlib_ssi_result
 {
-    int32_t samples = 0;
     std::vector<Curve> curves;
     std::vector<Point> points;
 };
@@ -169,49 +180,45 @@ int32_t construct(const char *fn, std::string json, smlib_surface **out, F &&mak
     );
 }
 
-// The runner's sample_curve, except that a failed evaluation is NaN instead of being dropped.
-void sample(const SmCurve *c, int32_t n, int dim, std::vector<double> &out, double *interval)
+// `c` as its B-spline, exactly: SMLib's lines, circles and ellipses are B-spline curves too, and
+// its intersection curves B-splines it fitted within the approximation tolerance. Nothing
+// (dim 0) for a curve that is not a B-spline: it is never approximated here.
+Nurbs nurbs(const SmCurve *c, int32_t dim)
 {
-    out.assign(static_cast<size_t>(n) * dim, NaN);
-    if (c == nullptr)
+    Nurbs out;
+    if (c == nullptr || !c->IsKindOf(SmBSplineCurve_TYPE))
     {
-        return;
+        return out;
     }
-    SmExtent1d ivl = c->GetNaturalInterval();
-    if (interval != nullptr)
+    gw_CURVE *n = SM_REINTERPRET_CAST(SmBSplineCurve *, const_cast<SmCurve *>(c))->GetOrCreateGwNurbPointer();
+    if (n == nullptr || n->knt == nullptr || n->pol == nullptr)
     {
-        interval[0] = ivl.GetMin();
-        interval[1] = ivl.GetMax();
+        return out;
     }
-    for (int32_t i = 0; i < n; ++i)
+    out.dim = dim;
+    out.degree = static_cast<int32_t>(n->p);
+    out.knots.assign(n->knt->U, n->knt->U + n->knt->m + 1);
+    const NL_CPOINT *pw = n->pol->Pw;
+    for (long i = 0; i <= n->pol->n; ++i)
     {
-        double t = ivl.GetMin() + (ivl.GetMax() - ivl.GetMin()) * (static_cast<double>(i) / (n - 1));
-        SmPoint3d p;
-        if (c->EvaluatePoint(t, p) == SM_SUCCESS)
-        {
-            const double q[3] = {p.x, p.y, p.z};
-            std::memcpy(&out[static_cast<size_t>(i) * dim], q, dim * sizeof(double));
-        }
+        const double w = pw[i].w != NL_NOW ? pw[i].w : 1.0;
+        const double q[3] = {pw[i].x / w, pw[i].y / w, pw[i].z / w};
+        out.points.insert(out.points.end(), q, q + dim);
+        out.weights.push_back(w);
     }
+    return out;
 }
 
-void evaluate(const SmSurface *s, const std::vector<double> &uv, std::vector<double> &out)
+// `c`'s point at the start of its natural interval, NaN where there is no curve or SMLib can't
+// evaluate it.
+void start(const SmCurve *c, double *out, int dim)
 {
-    const size_t n = uv.size() / 2;
-    out.assign(n * 3, NaN);
-    for (size_t i = 0; i < n; ++i)
+    std::fill(out, out + dim, NaN);
+    SmPoint3d p;
+    if (c != nullptr && c->EvaluatePoint(c->GetNaturalInterval().GetMin(), p) == SM_SUCCESS)
     {
-        if (!std::isfinite(uv[2 * i]) || !std::isfinite(uv[2 * i + 1]))
-        {
-            continue;
-        }
-        SmPoint3d q;
-        if (s->EvaluatePoint(SmPoint2d(uv[2 * i], uv[2 * i + 1]), q) == SM_SUCCESS)
-        {
-            out[3 * i] = q.x;
-            out[3 * i + 1] = q.y;
-            out[3 * i + 2] = q.z;
-        }
+        const double q[3] = {p.x, p.y, p.z};
+        std::copy(q, q + dim, out);
     }
 }
 
@@ -236,8 +243,6 @@ struct Curves
         }
     }
 };
-
-constexpr int64_t MAX_TOTAL_SAMPLES = 10000000;
 
 } // namespace
 
@@ -550,16 +555,13 @@ extern "C" int32_t smlib_surface_evaluate(const smlib_surface *s, double u, doub
     );
 }
 
-extern "C" int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int32_t method, double approx_tol, int32_t samples_per_curve,
-                             smlib_ssi_result **out)
+extern "C" int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int32_t method, double approx_tol, smlib_ssi_result **out)
 {
-    if (a == nullptr || b == nullptr || out == nullptr || method < SMLIB_SSI_GLOBAL || method > SMLIB_SSI_BASIC ||
-        !std::isfinite(approx_tol) || samples_per_curve < 2 || samples_per_curve > SMLIB_SSI_MAX_SAMPLES)
+    if (a == nullptr || b == nullptr || out == nullptr || method < SMLIB_SSI_GLOBAL || method > SMLIB_SSI_BASIC || !std::isfinite(approx_tol))
     {
         return SMLIB_ERR_ARG;
     }
-    Call c("smlib_ssi", "method=" + std::to_string(method) + ", approx_tol=" + num(approx_tol) +
-                            ", samples_per_curve=" + std::to_string(samples_per_curve));
+    Call c("smlib_ssi", "method=" + std::to_string(method) + ", approx_tol=" + num(approx_tol));
     // A case file the corpus runner replays: ssi_runner <file> gsi|adv|basic <tol> <out.json>.
     c.input_text("case",
                  [&](const std::string &path)
@@ -604,12 +606,7 @@ extern "C" int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int
                 return st;
             }
             const ULONG n = cs.c3.GetSize();
-            if (static_cast<int64_t>(n) * samples_per_curve > MAX_TOTAL_SAMPLES)
-            {
-                return static_cast<int32_t>(SMLIB_ERR_ARG);
-            }
             std::unique_ptr<smlib_ssi_result> r(new smlib_ssi_result);
-            r->samples = samples_per_curve;
             r->curves.resize(n);
             for (ULONG i = 0; i < n; ++i)
             {
@@ -619,18 +616,18 @@ extern "C" int32_t smlib_ssi(const smlib_surface *a, const smlib_surface *b, int
                 const SmCurve *ua = i < cs.uv1.GetSize() ? cs.uv1[i] : nullptr;
                 const SmCurve *ub = i < cs.uv2.GetSize() ? cs.uv2[i] : nullptr;
                 k.flags = (ua != nullptr ? SMLIB_SSI_HAS_UV_A : 0) | (ub != nullptr ? SMLIB_SSI_HAS_UV_B : 0);
-                k.interval[0] = k.interval[1] = NaN;
-                sample(cs.c3[i], samples_per_curve, 3, k.xyz, k.interval);
-                sample(ua, samples_per_curve, 2, k.uv_a, nullptr);
-                sample(ub, samples_per_curve, 2, k.uv_b, nullptr);
-                evaluate(a->s, k.uv_a, k.a_at_uv);
-                evaluate(b->s, k.uv_b, k.b_at_uv);
+                const SmExtent1d ivl = cs.c3[i]->GetNaturalInterval();
+                k.interval[0] = ivl.GetMin();
+                k.interval[1] = ivl.GetMax();
+                k.c3 = nurbs(cs.c3[i], 3);
+                k.uv_a = nurbs(ua, 2);
+                k.uv_b = nurbs(ub, 2);
                 if (k.type == SMLIB_SSI_TOUCHING)
                 {
                     Point p;
-                    std::memcpy(p.xyz, k.xyz.data(), sizeof p.xyz);
-                    std::memcpy(p.uv_a, k.uv_a.data(), sizeof p.uv_a);
-                    std::memcpy(p.uv_b, k.uv_b.data(), sizeof p.uv_b);
+                    start(cs.c3[i], p.xyz, 3);
+                    start(ua, p.uv_a, 2);
+                    start(ub, p.uv_b, 2);
                     r->points.push_back(p);
                 }
             }
@@ -655,8 +652,8 @@ extern "C" int32_t smlib_ssi_curve_count(const smlib_ssi_result *r, int32_t *out
     return SMLIB_OK;
 }
 
-extern "C" int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, int32_t *type, int32_t *flags, int32_t *samples,
-                                        double *deviation, double interval[2])
+extern "C" int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, int32_t *type, int32_t *flags, double *deviation,
+                                        double interval[2])
 {
     if (r == nullptr || i < 0 || static_cast<size_t>(i) >= r->curves.size())
     {
@@ -671,10 +668,6 @@ extern "C" int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, in
     {
         *flags = k.flags;
     }
-    if (samples != nullptr)
-    {
-        *samples = r->samples;
-    }
     if (deviation != nullptr)
     {
         *deviation = k.deviation;
@@ -687,30 +680,54 @@ extern "C" int32_t smlib_ssi_curve_info(const smlib_ssi_result *r, int32_t i, in
     return SMLIB_OK;
 }
 
-extern "C" int32_t smlib_ssi_curve_samples(const smlib_ssi_result *r, int32_t i, int64_t cap, double *xyz, double *uv_a, double *uv_b,
-                                           double *a_at_uv, double *b_at_uv)
+extern "C" int32_t smlib_ssi_curve_nurbs(const smlib_ssi_result *r, int32_t i, int32_t which, int32_t *degree, int64_t *n_points,
+                                         int64_t *n_knots, int64_t cap_points, double *points, double *weights, int64_t cap_knots,
+                                         double *knots)
 {
-    if (r == nullptr || i < 0 || static_cast<size_t>(i) >= r->curves.size())
+    if (r == nullptr || i < 0 || static_cast<size_t>(i) >= r->curves.size() || which < SMLIB_SSI_CURVE_3D || which > SMLIB_SSI_CURVE_UV_B)
     {
         return SMLIB_ERR_ARG;
     }
-    if (cap < r->samples)
+    const Curve &k = r->curves[i];
+    const Nurbs &c = which == SMLIB_SSI_CURVE_3D ? k.c3 : which == SMLIB_SSI_CURVE_UV_A ? k.uv_a : k.uv_b;
+    if (c.dim == 0)
+    {
+        const bool returned = which == SMLIB_SSI_CURVE_3D || (k.flags & (which == SMLIB_SSI_CURVE_UV_A ? SMLIB_SSI_HAS_UV_A : SMLIB_SSI_HAS_UV_B));
+        return returned ? SMLIB_ERR_UNSUPPORTED : SMLIB_ERR_EMPTY;
+    }
+    const int64_t np = static_cast<int64_t>(c.weights.size()), nk = static_cast<int64_t>(c.knots.size());
+    if (degree != nullptr)
+    {
+        *degree = c.degree;
+    }
+    if (n_points != nullptr)
+    {
+        *n_points = np;
+    }
+    if (n_knots != nullptr)
+    {
+        *n_knots = nk;
+    }
+    if ((points != nullptr || weights != nullptr) && cap_points < np)
     {
         return SMLIB_ERR_BUFFER;
     }
-    const Curve &k = r->curves[i];
-    auto copy = [](double *dst, const std::vector<double> &src)
+    if (knots != nullptr && cap_knots < nk)
     {
-        if (dst != nullptr && !src.empty())
-        {
-            std::memcpy(dst, src.data(), src.size() * sizeof(double));
-        }
-    };
-    copy(xyz, k.xyz);
-    copy(uv_a, k.uv_a);
-    copy(uv_b, k.uv_b);
-    copy(a_at_uv, k.a_at_uv);
-    copy(b_at_uv, k.b_at_uv);
+        return SMLIB_ERR_BUFFER;
+    }
+    if (points != nullptr)
+    {
+        std::copy(c.points.begin(), c.points.end(), points);
+    }
+    if (weights != nullptr)
+    {
+        std::copy(c.weights.begin(), c.weights.end(), weights);
+    }
+    if (knots != nullptr)
+    {
+        std::copy(c.knots.begin(), c.knots.end(), knots);
+    }
     return SMLIB_OK;
 }
 

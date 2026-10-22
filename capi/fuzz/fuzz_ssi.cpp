@@ -191,9 +191,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     const uint8_t flags = in.byte();
     const int32_t method = (flags & 0x40) ? static_cast<int32_t>(in.byte()) - 1 : flags % 3;
     const double tol = (flags & 0x20) ? in.raw() : std::pow(10.0, -2.0 - (flags >> 2) % 4);
-    const int32_t samples = (flags & 0x80) ? static_cast<int32_t>(in.byte()) - 1 : 2 + in.byte() % 32;
     smlib_ssi_result *r = nullptr;
-    if (smlib_ssi(a, (flags & 0x10) ? a : b, method, tol, samples, &r) == SMLIB_OK)
+    if (smlib_ssi(a, (flags & 0x10) ? a : b, method, tol, &r) == SMLIB_OK)
     {
         int32_t n = 0;
         if (smlib_ssi_curve_count(r, &n) != SMLIB_OK || n < 0)
@@ -202,17 +201,31 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         }
         for (int32_t i = 0; i < n; ++i)
         {
-            int32_t type = 0, fl = 0, ns = 0;
+            int32_t type = 0, fl = 0;
             double dev, ivl[2];
-            if (smlib_ssi_curve_info(r, i, &type, &fl, &ns, &dev, ivl) != SMLIB_OK || ns != samples || type < SMLIB_SSI_NONE ||
-                type > SMLIB_SSI_REGION_BOUNDARY)
+            if (smlib_ssi_curve_info(r, i, &type, &fl, &dev, ivl) != SMLIB_OK || type < SMLIB_SSI_NONE || type > SMLIB_SSI_REGION_BOUNDARY)
             {
                 std::abort();
             }
-            std::vector<double> xyz(3 * ns), ua(2 * ns), ub(2 * ns), sa(3 * ns), sb(3 * ns);
-            if (smlib_ssi_curve_samples(r, i, ns, xyz.data(), ua.data(), ub.data(), sa.data(), sb.data()) != SMLIB_OK)
+            for (int32_t which : {SMLIB_SSI_CURVE_3D, SMLIB_SSI_CURVE_UV_A, SMLIB_SSI_CURVE_UV_B})
             {
-                std::abort();
+                const int dim = which == SMLIB_SSI_CURVE_3D ? 3 : 2;
+                int32_t degree = 0;
+                int64_t np = 0, nk = 0;
+                const int32_t st = smlib_ssi_curve_nurbs(r, i, which, &degree, &np, &nk, 0, nullptr, nullptr, 0, nullptr);
+                if (st == SMLIB_ERR_EMPTY || st == SMLIB_ERR_UNSUPPORTED)
+                {
+                    continue;
+                }
+                if (st != SMLIB_OK || np <= degree || nk != np + degree + 1)
+                {
+                    std::abort();
+                }
+                std::vector<double> pts(dim * np), w(np), k(nk);
+                if (smlib_ssi_curve_nurbs(r, i, which, nullptr, nullptr, nullptr, np, pts.data(), w.data(), nk, k.data()) != SMLIB_OK)
+                {
+                    std::abort();
+                }
             }
         }
         int32_t np = 0;
