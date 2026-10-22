@@ -3,7 +3,8 @@
 
 // smlib_surface_* and smlib_ssi on cases from the SSI corpus (plane x cylinder ellipse, plane x
 // sphere circle, two NURBS paraboloids, a sphere touching a plane), checking curve counts, types
-// and that every sample lies on both surfaces; then hostile inputs, which must be rejected.
+// and that each curve, evaluated from its exact B-spline, lies on both surfaces; then hostile
+// inputs, which must be rejected.
 
 #include "smlib.h"
 
@@ -29,23 +30,121 @@ static const double NaN = std::numeric_limits<double>::quiet_NaN();
 static const double INF = std::numeric_limits<double>::infinity();
 static const double X[3] = {1, 0, 0}, Y[3] = {0, 1, 0}, O[3] = {0, 0, 0};
 
+// A (rational) B-spline as smlib_ssi_curve_nurbs gives it.
+struct Nurbs
+{
+    int32_t status = SMLIB_ERR_EMPTY, degree = 0;
+    std::vector<double> points, weights, knots;
+};
+
+static Nurbs nurbs(const smlib_ssi_result *r, int32_t i, int32_t which, int dim)
+{
+    Nurbs c;
+    int64_t np = 0, nk = 0;
+    c.status = smlib_ssi_curve_nurbs(r, i, which, &c.degree, &np, &nk, 0, nullptr, nullptr, 0, nullptr);
+    if (c.status != SMLIB_OK)
+    {
+        return c;
+    }
+    CHECK(np > c.degree && nk == np + c.degree + 1);
+    c.points.resize(dim * np);
+    c.weights.resize(np);
+    c.knots.resize(nk);
+    CHECK(smlib_ssi_curve_nurbs(r, i, which, nullptr, nullptr, nullptr, np - 1, c.points.data(), nullptr, 0, nullptr) == SMLIB_ERR_BUFFER);
+    c.status = smlib_ssi_curve_nurbs(r, i, which, nullptr, nullptr, nullptr, np, c.points.data(), c.weights.data(), nk, c.knots.data());
+    CHECK(c.status == SMLIB_OK);
+    return c;
+}
+
+// The curve's point at `t` (de Boor on the homogeneous points), `dim` coordinates into `out`.
+static void point(const Nurbs &c, int dim, double t, double *out)
+{
+    const int p = c.degree;
+    const int n = static_cast<int>(c.weights.size());
+    int k = p;
+    while (k + 1 < n && c.knots[k + 1] <= t)
+    {
+        ++k;
+    }
+    std::vector<double> d((p + 1) * 4);
+    for (int j = 0; j <= p; ++j)
+    {
+        const int q = k - p + j;
+        for (int e = 0; e < dim; ++e)
+        {
+            d[4 * j + e] = c.points[dim * q + e] * c.weights[q];
+        }
+        d[4 * j + 3] = c.weights[q];
+    }
+    for (int rr = 1; rr <= p; ++rr)
+    {
+        for (int j = p; j >= rr; --j)
+        {
+            const double lo = c.knots[k - p + j], hi = c.knots[k + 1 + j - rr];
+            const double a = hi > lo ? (t - lo) / (hi - lo) : 0.0;
+            for (int e = 0; e < 4; ++e)
+            {
+                d[4 * j + e] = (1.0 - a) * d[4 * (j - 1) + e] + a * d[4 * j + e];
+            }
+        }
+    }
+    for (int e = 0; e < dim; ++e)
+    {
+        out[e] = d[4 * p + e] / d[4 * p + 3];
+    }
+}
+
+// Curve `i` evaluated at `n` parameters spread evenly over each B-spline's knot range: the 3D
+// curve, and where the method returned them the UV curves with the surfaces at their points.
 struct Samples
 {
     int32_t type = -2, flags = 0, n = 0;
     std::vector<double> xyz, uv_a, uv_b, a, b;
 };
 
-static Samples curve(const smlib_ssi_result *r, int32_t i)
+static void sample(const Nurbs &c, int dim, int32_t n, std::vector<double> &out)
+{
+    out.assign(static_cast<size_t>(dim) * n, NaN);
+    if (c.status != SMLIB_OK)
+    {
+        return;
+    }
+    const double t0 = c.knots[c.degree], t1 = c.knots[c.weights.size()];
+    for (int32_t k = 0; k < n; ++k)
+    {
+        point(c, dim, t0 + (t1 - t0) * k / (n - 1), &out[static_cast<size_t>(dim) * k]);
+    }
+}
+
+static void at(const smlib_surface *s, const std::vector<double> &uv, std::vector<double> &out)
+{
+    out.assign(uv.size() / 2 * 3, NaN);
+    for (size_t k = 0; 2 * k < uv.size(); ++k)
+    {
+        if (std::isfinite(uv[2 * k]))
+        {
+            CHECK(smlib_surface_evaluate(s, uv[2 * k], uv[2 * k + 1], &out[3 * k]) == SMLIB_OK);
+        }
+    }
+}
+
+static Samples curve(const smlib_ssi_result *r, int32_t i, const smlib_surface *a = nullptr, const smlib_surface *b = nullptr, int32_t n = 201)
 {
     Samples s;
-    CHECK(smlib_ssi_curve_info(r, i, &s.type, &s.flags, &s.n, nullptr, nullptr) == SMLIB_OK);
-    s.xyz.resize(3 * s.n);
-    s.uv_a.resize(2 * s.n);
-    s.uv_b.resize(2 * s.n);
-    s.a.resize(3 * s.n);
-    s.b.resize(3 * s.n);
-    CHECK(smlib_ssi_curve_samples(r, i, s.n - 1, s.xyz.data(), nullptr, nullptr, nullptr, nullptr) == SMLIB_ERR_BUFFER);
-    CHECK(smlib_ssi_curve_samples(r, i, s.n, s.xyz.data(), s.uv_a.data(), s.uv_b.data(), s.a.data(), s.b.data()) == SMLIB_OK);
+    s.n = n;
+    CHECK(smlib_ssi_curve_info(r, i, &s.type, &s.flags, nullptr, nullptr) == SMLIB_OK);
+    const Nurbs c3 = nurbs(r, i, SMLIB_SSI_CURVE_3D, 3), ua = nurbs(r, i, SMLIB_SSI_CURVE_UV_A, 2), ub = nurbs(r, i, SMLIB_SSI_CURVE_UV_B, 2);
+    CHECK(c3.status == SMLIB_OK);
+    CHECK((ua.status == SMLIB_OK) == ((s.flags & SMLIB_SSI_HAS_UV_A) != 0) && (ua.status == SMLIB_OK || ua.status == SMLIB_ERR_EMPTY));
+    CHECK((ub.status == SMLIB_OK) == ((s.flags & SMLIB_SSI_HAS_UV_B) != 0) && (ub.status == SMLIB_OK || ub.status == SMLIB_ERR_EMPTY));
+    sample(c3, 3, n, s.xyz);
+    sample(ua, 2, n, s.uv_a);
+    sample(ub, 2, n, s.uv_b);
+    if (a != nullptr && b != nullptr)
+    {
+        at(a, s.uv_a, s.a);
+        at(b, s.uv_b, s.b);
+    }
     return s;
 }
 
@@ -58,14 +157,14 @@ static double dist(const double *p, const double *q)
 // within `tol`; where the method returned UV curves, the surfaces at those UVs within `tol` of
 // the 3D sample too.
 template <typename F>
-static void check_on_both(const smlib_ssi_result *r, double tol, F on)
+static void check_on_both(const smlib_ssi_result *r, const smlib_surface *a, const smlib_surface *b, double tol, F on)
 {
     int32_t n = 0;
     CHECK(smlib_ssi_curve_count(r, &n) == SMLIB_OK);
     double worst = 0.0;
     for (int32_t i = 0; i < n; ++i)
     {
-        Samples s = curve(r, i);
+        Samples s = curve(r, i, a, b);
         for (int32_t k = 0; k < s.n; ++k)
         {
             const double *p = &s.xyz[3 * k];
@@ -98,7 +197,7 @@ static int32_t count(const smlib_ssi_result *r)
 static int32_t type(const smlib_ssi_result *r, int32_t i)
 {
     int32_t t = -2;
-    CHECK(smlib_ssi_curve_info(r, i, &t, nullptr, nullptr, nullptr, nullptr) == SMLIB_OK);
+    CHECK(smlib_ssi_curve_info(r, i, &t, nullptr, nullptr, nullptr) == SMLIB_OK);
     return t;
 }
 
@@ -124,7 +223,7 @@ static void plane_cylinder()
     for (int32_t method : {SMLIB_SSI_GLOBAL, SMLIB_SSI_ADVANCED})
     {
         smlib_ssi_result *r = nullptr;
-        CHECK(smlib_ssi(plane, cyl, method, 1e-6, 201, &r) == SMLIB_OK);
+        CHECK(smlib_ssi(plane, cyl, method, 1e-6, &r) == SMLIB_OK);
         if (r == nullptr)
         {
             continue;
@@ -133,7 +232,7 @@ static void plane_cylinder()
         CHECK(type(r, 0) == SMLIB_SSI_CROSSING);
         int32_t np = -1;
         CHECK(smlib_ssi_point_count(r, &np) == SMLIB_OK && np == 0);
-        check_on_both(r, 1e-5, on);
+        check_on_both(r, plane, cyl, 1e-5, on);
         if (method == SMLIB_SSI_ADVANCED)
         {
             Samples s = curve(r, 0);
@@ -159,12 +258,12 @@ static void plane_sphere()
     CHECK(smlib_surface_plane(o, X, Y, u, u, &plane) == SMLIB_OK);
     CHECK(smlib_surface_sphere(O, X, Y, 2.0, lon, lat, &sphere) == SMLIB_OK);
     smlib_ssi_result *r = nullptr;
-    CHECK(smlib_ssi(plane, sphere, SMLIB_SSI_GLOBAL, 0.0, 64, &r) == SMLIB_OK);
+    CHECK(smlib_ssi(plane, sphere, SMLIB_SSI_GLOBAL, 0.0, &r) == SMLIB_OK);
     if (r != nullptr)
     {
         CHECK(count(r) == 1);
         CHECK(type(r, 0) == SMLIB_SSI_CROSSING);
-        check_on_both(r, 1e-6, [](const double *q) { return std::max(std::fabs(q[2] - 1.0), std::fabs(dist(q, O) - 2.0)); });
+        check_on_both(r, plane, sphere, 1e-6, [](const double *q) { return std::max(std::fabs(q[2] - 1.0), std::fabs(dist(q, O) - 2.0)); });
         smlib_ssi_result_free(r);
     }
     smlib_surface_free(plane);
@@ -187,14 +286,14 @@ static void nurbs_paraboloids()
     for (int32_t method : {SMLIB_SSI_GLOBAL, SMLIB_SSI_ADVANCED, SMLIB_SSI_BASIC})
     {
         smlib_ssi_result *r = nullptr;
-        CHECK(smlib_ssi(a, b, method, 1e-6, 401, &r) == SMLIB_OK);
+        CHECK(smlib_ssi(a, b, method, 1e-6, &r) == SMLIB_OK);
         if (r == nullptr)
         {
             continue;
         }
         CHECK(count(r) == 1);
         CHECK(type(r, 0) == SMLIB_SSI_CROSSING);
-        check_on_both(r, 1e-5, [](const double *q) { return std::max(std::fabs(q[2] - 1.0), std::fabs(std::hypot(q[0], q[1]) - 1.0)); });
+        check_on_both(r, a, b, 1e-5, [](const double *q) { return std::max(std::fabs(q[2] - 1.0), std::fabs(std::hypot(q[0], q[1]) - 1.0)); });
         Samples s = curve(r, 0);
         CHECK(s.flags == (SMLIB_SSI_HAS_UV_A | SMLIB_SSI_HAS_UV_B));
         smlib_ssi_result_free(r);
@@ -211,7 +310,7 @@ static void sphere_touching_plane()
     CHECK(smlib_surface_sphere(c, X, Y, 1.0, lon, lat, &sphere) == SMLIB_OK);
     CHECK(smlib_surface_plane(O, X, Y, u, u, &plane) == SMLIB_OK);
     smlib_ssi_result *r = nullptr;
-    CHECK(smlib_ssi(sphere, plane, SMLIB_SSI_GLOBAL, 1e-6, 2, &r) == SMLIB_OK);
+    CHECK(smlib_ssi(sphere, plane, SMLIB_SSI_GLOBAL, 1e-6, &r) == SMLIB_OK);
     if (r != nullptr)
     {
         CHECK(count(r) == 1);
@@ -282,13 +381,11 @@ static void hostile()
     smlib_surface *a = nullptr;
     CHECK(smlib_surface_plane(O, X, Y, u, u, &a) == SMLIB_OK);
     smlib_ssi_result *r = nullptr;
-    CHECK(smlib_ssi(a, nullptr, 0, 0.0, 10, &r) == SMLIB_ERR_ARG);
-    CHECK(smlib_ssi(a, a, 3, 0.0, 10, &r) == SMLIB_ERR_ARG);
-    CHECK(smlib_ssi(a, a, -1, 0.0, 10, &r) == SMLIB_ERR_ARG);
-    CHECK(smlib_ssi(a, a, 0, NaN, 10, &r) == SMLIB_ERR_ARG);
-    CHECK(smlib_ssi(a, a, 0, 0.0, 1, &r) == SMLIB_ERR_ARG);
-    CHECK(smlib_ssi(a, a, 0, 0.0, SMLIB_SSI_MAX_SAMPLES + 1, &r) == SMLIB_ERR_ARG);
-    CHECK(smlib_ssi(a, a, 0, 0.0, 10, nullptr) == SMLIB_ERR_ARG);
+    CHECK(smlib_ssi(a, nullptr, 0, 0.0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_ssi(a, a, 3, 0.0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_ssi(a, a, -1, 0.0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_ssi(a, a, 0, NaN, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_ssi(a, a, 0, 0.0, nullptr) == SMLIB_ERR_ARG);
     CHECK(r == nullptr);
     CHECK(smlib_ssi_curve_count(nullptr, nullptr) == SMLIB_ERR_ARG);
     CHECK(smlib_surface_evaluate(a, NaN, 0.0, nullptr) == SMLIB_ERR_ARG);

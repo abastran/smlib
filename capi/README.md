@@ -193,24 +193,27 @@ and randomly mutated arrays.
   Angles are in degrees, as in the case files. Every argument is validated first (finite,
   bounded, non-parallel axes, positive radii, consistent counts, non-decreasing knot vectors with
   a non-empty domain, positive weights), and anything else returns `SMLIB_ERR_ARG`.
-- `smlib_ssi(a, b, method, approx_tol, samples_per_curve, &result)` runs
-  `SmSurface::GlobalSurfaceIntersect` (0), `SmAdvSurfaceIntersector` (1) or
-  `SmSurfaceIntersector` (2), as the runner's `gsi`, `adv` and `basic` modes do, with both
-  surfaces' edges seeding curves and `approx_tol <= 0` meaning SMLib's default.
-- Each curve is sampled as the runner samples it: `samples_per_curve` parameters spaced evenly
-  over the 3D curve's natural interval, each UV curve likewise over its own interval, and both
-  surfaces evaluated at the UV samples. The result gives per curve its SMLib type (crossing,
-  tangent, touching and so on), whether the method returned UV curves (GlobalSurfaceIntersect's
-  analytic special cases return none), and the samples copied into caller buffers. TOUCHING curves
-  are listed again as isolated points.
+- `smlib_ssi(a, b, method, approx_tol, &result)` runs `SmSurface::GlobalSurfaceIntersect` (0),
+  `SmAdvSurfaceIntersector` (1) or `SmSurfaceIntersector` (2), as the runner's `gsi`, `adv` and
+  `basic` modes do, with both surfaces' edges seeding curves and `approx_tol <= 0` meaning
+  SMLib's default.
+- Each curve is kept exactly as SMLib holds it: `smlib_ssi_curve_nurbs` copies its 3D curve and
+  its UV curves on `a` and `b` as (rational) B-splines (degree, every knot, cartesian control
+  points, weights). SMLib's lines, circles and ellipses are B-spline curves, and its intersection
+  curves B-splines it fitted within `approx_tol`, so nothing is sampled or approximated here; a
+  curve SMLib does not hold as a B-spline is `SMLIB_ERR_UNSUPPORTED`, a UV curve the method did
+  not return `SMLIB_ERR_EMPTY`. The result also gives per curve its SMLib type (crossing,
+  tangent, touching and so on), SMLib's deviation estimate, the 3D curve's natural interval and
+  whether the method returned UV curves (GlobalSurfaceIntersect's analytic special cases return
+  none). TOUCHING curves are listed again as isolated points, at the start of their curves.
 - A failing call's dump holds both surfaces as a corpus case file, `<n>-smlib_ssi-case.txt`, that
   the corpus runner replays.
 
-Through this API, all 119 corpus cases give bit-for-bit the runner's output (curve counts,
-types and every sample), in all three modes. One difference: where SMLib cannot evaluate a
-sample, the API writes NaN, while the runner drops the sample. `tests/ssi.cpp` checks corpus-like
-cases against their closed forms and rejects hostile inputs; `fuzz/fuzz_ssi.cpp`
-(`smlib_fuzz_ssi`, run with `-timeout=10`) fuzzes the constructors and all three methods.
+A caller that compares with the corpus runner's output evaluates the curves itself where the
+runner samples them (evenly over each curve's natural interval). `tests/ssi.cpp` checks
+corpus-like cases against their closed forms, evaluating the exact curves, and rejects hostile
+inputs; `fuzz/fuzz_ssi.cpp` (`smlib_fuzz_ssi`, run with `-timeout=10`) fuzzes the constructors and
+all three methods.
 
 ## Planar regions
 
