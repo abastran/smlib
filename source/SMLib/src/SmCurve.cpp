@@ -19413,6 +19413,9 @@ METHOD ---
        3c. when maxDistance < d3dTolerance and minDistance is
            not less than endPoint distances,
                       return rlNumFound = 1, 1 RANGE_OF_VALUE solution.
+       3d. except where the separation between the curves points to opposite
+           sides at the segment's two ends (the curves cross inside it):
+                      return rlNumFound = 1, 1 SINGLE_VALUE solution at the crossing.
 ***********************************************************************/
 SmStatus SmCurve::SimpleCoincidenceChecker  // PRE SM_TOLERANT_XSECT VERSION
   (const SmExtent1d  & crInterval,             // in : 1st curve target interval
@@ -19724,6 +19727,49 @@ SmBoolean bDebugMe = FALSE ;
       rlNumFound = 2;
       return SM_SUCCESS;
     }
+
+  // The curves stay within tolerance over the interval; they coincide there only if the
+  // separation between them keeps one side. Where it changes sides between the interval's ends
+  // the curves cross inside it, however small their angle (two equal circles a little apart
+  // graze over a stretch of tolerance, and the stretch ends wherever the curves happened to be
+  // subdivided): the answer is that crossing, as a curve/curve intersection finds it, not a
+  // range. A separation that vanishes to numeric zero has no side.
+  {
+    SmPoint3d sThisA, sThisB, sOtherA, sOtherB;
+    SER(EvaluatePoint(daT1[0], sThisA));
+    SER(EvaluatePoint(daT1[lNumT-1], sThisB));
+    SER(crOtherCurve.EvaluatePoint(daT2[0], sOtherA));
+    SER(crOtherCurve.EvaluatePoint(daT2[lNumT-1], sOtherB));
+    SmVector3d sSeparationA = sOtherA - sThisA;
+    SmVector3d sSeparationB = sOtherB - sThisB;
+    double dScaledZero = SM_EFF_ZERO * (1.0 + smos_Max(sThisA.GetMaxDimension(), sThisB.GetMaxDimension()));
+    if (   sSeparationA.Length() > dScaledZero
+        && sSeparationB.Length() > dScaledZero
+        && sSeparationA.Dot(sSeparationB) < 0.0)
+      {
+        // start where the separation, taken as linear between the ends, vanishes
+        double dA = sSeparationA.Length(), dB = sSeparationB.Length();
+        double dW = dA / (dA + dB);
+        SmBoolean bFoundCrossing = FALSE;
+        double dCross1 = 0.0, dCross2 = 0.0, dCrossDev = 0.0;
+        SER(LocalCurveIntersect(sIvlT1, crOtherCurve, sIvlT2, d3dTolerance,
+                                daT1[0] + dW * (daT1[lNumT-1] - daT1[0]),
+                                daT2[0] + dW * (daT2[lNumT-1] - daT2[0]),
+                                bFoundCrossing, dCross1, dCross2, dCrossDev));
+        if (!bFoundCrossing)
+          { SER_MSG(SM_ERR, _T("SmCurve::SimpleCoincidenceChecker - curves change sides but no crossing found")); }
+        aSolutions[0].m_lNumVariables           = 2;
+        aSolutions[0].m_lNumObjects             = 2;
+        aSolutions[0].m_vStart[0]               = dCross1;
+        aSolutions[0].m_vStart[1]               = dCross2;
+        aSolutions[0].m_vStart.m_dSolutionValue = dCrossDev;
+        aSolutions[0].m_eSolutionType           = SM_ST_SINGLE_VALUE;
+        aSolutions[0].m_apObjects[0]            = (SmObject *)this ;
+        aSolutions[0].m_apObjects[1]            = (SmObject *)&crOtherCurve ;
+        rlNumFound = 1;
+        return SM_SUCCESS;
+      }
+  }
 
   // If we made it here we know we do have a coincidence
 
