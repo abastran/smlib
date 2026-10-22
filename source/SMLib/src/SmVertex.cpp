@@ -784,7 +784,7 @@ SmBoolean SmVertex::IsTopologicalVertex() const
   double dAngLimitRad = SM_DEG2RAD(SM_CONTINUITY_ANGLE) ;
 
   double dAngleRad;
-  if(pCurve1 != pCurve2) { sTanVec1.AngleBetween(sTanVec2, dAngleRad) ; }
+  if(pCurve1 != pCurve2) { if ( sTanVec1.AngleBetween(sTanVec2, dAngleRad)  != SM_SUCCESS ) { return FALSE ; } } // SolidCraft change: without the angle the curves are not shown G1, so the vertex stays
   else                   { dAngleRad = 0.0 ; }
 
   // when lines are not G1 - Vertex is not topological
@@ -1183,7 +1183,7 @@ SmStatus SmVertex::RefineGeometry
   SmFace    * pMaxGapFace ;
 
   // look for a surf/surf/surf intersection to define the vertex location
-  CalcCornerFromFaces(bFoundPoint, dMaxGap3d, pMaxGapFace, sBestPoint) ;
+  SER( CalcCornerFromFaces(bFoundPoint, dMaxGap3d, pMaxGapFace, sBestPoint)  );
 
   // when BestPoint was found
   if(bFoundPoint)
@@ -1272,8 +1272,8 @@ SmBoolean SmVertex::HasParallelFaces
       if(pVertexFaceGap1 == NULL)
         { continue ; }
 
-      pSurface1->EvaluatePoint ( pVertexFaceGap1->GetFaceUV(), sPN1[0]) ;
-      pSurface1->EvaluateNormal( pVertexFaceGap1->GetFaceUV(), TRUE, TRUE, sPN1[1]) ;
+      if ( pSurface1->EvaluatePoint ( pVertexFaceGap1->GetFaceUV(), sPN1[0])  != SM_SUCCESS ) { continue ; } // SolidCraft change: a pair whose points or normals cannot be evaluated is not compared
+      if ( pSurface1->EvaluateNormal( pVertexFaceGap1->GetFaceUV(), TRUE, TRUE, sPN1[1])  != SM_SUCCESS ) { continue ; } // SolidCraft change: a pair whose points or normals cannot be evaluated is not compared
 
       // for every FacePair 2nd element
       for(jj=ii+1;jj<sVertexuses.GetSize();jj++)
@@ -1287,10 +1287,10 @@ SmBoolean SmVertex::HasParallelFaces
           if(pVertexFaceGap2 == NULL)
             { continue ; }
 
-          pSurface2->EvaluatePoint ( pVertexFaceGap2->GetFaceUV(), sPN2[0]) ;
-          pSurface2->EvaluateNormal( pVertexFaceGap2->GetFaceUV(), TRUE, TRUE, sPN2[1]) ;
+          if ( pSurface2->EvaluatePoint ( pVertexFaceGap2->GetFaceUV(), sPN2[0])  != SM_SUCCESS ) { continue ; } // SolidCraft change: a pair whose points or normals cannot be evaluated is not compared
+          if ( pSurface2->EvaluateNormal( pVertexFaceGap2->GetFaceUV(), TRUE, TRUE, sPN2[1])  != SM_SUCCESS ) { continue ; } // SolidCraft change: a pair whose points or normals cannot be evaluated is not compared
 
-          sPN1[1].AngleBetween(sPN2[1], dDihedralAngRad) ;
+          if ( sPN1[1].AngleBetween(sPN2[1], dDihedralAngRad)  != SM_SUCCESS ) { continue ; } // SolidCraft change: a pair whose points or normals cannot be evaluated is not compared
           dDihedralAngDeg = SM_RAD2DEG(dDihedralAngRad) ;
           if(pOptMinDihedralAngDeg && *pOptMinDihedralAngDeg > dDihedralAngDeg)
             { *pOptMinDihedralAngDeg = dDihedralAngDeg ; }
@@ -1917,10 +1917,12 @@ SmBoolean SmVertex::IsOnFaceCorner
   SmPoint3d    sBestPoint,  * psBestPoint  = pOptBestPoint   ? pOptBestPoint   : &sBestPoint ;
 
   // look for a best vertex point position defined by the faces connected to the vertex
-  CalcCornerFromFaces(*pbFoundPoint,   // out: TRUE = found a Point on connected faces, FALSE=didn't
+  // SolidCraft change: a corner it could not compute is no best point (bFoundPoint was read unset)
+  if ( CalcCornerFromFaces(*pbFoundPoint,   // out: TRUE = found a Point on connected faces, FALSE=didn't
                       *pdMaxGap3d,     // out: when bFoundPoint == TRUE, Max VertexFace gap from current vertex position
                        pMaxGapFace,    // out: when bFoundPoint == TRUE, Face of max VertexFace gap
-                      *psBestPoint ) ; // out: When bFoundPoint == TRUE, Best possible vertex position to minimize Vertex/Face gaps
+                      *psBestPoint )  != SM_SUCCESS )
+    { *pbFoundPoint = FALSE ; } // out: When bFoundPoint == TRUE, Best possible vertex position to minimize Vertex/Face gaps
                                        //      otherwise set to uninitialized
   // check the gap
   SmScaledZero sScaledZero = SmTol::GetScaledZero(*this) ;
@@ -2060,8 +2062,8 @@ SmBoolean bDebugMe = FALSE ;
     {
       // let Vertex best point be the mid point between the two Faces
       SmPoint3d sPt1, sPt2 ;
-      pFace1->GetSurface()->EvaluatePoint(sUV1, sPt1) ;
-      pFace2->GetSurface()->EvaluatePoint(sUV2, sPt2) ;
+      SER( pFace1->GetSurface()->EvaluatePoint(sUV1, sPt1)  );
+      SER( pFace2->GetSurface()->EvaluatePoint(sUV2, sPt2)  );
 
       // set output
       rbFoundPoint = TRUE ;
@@ -2101,7 +2103,7 @@ SmBoolean bDebugMe = FALSE ;
       if(pFaceuse == NULL) continue ;
 
       // Get Vertex->Face dropPoint
-      pVertexuse->ComputeUVPoint(sUV, FALSE) ; // FALSE = Use GlobalSolve without touching UVTrimCurve
+      SER( pVertexuse->ComputeUVPoint(sUV, FALSE)  ); // FALSE = Use GlobalSolve without touching UVTrimCurve
       SmSurface *pSurface = pFaceuse->GetFace()->GetSurface() ;
 
       // skip faces without surfaces
@@ -2178,13 +2180,13 @@ SmBoolean bDebugMe = FALSE ;
       case 1: { // Drop Current Vertex->Point to Face->Surface
                 SmSurface * pSurface = sTgtFaces[0]->GetSurface() ;
 
-                pSurface->DropPoint(GetPoint(), // in : target point to drop
+                SER( pSurface->DropPoint(GetPoint(), // in : target point to drop
                                     pSurface->GetNaturalUVDomain(), // in : target surface domain
                                     &sTgtUVs[0], // in : When given, uses only local solves
                                     bFoundAnswer, // out: TRUE=Point dropped successfully, FALSE=didn't
                                     sUV, // out: drop result UVPoint
                                     rdMaxGap3d, // out: distance of found point to Pt to drop
-                                    bIsMulti); // in : SM_SO_MINIMIZE = allow nonNormal drops near boundaries
+                                    bIsMulti) ); // in : SM_SO_MINIMIZE = allow nonNormal drops near boundaries
                                                   //      SM_SO_NORMALIZE= exclude nonNormal drops near boundaries
                                                   //      SM_SO_INTERSECT= point must be on surface, to Tol
 
@@ -2204,7 +2206,7 @@ SmBoolean bDebugMe = FALSE ;
                                           *pSurface2, pSurface2->GetNaturalUVDomain()) ;
 
                 // refine the DropPoint solutions to a point on the surf/surf intersection
-                sSSI.RefinePoint
+                SER( sSSI.RefinePoint
                   (sTgtUVs[0],     // in : pSurface1 guess point
                    sTgtUVs[1],     // in : pSurface2 guess point
                    SM_IP_CROSSING, // in : CROSSING here works for Tangent curve cases as well
@@ -2212,7 +2214,7 @@ SmBoolean bDebugMe = FALSE ;
                    NULL,           // in : if given, prevent stepping back to same solution
                    FALSE,          // in : TRUE = Look for Surface/SurfaceBoundary intersections
                    bFoundAnswer,   // out: TRUE = refinement succeeded
-                   sUVs) ;         // out: refined UVPoints clamped to Surface Boundaries
+                   sUVs)  );         // out: refined UVPoints clamped to Surface Boundaries
 
                 // no work - no intersection found
                 if(bFoundAnswer == FALSE)
@@ -2241,7 +2243,7 @@ SmBoolean bDebugMe = FALSE ;
 
       case 3: { // find the surf/surf/surf intersection of the 3 face->Surfaces
                 SmSolution sSolution ;
-                sTgtFaces[0]->GetSurface()->LocalSurfaceSurfaceIntersect
+                SER( sTgtFaces[0]->GetSurface()->LocalSurfaceSurfaceIntersect
                   ( sTgtFaces[0]->GetUVDomain(),
                    *sTgtFaces[1]->GetSurface(),
                     sTgtFaces[1]->GetUVDomain(),
@@ -2251,7 +2253,7 @@ SmBoolean bDebugMe = FALSE ;
                     sTgtUVs[1],
                     sTgtUVs[2],
                     bFoundAnswer,
-                    sSolution) ;
+                    sSolution)  );
 
                 // no work - no intersection found, this can happen for nearly parallel surfaces that don't intersect over their domain
                 if(bFoundAnswer == FALSE)
@@ -2274,7 +2276,7 @@ SmBoolean bDebugMe = FALSE ;
   rbFoundPoint = TRUE ;
 
   // compute 3D point from tgtFace[0]
-  sTgtFaces[0]->GetSurface()->EvaluatePoint(sUV, rsBestPoint) ;
+  SER( sTgtFaces[0]->GetSurface()->EvaluatePoint(sUV, rsBestPoint)  );
 
   // FaceCornerPoint to VertexPoint gap3d
   rdMaxGap3d = rsBestPoint.DistanceBetween(m_vPoint) ;
@@ -2382,7 +2384,7 @@ SmVertexuse * SmVertex::FindAndRemoveVertexuseByEdge
         SmVertexuse * pVU = sVertexuses[i];
         if (pVU->GetEdgeuse()->GetEdge() == pEdge)
           {
-            Remove(pVU);
+            if ( Remove(pVU) != SM_SUCCESS ) { return NULL ; } // SolidCraft change: a vertexuse not removed is not handed back
             return pVU;
           }
       }
@@ -3306,7 +3308,7 @@ void SmVertex::GetVertexuses
   ULONG                  * pOptAttributeId) // in : only include objects containing an attribute with this id
  const                                      //      NULL to ignore, default:[NULL]
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&, rVertexuses), pOptAttributeId) ; 
+  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&, rVertexuses), pOptAttributeId) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
   
 } // end SmVertex::GetVertexuses
 

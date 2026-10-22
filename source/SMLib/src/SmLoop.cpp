@@ -418,7 +418,10 @@ ULONG SmLoop::GetUVCornerBoundaries  // rtn: SM_SS_NONE or orof:[SM_SS_UMIN SM_S
       SmEdgeuse *pEdgeuse = sEdgeuses[ii] ;
 
       // get UVTrimCurve
-      pEdgeuse->GetOrCreateUVTrimCurve(pUVTrimCurve) ;
+      // SolidCraft change: one that could not be made is none (the pointer kept the previous
+      // edgeuse's curve), and the recovery below drops the 3D points instead
+      if (pEdgeuse->GetOrCreateUVTrimCurve(pUVTrimCurve) != SM_SUCCESS)
+        { pUVTrimCurve = NULL ; }
 
       // Use point drop for problem edgeuses
       if ( pUVTrimCurve == NULL )
@@ -435,8 +438,8 @@ ULONG SmLoop::GetUVCornerBoundaries  // rtn: SM_SS_NONE or orof:[SM_SS_UMIN SM_S
           SmExtent2d sUVDomain = pF->GetUVDomain();
           sIvl = pE->GetInterval();
 
-          pC->EvaluatePoint( sIvl.GetMin(), sBeg );
-          pC->EvaluatePoint( sIvl.GetMax(), sEnd );
+          if ( pC->EvaluatePoint( sIvl.GetMin(), sBeg ) != SM_SUCCESS ) { continue ; } // SolidCraft change: an edgeuse whose ends cannot be evaluated adds no boundary
+          if ( pC->EvaluatePoint( sIvl.GetMax(), sEnd ) != SM_SUCCESS ) { continue ; } // SolidCraft change: an edgeuse whose ends cannot be evaluated adds no boundary
 
           SE( pS->DropPoint( sBeg, sUVDomain, NULL, bSuccess, sUVPntBeg, dGap, bIsMulti ) );
           SE( pS->DropPoint( sEnd, sUVDomain, NULL, bSuccess, sUVPntEnd, dGap, bIsMulti ) );
@@ -445,8 +448,8 @@ ULONG SmLoop::GetUVCornerBoundaries  // rtn: SM_SS_NONE or orof:[SM_SS_UMIN SM_S
       {
           // end points
           sIvl = pUVTrimCurve->GetNaturalInterval();
-          pUVTrimCurve->EvaluatePoint( sIvl.Evaluate( 0.0 ), sUVBeg );
-          pUVTrimCurve->EvaluatePoint( sIvl.Evaluate( 1.0 ), sUVEnd );
+          if ( pUVTrimCurve->EvaluatePoint( sIvl.Evaluate( 0.0 ), sUVBeg ) != SM_SUCCESS ) { continue ; } // SolidCraft change: an edgeuse whose ends cannot be evaluated adds no boundary
+          if ( pUVTrimCurve->EvaluatePoint( sIvl.Evaluate( 1.0 ), sUVEnd ) != SM_SUCCESS ) { continue ; } // SolidCraft change: an edgeuse whose ends cannot be evaluated adds no boundary
 
           sUVPntBeg.Set( sUVBeg.x, sUVBeg.y );
           sUVPntEnd.Set( sUVEnd.x, sUVEnd.y );
@@ -543,7 +546,7 @@ SmPointObjectContainmentType SmLoop::ContainsUVPoint // rtn: oneof SM_POC_INSIDE
   // SmBoolean   bCrossedSeam      = FALSE ;    // gwc: removed new feature - it caused cascading failures
   SmPoint3d   s1stUV ;
   SmPoint3d   sPoint3d;
-  pSurface->EvaluatePoint( crUVPoint, sPoint3d );
+  if ( pSurface->EvaluatePoint( crUVPoint, sPoint3d ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: a point not evaluated is not classified
 
   // Get a tolerance in uv space.
   // Scale the input tolerance by the UV deriv size.
@@ -740,7 +743,7 @@ SmBoolean bDebugMe = FALSE ;
       return SM_POC_UNKNOWN;
     }
 
-  pThisUVCurve->EvaluatePoint( dLastEndParam, sLastEndUV );
+  if ( pThisUVCurve->EvaluatePoint( dLastEndParam, sLastEndUV ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: a point not evaluated is not classified
   lLastEndQuadNum = sm_CalcQuadNum( crUVPoint, sLastEndUV );
 
   // Now start the outer loop, on Edgeuses.
@@ -756,8 +759,9 @@ SmBoolean bDebugMe = FALSE ;
       SmBoolean bSuccess;
 
       // low work: see if TgtPoint is on this EdgeCurve
-      pEdgeCurve->DropPoint( pEdge->GetInterval(), sPoint3d, NULL, sEdgeZoneTol3d, NULL, bSuccess, dParam, dDist, SM_SO_INTERSECT );
-      if ( bSuccess )
+      // SolidCraft change: a failed drop is no drop (bSuccess was read unset)
+      if (   pEdgeCurve->DropPoint( pEdge->GetInterval(), sPoint3d, NULL, sEdgeZoneTol3d, NULL, bSuccess, dParam, dDist, SM_SO_INTERSECT ) == SM_SUCCESS
+          && bSuccess )
       {
           // TgtPoint is on EdgeCurve - set output and return
           rpOnEdge = pEdge;
@@ -812,7 +816,7 @@ SmBoolean bDebugMe = FALSE ;
 
       // Eval info for start point of this EU.
       SmVector3d sPtDer[2];
-      pThisUVCurve->Evaluate( dPrevParam, 1, FALSE, sPtDer );
+      if ( pThisUVCurve->Evaluate( dPrevParam, 1, FALSE, sPtDer ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: a point not evaluated is not classified
       sPrevUV       = sPtDer[0];
       sPrevUVTan    = sPtDer[1];
       if ( eOrient == SM_OT_OPPOSITE )
@@ -849,7 +853,7 @@ SmBoolean bDebugMe = FALSE ;
       if ( dPrevDist < dTolUV )
         {
           // We should refine the point.
-          pThisUVCurve->LocalPointSolve(pThisEU->GetEdge()->GetInterval(), // in : search interval
+          if ( pThisUVCurve->LocalPointSolve(pThisEU->GetEdge()->GetInterval(), // in : search interval // SolidCraft change: a solve that fails classifies nothing
                                         SM_SO_MINIMIZE,                    // in : specify specific operation to optimize
                                         crUVPoint,                         // in : point specializing this search
                                         &dTolUV,                           // in : Opt Max allowed solution distance (NULL to ignore) for
@@ -862,7 +866,7 @@ SmBoolean bDebugMe = FALSE ;
                                                                            //      SM_SO_3D_SIGNED_DIRECTED_MINIMIZE
                                         dPrevParam,                        // in : search starting parameter
                                         bFoundAnswer,                      // out: TRUE=converged,FALSE=didn't
-                                        sSol) ;                            // out: solution container for solver
+                                        sSol)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; }                            // out: solution container for solver
 
           // since the guess was good enough - we expect the refined solution to be as good or better
           if ( bFoundAnswer && sSol.m_vStart.m_dSolutionValue <= dTolUV )
@@ -1008,7 +1012,7 @@ Got_dThisParam:
               return SM_POC_UNKNOWN;
           }
 
-          pThisUVCurve->Evaluate( dThisParam, 1, FALSE, sPtDer );
+          if ( pThisUVCurve->Evaluate( dThisParam, 1, FALSE, sPtDer ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: a point not evaluated is not classified
           sThisUV = sPtDer[0];
           sThisUVTan = sPtDer[1];
           if ( eOrient == SM_OT_OPPOSITE )
@@ -1189,7 +1193,7 @@ Got_dThisParam:
               sCrvIvl.AddValue( dThisParam );
               sCrvIvl.ExpandAbsolute( SM_EFF_ZERO );
 
-              pThisUVCurve->LocalPointSolve(sCrvIvl,         // in : search interval
+              if ( pThisUVCurve->LocalPointSolve(sCrvIvl,         // in : search interval // SolidCraft change: a solve that fails classifies nothing
                                             SM_SO_MINIMIZE,  // in : specify specific operation to optimize
                                             crUVPoint,       // in : point specializing this search
                                             &dTolUV,         // in : Opt Max allowed solution distance (NULL to ignore) for
@@ -1202,7 +1206,7 @@ Got_dThisParam:
                                                              //      SM_SO_3D_SIGNED_DIRECTED_MINIMIZE
                                             dGuessT,         // in : search starting parameter
                                             bFoundAnswer,    // out: TRUE=converged,FALSE=didn't
-                                            sSol) ;          // out: solution container for solver
+                                            sSol)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; }          // out: solution container for solver
 
               if ( bFoundAnswer )
                 {
@@ -1364,7 +1368,7 @@ SmStatus SmLoop::RebuildFromEdgeCurves()
       // Re-drop the edgeuse's UVTrimCurve.
       SmEdgeuse *pEU = sEdgeuses[ii];
       pEU->SetUVTrimCurve( NULL, 0.0, TRUE) ; // TRUE = delete existing UVTrimCurve
-      pEU->CreateUVTrimCurve( dMaxDist, pUVBSpl, &dMaxDev );
+      SER( pEU->CreateUVTrimCurve( dMaxDist, pUVBSpl, &dMaxDev ) );
       NER( pUVBSpl ); // Can't do this algorithm if any fails.
 
       pEU->SetUVTrimCurve( pUVBSpl, dMaxDist );  // default: FALSE = don't delete existing UVTrimCurve
@@ -1585,7 +1589,7 @@ SmBoolean SmLoop::AssertValid
           double dTol = pFace->GetTolerance();
 
           // This adds its own entry to pAList (if present), so we don't:
-          SmTrimmingTools::CheckLoop( pSurface, this, dTol, lClosure, pAList, eTestLevel );
+          (void)SmTrimmingTools::CheckLoop( pSurface, this, dTol, lClosure, pAList, eTestLevel ); // SolidCraft: a validity check; CheckLoop records what it finds in pAList
         }
     }
 
