@@ -1094,9 +1094,13 @@ int main()
 
     // tangency-labs/solidcore#402: a face moved away from a tangent neighbour that keeps its
     // surface no longer meets it. SMLib's local operation dropped the edge across the gap and
-    // returned a body whose edge tolerance had grown to the gap; now it fails. A boss r10 on a
-    // 60 x 40 x 10 plate with a r2 round at its base, the boss wall out by 1; and a block whose
-    // top is split in two, one piece up by 1.
+    // returned a body whose edge tolerance had grown to the gap. A face moved along its normal
+    // stays parallel to its tangent neighbour: a step, closed by a wall between the two. A boss
+    // wall moved off its base round (a r10 boss on a 60 x 40 x 10 plate, a r2 round at its
+    // base, the wall out by 1) keeps the round and gains a ledge on top of it: the 8 of wall
+    // above the round grows from r10 to r11, pi * (121 - 100) * 8. One piece of a split top
+    // moved along its normal (a 60 x 40 x 20 block, the top split at x = 30,
+    // the piece x > 30 up by 1 adds 30 x 40 x 1, down by 1 takes it off).
     {
         smlib_brep *plate = box(0, 0, 0, 60, 40, 10);
         const double at[3] = {30, 20, 10};
@@ -1108,13 +1112,25 @@ int main()
         const double base[3] = {30, 30, 10};
         CHECK(smlib_fillet(joined, base, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK && sound(rounded));
         const double wall[3] = {30, 30, 16};
-        CHECK(smlib_offset_faces(rounded, wall, 1, 0.1, 1.0, &r, nullptr) != SMLIB_OK && r == nullptr);
+        CHECK(smlib_offset_faces(rounded, wall, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK && sound(r));
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), volume_of(rounded) + PI * 21.0 * 8.0, 1e-6));
+            done(r);
+        }
         smlib_brep *block = box(0, 0, 0, 60, 40, 20);
         smlib_brep *cutter = box(30, -1, 10, 40, 42, 20);
         smlib_brep *split = nullptr;
         CHECK(smlib_imprint(block, cutter, &split) == SMLIB_OK);
         const double piece[3] = {45, 20, 20};
-        CHECK(smlib_offset_faces(split, piece, 1, 0.1, 1.0, &r, nullptr) != SMLIB_OK && r == nullptr);
+        CHECK(smlib_offset_faces(split, piece, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK && sound(r));
+        CHECK(near(volume_of(r), 48000.0 + 1200.0, 1e-6));
+        smlib_brep_free(r);
+        r = nullptr;
+        CHECK(smlib_offset_faces(split, piece, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK && sound(r));
+        CHECK(near(volume_of(r), 48000.0 - 1200.0, 1e-6));
+        smlib_brep_free(r);
+        r = nullptr;
         for (smlib_brep *b : {plate, boss, joined, rounded, block, cutter, split})
         {
             smlib_brep_free(b);
