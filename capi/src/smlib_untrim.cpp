@@ -350,7 +350,9 @@ extern "C" int32_t smlib_untrim_face(const smlib_brep *body, const double *point
                 SmTArray<SmFace *> one;
                 one.Add(src);
                 SmTArray<SmFace *> copied;
-                int32_t s = status(body->p->CopyFaces(one, w.get(), &copied, FALSE));
+                // Through SmMerge, which copies the topology with its attributes (history tags);
+                // the plain copy keeps only the face's.
+                int32_t s = status(body->p->CopyFaces(one, w.get(), &copied, TRUE));
                 if (s != SMLIB_OK || copied.GetSize() != 1)
                 {
                     return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;

@@ -7,12 +7,14 @@
 // keeps its own geometry and the face's parameter box grows on that side, where the distance
 // is the same parameter step all along it (a plane, a cylinder or cone along its rulings or
 // round its axis, a sphere or torus across a circle of constant speed). A plane continued at
-// G1 or G2 is the plane itself.
+// G1 or G2 is the plane itself. The new face, and each of its sides, takes the attributes of the
+// face and side it continues (history tags).
 
 #include "smlib_shim.h"
 
 #include <SmApiGeneral.h>
 #include <SmApiQueries.h>
+#include <SmAttribute.h>
 #include <SmBSplineSurface.h>
 #include <SmBrep.h>
 #include <SmEdge.h>
@@ -171,6 +173,37 @@ bool analytic_step(const SmSurface *surf, const SmExtent2d &dom, const Side &s, 
     return std::isfinite(step) && step > 0.0;
 }
 
+// The edge of `edges` that side `s` of `dom` runs along (nearest the side's middle), or null for
+// a side collapsed to a point.
+SmEdge *side_edge(const SmSurface *surf, const SmExtent2d &dom, const Side &s, const SmTArray<SmEdge *> &edges, double on)
+{
+    SmVector3d a;
+    SmVector3d b;
+    SmVector3d m;
+    if (!eval(surf, on_side(dom, s, 0.0), a, nullptr, nullptr) || !eval(surf, on_side(dom, s, 1.0), b, nullptr, nullptr) ||
+        !eval(surf, on_side(dom, s, 0.5), m, nullptr, nullptr) || ((a - b).Length() <= on && (a - m).Length() <= on))
+    {
+        return nullptr;
+    }
+    SmEdge *e = nullptr;
+    return nearest_edge(edges, m, &e) <= on ? e : nullptr;
+}
+
+// `to` takes a copy of each attribute of `from` (as SMLib's copies pass them on).
+void copy_attributes(const SmAObject *from, SmAObject *to, const SmContext &ctx)
+{
+    SmTArray<SmAttribute *> attrs;
+    from->GetAttributes(attrs);
+    for (ULONG i = 0; i < attrs.GetSize(); ++i)
+    {
+        SmAttribute *a = attrs[i] != nullptr ? attrs[i]->MakeCopy(ctx) : nullptr;
+        if (a != nullptr)
+        {
+            to->AddAttribute(a);
+        }
+    }
+}
+
 } // namespace
 
 extern "C" int32_t smlib_extend_sheet(const smlib_brep *sheet, const double *point, double tol, double distance, int32_t mode, smlib_brep **out)
@@ -313,6 +346,20 @@ extern "C" int32_t smlib_extend_sheet(const smlib_brep *sheet, const double *poi
             if (s != SMLIB_OK || nf == nullptr)
             {
                 return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;
+            }
+            // The face and each side stand for the face and side they continue.
+            copy_attributes(f, nf, ctx);
+            SmTArray<SmEdge *> made;
+            nf->GetEdges(made);
+            double new_on = 10.0 * std::max(static_cast<double>(r->GetTolerance()), 1e-9);
+            for (const Side &side : SIDES)
+            {
+                SmEdge *from = side_edge(surf, dom, side, edges, on);
+                SmEdge *to = side_edge(grown, box, side, made, new_on);
+                if (from != nullptr && to != nullptr)
+                {
+                    copy_attributes(from, to, ctx);
+                }
             }
             // The new face faces the way the old one did.
             SmFaceuse *was = f->GetUpwardFaceuse();
