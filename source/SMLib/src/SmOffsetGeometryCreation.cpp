@@ -81,7 +81,7 @@ static ULONG lDebugCount = 0 ;
   {
       SmSurface* pS = rNewSurface;
       SmExtent2d sOldDomain = pSur->GetNaturalUVDomain();
-      pS->Reparameterize(sOldDomain);
+      SER( pS->Reparameterize(sOldDomain) );
       SmObjDelete sClean(pS);
       SmSurface* pAnalyticS = NULL;
 
@@ -387,7 +387,7 @@ static ULONG lDebugCount = 0 ;
                   SER(SmBSplineCurve::CreateArcFromPoints(crContext,3,sCenter,sPoint1,sPoint2,
                       SM_CO_QUADRATIC,pArc));
                 }
-              sPlacement.SetCanonical(sPlacement.GetOriginRef(),sRefFrame.GetZAxis(),sRefFrame.GetXAxisRef());
+              SER( sPlacement.SetCanonical(sPlacement.GetOriginRef(),sRefFrame.GetZAxis(),sRefFrame.GetXAxisRef()) );
             }
         } // end 1 bounding edge check
 
@@ -539,7 +539,7 @@ static ULONG lDebugCount = 0 ;
                       double dRadius, dStartAng, dEndAng;
                       pArc->IsArc(10,dTol,sFrame,dRadius,dStartAng,dEndAng);
                       SmPoint3d sMid;
-                      pArc->EvaluatePoint(pArc->GetNaturalInterval().Evaluate(0.5),sMid);
+                      SER( pArc->EvaluatePoint(pArc->GetNaturalInterval().Evaluate(0.5),sMid) );
 
                       SmPoint3d sClosestPt1;
                         { // Find the closest point to the plane kk
@@ -770,8 +770,8 @@ SmStatus SmOffsetGeometryCreation::ReplaceEdgeCurves
         { 
           // Opposite orienation - reverse 3DCurve and UVCurve
           SmExtent1d sIvl;
-          rp3DCurve->ReverseParameterization(rp3DCurve->GetNaturalInterval(),sIvl);
-          rpUVCurve->ReverseParameterization(rpUVCurve->GetNaturalInterval(),sIvl);
+          SER( rp3DCurve->ReverseParameterization(rp3DCurve->GetNaturalInterval(),sIvl) );
+          SER( rpUVCurve->ReverseParameterization(rpUVCurve->GetNaturalInterval(),sIvl) );
         
         } // end Edge and Input curve running in opposite directions check
       
@@ -1129,7 +1129,7 @@ static ULONG lDebugCount = 0 ;
               && pTanEU->GetMate()->IsMarked(eMarkType)) 
             {
               SM_PTR_ARRAY(sALLEUS,SmEdgeuse,32);
-              pTanEU->GetEdge()->GetEdgeuses(sALLEUS);
+              SER( pTanEU->GetEdge()->GetEdgeuses(sALLEUS) );
               for (ULONG ieu=0; ieu<sALLEUS.GetSize(); ieu++) 
                 {
                   // skip
@@ -1306,11 +1306,11 @@ SmBoolean bDebugMe2 = FALSE;
             {
               SmSolution & rSol = sSolutions2[kk];
               SmPoint3d sPV[2];
-              p3DCurve->Evaluate(rSol.m_vStart[0],1,TRUE,sPV);
+              SER( p3DCurve->Evaluate(rSol.m_vStart[0],1,TRUE,sPV) );
               SmPoint2d sUV(rSol.m_vStart[1],rSol.m_vStart[2]);
               SmVector3d sNormal;
-              pExtSurface->EvaluateNormal(sUV,TRUE,TRUE,sNormal);
-              sPV[1].Unitize();
+              SER( pExtSurface->EvaluateNormal(sUV,TRUE,TRUE,sNormal) );
+              (void)sPV[1].Unitize(); // SolidCraft: a zero vector stays zero
               double dAngleRad = 0.0;
               SER(sPV[1].AngleBetween(sNormal,dAngleRad));
               double dAngleDeg = dAngleRad * 180.0/SM_PI;
@@ -1718,7 +1718,7 @@ SmBoolean bDebugMe4 = FALSE;
           // Temp workaround to appease Linux gcc compiler
           // Original code with typecast has warning: dereferencing type-punned pointer will break strict-aliasing rules [-Wstrict-aliasing]
           // pOtherUVCurve->Copy(crContext,(SmCurve*&)pOtherUVCurve);
-          pOtherUVCurve->Copy(crContext, pOtherUVCurve);
+          SER( pOtherUVCurve->Copy(crContext, pOtherUVCurve) );
           sCleanOtherUV.SetObj(pOtherUVCurve);
           
           // When using the RadialEdgeuse - swap the extended UVTrimCurves
@@ -1775,7 +1775,7 @@ SmBoolean bDebugMe4 = FALSE;
 
       SmCurve *pLiftedRef  = pLiftedCurve ; 
       SmCurve *pLiftedCopy = NULL ;
-      pLiftedCurve->Copy(crContext, pLiftedCopy);
+      SER( pLiftedCurve->Copy(crContext, pLiftedCopy) );
       SmObjDelete sCleanLiftedCopy( pLiftedCopy );
 
       SmBoolean bDelete3DCurve = FALSE;
@@ -2134,7 +2134,7 @@ SmBoolean bDebugMe4 = FALSE;
   
   // Replace Curve of edge and set its new domain.
   SmCurve *p3DCopy;
-  p3DCurveFound->Copy(crContext,p3DCopy);
+  SER( p3DCurveFound->Copy(crContext,p3DCopy) );
 
   SmBoolean bDelete3DCurve = FALSE;
   SmBoolean bDeleteUVCurve = FALSE;
@@ -2250,10 +2250,12 @@ SmBoolean SmOffsetGeometryCreation::HaveTangentGaps
       {
         double dParam = (i*1.0) / (lNumSamples*1.0);
         SmPoint3d sPnt;
-        cpOtherOffsetEdgeuse->NormalizedEvaluate(dParam,FALSE,sPnt);  // TRUE = UV Eval, FALSE = 3d Eval
+        // SolidCraft change: a sample that cannot be evaluated shows no gap
+        if (cpOtherOffsetEdgeuse->NormalizedEvaluate(dParam,FALSE,sPnt) != SM_SUCCESS)  // TRUE = UV Eval, FALSE = 3d Eval
+          { continue; }
         SmBoolean bSuccess;
         double dParameter, dDistance;
-        pEdge->ClosestPoint(sPnt,bSuccess,dParameter,dDistance);
+        (void)pEdge->ClosestPoint(sPnt,bSuccess,dParameter,dDistance); // SolidCraft: bSuccess says whether a closest point was found
         if (bSuccess && dDistance > dTol) 
           {
             return TRUE;
@@ -2621,8 +2623,8 @@ static ULONG lDebugCount = 0 ;
       if (bSuccess) 
         {
           // Trim CenterLine to Start dropPoint
-          sCenterIvl.SetMinMax(dParam,sCenterIvl.GetMax());
-          pCenterLine->Trim(sCenterIvl);   // may snap sIvl by tol to existing knots
+          SER( sCenterIvl.SetMinMax(dParam,sCenterIvl.GetMax()) );
+          SER( pCenterLine->Trim(sCenterIvl) );   // may snap sIvl by tol to existing knots
         }
     } // end Rail1/CenterLine StartPoint gapSize check
 
@@ -2665,8 +2667,8 @@ static ULONG lDebugCount = 0 ;
       if (bSuccess) 
         {
           // Trim CenterLine to End dropPoint
-          sCenterIvl.SetMinMax(sCenterIvl.GetMin(),dParam);
-          pCenterLine->Trim(sCenterIvl);  // may snap sIvl by tol to existing knots
+          SER( sCenterIvl.SetMinMax(sCenterIvl.GetMin(),dParam) );
+          SER( pCenterLine->Trim(sCenterIvl) );  // may snap sIvl by tol to existing knots
         }
     } // end Rail1/CenterLine EndPoint gapSize check
 
@@ -2767,7 +2769,7 @@ static ULONG lDebugCount = 0 ;
                       double dT = sSolutions[0].m_vStart[0];
                       if ( smos_Fabs( dT - sArcIvl.GetMin() ) > SM_EFF_ZERO_SQRT )
                         {
-                          sArcIvl.SetMinMax( sArcIvl.GetMin(),dT );
+                          SER( sArcIvl.SetMinMax( sArcIvl.GetMin(),dT ) );
                           SER(pArc->Trim( sArcIvl ));
                         }
                     }

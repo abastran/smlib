@@ -715,7 +715,7 @@ SmApiStatus SmApiTessellate
   if(dMaxEdgeLength < 0.0)
   {
     SmExtent3d brepBBox;
-    pBrep->CalculateBoundingBox( brepBBox );
+    SER( pBrep->CalculateBoundingBox( brepBBox ) );
     double size = brepBBox.GetSize().Length();
     if(size >= 1.0e15 || size <= 0.0) size = 1.0;
     dMaxEdgeLength = -0.025 * size * dMaxEdgeLength;
@@ -798,18 +798,18 @@ SmApiStatus SmApiProjectBrepOntoPlane
     return( SM_ERR_INVALID_INPUT );
 
   SmExtent3d BBox;
-  pBrep->CalculateBoundingBox( BBox );
+  SER( pBrep->CalculateBoundingBox( BBox ) );
 
   SmVector3d diagonal = BBox.GetSize();
   double length = diagonal.Length();
 
   SmVector3d x, y, z;
-  sPlaneNormal.MakeUnitOrthoVectors( 0, x, y, z );
+  SER( sPlaneNormal.MakeUnitOrthoVectors( 0, x, y, z ) );
 
   SmPoint3d planeOrigin = BBox.GetMid() - sPlaneNormal * length;
 
   SmAxis2Placement plane;
-  plane.SetCanonical( planeOrigin, y, z );
+  SER( plane.SetCanonical( planeOrigin, y, z ) );
 
   SmAxis2Placement sInvertPlane;
   plane.Invert( sInvertPlane );
@@ -1009,7 +1009,7 @@ SmApiStatus SmApiCreateSilhouetteCurves
     return( SM_ERR_INVALID_INPUT );
 
   SmExtent3d BBox;
-  pBrep->CalculateBoundingBox( BBox );
+  SER( pBrep->CalculateBoundingBox( BBox ) );
 
   SmVector3d diagonal = BBox.GetSize();
   double length = diagonal.Length();
@@ -1141,7 +1141,7 @@ SmApiStatus SmApiStitch
   }
 #endif // SM_DEBUG_CODE
 
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
 
   // Check manifold?
 
@@ -2077,7 +2077,7 @@ SmApiStatus SmApiFilletEdges
 
     SER( sFilExec.DoFillet() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -2125,7 +2125,7 @@ SmApiStatus SmApiFilletEdgesPerEdge
 
     SER( sFilExec.DoFillet() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -2172,7 +2172,7 @@ SmApiStatus SmApiVariableRadiusFillet
 
     SER( sFilExec.DoFillet() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -2333,7 +2333,7 @@ SmApiStatus SmApiSetBevelCorners
 
     SER( sFilExec.DoFilleting() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );

@@ -69,7 +69,7 @@ SmOffsetCurve::SmOffsetCurve
                                    : crCurveToCopy.m_pCurve->GetContext() ;
       SE_MSG(cpContext != NULL,
              _T("SmOffsetCurve constructor could not find context for base curve copy")) ;
-      crCurveToCopy.m_pCurve->Copy(*cpContext, m_pCurve) ;
+      (void)crCurveToCopy.m_pCurve->Copy(*cpContext, m_pCurve) ; // SolidCraft: a constructor cannot report
       m_bOwnsCurve = TRUE ; 
     } 
 
@@ -297,7 +297,7 @@ SmStatus SmOffsetCurve::Evaluate
             { 
               // recurse back to this function so the next section sets the 1st derivative
               SmVector3d sVals[3] ;
-              Evaluate(dParameter, 2, bFromLeft, sVals) ;
+              SER( Evaluate(dParameter, 2, bFromLeft, sVals)  );
 
               // save the 1st derivative
               aPointAndDerivatives[1] = sVals[1] ;
@@ -381,7 +381,7 @@ SmStatus SmOffsetCurve::EvaluatePoint
     SmVector3d sTan = sPV[1];
     SmVector3d sBin = sTan * m_vOffsetPlaneNorm;  // Bin is right hand side of curve
     if (sBin.LengthSquared() < SM_EFF_ZERO_SQ) SER(SM_ERR);
-    sBin.Unitize();
+    (void)sBin.Unitize(); // SolidCraft: a zero vector stays zero
     rPoint = sPV[0] + sBin * m_dOffsetDistance;
 
     return SM_SUCCESS;
@@ -440,13 +440,13 @@ SmStatus SmOffsetCurve::ReverseParameterization
     // Note, if the input interval equals our interval,
     // then the output interval will be the same as well.
     double dOldTMin, dOldTMax;
-    m_vCurveInterval.Inversion( crOldInterval.GetMin(), dOldTMin );
-    m_vCurveInterval.Inversion( crOldInterval.GetMax(), dOldTMax );
+    SER( m_vCurveInterval.Inversion( crOldInterval.GetMin(), dOldTMin ) );
+    SER( m_vCurveInterval.Inversion( crOldInterval.GetMax(), dOldTMax ) );
 
     double dNewTMin = m_vCurveInterval.Evaluate( 1 - dOldTMax );
     double dNewTMax = m_vCurveInterval.Evaluate( 1 - dOldTMin );
 
-    rNewInterval.SetMinMax( dNewTMin, dNewTMax );
+    SER( rNewInterval.SetMinMax( dNewTMin, dNewTMax ) );
 
     // Do the reversal.
     Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_OWNER(this), NULL);
@@ -626,7 +626,7 @@ SmStatus SmOffsetCurve::ReadFromDB
   pOffsetCurve->m_pCurve->SetOwner(pOffsetCurve) ;
   pOffsetCurve->m_vOffsetPlaneNorm  = sOffsetPlaneNormal ;
   pOffsetCurve->m_dOffsetDistance   = dOffsetDistance ;
-  pOffsetCurve->m_vCurveInterval.SetMinMax(dCurveIntervalMin, dCurveIntervalMax) ;   
+  SER( pOffsetCurve->m_vCurveInterval.SetMinMax(dCurveIntervalMin, dCurveIntervalMax)  );   
   pOffsetCurve->m_bIsReversed       = bIsReversed ;     
   pOffsetCurve->m_bOwnsCurve        = TRUE ;
 
