@@ -110,7 +110,7 @@ if(SMLIB_CAPI_TESTS)
     add_executable(smlib_test_${name} ${test})
     target_link_libraries(smlib_test_${name} PRIVATE smlib)
     target_include_directories(smlib_test_${name} SYSTEM PRIVATE ${SRC}/SM_API/inc ${SRC}/SMLib/inc)
-    target_compile_definitions(smlib_test_${name} PRIVATE ${SMLIB_DEFINES})
+    target_compile_definitions(smlib_test_${name} PRIVATE ${SMLIB_DEFINES} SMLIB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
     add_test(NAME smlib_test_${name} COMMAND smlib_test_${name})
   endforeach()
 

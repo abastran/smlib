@@ -1655,11 +1655,31 @@ static int iDebugMe=0;
   // point lies inside the interval, nearer to the ProtoVertex than the end is, and within
   // tolerance. The UV curves share the 3d curve's parameter and span the Edge's interval, so
   // they are trimmed with it (or nothing moves).
+  //
+  // The point each end goes to is the ProtoVertex's position when the ProtoVertex is one Vertex
+  // (every VertexDefinition in it was imprinted onto the same Vertex in each Brep). A
+  // ProtoVertex collects every VertexDefinition within the capture distance, and Resolve may
+  // make several Vertices of it; its position is then the mean of points that are not one (a
+  // loft edge 0.004 mm from a window's corner: the ProtoVertex lay halfway between, and this
+  // curve, already ending at its own Vertex, was continued past it). The end then goes to the
+  // Vertex it is imprinted onto, where that is one point in both Breps.
   if(pStartPV != pEndPV)
     {
       for(int iEnd = 0; iEnd < 2; iEnd++)
         {
-          const SmPoint3d &rPV = (iEnd == 0) ? pStartPV->GetPosition() : pEndPV->GetPosition();
+          SmProtoVertex *pPV   = (iEnd == 0) ? pStartPV : pEndPV;
+          SmVertex      *pVtx1 = (iEnd == 0) ? pStartVtx1 : pEndVtx1;
+          SmVertex      *pVtx2 = (iEnd == 0) ? pStartVtx2 : pEndVtx2;
+          SmBoolean      bOneVertex = TRUE;
+          SmTArray<SmVertexDefinition*> &rVDs = pPV->GetVertexDefinitions();
+          for(ULONG iVD = 0; iVD < rVDs.GetSize() && bOneVertex; iVD++)
+            {
+              bOneVertex =    rVDs[iVD]->GetFinalVertex(1) == pVtx1
+                           && rVDs[iVD]->GetFinalVertex(2) == pVtx2;
+            }
+          if(!bOneVertex && !(pVtx1->GetPoint().DistanceBetween(pVtx2->GetPoint()) <= m_dTol))
+            { continue; }
+          const SmPoint3d rPV = bOneVertex ? pPV->GetPosition() : pVtx1->GetPoint();
           double dEnd = (iEnd == 0) ? m_pXSectInterval.GetMin() : m_pXSectInterval.GetMax();
           SmPoint3d sEndPt;
           if(m_pXSectCurve3d->EvaluatePoint(dEnd, sEndPt) != SM_SUCCESS)
