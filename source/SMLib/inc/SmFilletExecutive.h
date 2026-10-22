@@ -672,13 +672,13 @@ public:
       m_pFS       ( pFS ),
       m_lRailIdx  ( lRailIndex )
   {
-    this->SetUp();
+    (void)this->SetUp(); // SolidCraft: a scope guard (constructor/destructor) cannot report
   }
 
   // Destructor:
   ~SmTemporaryRadiusChange()
   {
-      this->Revert();
+      (void)this->Revert(); // SolidCraft: a scope guard (constructor/destructor) cannot report
   }
 };  // end class SmTemporaryRadiusChange
 

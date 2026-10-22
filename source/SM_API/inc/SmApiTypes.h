@@ -21,7 +21,12 @@ GENERAL NOTES:
 #define SM_TBLOCK_SIZE 1024
 #define SM_LARGE_TBLOCK_SIZE 4096
 
-#define SmApiStatus    long
+// SolidCraft change: as SmStatus (SmTypes.h), a status that may not be dropped.
+#if defined(__clang__) && defined(SM_STATUS_MUST_BE_USED)
+typedef long SmApiStatus __attribute__((warn_unused_result));
+#else
+typedef long SmApiStatus;
+#endif
 
 
 #if defined(SM_STATIC)

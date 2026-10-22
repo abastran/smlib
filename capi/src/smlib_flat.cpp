@@ -917,7 +917,7 @@ SmBSplineCurve *EdgeCurveAsBSpline(SmCurve *pCurve, const SmExtent1d &crInterval
     vBreaks.Add(crInterval.GetMax());
     double dAchievedTol = 0.0;
     SmBSplineCurve *pBSplineCurve = NULL;
-    pCurve->ApproximateCurve(
+    SmStatus stat = pCurve->ApproximateCurve(
         *(pCurve->GetContext()), // in : memory context for new object
         vBreaks,                 // in : input curve params exactly interpolated by approx curve.
         sApproxTol3d,            // in : Max dist allowed between approx and original curves.
@@ -925,7 +925,8 @@ SmBSplineCurve *EdgeCurveAsBSpline(SmCurve *pCurve, const SmExtent1d &crInterval
         pBSplineCurve            // out: the new BSpline (always Dim==3)
     );
     clean.SetObj(pBSplineCurve);
-    return pBSplineCurve;
+    // A curve SMLib could not approximate to the tolerance is none: the caller refuses NULL.
+    return stat == SM_SUCCESS ? pBSplineCurve : NULL;
 }
 
 // The 3D curve SmuConvert's import builds for a LINE, CIRCLE or ELLIPSE edge: an unbounded line
@@ -961,7 +962,11 @@ SmStatus BuildAnalyticEdgeCurve(
     // Build coordinate system: X = refDirection, Y = axis cross refDirection
     SmVector3d sYAxis = axis * ref;
     SmAxis2Placement sPlacement;
-    sPlacement.SetCanonical(center, ref, sYAxis);
+    SmStatus placed = sPlacement.SetCanonical(center, ref, sYAxis);
+    if (placed != SM_SUCCESS)
+    {
+        return placed;
+    }
     SmExtent1d sDegreeInterval(dMin, dMax);
     if (type == kCurveCircle)
     {
@@ -972,7 +977,12 @@ SmStatus BuildAnalyticEdgeCurve(
             delete pCircle;
             return stat != SM_SUCCESS ? stat : SM_ERR;
         }
-        pCircle->EditParameterization(sDegreeInterval, FALSE);
+        stat = pCircle->EditParameterization(sDegreeInterval, FALSE);
+        if (stat != SM_SUCCESS)
+        {
+            delete pCircle;
+            return stat;
+        }
         out = pCircle;
         return SM_SUCCESS;
     }
@@ -983,7 +993,12 @@ SmStatus BuildAnalyticEdgeCurve(
         delete pEllipse;
         return stat != SM_SUCCESS ? stat : SM_ERR;
     }
-    pEllipse->EditParameterization(sDegreeInterval, FALSE);
+    stat = pEllipse->EditParameterization(sDegreeInterval, FALSE);
+    if (stat != SM_SUCCESS)
+    {
+        delete pEllipse;
+        return stat;
+    }
     out = pEllipse;
     return SM_SUCCESS;
 }
@@ -1290,7 +1305,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
 
     // Brep_ii bounding box (== Usd Extent)
     SmExtent3d sLocalBBox;
-    pBrep_ii->CalculateBoundingBox(sLocalBBox, FALSE, FALSE, FALSE);
+    SmStatus boxed = pBrep_ii->CalculateBoundingBox(sLocalBBox, FALSE, FALSE, FALSE);
+    if (boxed != SM_SUCCESS)
+    {
+        return boxed;
+    }
 
     // Brep data
     F.tolerance.push_back(sXSectTol3d);
@@ -1347,7 +1366,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         SmTArray<SmFaceuse *> sShellFaceuses;
         SmTArray<SmEdge *> sShellWireEdges;
         pShell->GetFaceuses(sShellFaceuses);
-        pShell->GetWireEdges(sShellWireEdges);
+        SmStatus listed = pShell->GetWireEdges(sShellWireEdges);
+        if (listed != SM_SUCCESS)
+        {
+            return listed;
+        }
 
         uint32_t lFaceuseCnt = sShellFaceuses.GetSize();
         uint32_t lWireEdgeCnt = sShellWireEdges.GetSize();
@@ -1528,7 +1551,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             SmSphere *pSphere = SM_REINTERPRET_CAST(SmSphere *, pSurface);
             SmAxis2Placement sOrigin;
             double dRadius = 0.0;
-            pSphere->GetCanonical(sOrigin, dRadius);
+            SmStatus canonical = pSphere->GetCanonical(sOrigin, dRadius);
+            if (canonical != SM_SUCCESS)
+            {
+                return canonical;
+            }
 
             SmPoint3d sCenter = sOrigin.GetOrigin();
             SmVector3d sZAxis = sOrigin.GetZAxis();
@@ -1543,7 +1570,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         {
             SmPlane *pPlane = SM_REINTERPRET_CAST(SmPlane *, pSurface);
             SmAxis2Placement sPlacement;
-            pPlane->GetCanonical(sPlacement);
+            SmStatus canonical = pPlane->GetCanonical(sPlacement);
+            if (canonical != SM_SUCCESS)
+            {
+                return canonical;
+            }
 
             SmPoint3d sOriginPt = sPlacement.GetOrigin();
             SmVector3d sZAxis = sPlacement.GetZAxis();
@@ -1558,7 +1589,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             SmCylinder *pCylinder = SM_REINTERPRET_CAST(SmCylinder *, pSurface);
             SmAxis2Placement sPlacement;
             double dRadius = 0.0;
-            pCylinder->GetCanonical(sPlacement, dRadius);
+            SmStatus canonical = pCylinder->GetCanonical(sPlacement, dRadius);
+            if (canonical != SM_SUCCESS)
+            {
+                return canonical;
+            }
 
             SmPoint3d sOriginPt = sPlacement.GetOrigin();
             SmVector3d sZAxis = sPlacement.GetZAxis();
@@ -1575,7 +1610,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             SmAxis2Placement sPlacement;
             double dRadius = 0.0;
             double dSemiAngleDeg = 0.0;
-            pCone->GetCanonical(sPlacement, dRadius, dSemiAngleDeg);
+            SmStatus canonical = pCone->GetCanonical(sPlacement, dRadius, dSemiAngleDeg);
+            if (canonical != SM_SUCCESS)
+            {
+                return canonical;
+            }
 
             SmPoint3d sOriginPt = sPlacement.GetOrigin();
             SmVector3d sZAxis = sPlacement.GetZAxis();
@@ -1593,7 +1632,11 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             SmAxis2Placement sPlacement;
             double dMajorRadius = 0.0;
             double dMinorRadius = 0.0;
-            pTorus->GetCanonical(sPlacement, dMajorRadius, dMinorRadius);
+            SmStatus canonical = pTorus->GetCanonical(sPlacement, dMajorRadius, dMinorRadius);
+            if (canonical != SM_SUCCESS)
+            {
+                return canonical;
+            }
 
             SmPoint3d sOriginPt = sPlacement.GetOrigin();
             SmVector3d sZAxis = sPlacement.GetZAxis();
@@ -1618,7 +1661,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             else
             {
                 double dAchievedTol = 0.0;
-                pSurface->ApproximateSurface(
+                SmStatus approximated = pSurface->ApproximateSurface(
                     *pSurface->GetContext(), // in : context for new object construction
                     sApproxTol3d,            // in : max allowed approximation distance
                     dAchievedTol,            // out: Max tolerance achieved.
@@ -1627,6 +1670,10 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
                     TRUE                     // in : TRUE = if this Surface is a BSpline, copy it FALSE= approximate the surface
                 );
                 sCleanBSplineSurface.SetObj(pBSplineSurface);
+                if (approximated != SM_SUCCESS)
+                {
+                    return approximated;
+                }
             }
 
             if (pBSplineSurface == NULL)
@@ -2472,14 +2519,12 @@ bool Validate(const FlatBrep &F, Shape &S)
     return true;
 }
 
-// An SmAxis2Placement from an origin, an axis (z) and a reference direction (x):
+// An SmAxis2Placement (`out`) from an origin, an axis (z) and a reference direction (x):
 // X = refDirection, Y = axis cross refDirection.
-SmAxis2Placement Placement(const SmPoint3d &origin, const SmVector3d &zAxis, const SmVector3d &xAxis)
+SmStatus Placement(const SmPoint3d &origin, const SmVector3d &zAxis, const SmVector3d &xAxis, SmAxis2Placement &out)
 {
     SmVector3d sYAxis = zAxis * xAxis; // cross product
-    SmAxis2Placement sPlacement;
-    sPlacement.SetCanonical(origin, xAxis, sYAxis);
-    return sPlacement;
+    return out.SetCanonical(origin, xAxis, sYAxis);
 }
 
 // The 3D curve of one edge (or wire edge), as SmuConvert builds it for its curve type.
@@ -2712,7 +2757,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         rFaceData.m_lSurface = pData->m_vSurfaces.GetSize();
         rFaceData.m_lStartLoop = lLoopIndex;
         rFaceData.m_lNumLoops = static_cast<ULONG>(F.face_loop_count[iLocal]);
-        rFaceData.m_vUVDomain.Set(sDomain);
+        if (rFaceData.m_vUVDomain.Set(sDomain) != SM_SUCCESS)
+        {
+            prSmBrepData_ii = NULL;
+            return SM_ERR_INVALID_INPUT;
+        }
         rFaceData.m_bRectangularTrim = bRectangularTrim;
         rFaceData.m_lFlags = 0;
         rFaceData.m_lUserIndex1 = 0;
@@ -2724,7 +2773,12 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         if (tSurfaceType == kSurfaceSphere)
         {
             size_t i = iSphere++;
-            SmAxis2Placement sOrigin = Placement(Get3(F.face_sphere_center, i), GetVec3(F.face_sphere_axis, i), GetVec3(F.face_sphere_ref_direction, i));
+            SmAxis2Placement sOrigin;
+            if (Placement(Get3(F.face_sphere_center, i), GetVec3(F.face_sphere_axis, i), GetVec3(F.face_sphere_ref_direction, i), sOrigin) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
             SmSphere *pSphere = NULL;
             stat = SmSphere::CreateCanonical(ctx, sOrigin, F.face_sphere_radius[i], pSphere);
             pNewSurface = pSphere;
@@ -2732,7 +2786,12 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         else if (tSurfaceType == kSurfacePlane)
         {
             size_t i = iPlane++;
-            SmAxis2Placement sPlacement = Placement(Get3(F.face_plane_origin, i), GetVec3(F.face_plane_axis, i), GetVec3(F.face_plane_ref_direction, i));
+            SmAxis2Placement sPlacement;
+            if (Placement(Get3(F.face_plane_origin, i), GetVec3(F.face_plane_axis, i), GetVec3(F.face_plane_ref_direction, i), sPlacement) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
             SmPlane *pPlane = NULL;
             stat = SmPlane::CreateCanonical(ctx, sPlacement, pPlane);
             // CreateCanonical sets the plane's UV domain to [-SM_INFINITE_PARAMETER,
@@ -2746,8 +2805,12 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         else if (tSurfaceType == kSurfaceCylinder)
         {
             size_t i = iCylinder++;
-            SmAxis2Placement sPlacement =
-                Placement(Get3(F.face_cylinder_origin, i), GetVec3(F.face_cylinder_axis, i), GetVec3(F.face_cylinder_ref_direction, i));
+            SmAxis2Placement sPlacement;
+            if (Placement(Get3(F.face_cylinder_origin, i), GetVec3(F.face_cylinder_axis, i), GetVec3(F.face_cylinder_ref_direction, i), sPlacement) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
             SmCylinder *pCylinder = NULL;
             stat = SmCylinder::CreateCanonical(ctx, sPlacement, F.face_cylinder_radius[i], pCylinder);
             pNewSurface = pCylinder;
@@ -2769,7 +2832,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             {
                 dSemiAngleDeg = -dSemiAngleDeg;
                 sZAxis = -sZAxis;
-                sDomain.SetMinMax(-sDomain.GetUMax(), -sDomain.GetVMax(), -sDomain.GetUMin(), -sDomain.GetVMin());
+                if (sDomain.SetMinMax(-sDomain.GetUMax(), -sDomain.GetVMax(), -sDomain.GetUMin(), -sDomain.GetVMin()) != SM_SUCCESS)
+                {
+                    prSmBrepData_ii = NULL;
+                    return SM_ERR_INVALID_INPUT;
+                }
             }
 
             SmCone *pCone = NULL;
@@ -2790,14 +2857,28 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
                 if (dHeight > SM_EFF_ZERO && dBottomRadius >= -SM_EFF_ZERO && dTopRadius >= -SM_EFF_ZERO)
                 {
                     sConeOrigin += dVMin * sZAxis;
-                    SmAxis2Placement sPlacement = Placement(sConeOrigin, sZAxis, sXAxis);
+                    SmAxis2Placement sPlacement;
+                    if (Placement(sConeOrigin, sZAxis, sXAxis, sPlacement) != SM_SUCCESS)
+                    {
+                        prSmBrepData_ii = NULL;
+                        return SM_ERR_INVALID_INPUT;
+                    }
                     stat = SmCone::CreateCanonical(ctx, sPlacement, smos_Max(0.0, dBottomRadius), smos_Max(0.0, dTopRadius), dHeight, pCone);
-                    sDomain.SetMinMax(sDomain.GetUMin(), 0.0, sDomain.GetUMax(), dHeight);
+                    if (sDomain.SetMinMax(sDomain.GetUMin(), 0.0, sDomain.GetUMax(), dHeight) != SM_SUCCESS)
+                    {
+                        prSmBrepData_ii = NULL;
+                        return SM_ERR_INVALID_INPUT;
+                    }
                 }
             }
             else
             {
-                SmAxis2Placement sPlacement = Placement(sConeOrigin, sZAxis, sXAxis);
+                SmAxis2Placement sPlacement;
+                if (Placement(sConeOrigin, sZAxis, sXAxis, sPlacement) != SM_SUCCESS)
+                {
+                    prSmBrepData_ii = NULL;
+                    return SM_ERR_INVALID_INPUT;
+                }
                 stat = SmCone::CreateCanonical(ctx, sPlacement, dRadius, dSemiAngleDeg, pCone);
             }
             pNewSurface = pCone;
@@ -2805,7 +2886,12 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         else if (tSurfaceType == kSurfaceTorus)
         {
             size_t i = iTorus++;
-            SmAxis2Placement sPlacement = Placement(Get3(F.face_torus_origin, i), GetVec3(F.face_torus_axis, i), GetVec3(F.face_torus_ref_direction, i));
+            SmAxis2Placement sPlacement;
+            if (Placement(Get3(F.face_torus_origin, i), GetVec3(F.face_torus_axis, i), GetVec3(F.face_torus_ref_direction, i), sPlacement) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
             SmTorus *pTorus = NULL;
             stat = SmTorus::CreateCanonical(ctx, sPlacement, F.face_torus_major_radius[i], F.face_torus_minor_radius[i], pTorus);
             pNewSurface = pTorus;
@@ -2851,7 +2937,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
                 prSmBrepData_ii = NULL;
                 return domainStat;
             }
-            rFaceData.m_vUVDomain.Set(sNurbDomain);
+            if (rFaceData.m_vUVDomain.Set(sNurbDomain) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
         }
 
         lLoopIndex += static_cast<ULONG>(F.face_loop_count[iLocal]);
@@ -2982,7 +3072,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             double dEdgeMax = F.edge_range[2 * iLocal + 1];
             // circle/ellipse edge range is radians; SMLib SmCircle/SmEllipse use degrees
             EdgeRangeToSMLib(F.edge_curve_type[iLocal], dEdgeMin, dEdgeMax);
-            rEdgeData.m_vInterval.SetMinMax(dEdgeMin, dEdgeMax);
+            if (rEdgeData.m_vInterval.SetMinMax(dEdgeMin, dEdgeMax) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
             rEdgeData.m_lCurve = pData->m_v3DCurves.GetSize();
             rEdgeData.m_lStartVertex = nPointShells + static_cast<ULONG>(F.edge_vertices[2 * iLocal]);
             rEdgeData.m_lEndVertex = nPointShells + static_cast<ULONG>(F.edge_vertices[2 * iLocal + 1]);
@@ -3019,7 +3113,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             double dWireMin = F.wire_edge_range[2 * w];
             double dWireMax = F.wire_edge_range[2 * w + 1];
             EdgeRangeToSMLib(F.wire_edge_curve_type[w], dWireMin, dWireMax);
-            rWireEdgeData.m_vInterval.SetMinMax(dWireMin, dWireMax);
+            if (rWireEdgeData.m_vInterval.SetMinMax(dWireMin, dWireMax) != SM_SUCCESS)
+            {
+                prSmBrepData_ii = NULL;
+                return SM_ERR_INVALID_INPUT;
+            }
             rWireEdgeData.m_lCurve = pData->m_v3DCurves.GetSize();
             rWireEdgeData.m_lStartVertex = nPointShells + static_cast<ULONG>(F.wire_edge_vertices[2 * w]);
             rWireEdgeData.m_lEndVertex = nPointShells + static_cast<ULONG>(F.wire_edge_vertices[2 * w + 1]);

@@ -31,7 +31,16 @@
 #define NULL 0
 #endif
 
-#define SmStatus    long
+// SolidCraft change: a status may not be dropped. Where the compiler can mark a type so (clang)
+// and the build asks for it (SM_STATUS_MUST_BE_USED, set by capi/CMakeLists.txt), a call whose
+// SmStatus result is ignored is a warning (-Wunused-value); a deliberate discard is written
+// (void) with its reason. Builds that don't ask, upstream's among them, compile SMLib as before.
+#if defined(__clang__) && defined(SM_STATUS_MUST_BE_USED)
+#define SM_MUST_USE_STATUS __attribute__((warn_unused_result))
+#else
+#define SM_MUST_USE_STATUS
+#endif
+typedef long SmStatus SM_MUST_USE_STATUS;
 
 #define ALIGN_SIZE(s) (((s) % 8) ? ((s)/8+1)*8 : (s))
 

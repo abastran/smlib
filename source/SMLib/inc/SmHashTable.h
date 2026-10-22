@@ -2030,7 +2030,7 @@ void SmObjsInVoxels<TYPE>::MapVoxelIndexToBBox
   MapVoxelIndexToIndices(lVoxelIndex, lIndxX, lIndxY, lIndxZ) ; 
   
   // set Voxel's BBox
-  rFoundVoxelExtent3d.SetMinMax(m_sBBox.GetUMin() + (lIndxX    )*dXLen, 
+  (void)rFoundVoxelExtent3d.SetMinMax(m_sBBox.GetUMin() + (lIndxX    )*dXLen, // SolidCraft: a lookup by voxel index; min <= max by construction
                                 m_sBBox.GetVMin() + (lIndxY    )*dYLen, 
                                 m_sBBox.GetWMin() + (lIndxZ    )*dZLen, 
                                 m_sBBox.GetUMin() + (lIndxX+1.0)*dXLen, 

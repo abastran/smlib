@@ -1190,7 +1190,7 @@ public:
   SmCurveEval( const SmCurve *pCurve, double dParam )
       : m_pCurve( pCurve ),
         m_bSet( FALSE )
-      { Set( dParam ); } 
+      { (void)Set( dParam ); } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag
 
   // Assignment operator
   SmCurveEval & operator=( const SmCurveEval &crOther )
@@ -1208,9 +1208,9 @@ public:
   void SetCurve( const SmCurve * pCurve ) { m_pCurve = pCurve; }
 
   const double & Param() const { return m_dParam;  }
-  SmPoint3d  & Pos (SmBoolean bNonZeroTangents=TRUE) { Eval(bNonZeroTangents); return m_sPtDerivs[0]; }
-  SmVector3d & Ct  (SmBoolean bNonZeroTangents=TRUE) { Eval(bNonZeroTangents); return m_sPtDerivs[1]; }
-  SmVector3d & Ctt (SmBoolean bNonZeroTangents=TRUE) { Eval(bNonZeroTangents); return m_sPtDerivs[2]; }
+  SmPoint3d  & Pos (SmBoolean bNonZeroTangents=TRUE) { (void)Eval(bNonZeroTangents); return m_sPtDerivs[0]; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag
+  SmVector3d & Ct  (SmBoolean bNonZeroTangents=TRUE) { (void)Eval(bNonZeroTangents); return m_sPtDerivs[1]; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag
+  SmVector3d & Ctt (SmBoolean bNonZeroTangents=TRUE) { (void)Eval(bNonZeroTangents); return m_sPtDerivs[2]; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag
 
 private:
   SmStatus Eval(SmBoolean bNonZeroTangents=TRUE);

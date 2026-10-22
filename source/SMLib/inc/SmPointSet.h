@@ -165,22 +165,22 @@ public:
   SmTArray< SmPoint3d > & GetPoints()               { return *this; }
   SmTol3d                 GetTolerance() const      { return m_dDistTol3d ; }
 
-  SmPointSetType          GetPointSetType()         { SetUpPointSetType() ; return m_ePointSetType ; }
-  double                  GetMaxDev()               { SetUpDeviation(SM_PSD_MAX_DEVIATION) ;          return m_dMaxDev ; }
+  SmPointSetType          GetPointSetType()         { (void)SetUpPointSetType() ; return m_ePointSetType ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  double                  GetMaxDev()               { (void)SetUpDeviation(SM_PSD_MAX_DEVIATION) ;          return m_dMaxDev ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
                           
-  SmPoint3d               GetCentroid()             { SetUpCentroid() ; return m_sCentroid ; }
-  double                  GetMaxCentroidDev()       { SetUpDeviation(SM_PSD_MAX_CENTROID_DEVIATION) ; return m_dMaxCentroidDev ; }
+  SmPoint3d               GetCentroid()             { (void)SetUpCentroid() ; return m_sCentroid ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  double                  GetMaxCentroidDev()       { (void)SetUpDeviation(SM_PSD_MAX_CENTROID_DEVIATION) ; return m_dMaxCentroidDev ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
 
-  SmVector3d              GetXAxis()                { SetUpAxes() ; return m_sXAxis ; }
-  SmVector3d              GetYAxis()                { SetUpAxes() ; return m_sYAxis ; }
-  SmVector3d              GetZAxis()                { SetUpAxes() ; return m_sNormal ; }
-  SmVector3d              GetNormal()               { SetUpAxes() ; return m_sNormal ; }
+  SmVector3d              GetXAxis()                { (void)SetUpAxes() ; return m_sXAxis ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmVector3d              GetYAxis()                { (void)SetUpAxes() ; return m_sYAxis ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmVector3d              GetZAxis()                { (void)SetUpAxes() ; return m_sNormal ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmVector3d              GetNormal()               { (void)SetUpAxes() ; return m_sNormal ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
                           
-  SmExtent3d              GetBBox     (SmVector3d * pOptInputPBoxZ=NULL) { SetUpBBoxes(SM_PSD_BBOXES, pOptInputPBoxZ) ;      return m_sBBox ; }
-  SmPseudoBox             GetPBox     (SmVector3d * pOptInputPBoxZ=NULL) { SetUpBBoxes(SM_PSD_BBOXES, pOptInputPBoxZ) ;      return m_sPBox ; }
-  SmPseudoBox             GetTightPBox(SmVector3d * pOptInputPBoxZ=NULL) { SetUpBBoxes(SM_PSD_REFINE_PBOX, pOptInputPBoxZ) ; return m_sPBox ; }
+  SmExtent3d              GetBBox     (SmVector3d * pOptInputPBoxZ=NULL) { (void)SetUpBBoxes(SM_PSD_BBOXES, pOptInputPBoxZ) ;      return m_sBBox ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmPseudoBox             GetPBox     (SmVector3d * pOptInputPBoxZ=NULL) { (void)SetUpBBoxes(SM_PSD_BBOXES, pOptInputPBoxZ) ;      return m_sPBox ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmPseudoBox             GetTightPBox(SmVector3d * pOptInputPBoxZ=NULL) { (void)SetUpBBoxes(SM_PSD_REFINE_PBOX, pOptInputPBoxZ) ; return m_sPBox ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
   ULONG                   GetDimension()            // rtn: 2 = planar and parallel to the x-y plane, else 3
-                                                    { SetUpAxes() ; SetUpPointSetType() ;
+                                                    { (void)SetUpAxes() ; (void)SetUpPointSetType() ; // SolidCraft: a lazy accessor of the point set, which keeps its own state
                                                       return(    m_ePointSetType == SM_PST_PLANAR
                                                               && m_sNormal.x < m_dDistTol3d
                                                               && m_sNormal.y < m_dDistTol3d ? 2 : 3) ;
@@ -196,10 +196,10 @@ public:
                   
   // predicates
   SmBoolean IsEmpty()      const { return (m_lSize == 0) ; }
-  SmBoolean IsPointSized()       { SetUpPointSetType() ; return m_ePointSetType == SM_PST_POINTSIZED ; }
-  SmBoolean IsLinear()           { SetUpPointSetType() ; return m_ePointSetType == SM_PST_LINEAR ; }
-  SmBoolean IsPlanar()           { SetUpPointSetType() ; return m_ePointSetType == SM_PST_PLANAR ; }
-  SmBoolean IsScattered()        { SetUpPointSetType() ; return m_ePointSetType == SM_PST_SCATTERED ; }
+  SmBoolean IsPointSized()       { (void)SetUpPointSetType() ; return m_ePointSetType == SM_PST_POINTSIZED ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean IsLinear()           { (void)SetUpPointSetType() ; return m_ePointSetType == SM_PST_LINEAR ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean IsPlanar()           { (void)SetUpPointSetType() ; return m_ePointSetType == SM_PST_PLANAR ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean IsScattered()        { (void)SetUpPointSetType() ; return m_ePointSetType == SM_PST_SCATTERED ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
 
   // computations
   SmStatus  CalculateBoundingSphere(SmTArray<ULONG> &rIndices,        // out: indices of points found to be on minimum radius sphere
@@ -356,9 +356,9 @@ public:
                                                             }
   // simple access
   double     GetArea()        // rtn: positive for CCW and neg for CW sequences
-                              { SetUpArea() ; return m_dArea ; }
-  SmBoolean  GetCoincident()  { SetUpCoincident() ; return m_bCoincident ; }
-  SmBoolean  GetMonotonic()   { SetUpMonotonic() ;  return m_bMonotonic ; }
+                              { (void)SetUpArea() ; return m_dArea ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean  GetCoincident()  { (void)SetUpCoincident() ; return m_bCoincident ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean  GetMonotonic()   { (void)SetUpMonotonic() ;  return m_bMonotonic ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
 
   // inherited from SmPointSet simple access                                     
   //  SmTArray< SmPoint3d > & GetPoints() ;             
@@ -513,10 +513,10 @@ public:
   ULONG                       Indx   (ULONG i, ULONG j) const { return( i * m_lRowSize + j ) ; }
   ULONG                       GetColCnt()               const { return m_lRowSize ; }
   ULONG                       GetRowCnt()               const { return m_lSize / m_lRowSize ; }
-  SmBoolean                   GetCoincidentCol()              { SetUpCoincident() ; return m_bCoincidentCol ; }
-  SmBoolean                   GetCoincidentRow()              { SetUpCoincident() ; return m_bCoincidentRow ; }
-  SmBoolean                   GetMonotonicCol()               { SetUpMonotonic() ; return m_bMonotonicCol ; }
-  SmBoolean                   GetMonotonicRow()               { SetUpMonotonic() ; return m_bMonotonicRow ; }
+  SmBoolean                   GetCoincidentCol()              { (void)SetUpCoincident() ; return m_bCoincidentCol ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean                   GetCoincidentRow()              { (void)SetUpCoincident() ; return m_bCoincidentRow ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean                   GetMonotonicCol()               { (void)SetUpMonotonic() ; return m_bMonotonicCol ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
+  SmBoolean                   GetMonotonicRow()               { (void)SetUpMonotonic() ; return m_bMonotonicRow ; } // SolidCraft: a lazy accessor of the point set, which keeps its own state
 
   // inherited from SmPointSet simple access                                     
   //  SmTArray< SmPoint3d > & GetPoints() ;             

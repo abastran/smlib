@@ -2222,7 +2222,7 @@ public:
       SmBoolean bSuccess = false;
       SmTArray<SmPoint3d> sParamPoints ;
       SmTArray<double>    sGaps ; 
-      InvEvaluatePointSimple(crProjPoint, NULL, bSuccess, sParamPoints, sGaps) ;
+      (void)InvEvaluatePointSimple(crProjPoint, NULL, bSuccess, sParamPoints, sGaps) ; // SolidCraft: a void helper (not on our paths)
       if(bSuccess && pOptParamPoint) { *pOptParamPoint = sParamPoints[0] ; }
       return(bSuccess) ;
     }

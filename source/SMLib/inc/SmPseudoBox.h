@@ -48,7 +48,7 @@ public:
     // constructors, destructor, initializer
     SmPseudoBox() ;                                                    // init basis to x,y,z
     SmPseudoBox(SmVector3d &rXDir, SmVector3d &rYDir, SmVector3d &rZDir,
-                SmExtent1d &rXIvl, SmExtent1d &rYIvl, SmExtent1d &rZIvl)  { SetBasis(rXDir, rYDir, rZDir) ;
+                SmExtent1d &rXIvl, SmExtent1d &rYIvl, SmExtent1d &rZIvl)  { (void)SetBasis(rXDir, rYDir, rZDir) ; // SolidCraft: a constructor cannot report
                                                                             SetIntervals(rXIvl, rYIvl, rZIvl) ;
                                                                           }
     SmPseudoBox(const SmPseudoBox & crOriginal) ;

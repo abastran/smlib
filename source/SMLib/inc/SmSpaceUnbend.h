@@ -268,7 +268,7 @@ public:
     if(m_dBrepSize == SM_UNDEF_DOUBLE)
     {
       SmExtent3d sSize;
-      m_pBrep->CalculateBoundingBox( sSize, TRUE );
+      (void)m_pBrep->CalculateBoundingBox( sSize, TRUE ); // SolidCraft: a constructor cannot report (not on our paths)
       m_dBrepSize = sSize.GetMaxDimension();
     }
     return(m_dBrepSize);

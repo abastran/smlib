@@ -224,14 +224,14 @@ class SM_EXPORT SmGap
   SmStatus     GetTopoObjects (SmObject *& rpObj1,  SmObject *& rpObj2)  const ;
   SmStatus     GetGapEndPoints(SmPoint3d & rPoint1, SmPoint3d & rPoint2) const ;
   SmXSectTol3d GetXSectTol3d  () const { SmObject *pObj1, *pObj2 ; 
-                                         GetTopoObjects(pObj1, pObj2) ; 
+                                         (void)GetTopoObjects(pObj1, pObj2) ; // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
                                          return( SmTol::GetXSectTol3d(pObj1, pObj2) ) ; 
                                        }
   SmBoolean    IsIntersecting () const { return m_dGap3d <= GetXSectTol3d().val ; }
 
   // calc and cache GapSize value
   void        CacheGap        () { SmPoint3d sPoint1, sPoint2 ; 
-                                   GetGapEndPoints(sPoint1, sPoint2) ;
+                                   (void)GetGapEndPoints(sPoint1, sPoint2) ; // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
                                    m_dGap3d = sPoint1.DistanceBetween(sPoint2) ; 
                                  } 
   // simple access
@@ -1276,7 +1276,7 @@ class SM_EXPORT SmGapFunction
 
   virtual const SmPoint3d       * GetOtherPoint()   const   { return NULL ; }
 
-  SmTArray<SmGapSample>         & GetSampleSet(SmBoolean bStopAfterBigGap=FALSE)   { BuildSampleSet(bStopAfterBigGap) ; return m_sSampleGaps ; }
+  SmTArray<SmGapSample>         & GetSampleSet(SmBoolean bStopAfterBigGap=FALSE)   { (void)BuildSampleSet(bStopAfterBigGap) ; return m_sSampleGaps ; } // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
   void                            GetLocalIntervals(SmTArray<SmLocalInterval> &rLocalIvls) const ;
   virtual const SmCurveClassification *GetAsIsLocalNeighborhood() const       { return NULL ; }
   virtual SmCurveClassification * GetLocalNeighborhood(SmBoolean bAsIs=FALSE) { SM_REF1(bAsIs) ; return NULL ; }
@@ -1288,9 +1288,9 @@ class SM_EXPORT SmGapFunction
   SmBoolean AreSamplesSet()                                 const   { return m_bAreSamplesSet ; }
   SmBoolean IsLocalNeighborhoodSet()                        const   { return m_bIsLocalNeighborhoodSet ; }
   SmBoolean IsInTol()                                               { SmGapSample *pMaxGap;
-                                                                      GetMaxGapSample( pMaxGap, TRUE );
+                                                                      (void)GetMaxGapSample( pMaxGap, TRUE ); // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
                                                                       return ( pMaxGap ) ? pMaxGap->GetLengthSquared() > m_sXSectTol3d*m_sXSectTol3d : FALSE; }
-  SmBoolean AreGapsNormal(SmBoolean bStopAfterBigGap=FALSE) const   {((SmGapFunction*)this)->BuildSampleSet(bStopAfterBigGap) ; return(m_bAllNormalGaps) ; }
+  SmBoolean AreGapsNormal(SmBoolean bStopAfterBigGap=FALSE) const   {(void)((SmGapFunction*)this)->BuildSampleSet(bStopAfterBigGap) ; return(m_bAllNormalGaps) ; } // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
 
   // methods
   virtual SmStatus Evaluate(double       dThisU,                 // in : This Geom 1st param used for Curves and Surfaces
@@ -1359,7 +1359,7 @@ class SM_EXPORT SmCrvPtGapFunction : public SmGapFunction
                                                       m_sOtherPoint(*pOtherPoint),
                                                       // gwc: passing a XSectTol as a ZoneTol3d - needs fix
                                                       m_sLocalNeighborhood(pThisCurve, rThisIvl, NULL, (SmZoneTol3d &)(rXSectTol3d))
-                                                    { m_sSampleIvlV.SetMinMax(0.0,1.0) ; }
+                                                    { (void)m_sSampleIvlV.SetMinMax(0.0,1.0) ; } // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
 
   // Copy Constructor from crOther to this                                    
   SmCrvPtGapFunction(const SmCrvPtGapFunction &crOther) : SmGapFunction(crOther),
@@ -1398,7 +1398,7 @@ class SM_EXPORT SmCrvPtGapFunction : public SmGapFunction
   virtual const SmCurveClassification * GetAsIsLocalNeighborhood() const  { return(& m_sLocalNeighborhood) ; }
   virtual       SmCurveClassification * GetLocalNeighborhood
                                               (SmBoolean bAsIs=FALSE) { if(!m_bIsLocalNeighborhoodSet && !bAsIs) 
-                                                                          { BuildLocalNeighborhood() ; }
+                                                                          { (void)BuildLocalNeighborhood() ; } // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
                                                                         return( & m_sLocalNeighborhood) ;
                                                                       }
                                         
@@ -1492,7 +1492,7 @@ class SM_EXPORT SmCrvCrvGapFunction : public SmGapFunction
   virtual const SmCurveClassification * GetAsIsLocalNeighborhood() const  { return(& m_sLocalNeighborhood) ; }
   virtual       SmCurveClassification * GetLocalNeighborhood
                                               (SmBoolean bAsIs=FALSE) { if(!m_bIsLocalNeighborhoodSet && !bAsIs) 
-                                                                          { BuildLocalNeighborhood() ; }
+                                                                          { (void)BuildLocalNeighborhood() ; } // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
                                                                         return( & m_sLocalNeighborhood) ;
                                                                       }
                                         
@@ -1554,7 +1554,7 @@ class SM_EXPORT SmCrvSrfGapFunction : public SmGapFunction
        m_pOtherSurface(pOtherSurface),
        // gwc: passing a XSectTol as a ZoneTol3d - needs fix
        m_sLocalNeighborhood(pThisCurve, rThisIvl, NULL, (SmZoneTol3d &)rXSectTol3d)
-                                                        {  m_sSampleIvlV.SetMinMax(0.0,1.0) ; }
+                                                        {  (void)m_sSampleIvlV.SetMinMax(0.0,1.0) ; } // SolidCraft: an accessor or constructor of the gap function, which keeps its own state
   // Copy Constructor from crOther to this                                    
   SmCrvSrfGapFunction(const SmCrvSrfGapFunction &crOther) : SmGapFunction(crOther),
                                                             m_pThisCurve(crOther.m_pThisCurve),

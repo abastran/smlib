@@ -278,7 +278,11 @@ extern "C" int32_t smlib_extend_sheet(const smlib_brep *sheet, const double *poi
                 SmPoint2d hi = dom.GetMax();
                 double &edge = grow->u ? (grow->high ? hi.x : lo.x) : (grow->high ? hi.y : lo.y);
                 edge += grow->high ? step : -step;
-                box.SetMinMax(lo, hi);
+                // A box turned inside out (a side trimmed back past the opposite one) is no surface.
+                if (box.SetMinMax(lo, hi) != SM_SUCCESS)
+                {
+                    return SMLIB_ERR_ARG;
+                }
                 // A parameter box may not run past the surface's own (a sphere's poles) nor wrap
                 // round it (more than a full turn of a periodic direction).
                 SmExtent2d natural = surf->GetNaturalUVDomain();

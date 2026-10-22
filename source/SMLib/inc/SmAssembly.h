@@ -111,7 +111,7 @@ public:
 private:
     friend class SmAssemblyInstance;
     // Remember Assembly instance in some parent assembly (used only by SmAssemblyInstance constructor)
-    void AddInstance(SmAssemblyInstance* pInstance) { PostInsert(pInstance); /*m_vInstances.AddUnique(pInstance);*/ }
+    void AddInstance(SmAssemblyInstance* pInstance) { (void)PostInsert(pInstance); /*m_vInstances.AddUnique(pInstance);*/ } // SolidCraft: a void adder; inserting into a list fails only out of memory
 
     // Forget Assembly instance in some parent assembly (used only by SmAssemblyInstance destructor)
     void RemoveInstance(SmAssemblyInstance *pInstance) 

@@ -197,7 +197,7 @@ private:
         for (auto &in : m_inputs)
         {
             std::string path = base + "-" + in.first + ".smb";
-            SmApiWriteBrepToFile(in.second, path.c_str(), FALSE);
+            (void)SmApiWriteBrepToFile(in.second, path.c_str(), FALSE); // best effort, as above
         }
         for (auto &in : m_texts)
         {
@@ -245,7 +245,8 @@ inline void settle_tolerances(SmBrep *r)
     {
         return;
     }
-    r->ValidateAndUpdateTolerances(FALSE, violated, trim, vertex_edge, vertex_face);
+    // Where SMLib cannot grow them, the result keeps its tolerances and the check refuses it.
+    (void)r->ValidateAndUpdateTolerances(FALSE, violated, trim, vertex_edge, vertex_face);
 }
 
 // Hands `p` to the caller, or deletes it when it is no usable body.

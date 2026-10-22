@@ -890,7 +890,7 @@ public:
     SmBSplineSurfaceForm       GetBSplineSurfaceForm   () const { return m_eBSplineSurfaceForm; }
     SmBoolean &                GetOutOfBoundsEnabled   ()       { return m_bOutOfBoundsEnabled; }
     gw_SURFACE *               GetGwNurbPointer        () const { return m_pNurb ; }  // retrieve the NLIB NURB struct
-    gw_SURFACE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {MakeNurb() ; } 
+    gw_SURFACE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {(void)MakeNurb() ; } // SolidCraft: an accessor; a surface without its nurb returns NULL, which callers check
                                                                   SM_ASSERT(m_pNurb != NULL) ;
                                                                   return m_pNurb ;
                                                                 }
