@@ -102,7 +102,7 @@ SmOffsetSurface::SmOffsetSurface
                                : NULL ;
    SE_MSG(cpContext != NULL ? SM_SUCCESS : SM_ERR, 
           _T("SmOffsetSurface copy constructor can't find a SmContext for new object construction")) ;
-   crSurfaceToCopy.m_pSurface->Copy(*cpContext, m_pSurface) ;
+   (void)crSurfaceToCopy.m_pSurface->Copy(*cpContext, m_pSurface) ; // SolidCraft: a constructor cannot report
 
    m_pSurface->SetOwner(this) ;
  } // end SmOffsetSurface::SmOffsetSurface copy constructor  
@@ -375,9 +375,9 @@ SmStatus SmOffsetSurface::CalculateBoundingBox
   // copy the PseudoBox base vectors
   if(pPseudoBox)
     {
-      pPseudoBox->SetBasis(sBasePseudoBox.GetBasis(0),
+      SER( pPseudoBox->SetBasis(sBasePseudoBox.GetBasis(0),
                            sBasePseudoBox.GetBasis(1),
-                           sBasePseudoBox.GetBasis(2)) ;
+                           sBasePseudoBox.GetBasis(2))  );
     } 
   
   // init the      
@@ -392,7 +392,7 @@ SmStatus SmOffsetSurface::CalculateBoundingBox
         { // offset the bounding boxes
 
           // get Polar Box offset vectors
-          sBasePolarBox.GetBoundaryVectors(lNumVectors, sVectors) ;
+          SER( sBasePolarBox.GetBoundaryVectors(lNumVectors, sVectors)  );
           sBasePseudoBox.CalcCorners(sPseudoCorners) ;
 
           // for every bounding box corner
@@ -1249,7 +1249,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
               SER( v1.Unitize() );
               SER( v2.Unitize() );
               v0 = 2 * v1 - v2;
-              v0.Unitize();
+              (void)v0.Unitize(); // SolidCraft: a zero vector stays zero
               v0 *= dTol * 1.1;
           }
           aDerivatives[ idx ] = v0;
@@ -1267,7 +1267,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
               SER( v1.Unitize() );
               SER( v2.Unitize() );
               v0 = 2 * v1 - v2;
-              v0.Unitize();
+              (void)v0.Unitize(); // SolidCraft: a zero vector stays zero
               v0 *= dTol * 1.1;
           }
           aDerivatives[ idx ] = v0;
@@ -1407,14 +1407,14 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
               if ( BuLength < BvLength )
                 {
                   sDU = *Bv * N ;
-                  sDU.Unitize();
+                  (void)sDU.Unitize(); // SolidCraft: a zero vector stays zero
                   sDU *= dTol * 1.1; // Make it big enough: no other info on magnitude.
                   Bu = &sDU ;
                 }
               else
                 {
                   sDV = N * *Bu;
-                  sDV.Unitize();
+                  (void)sDV.Unitize(); // SolidCraft: a zero vector stays zero
                   sDV *= dTol * 1.1;
                   Bv = &sDV ;
                 } // end BvLength is shorter than BuLength branch
@@ -1656,7 +1656,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
           if ( eStat == SM_SUCCESS && sDU.LengthSquared() > dTolerance * dTolerance)
             {
               // Make it as short as possible, long enough not to get flagged.
-              sDU.Unitize();
+              (void)sDU.Unitize(); // SolidCraft: a zero vector stays zero
               aDerivatives[lHighestVDeriv+1] = sDU * dTolerance * 1.1;
             }
         }
@@ -1671,7 +1671,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
           if ( eStat == SM_SUCCESS && sDV.LengthSquared() > dTolerance * dTolerance)
             {
               // Make it as short as possible, long enough not to get flagged.
-              sDV.Unitize();
+              (void)sDV.Unitize(); // SolidCraft: a zero vector stays zero
               aDerivatives[1] = sDV * dTolerance * 1.1;
             }
         }
@@ -2413,7 +2413,8 @@ SmBoolean SmOffsetSurface::AssertValid
   SmBoolean sbUseSurfaceEdges[] = { FALSE, FALSE } ;
   SmTArray<SmCurve*> pOpt3DCurves(*m_cpContext), pOptSurface1UVCurves(*m_cpContext);
   SmTArray<SmTsectCurveType> pOptCurveTypes(*m_cpContext);
-  GlobalSurfaceIntersect(*m_cpContext, sUVDomain, *this, sUVDomain, sbUseSurfaceEdges, NULL, NULL, \
+  // SolidCraft: (void), a validity check: no curves found means none reported
+  (void)GlobalSurfaceIntersect(*m_cpContext, sUVDomain, *this, sUVDomain, sbUseSurfaceEdges, NULL, NULL, \
       &pOpt3DCurves, &pOptSurface1UVCurves, NULL, &pOptCurveTypes ,NULL ) ;
   // If the surface does not intersect, then pOptCurveTypes is an empty array
   bRtn &= SM_ASSERT_BOOLEAN_REPORT(2, SM_LEVEL_0, pOptCurveTypes.GetSize() < 1, _T("") ) ;

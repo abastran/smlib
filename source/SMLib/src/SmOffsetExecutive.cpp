@@ -520,7 +520,7 @@ SmBoolean bDrawFaces = FALSE;
             }
 
           // map InfiniteRegion bounding pFU to NewFace and map their edgeuses to one another
-          m_vFUToF.RelatePair(pFU,pNewFace);
+          SER( m_vFUToF.RelatePair(pFU,pNewFace) );
           SER(MapEdgeuses(pFU,pNewFace));
 
 #ifdef SM_DEBUG_CODE
@@ -678,7 +678,7 @@ SmBoolean bDrawFaces = FALSE;
   for (ULONG ii=0; ii<sEdges.GetSize(); ii++) 
     {
       SmEdge *pE = sEdges[ii];
-      pE->GetEdgeuses(sEEUs);
+      SER( pE->GetEdgeuses(sEEUs) );
       for (ULONG ieu=0; ieu<sEEUs.GetSize(); ieu++) 
         {
           SmEdgeuse *pEU = sEEUs[ieu];
@@ -846,7 +846,7 @@ SmBoolean bDebugMe2 = FALSE;
         }
 
       // register vertex/newFace pair
-      m_vVToF.RelatePair( sVertices[ii], pNewFace );
+      SER( m_vVToF.RelatePair( sVertices[ii], pNewFace ) );
 
 #ifdef SM_DEBUG_CODE
       // draw originalBrep(blue), offsetBrep(green), newFace(cyan), newSurface(yellow)
@@ -1263,7 +1263,7 @@ SmBoolean bDebugMeAll = FALSE ;
             { pFU = pFU->GetMate(); }
 
           // relate this faceuse to the newface
-          m_vFUToF.RelatePair(pFU,pNewFace);
+          SER( m_vFUToF.RelatePair(pFU,pNewFace) );
           SER(MapEdgeuses(pFU,pNewFace));
 
 #ifdef SM_DEBUG_CODE
@@ -2105,7 +2105,7 @@ SmStatus SmOffsetExecutive::ReplaceImplicitOffsets
    double dThisApproxTol3d)        // in : max allowed deviation in approximation surfaces
 {
   // remove curve and surface portions not used by edges and faces
-  pBrepToFix->ShrinkGeometry();
+  SER( pBrepToFix->ShrinkGeometry() );
 
   // locals
   SmTArray<SmFace*>    sFixFaces;
@@ -2183,7 +2183,7 @@ static void sm_ForgetSeconds(SmRelation<FIRST,SECOND> & rRelation,
         rRelation.GetFirsts(pSecond, sFirsts);
         for (ULONG j=0; j<sFirsts.GetSize(); j++)
         {
-            rRelation.RemovePair(sFirsts[j], pSecond);
+            (void)rRelation.RemovePair(sFirsts[j], pSecond); // SolidCraft: each pair was just listed, so it exists
         }
     }
 }
@@ -2202,7 +2202,7 @@ static void sm_ForgetFirsts(SmRelation<FIRST,SECOND> & rRelation, const std::uno
         rRelation.GetSeconds(pFirst, sSeconds);
         for (ULONG j=0; j<sSeconds.GetSize(); j++)
         {
-            rRelation.RemovePair(pFirst, sSeconds[j]);
+            (void)rRelation.RemovePair(pFirst, sSeconds[j]); // SolidCraft: each pair was just listed, so it exists
         }
     }
 }
@@ -2237,7 +2237,7 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
     for (ULONG i=0; i<sEdges.GetSize(); i++) {
         SmEdge *pE = sEdges[i];
         SmPoint3d sPnt;
-        pE->GetPrimaryEdgeuse()->NormalizedEvaluate(0.5,FALSE,sPnt);  // TRUE = UV Eval, FALSE = 3d Eval
+        SER( pE->GetPrimaryEdgeuse()->NormalizedEvaluate(0.5,FALSE,sPnt) );  // TRUE = UV Eval, FALSE = 3d Eval
         sSolutions.ReSet();
         m_pOriginalBrep->m_bEditingEnabled = FALSE;
         SER(SmTopologySolver::BrepPointSolve(m_pOriginalBrep,sPnt,SM_SO_MINIMIZE,
@@ -2280,7 +2280,7 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
         for (ULONG j=0; j<sFaceEdges.GetSize(); j++)
         {
             SmTArray<SmEdgeuse*> sUses;
-            sFaceEdges[j]->GetEdgeuses(sUses);
+            SER( sFaceEdges[j]->GetEdgeuses(sUses) );
             for (ULONG kk=0; kk<sUses.GetSize(); kk++)
             {
                 if (sUses[kk]->GetFace() == sDeleteFaces[i])
@@ -2292,7 +2292,7 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
     }
 
     // Clean up those faces we have collected.
-    pResult->RemoveFaces(sDeleteFaces);   // increments unlocked mark value
+    SER( pResult->RemoveFaces(sDeleteFaces) );   // increments unlocked mark value
 
     // Forget the deleted faces and edgeuses, so later lookups in the relations (lamina side walls,
     // PiecewiseMerge) cannot return them. For m_vEUToEU also forget any edgeuse no result edge has.
@@ -2303,7 +2303,7 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
         pResult->GetEdges(sResultEdges);
         for (ULONG i=0; i<sResultEdges.GetSize(); i++)
         {
-            sResultEdges[i]->GetEdgeuses(sLive);
+            SER( sResultEdges[i]->GetEdgeuses(sLive) );
         }
         sm_ForgetSeconds(m_vEUToEU, sGone, &sLive);
         sm_ForgetSeconds(m_vFUToF, sGoneFaces, (const std::unordered_set<SmFace*> *)NULL);
@@ -2476,11 +2476,11 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
           // Tol: StitchIntoShell() adds in the tols of the topology objects,
           // so the Brep's tolerance should be plenty.
           double dStitchTol3d = rpResult->GetTolerance();
-          SmStitch::StitchIntoShell( rpResult, TRUE, dStitchTol3d, lStitchedEdges, dVGap, dEGap );
+          SER( SmStitch::StitchIntoShell( rpResult, TRUE, dStitchTol3d, lStitchedEdges, dVGap, dEGap ) );
         }
       else 
         {
-          SmStitch::StitchIntoSolid( rpResult, bProducesSolid, lStitchedEdges, dVGap, dEGap );
+          SER( SmStitch::StitchIntoSolid( rpResult, bProducesSolid, lStitchedEdges, dVGap, dEGap ) );
         }
 
       SmTArray<SmRegion*> sRegions;
@@ -2546,13 +2546,13 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                   for (mm=0; mm<sBlended.GetSize(); mm++) 
                     {
                       SmFace *pBlendedF = sBlended[mm];
-                      sNoSSI.RelatePair(pBlendedF->GetSurface(),pEOffSurf);
-                      sNoSSI.RelatePair(pEOffSurf, pBlendedF->GetSurface());                    
+                      (void)sNoSSI.RelatePair(pBlendedF->GetSurface(),pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                      (void)sNoSSI.RelatePair(pEOffSurf, pBlendedF->GetSurface()); // SolidCraft: a pair this speed-up misses is intersected like any other
                     }
 
                   // relate faceOffsets to their edgeOffsets
-                  sNoSSI.RelatePair(pOffSurf, pEOffSurf);
-                  sNoSSI.RelatePair(pEOffSurf, pOffSurf);
+                  (void)sNoSSI.RelatePair(pOffSurf, pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                  (void)sNoSSI.RelatePair(pEOffSurf, pOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                   
                   // Now do first vertex
                   SmVertex *pV        = pE->GetVertex();
@@ -2561,8 +2561,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                     {
                       // relate start VertexOffsets to EdgeOffsets
                       SmSurface *pVOffSurf = pVOffFace->GetSurface();
-                      sNoSSI.RelatePair(pEOffSurf,pVOffSurf);
-                      sNoSSI.RelatePair(pVOffSurf,pEOffSurf);
+                      (void)sNoSSI.RelatePair(pEOffSurf,pVOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                      (void)sNoSSI.RelatePair(pVOffSurf,pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                     }
                   
                   // Now do second vertex
@@ -2572,8 +2572,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                     {
                       // relate end VertexOffsets to EdgeOffsets
                       SmSurface *pVOffSurf = pVOffFace->GetSurface();
-                      sNoSSI.RelatePair(pEOffSurf,pVOffSurf);
-                      sNoSSI.RelatePair(pVOffSurf,pEOffSurf);
+                      (void)sNoSSI.RelatePair(pEOffSurf,pVOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                      (void)sNoSSI.RelatePair(pVOffSurf,pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                     }
                   
                 } // end iter 'll' every origEdge offset capFace
@@ -2591,7 +2591,7 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
               double dTanTolDeg = GetTangencyTolDegrees();
               if (pE->IsManifold() && (m_bExtendConvexEdges || pE->GetPrimaryEdgeuse()->IsTangentSector(dTanTolDeg))) 
                 {
-                  pE->GetEdgeuses(sEdgeEUS);
+                  SER( pE->GetEdgeuses(sEdgeEUS) );
                   ULONG ieu, ifac;
                   for (ieu=0; ieu<sEdgeEUS.GetSize(); ieu++) 
                     {
@@ -2605,8 +2605,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                             {
                               SmFace *pOffFRad = sOffFaces2[ifac];
                               SmSurface *pOffSurfRad = pOffFRad->GetSurface();
-                              sNoSSI.RelatePair(pOffSurf,pOffSurfRad);
-                              sNoSSI.RelatePair(pOffSurfRad,pOffSurf);
+                              (void)sNoSSI.RelatePair(pOffSurf,pOffSurfRad); // SolidCraft: a pair this speed-up misses is intersected like any other
+                              (void)sNoSSI.RelatePair(pOffSurfRad,pOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                             }
                         }
                     } // end for each Edgeuse
@@ -2621,8 +2621,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
               SmFace *pVOffFace = m_vVToF.GetSecond(pV);
               if (!pVOffFace) { continue; }
               SmSurface *pVOffSurf = pVOffFace->GetSurface();
-              sNoSSI.RelatePair(pOffSurf,pVOffSurf);
-              sNoSSI.RelatePair(pVOffSurf,pOffSurf);
+              (void)sNoSSI.RelatePair(pOffSurf,pVOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+              (void)sNoSSI.RelatePair(pVOffSurf,pOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
 
             } // end iter 'kk' every origFace->Vertex
         } // end iter 'jj' every OrigFace->Offset
@@ -3324,7 +3324,7 @@ static ULONG lDebugCount = 0 ;
       // pNewFace = pNewSurface->GetFace() ; - removed redundant line
       // map origEdge to its offset capFaces
       sNewFaces.Add(pNewFace) ;
-      m_vEToF.RelatePair(pEdge,pNewFace) ;
+      SER( m_vEToF.RelatePair(pEdge,pNewFace)  );
 
 // Remove Composites
 //    // map origEdge to its offset capFaces
@@ -3475,7 +3475,7 @@ SmBoolean bDebugMe = FALSE;
             SmFace *pNewFace = NULL;
             SER(m_pOffsetBrep->CreateFaceFromSurface(pNewSurface,
                 pNewSurface->GetNaturalUVDomain(),pNewFace));
-            m_vEToF.RelatePair(pEdge,pNewFace);
+            SER( m_vEToF.RelatePair(pEdge,pNewFace) );
             SER(m_vBlendToFaces.RelateToMany(pNewFace,sBlendedFaces));
         }
 
@@ -4015,7 +4015,7 @@ static ULONG lDebugCount = 0 ;
             if(sDelFaces.GetSize() > 0)
             {
               SmTopologyIntersector sTI( m_crContext, m_pOffsetBrep, m_pOffsetBrep, SM_EFF_ZERO, SM_EFF_ZERO );
-              sTI.DeleteFaces( sDelFaces );
+              SER( sTI.DeleteFaces( sDelFaces ) );
               for(jjj = 0; jjj < sDelFaces.GetSize(); jjj++)
               {
                 ULONG lIndex;
@@ -4040,9 +4040,9 @@ static ULONG lDebugCount = 0 ;
           SmExtent3d sTotalBBox;
           for (ULONG ii=0; ii<sUVCurves.GetSize(); ii++) 
             {
-              sUVCurves[ii]->ConvertTo3D();
+              SER( sUVCurves[ii]->ConvertTo3D() );
               SmExtent3d sCrvBBox;
-              sUVCurves[ii]->CalculateBoundingBox(sUVCurves[ii]->GetNaturalInterval(),&sCrvBBox);
+              SER( sUVCurves[ii]->CalculateBoundingBox(sUVCurves[ii]->GetNaturalInterval(),&sCrvBBox) );
               sTotalBBox.Union(sCrvBBox,sTotalBBox);
             }
 
@@ -4060,23 +4060,23 @@ static ULONG lDebugCount = 0 ;
           SmBSplineCurve *pLine = NULL ;
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.GetMin(),sOffsetDomain.Evaluate(1.0,0.0),pLine));
           SmExtent1d sIvl(sOffsetDomain.GetMin().x, sOffsetDomain.GetMax().x);
-          pLine->EditParameterization(sIvl);
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine); pLine = NULL ;
 
           // line [0,1] to [1,1]
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.Evaluate(0.0,1.0),sOffsetDomain.GetMax(),pLine));
-          pLine->EditParameterization(sIvl);
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine); pLine = NULL ;
 
           // line [0,0] to [0,1]
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.GetMin(),sOffsetDomain.Evaluate(0,1.0),pLine));
-          sIvl.SetMinMax(sOffsetDomain.GetMin().y,sOffsetDomain.GetMax().y);
-          pLine->EditParameterization(sIvl);
+          SER( sIvl.SetMinMax(sOffsetDomain.GetMin().y,sOffsetDomain.GetMax().y) );
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine); pLine = NULL ;
 
           // line [1,0] to [1,1]
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.Evaluate(1.0,0.0),sOffsetDomain.GetMax(),pLine));
-          pLine->EditParameterization(sIvl);
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine);
 
           // make a new Brep containing 1 planar face bounded by the 3d Curves just made
@@ -4100,22 +4100,22 @@ static ULONG lDebugCount = 0 ;
           // Original code with typecast has warning: dereferencing type-punned pointer will break strict-aliasing rules [-Wstrict-aliasing]
           // pPlaneSurf->Copy(*cpContext,(SmSurface*&)pCopyPlane);
           SmPlane* pCopyPlane = NULL;
-          pPlaneSurf->Copy(*cpContext,pCopyPlane);
+          SER( pPlaneSurf->Copy(*cpContext,pCopyPlane) );
 
           SmExtent2d sCopyDomain = pCopyPlane->GetNaturalUVDomain();
 
           // increase the sCopyDomain size to include the projection of every
           // UVTrimCurve bounding box corner onto this plane we just made.
           SmPoint2d sUV;
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMin(),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMin(),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMax(),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMax(),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(1,0,0),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(1,0,0),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(0,1,0),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(0,1,0),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->AdjustSTEPUVDomain(sCopyDomain);
+          SER( pCopyPlane->AdjustSTEPUVDomain(sCopyDomain) );
 
           // make a planar face using the Offset UVTrimCurves
           SmRegion *pNewRegion = NULL;
@@ -4153,7 +4153,7 @@ static ULONG lDebugCount = 0 ;
               // Convert face 3dCurves into 2D curves (all their Z components should be zero)
               for (iii=0; iii<sUVCurves.GetSize(); iii++) 
                 {
-                  sUVCurves[iii]->ConvertTo2D();
+                  SER( sUVCurves[iii]->ConvertTo2D() );
                 }
 
               // make the offset Face with Curves from intersected Brep
@@ -4215,7 +4215,7 @@ static ULONG lDebugCount = 0 ;
       SmFace *pNewF = sNewFaces[ii];
       SM_ASSERT(pNewF->IsKindOf(SmFace_TYPE)) ;
       SM_ASSERT(pFU->IsKindOf(SmFaceuse_TYPE)) ;
-      m_vFUToF.RelatePair(pFU,pNewF);
+      SER( m_vFUToF.RelatePair(pFU,pNewF) );
       SER(MapEdgeuses(pFU,pNewF));
     }
 
@@ -4285,7 +4285,7 @@ SmBoolean bDebugMe = FALSE;
   SmExtent2d sTgtDomain ;
   SmExtent2d sOriginalDomain = pOriginalFU->GetFace()->GetUVDomain() ;
   SmExtent2d sOffsetDomain   = pOffsetFace           ->GetUVDomain() ;
-  sOriginalDomain.Intersect(sOffsetDomain, sTgtDomain) ;
+  SER( sOriginalDomain.Intersect(sOffsetDomain, sTgtDomain)  );
   
   if(sTgtDomain.IsDegenerate())
     {
@@ -4295,8 +4295,8 @@ SmBoolean bDebugMe = FALSE;
   // check OriginalFU and OffsetFace orientations by checking common midSurface Normal directions
   SmPoint3d sOrigPN[2], sCopyPN[2] ;
   SmPoint2d sMidUV       = sTgtDomain.Evaluate(0.5,0.5) ;
-  pOriginalFU->GetFace()->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sOrigPN[1]) ;
-  pOffsetFace           ->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sCopyPN[1]) ;
+  SER( pOriginalFU->GetFace()->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sOrigPN[1])  );
+  SER( pOffsetFace           ->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sCopyPN[1])  );
   SmBoolean bSameSrfNorms = sOrigPN[1].Dot(sCopyPN[1]) > 0.0 ;
 
 #ifdef SM_DEBUG_CODE
@@ -4374,7 +4374,7 @@ SmBoolean bDebugMe = FALSE;
                 {
                   // found a match: relate the pair
                   bFound = TRUE;
-                  m_vEUToEU.RelatePair(pOrigEU,pOffEU);
+                  SER( m_vEUToEU.RelatePair(pOrigEU,pOffEU) );
 
                   sm_NotifyEdgeAndVertices( pOrigEU->GetEdge(), pOffEU->GetEdge(), SM_NO_COPY );
 
@@ -4425,7 +4425,7 @@ SmBoolean bDebugMe = FALSE;
                   if (bDropFound) 
                     {
                       bFound = TRUE;
-                      m_vEUToEU.RelatePair(pOrigEU,pOffEU);
+                      SER( m_vEUToEU.RelatePair(pOrigEU,pOffEU) );
 
                       sm_NotifyEdgeAndVertices( pOrigEU->GetEdge(), pOffEU->GetEdge(), SM_NO_COPY );
 
