@@ -562,6 +562,24 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   extension is made from the base, all of its sides that can grow at once, each by the base
   domain's size times the least power of two that reaches the point, and never less than the
   extension it replaces: the same points give the same extension.
+- **Precise face properties integrate each smooth piece on its own** (`SmFace.cpp`,
+  `SmFace::ComputePreciseProperties`, `SmODEAreaIFEO::Evaluate`): area, volume and moments are an
+  integral along each UV trim curve of an integral along the iso-u line from the face's lowest v,
+  each was one adaptive Runge-Kutta run over its whole interval. The integrand's derivatives
+  jump at the trim curve's interior knots, where the trim curve crosses a knot line u = k of the
+  surface, and, along the iso-u line, at the surface's v knots (a rational circle's double knots, in
+  either). A step across one is outside the method's error model, so its error estimate does not
+  bound its error, and the requested accuracy did not hold (tangency-labs/solidcore#384, formerly
+  KNOWN_ISSUES.md "faces bounded by circles"): at 1e-4 a sphere's area came out 1.6e-4 off and a
+  torus's volume 2.5e-4, at 1e-3 a cylinder's volume 4.4e-4, at 1e-1 a cylinder's centroid 0.09 mm.
+  Each piece between those breaks is now integrated on its own from a half-length first step, and
+  the pieces summed (the crossings of u = k found per knot span by a sign change of u(t) - k between
+  4 (degree + 1) points, then bisection). Against closed forms a cylinder, a sphere, a torus and a
+  block with a round hole have area and volume within 2e-5 at 1e-4 and 5e-9 at 1e-8. Fixing only one
+  of the two directions made tight accuracies worse, the remaining one's error no longer cancelled
+  by the other's. 1.0.1 already split the trim curve at its own knots, with its retry from ever finer
+  first steps; this splits at the surface's knot lines too, in both directions, and keeps the retry
+  on each piece.
 - **Faces an extended offset already mated are not intersected again** (`SmOffsetExecutive.cpp`,
   `SmOffsetExecutive::PiecewiseMerge`): the offset's self-intersection merge skips the surface
   pairs known to share an edge already (an offset face and its edge's cap face, faces across a
