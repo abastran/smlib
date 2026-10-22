@@ -43,7 +43,10 @@ typedef struct smlib_brep smlib_brep;
 /* ---- Diagnostics ------------------------------------------------------------------------- */
 
 /* Receives one line per API call once it returns, such as
- *   `smlib_make_box(origin=[0,0,0], size=[10,20,30]) -> 0 (0.21 ms)`.
+ *   `smlib_make_box(origin=[0,0,0], size=[10,20,30]) -> 0 (0.21 ms)`,
+ * and, at level 1 while the call runs, each warning, message or error SMLib reports itself
+ * (smos_ErrorMessage), such as
+ *   `SMLib warning at SmSurfaceIntersector.cpp:601: <its text> (in smlib_boolean(...))`.
  * `level` is 0 for a call that succeeded and 1 for one that failed. The line is valid only during
  * the callback. The callback runs with the library lock held: it must not call back into this
  * API. */

@@ -15,6 +15,7 @@
 #include <SmApiImportExport.h>
 #include <SmBrep.h>
 #include <SmExtent2d.h>
+#include <SmMessages.h>
 
 #include <algorithm>
 #include <atomic>
@@ -111,6 +112,45 @@ inline std::string handle(const smlib_brep *b)
     return b == nullptr ? std::string("null") : std::string("brep@") + t;
 }
 
+// SMLib text (TCHAR is char here and wchar_t on Windows) as ASCII, at most `cap` characters:
+// anything else becomes '?'.
+inline std::string ascii(const TCHAR *t, size_t cap)
+{
+    std::string out;
+    for (size_t i = 0; t != nullptr && i < cap && t[i] != 0; ++i)
+    {
+        const long c = static_cast<long>(t[i]);
+        out += c > 0 && c < 128 ? static_cast<char>(c) : '?';
+    }
+    return out;
+}
+
+// SMLib's own reports (smos_ErrorMessage: warnings, messages, and the errors an SER logs), as
+// one line of the shim log, tagged with the call in flight: "SMLib <kind> at <file>:<line>:
+// <message> (in <call>)". SMLib keeps its error callback per thread (SmThreadLocalStorage), so
+// Call::run installs it on the calling thread; it runs under the library lock, like the call.
+inline void on_smlib_message(SmStatus error, const TCHAR *const file, ULONG line, const TCHAR *const message)
+{
+    if (g_log == nullptr)
+    {
+        return;
+    }
+    auto text = [](const TCHAR *t) { return ascii(t, CURRENT_CAP); };
+    std::string kind = error == SM_ERR_WARNING ? "warning" : error == SM_ERR_MESSAGE ? "message" : "error " + std::to_string(error);
+    std::string line_text = "SMLib " + kind + " at " + text(file) + ":" + std::to_string(line);
+    std::string what = text(message);
+    if (!what.empty())
+    {
+        line_text += ": " + what;
+    }
+    size_t n = g_current_len.load(std::memory_order_acquire);
+    if (n > 0)
+    {
+        line_text += " (in " + std::string(g_current, n) + ")";
+    }
+    g_log(g_log_user, 1, line_text.c_str());
+}
+
 // One API call: its line for the log, the dump and crash reports, and its B-rep inputs.
 class Call
 {
@@ -146,7 +186,15 @@ public:
             auto t0 = std::chrono::steady_clock::now();
             try
             {
-                s = SmApiGetOrCreateContext() == nullptr ? SMLIB_ERR_EXCEPTION : f();
+                if (SmApiGetOrCreateContext() == nullptr)
+                {
+                    s = SMLIB_ERR_EXCEPTION;
+                }
+                else
+                {
+                    smos_SetErrorCallback(on_smlib_message);
+                    s = f();
+                }
             }
             catch (...)
             {
