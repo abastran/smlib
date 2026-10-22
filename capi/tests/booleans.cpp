@@ -357,6 +357,45 @@ void rational_cylinder_cut()
 
 } // namespace
 
+// A body from flat arrays written by smlib_flat_write (a test fixture), or NULL.
+smlib_brep *from_flat_file(const char *path)
+{
+    smlib_flat *f = nullptr;
+    smlib_brep *b = nullptr;
+    if (smlib_flat_read(path, &f) == SMLIB_OK)
+    {
+        CHECK(smlib_brep_import(f, &b) == SMLIB_OK);
+    }
+    smlib_flat_free(f);
+    return b;
+}
+
+// Rig case fillets/1488: a slab 120 x 3.5 x 95 with a window 48 wide up to z = 90, joined with a
+// pleated loft whose ruled side edge at x = +-24 crosses z = 90 0.0042 mm inside the window's
+// corner (both bodies as SolidCraft hands them over, tests/data/nudged-loft-*.txt). Both points
+// go into one ProtoVertex (the capture distance is 0.01 mm), which Resolve makes into two
+// vertices; the intersection curve along the window's top was continued past its own vertex to
+// the ProtoVertex's mean position, 0.0021 mm, and left that gap at the next edge (SmLoop,
+// "Edge/Edge Gap"). The pleat's volume has no closed form: the union is the two volumes less
+// their overlap, which only the check and the slab's own volume bound.
+void nudged_loft_join()
+{
+    smlib_brep *wall = from_flat_file(SMLIB_TEST_DATA "/nudged-loft-wall.txt");
+    smlib_brep *pleat = from_flat_file(SMLIB_TEST_DATA "/nudged-loft-pleat.txt");
+    smlib_brep *r = nullptr;
+    CHECK(wall != nullptr && pleat != nullptr);
+    if (wall != nullptr && pleat != nullptr)
+    {
+        CHECK(near(volume(wall), 120.0 * 3.5 * 95.0 - 48.0 * 3.5 * 90.0, 1e-9));
+        CHECK(smlib_boolean(wall, pleat, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK && sound(r));
+        CHECK(r != nullptr && volume(r) > volume(wall) && volume(r) < volume(wall) + volume(pleat));
+    }
+    for (smlib_brep *b : {wall, pleat, r})
+    {
+        smlib_brep_free(b);
+    }
+}
+
 int main(int argc, char **argv)
 {
     struct Case
@@ -367,6 +406,7 @@ int main(int argc, char **argv)
     const Case cases[] = {
         {"tangent_cylinders", tangent_cylinders},
         {"rational_cylinder_cut", rational_cylinder_cut},
+        {"nudged_loft_join", nudged_loft_join},
     };
     for (const Case &c : cases)
     {

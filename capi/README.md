@@ -341,7 +341,15 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   short of it, as a thread flank's curve on a nut's bore does 3.1e-5 before the bore's rim), the
   curve and its UV curves are continued to the curve's point nearest the vertex, each by the exact
   polynomial of its end span (`sm_CreateExactlyExtendedCurve`), when that point is within tolerance
-  of the vertex and each UV curve's new end lies on its face there.
+  of the vertex and each UV curve's new end lies on its face there. The point each end goes to is
+  the ProtoVertex's position only when the ProtoVertex is one Vertex (every vertex definition in
+  it imprinted onto the same Vertex in each Brep); otherwise it is the Vertex the end is
+  imprinted onto, where that is one point in both Breps. A ProtoVertex collects every vertex
+  definition within the capture distance (0.01 mm), which may resolve into several Vertices, and
+  its position is then their mean: a pleated loft joined to a slab, whose ruled edge crosses the
+  slab's window top 0.0042 mm from the window's corner, had its curve along the window top,
+  already ending at its own Vertex, continued 0.0021 mm past it to that mean, which left a gap
+  of that size at the next edge (SmLoop, "Edge/Edge Gap").
 - **A moved face that leaves its tangent neighbour** (`SmOffsetGeometryCreation.cpp`,
   `ExtendTrimEdges`, `EdgeuseOffset`): a local operation (`SmBrep::LocalOperation`) rebuilds a
   tangent edge by lifting it onto one face's new surface and dropping it onto the other's. When
