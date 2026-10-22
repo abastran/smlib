@@ -1163,6 +1163,38 @@ int main()
         CHECK(smlib_draft(cube, side, 1, 0.1, nullptr, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
     }
 
+    // A cone frustum whose side is two half-cone faces (a profile of two half circles r 20,
+    // drafted inward), shelled 2 mm open at the top (rig case shell/3103). The inner rim meets
+    // the top plane where the offsets of the side and the top were already mated along it, and
+    // the offset's self-intersection merge intersected them again: the plane/offset-cone curve
+    // ended 0.0036 mm short of the inner seam, which split each half of the rim there (three
+    // extra vertices and edges, then the shell's difference left partially coincident edges).
+    // The two halves of each wall and their rims share edges; the cavity is the frustum moved
+    // in by the wall normal to the cone: r(z) = 20 - z tan(a) - t / cos(a), floor at z = t.
+    for (double deg : {9.4623222080, 15.0})
+    {
+        const double a = deg * PI / 180.0, t = 2.0, h = 30.0, r0 = 20.0;
+        const int64_t kinds[2] = {SMLIB_CURVE_ARC, SMLIB_CURVE_ARC};
+        const double reals[24] = {0, 0, 0, 0, 0, 1, 1, 0, 0, r0, 0, PI, 0, 0, 0, 0, 0, 1, 1, 0, 0, r0, PI, 2 * PI};
+        const double up[3] = {0, 0, 1};
+        smlib_brep *frustum = nullptr;
+        CHECK(smlib_extrude(kinds, 2, reals, 24, up, h, a, 1, &frustum) == SMLIB_OK);
+        auto cone = [](double ra, double rb, double len) { return PI * len / 3.0 * (ra * ra + ra * rb + rb * rb); };
+        auto inner = [&](double z) { return r0 - z * std::tan(a) - t / std::cos(a); };
+        const double want = cone(r0, r0 - h * std::tan(a), h) - cone(inner(t), inner(h), h - t);
+        const double lid[3] = {0, 0, h};
+        CHECK(frustum != nullptr && smlib_shell(frustum, lid, 1, 0.1, -t, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            int64_t counts[3] = {0, 0, 0};
+            CHECK(smlib_brep_counts(r, counts) == SMLIB_OK);
+            CHECK(counts[0] == 7 && counts[1] == 12 && counts[2] == 8);
+            CHECK(near(volume_of(r), want, 1e-5));
+            done(r);
+        }
+        smlib_brep_free(frustum);
+    }
+
     // Thicken: a sheet (the cube's top face alone, SMLib's own way of making one is not in the
     // C API; a solid is refused).
     CHECK(smlib_thicken(cube, 1.0, 0, &r) == SMLIB_ERR_ARG);

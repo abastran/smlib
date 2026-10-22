@@ -2585,8 +2585,11 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
 
               // Determine if we have a tangent sector across this edge and
               // eliminate intersections if we do.
+              // SolidCraft change: with extended convex edges, every edge without an offset cap
+              // face had the offsets of its two faces mated along it (EdgeuseOffset), so those
+              // faces already share their intersection edge too.
               double dTanTolDeg = GetTangencyTolDegrees();
-              if (pE->IsManifold() && pE->GetPrimaryEdgeuse()->IsTangentSector(dTanTolDeg)) 
+              if (pE->IsManifold() && (m_bExtendConvexEdges || pE->GetPrimaryEdgeuse()->IsTangentSector(dTanTolDeg))) 
                 {
                   pE->GetEdgeuses(sEdgeEUS);
                   ULONG ieu, ifac;

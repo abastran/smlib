@@ -528,3 +528,13 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   extension is made from the base, all of its sides that can grow at once, each by the base
   domain's size times the least power of two that reaches the point, and never less than the
   extension it replaces: the same points give the same extension.
+- **Faces an extended offset already mated are not intersected again** (`SmOffsetExecutive.cpp`,
+  `SmOffsetExecutive::PiecewiseMerge`): the offset's self-intersection merge skips the surface
+  pairs known to share an edge already (an offset face and its edge's cap face, faces across a
+  tangent edge). With extended convex edges an edge gets no cap face: the offsets of its two
+  faces are mated along it instead, and the merge intersected them again. On a cone frustum
+  whose side is two half-cone faces, shelled open at the top, that plane/offset-cone curve ran
+  along the inner rim the mating had made and ended 0.0036 mm short of the inner seam, so the
+  rim was split there into a tiny edge and three spurious vertices, and the shell's difference
+  then left partially coincident edges (SmFace test #34). Those mated pairs now count as
+  sharing their edge too.
