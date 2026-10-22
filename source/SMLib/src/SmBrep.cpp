@@ -27047,10 +27047,19 @@ SmStatus SmBrep::StitchAndOrient
     {
       // pick a larger tolerance for the second pass
       // when dStitchTol3d == 0.0, make sure new tol is much larger than Brep tolerance
+      double dFirstTol3d = dXSectTol3d ;
+      ULONG  lFirstLamina = lNumLamina ;
       dXSectTol3d = (dStitchTol3d <= 0.0) ? dXSectTol3d * 20.0 : dXSectTol3d * 10.0 ;
 
       // try 2nd stitch with larger tolerance
       SER( this->StitchFaces(dXSectTol3d, lNumStitched, lNumLamina, dMaxVGap, dMaxEGap, NULL, bAllowSpineEdges)  );
+
+      // SolidCraft change: say that the second pass ran (the error callback tags it with the call
+      // in flight), so the inputs that need it can be found; nothing else changes.
+      TCHAR sStitchMsg[SM_TBLOCK_SIZE] ;
+      smos_sprintf( sStitchMsg, _T("StitchAndOrient: second stitch pass at %g (first at %g left %lu lamina edges, the second %lu)"),
+                    dXSectTol3d, dFirstTol3d, (unsigned long)lFirstLamina, (unsigned long)lNumLamina ) ;
+      WARN( sStitchMsg ) ;
     }
 
   // and orient faces
