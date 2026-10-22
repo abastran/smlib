@@ -610,3 +610,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   (`SMLIB_ERR_NOT_SOLID` from the shim). Of the joints, the one nearest the corner's offset curve is
   now its pivot: a half disc r20 drafted 3° outward over 10 is a valid solid of 6555.914 mm³
   (6555.908 by quadrature; the same loop with its diameter split in two gave that already).
+- **A loop closed through its vertex** (`SmTrimmingTools.cpp`, `SmTrimmingTools::CheckLoop`,
+  SmLoop test 0 "Edge/Edge Gap"): where two edges of a loop meet, it measured the gap between
+  their lifted UV ends against the two edges' tolerances. SMLib's tolerance model (`SmTol.h`,
+  3a) connects an edge end to its vertex within their XSectTol3d, so two ends in one vertex's
+  neighbourhood may lie farther apart than the edges' tolerances, as its own comment noted. A
+  union of two cylinders had an intersection curve end 1.3e-5 mm from its vertex (edge
+  tolerance 5.8e-6, vertex 2.6e-5) and failed the check. Each end is now measured against the
+  vertex point with its edge/vertex XSectTol3d.
