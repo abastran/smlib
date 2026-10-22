@@ -828,3 +828,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   measured as a fraction from the range's start, was under 0.2 %; at the end that fraction is
   about 1 (and 0 again once reversed back), so no end was ever refined. The end's shift is now
   measured from the end: an end 1e-7 past a crossing moves onto it (gap 5e-6 to 1e-16).
+- **A slice keeps a face coincident with its sheet only on the side kept** (`SmMerge.cpp`,
+  `SmMerge::ManifoldBoolean`, steps 7.3e and 7.B): `SM_BO_SLICE` decided a face of the body
+  lying on its sheet as the difference does, by the SameSide/NonSolid status of the two faces'
+  regions; the sheet has no solid side, so both faces were always kept, on either part. A box
+  joined to a slab sliced along the slab's face left that face as a stray face in the box's
+  part, both sides void (#3447). Such a pair is now kept where the body's material on it lies
+  on the side the sheet's `SM_OT_SAME` faceuse bounds, the side 7.4d keeps for faces in a
+  sector, and deleted otherwise.

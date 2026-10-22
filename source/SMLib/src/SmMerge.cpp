@@ -3438,6 +3438,15 @@ static ULONG lDebugCount = 0 ;
                             }
                         } // end SameSide/NonSolid check
 
+                      // 7.3a' SolidCraft change: a slice keeps a face coincident with its sheet
+                      //       where the material it bounds lies on the side kept, the side a
+                      //       sheet faceuse with SM_OT_SAME orientation bounds (as 7.4d decides
+                      //       for faces in a sector), and drops it with the sheet's piece otherwise.
+                      //       The sheet has no solid side, so the SameSide/NonSolid status the
+                      //       difference uses cannot tell (it kept both faces on either side).
+                      SmFaceuse *pOSolidSideFU = pRegion->IsVoid() ? pFoundFU->GetMate() : pFoundFU;
+                      SmBoolean  bSliceKeep    = pOSolidSideFU->GetOrientation() == SM_OT_SAME;
+
                       // 7.3b skip marked OtherFaces - already processed
                       if (pOFace->IsMarked(eOtherMarkType)) continue;
 
@@ -3495,9 +3504,12 @@ static ULONG lDebugCount = 0 ;
                                   break;
 
                               case SM_BO_DIFFERENCE:
-                              case SM_BO_SLICE:
                                   if (bOnSameSide && !bNonSolid) { sDelFaces.Add(pFace);  sDelOFaces.Add(pOFace); }
                                   else                           { sKeepFaces.Add(pFace); sKeepOFaces.Add(pOFace); }
+                                  break;
+                              case SM_BO_SLICE:
+                                  if (bSliceKeep) { sKeepFaces.Add(pFace); sKeepOFaces.Add(pOFace); }
+                                  else            { sDelFaces.Add(pFace);  sDelOFaces.Add(pOFace); }
                                   break;
                               case SM_BO_EXCLUSIVE_OR:
                                   sDelFaces.Add(pFace);  sDelOFaces.Add(pOFace);
@@ -3677,6 +3689,11 @@ static ULONG lDebugCount = 0 ;
                             }
                         }
 
+                      // SolidCraft change: a slice keeps the pair where the material lies on the
+                      // side kept (see 7.3a'); the sheet's faceuse on the material's side.
+                      SmFaceuse *pOSolidSideFU = pRegion->IsVoid() ? pOEU->GetFaceuse()->GetMate() : pOEU->GetFaceuse();
+                      SmBoolean  bSliceKeep    = pOSolidSideFU->GetOrientation() == SM_OT_SAME;
+
                       // skip marked ThisFaces - already processed
                       if (pFace->IsMarked(eBrepMarkType)) { continue; }
 
@@ -3728,9 +3745,12 @@ static ULONG lDebugCount = 0 ;
                                   else                          { sDelFaces.Add(pFace); sDelOFaces.Add(pOFace); }
                                   break;
                               case SM_BO_DIFFERENCE:
-                              case SM_BO_SLICE:
                                   if (bOnSameSide && !bNonSolid) { sDelFaces.Add(pFace); sDelOFaces.Add(pOFace); }
                                   else                           { sKeepFaces.Add(pFace); sKeepOFaces.Add(pOFace); }
+                                  break;
+                              case SM_BO_SLICE:
+                                  if (bSliceKeep) { sKeepFaces.Add(pFace); sKeepOFaces.Add(pOFace); }
+                                  else            { sDelFaces.Add(pFace); sDelOFaces.Add(pOFace); }
                                   break;
                               case SM_BO_EXCLUSIVE_OR:
                                   sDelFaces.Add(pFace); sDelOFaces.Add(pOFace);
