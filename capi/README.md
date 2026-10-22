@@ -41,7 +41,7 @@ one shim at a time, each with a case in a fuzz target.
 
 ## Operations
 
-`src/smlib_ops.cpp`: `smlib_boolean` (union, subtract, intersect), `smlib_fillet`,
+`src/smlib_ops.cpp`: `smlib_boolean` (union, subtract, intersect), `smlib_boolean_union_all` (the union of many bodies, pairwise level by level within one call, so a join of many tools never grows one body at a time), `smlib_fillet`,
 `smlib_chamfer`, `smlib_blend`, `smlib_fillet_variable`, `smlib_shell`, `smlib_offset_faces` and `smlib_thicken`. Each copies its inputs and works on the copies, so tagged
 operands (`smlib_history_tag`) give a result whose history `smlib_history_read` reads. An empty
 boolean result is `SMLIB_ERR_EMPTY`; several solids come back as one body

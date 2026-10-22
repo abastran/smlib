@@ -513,6 +513,15 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out);
 int32_t smlib_boolean_with(const smlib_brep *a, const smlib_brep *b, int32_t op, int32_t flags, smlib_brep **out);
 
+/* A new body: the union of `breps` (`n` of them, 1..SMLIB_BOOLEAN_MAX_BREPS), inputs left
+ * unchanged. They are unioned pairwise, level by level (each body takes part in about log2(n)
+ * unions, none ever grows by one body at a time), all within this call. The result is as
+ * smlib_boolean's (closed, several separate solids as one body, solids touching along an edge
+ * or at a vertex allowed); operands tagged with smlib_history_tag (each its own operand number)
+ * give a result whose history names them. */
+#define SMLIB_BOOLEAN_MAX_BREPS 100000
+int32_t smlib_boolean_union_all(const smlib_brep *const *breps, int64_t n, smlib_brep **out);
+
 /* A new sheet: `a` and `b`, sheets of planar faces on one plane (smlib_planar_faces), combined as
  * regions of that plane by `op` (SMLIB_BOOLEAN_*: union, `a` less `b`, intersection), with
  * SM_API's 2D boolean (SmApiBoolean2d). The result's edges are the inputs' own curves, split where
