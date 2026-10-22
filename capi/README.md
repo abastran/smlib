@@ -740,3 +740,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   flanks were left without trims (tangency-labs/solidcore#474). Where the new edge runs on the
   copy of the operand edge's curve over the same interval and the face on the copy of its surface,
   the operand's trim is exact as it stands and is now copied over.
+- **Curves coincide only where their separation vanishes** (`SmCurve.cpp`,
+  `SmCurve::SimpleCoincidenceChecker`): after a crossing is a point (above), a pair of spans
+  that stays within tolerance with the separation on one side but not zero (a tangency, two
+  curves running close) is the point where they come nearest, not a range between the spans'
+  ends. Contact is what the geometry gives exactly: crossings and tangencies are points, a
+  coincidence range only where the curves are the same.

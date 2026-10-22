@@ -19411,7 +19411,10 @@ METHOD ---
                       return rlNumFound = 1, 1 RANGE_OF_VALUE solution.
        3d. except where the separation between the curves points to opposite
            sides at the segment's two ends (the curves cross inside it):
-                      return rlNumFound = 1, 1 SINGLE_VALUE solution at the crossing.
+                      return rlNumFound = 1, 1 SINGLE_VALUE solution at the crossing,
+       3e. and where it keeps one side without vanishing (the curves approach,
+           a tangency): return rlNumFound = 1, 1 SINGLE_VALUE solution where they
+           come nearest. Only curves whose separation vanishes coincide over a range.
 ***********************************************************************/
 SmStatus SmCurve::SimpleCoincidenceChecker  // PRE SM_TOLERANT_XSECT VERSION
   (const SmExtent1d  & crInterval,             // in : 1st curve target interval
@@ -19765,9 +19768,31 @@ SmBoolean bDebugMe = FALSE ;
         rlNumFound = 1;
         return SM_SUCCESS;
       }
+
+    // The separation keeps one side but does not vanish: the curves don't coincide, they
+    // approach each other (a tangency, or two curves running close without touching). The
+    // contact is where they come nearest, a point; only curves whose separation vanishes
+    // coincide over a range.
+    if (dDistanceBetween > dScaledZero)
+      {
+        SmBoolean  bFoundNearest = FALSE;
+        SmSolution sNearest;
+        SER(LocalCurveSolve(sIvlT1, crOtherCurve, sIvlT2, SM_SO_MINIMIZE, d3dTolerance, NULL, NULL,
+                            sIvlT1.Evaluate(0.5), sIvlT2.Evaluate(0.5), bFoundNearest, sNearest));
+        if (!bFoundNearest)
+          { SER_MSG(SM_ERR, _T("SmCurve::SimpleCoincidenceChecker - curves within tolerance but no nearest point found")); }
+        aSolutions[0]                 = sNearest;
+        aSolutions[0].m_lNumVariables = 2;
+        aSolutions[0].m_lNumObjects   = 2;
+        aSolutions[0].m_eSolutionType = SM_ST_SINGLE_VALUE;
+        aSolutions[0].m_apObjects[0]  = (SmObject *)this ;
+        aSolutions[0].m_apObjects[1]  = (SmObject *)&crOtherCurve ;
+        rlNumFound = 1;
+        return SM_SUCCESS;
+      }
   }
 
-  // If we made it here we know we do have a coincidence
+  // If we made it here the curves coincide
 
 // Obsolete: We have a coincidence.  Don't call it a point solution,
 // and there's no reason to split it into two parts. [Boolean Restructure, Offsets 0, 2]
