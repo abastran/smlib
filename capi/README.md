@@ -578,3 +578,13 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   The side is now the one the filleted edge lies on (a copy of the edge's curve, named from the
   fillet surface by an attribute the merge's copies carry), the same side on a round; and a
   merge in which no fillet face separates two regions fails (`SM_FILERR_BAD_MERGE`).
+- **A full-turn revolution nests the shells it leaves inside one another**
+  (`SmPrimitiveCreation.cpp`, `SmPrimitiveCreation::CreateRotationalSweep`, the full-turn
+  analytic path): it builds a face per profile curve and lets `StitchAndOrient` orient them,
+  which puts every closed shell in the infinite region as a solid of its own. A profile whose
+  boundary meets the axis more than twice (a half annulus, both arcs ending on the axis) or
+  holds a hole revolves into shells inside one another; the inner one came out as a second
+  ball, the hollow ball's volume the sum of both (294604.5 for 241560.7), and SMLib's check let
+  it through. Each shell found inside another's region (by a ray from one of its vertices) is
+  now moved into the region of the shell directly around it, turned round where it bounds a
+  void, and the regions' void flags are set from the nesting. A partial turn was right already.
