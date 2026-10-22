@@ -10,6 +10,7 @@
 // modelling tolerance. The API thereby never depends on SMLib's internal topology order.
 
 #include "smlib_shim.h"
+#include "smlib_pick.h"
 
 #include <SmApiBrep.h>
 #include <SmPrimitiveCreation.h>
@@ -35,6 +36,7 @@
 #include <unordered_set>
 
 using namespace smlib_shim;
+using namespace smlib_pick;
 
 namespace
 {
@@ -197,94 +199,6 @@ bool tolerance_ok(double t)
 std::string pts(const double *points, int64_t n)
 {
     return n == 0 ? std::string("[]") : vec(points, static_cast<int>(n * 3));
-}
-
-// The entity nearest each point under the picking rule, each once; with `first`, the index of
-// the point that first picked each. On failure, the index of the point that matched none or
-// several goes to `failed`.
-template <typename T, typename Dist>
-int32_t pick(const SmTArray<T *> &all, const double *points, int64_t n, double tol, double model_tol, Dist dist,
-             std::vector<T *> &picked, int64_t *failed, std::vector<int64_t> *first = nullptr)
-{
-    for (int64_t i = 0; i < n; ++i)
-    {
-        SmPoint3d p(points[3 * i], points[3 * i + 1], points[3 * i + 2]);
-        T *best = nullptr;
-        double d0 = HUGE_VAL;
-        double d1 = HUGE_VAL;
-        for (ULONG k = 0; k < all.GetSize(); ++k)
-        {
-            double d = 0.0;
-            if (!dist(all[k], p, d) || !std::isfinite(d))
-            {
-                continue;
-            }
-            if (d < d0)
-            {
-                d1 = d0;
-                d0 = d;
-                best = all[k];
-            }
-            else if (d < d1)
-            {
-                d1 = d;
-            }
-        }
-        int32_t s = SMLIB_OK;
-        if (best == nullptr || d0 > tol)
-        {
-            s = SMLIB_ERR_PICK_NONE;
-        }
-        else if (d1 <= tol && d1 - d0 <= model_tol)
-        {
-            s = SMLIB_ERR_PICK_AMBIGUOUS;
-        }
-        if (s != SMLIB_OK)
-        {
-            if (failed != nullptr)
-            {
-                *failed = i;
-            }
-            return s;
-        }
-        if (std::find(picked.begin(), picked.end(), best) == picked.end())
-        {
-            picked.push_back(best);
-            if (first != nullptr)
-            {
-                first->push_back(i);
-            }
-        }
-    }
-    return SMLIB_OK;
-}
-
-bool edge_distance(SmEdge *e, const SmPoint3d &p, double &d)
-{
-    SmPoint3d q;
-    double t = 0.0;
-    return SmApiEdgeClosestPoint(e, p, q, t, d) == SM_SUCCESS;
-}
-
-bool face_distance(SmFace *f, const SmPoint3d &p, double &d)
-{
-    SmPoint3d q;
-    return SmApiFaceClosestPoint(f, p, q, d) == SM_SUCCESS;
-}
-
-int32_t pick_edges(SmBrep *b, const double *points, int64_t n, double tol, std::vector<SmEdge *> &out, int64_t *failed,
-                   std::vector<int64_t> *first = nullptr)
-{
-    SmTArray<SmEdge *> all;
-    b->GetEdges(all);
-    return pick(all, points, n, tol, static_cast<double>(b->GetTolerance()), edge_distance, out, failed, first);
-}
-
-int32_t pick_faces(SmBrep *b, const double *points, int64_t n, double tol, std::vector<SmFace *> &out, int64_t *failed)
-{
-    SmTArray<SmFace *> all;
-    b->GetFaces(all);
-    return pick(all, points, n, tol, static_cast<double>(b->GetTolerance()), face_distance, out, failed);
 }
 
 // The unit direction pointing into `e` from its end at `v`; false for a closed edge (both ends

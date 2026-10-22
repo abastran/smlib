@@ -12,13 +12,17 @@
 // capped (SMLIB_ERR_NOT_SOLID otherwise), and never a body without faces (SMLIB_ERR_EMPTY).
 
 #include "smlib_shim.h"
+#include "smlib_pick.h"
 
 #include <SmApiBrep.h>
 #include <SmApiCurves.h>
 #include <SmApiPrimitives.h>
 #include <SmApiTrimmedSurfaces.h>
 #include <SmBSplineCurve.h>
+#include <NL_Geometry.h>
+#include <NL_Nurbsdef.h>
 #include <SmCircle.h>
+#include <SmFace.h>
 #include <SmLine.h>
 #include <SmPrimitiveCreation.h>
 
@@ -1184,4 +1188,163 @@ extern "C" int32_t smlib_planar_faces(const int64_t *kinds, int64_t n_kinds, con
             return finish(r, false, out);
         }
     );
+}
+
+// ---- Curves projected onto a face -------------------------------------------------------------
+
+// The curves a projection made, as a curve list (NURBS only) with each curve's interval.
+struct smlib_curves
+{
+    std::vector<int64_t> kinds;
+    std::vector<double> reals;
+    std::vector<double> intervals;
+};
+
+namespace
+{
+
+// `c` appended to `out` as the NURBS it is (SMLib holds every curve here as its B-spline):
+// control points (x, y, z, weight), all knots, and its interval. SMLIB_ERR_UNSUPPORTED for a
+// curve that is no B-spline or whose knots are not clamped (the curve list takes clamped ones).
+int32_t put_curve(const SmCurve *c, smlib_curves &out)
+{
+    SmBSplineCurve *b = c == nullptr ? nullptr : c->GetRootCurve();
+    gw_CURVE *n = b == nullptr ? nullptr : b->GetOrCreateGwNurbPointer();
+    if (n == nullptr || n->knt == nullptr || n->pol == nullptr)
+    {
+        return SMLIB_ERR_UNSUPPORTED;
+    }
+    const int64_t degree = n->p;
+    const int64_t count = n->pol->n + 1;
+    const int64_t knots = n->knt->m + 1;
+    if (degree < 1 || degree > SMLIB_CURVE_MAX_DEGREE || count < degree + 1 || count > SMLIB_CURVE_MAX_POINTS || knots != count + degree + 1)
+    {
+        return SMLIB_ERR_UNSUPPORTED;
+    }
+    const double *u = n->knt->U;
+    for (int64_t i = 1; i <= degree; ++i)
+    {
+        if (u[i] != u[0] || u[knots - 1 - i] != u[knots - 1])
+        {
+            return SMLIB_ERR_UNSUPPORTED;
+        }
+    }
+    out.kinds.insert(out.kinds.end(), {SMLIB_CURVE_NURBS, degree, count});
+    for (int64_t i = 0; i < count; ++i)
+    {
+        const NL_CPOINT &q = n->pol->Pw[i];
+        const double w = q.w != NL_NOW ? q.w : 1.0;
+        out.reals.insert(out.reals.end(), {q.x / w, q.y / w, q.z / w, w});
+    }
+    out.reals.insert(out.reals.end(), u, u + knots);
+    SmExtent1d ivl = c->GetNaturalInterval();
+    out.intervals.insert(out.intervals.end(), {ivl.GetMin(), ivl.GetMax()});
+    return SMLIB_OK;
+}
+
+} // namespace
+
+extern "C" int32_t smlib_project_curves(const smlib_brep *brep, const double face_point[3], double pick_tolerance, const int64_t *kinds,
+                                        int64_t n_kinds, const double *reals, int64_t n_reals, const double direction[3], double tolerance,
+                                        smlib_curves **out)
+{
+    if (brep == nullptr || brep->p == nullptr || face_point == nullptr || !finite(face_point, 3) || direction == nullptr ||
+        !finite(direction, 3) || out == nullptr || !std::isfinite(pick_tolerance) || !(pick_tolerance > 0.0 && pick_tolerance < 1e6) ||
+        !std::isfinite(tolerance) || !(tolerance >= 1e-9 && tolerance < 1e3))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    const double len = length(direction);
+    if (!(len > 1e-12))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_project_curves", handle(brep) + ", face_point=" + vec(face_point, 3) + ", pick_tolerance=" + num(pick_tolerance) + ", " +
+                                       list(n_kinds, n_reals) + ", direction=" + vec(direction, 3) + ", tolerance=" + num(tolerance));
+    c.input("brep", brep);
+    dump_curves(c, "curves", kinds, n_kinds, reals, n_reals);
+    return c.run(
+        [&]
+        {
+            Curves curves;
+            int32_t s = parse(kinds, n_kinds, reals, n_reals, curves);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            std::vector<SmFace *> picked;
+            s = smlib_pick::pick_faces(brep->p, face_point, 1, pick_tolerance, picked, nullptr);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            SmTArray<SmFace *> faces;
+            faces.Add(picked.front());
+            const SmContext &ctx = *SmApiGetOrCreateContext();
+            const SmVector3d dir(direction[0] / len, direction[1] / len, direction[2] / len);
+            const SmApproxTol3d tol = SM_CAST_APPROXTOL3D(tolerance);
+            auto result = std::make_unique<smlib_curves>();
+            for (SmCurve *curve : curves.v)
+            {
+                SmBSplineCurve *b = curve->GetRootCurve();
+                if (b == nullptr)
+                {
+                    return SMLIB_ERR_ARG;
+                }
+                SmTArray<SmCurve *> made;
+                SmObjsDelete<SmCurve *> clean(&made);
+                s = status(brep->p->CreateParallelProjectionCurves(ctx, *b, dir, nullptr, &tol, nullptr, &made, nullptr, nullptr, &faces));
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+                for (ULONG i = 0; i < made.GetSize(); ++i)
+                {
+                    s = put_curve(made[i], *result);
+                    if (s != SMLIB_OK)
+                    {
+                        return s;
+                    }
+                }
+            }
+            if (result->intervals.empty())
+            {
+                return SMLIB_ERR_EMPTY;
+            }
+            *out = result.release();
+            return SMLIB_OK;
+        }
+    );
+}
+
+extern "C" int32_t smlib_curves_size(const smlib_curves *curves, int64_t *n_kinds, int64_t *n_reals, int64_t *n_curves)
+{
+    if (curves == nullptr || n_kinds == nullptr || n_reals == nullptr || n_curves == nullptr)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    *n_kinds = static_cast<int64_t>(curves->kinds.size());
+    *n_reals = static_cast<int64_t>(curves->reals.size());
+    *n_curves = static_cast<int64_t>(curves->intervals.size() / 2);
+    return SMLIB_OK;
+}
+
+extern "C" int32_t smlib_curves_read(const smlib_curves *curves, int64_t *kinds, int64_t n_kinds, double *reals, int64_t n_reals,
+                                     double *intervals, int64_t n_intervals)
+{
+    if (curves == nullptr || kinds == nullptr || reals == nullptr || intervals == nullptr ||
+        n_kinds != static_cast<int64_t>(curves->kinds.size()) || n_reals != static_cast<int64_t>(curves->reals.size()) ||
+        n_intervals != static_cast<int64_t>(curves->intervals.size()))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    std::copy(curves->kinds.begin(), curves->kinds.end(), kinds);
+    std::copy(curves->reals.begin(), curves->reals.end(), reals);
+    std::copy(curves->intervals.begin(), curves->intervals.end(), intervals);
+    return SMLIB_OK;
+}
+
+extern "C" void smlib_curves_free(smlib_curves *curves)
+{
+    delete curves;
 }
