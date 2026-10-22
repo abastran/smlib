@@ -3424,6 +3424,7 @@ The routine builds the side faces only; CreateTaperExtrude adds the caps.
 struct sm_DraftWall
 {
   SmBoolean  bArc;      // TRUE = an arc of a circle, FALSE = a line
+  SmBoolean  bPoint;    // a line of no length on the profile: an arc's tangent plane at a corner
   SmPoint3d  sStart;    // where the profile runs along it from
   SmPoint3d  sEnd;      // and to
   // line
@@ -3547,14 +3548,18 @@ static double sm_DraftOffSection(const sm_DraftWall & rW, double f, const SmPoin
 
 // The wall's normal (unnormalised) at q, a point of its section (in the profile's plane), for the
 // height crH: the curve's tangent across the ruling there.
-static SmVector3d sm_DraftNormal(const sm_DraftWall & rW, const SmPoint3d & q, const SmVector3d & crH)
+static SmStatus sm_DraftNormal(const sm_DraftWall & rW, const SmPoint3d & q, const SmVector3d & crH, SmVector3d & rNormal)
 {
   if (!rW.bArc)
-    { return rW.sDir * (rW.sOffset + crH); }
+    {
+      rNormal = rW.sDir * (rW.sOffset + crH);
+      return SM_SUCCESS;
+    }
   SmVector3d sR = q - rW.sCenter;
-  sR.Unitize(FALSE);
+  SER( sR.Unitize() );
   SmVector3d sT = rW.sAxis * sR;
-  return sT * (crH - rW.dShrink * sR);
+  rNormal = sT * (crH - rW.dShrink * sR);
+  return SM_SUCCESS;
 }
 
 // The angle of q about the arc's axis, unwrapped to within half a turn of dNear.
@@ -3795,12 +3800,63 @@ static SmBoolean sm_DraftHasCorner(SmCompositeCurve * pComposite, const SmVector
   return FALSE;
 }
 
-// The side faces of a draft extrusion of the closed profile pComposite whose walls keep their
-// curvature at its corners, into pBrep, and the far end's curves (in order, owned by the caller)
-// into rFarCurves. A corner that cannot be closed is SM_ERR_INVALID_INPUT, with why in rRefusal and
+// The line or circle among crInputs that the profile's segment pC is (its copy, split at tangent
+// breaks, is a plain B-spline; a line or a circle has none, so it is the one with the same ends and
+// middle), or NULL.
+static SmStatus sm_DraftInput(const SmCurve * pC, const SmTArray<SmCurve*> & crInputs, double dTol, const SmCurve *& rpInput)
+{
+  rpInput = NULL;
+  SmExtent1d sI = pC->GetNaturalInterval();
+  SmPoint3d  sStart, sEnd, sMid;
+  SER( pC->EvaluatePoint(sI.GetMin(), sStart) );
+  SER( pC->EvaluatePoint(sI.GetMax(), sEnd) );
+  SER( pC->EvaluatePoint(sI.GetMid(), sMid) );
+  for (ULONG k = 0; k < crInputs.GetSize() && rpInput == NULL; k++)
+    {
+      const SmCurve * pIn = crInputs[k];
+      if (pIn == NULL || !(pIn->IsKindOf(SmCircle_TYPE) || pIn->IsKindOf(SmLine_TYPE)))
+        { continue; }
+      SmPoint3d  sA, sB, sM;
+      SmExtent1d sJ = pIn->GetNaturalInterval();
+      pIn->GetEnds(sA, sB);
+      SER( pIn->EvaluatePoint(sJ.GetMid(), sM) );
+      SmBoolean bEnds =    (sA.DistanceBetween(sStart) <= dTol && sB.DistanceBetween(sEnd) <= dTol)
+                        || (sB.DistanceBetween(sStart) <= dTol && sA.DistanceBetween(sEnd) <= dTol);
+      if (bEnds && sM.DistanceBetween(sMid) <= dTol)
+        { rpInput = pIn; }
+    }
+  return SM_SUCCESS;
+}
+
+// Whether every segment of the profile pComposite is a line or an arc among crInputs.
+static SmStatus sm_DraftLinesAndArcs(SmCompositeCurve * pComposite, const SmTArray<SmCurve*> & crInputs, double dTol, SmBoolean & rbAll)
+{
+  rbAll = FALSE;
+  ULONG lDim;
+  SmTArray<SmCurve*>  sCurves;
+  SmBoolean           bClosed;
+  SmTArray<SmBoolean> sSenses;
+  SER( pComposite->GetCanonical(lDim, sCurves, bClosed, &sSenses) );
+  for (ULONG i = 0; i < sCurves.GetSize(); i++)
+    {
+      const SmCurve * pInput = NULL;
+      SER( sm_DraftInput(sCurves[i], crInputs, dTol, pInput) );
+      if (pInput == NULL)
+        { return SM_SUCCESS; }
+    }
+  rbAll = TRUE;
+  return SM_SUCCESS;
+}
+
+// The side faces of a draft extrusion of the closed profile pComposite, into pBrep, and the far
+// end's curves (in order, owned by the caller) into rFarCurves. Its walls keep their curvature
+// at its corners; with bTangent, where a corner opens a gap, each continues as the plane tangent
+// to it there instead (a line's wall is that plane; an arc's gets a flat face from its end ruling
+// to the seam). A corner that cannot be closed is SM_ERR_INVALID_INPUT, with why in rRefusal and
 // where in rCorner.
 static SmStatus sm_CreateCurvatureKeepingWalls
  (const SmContext       & crContext,   // in : context for new object construction
+  SmBoolean               bTangent,    // in : TRUE = gaps closed by the walls' tangent planes
   SmCompositeCurve      * pComposite,  // in : the profile, one closed chain
   const SmTArray<SmCurve*>& crInputs,  // in : the curves it was made from (its lines and circles as SMLib holds them)
   const SmVector3d      & crN,         // in : unit normal of the profile's plane
@@ -3838,27 +3894,8 @@ static SmStatus sm_CreateCurvatureKeepingWalls
       SER( pC->EvaluatePoint(sSenses[i] ? sI.GetMax() : sI.GetMin(), rW.sEnd) );
       SER( pC->Evaluate(sSenses[i] ? sI.GetMin() : sI.GetMax(), 1, TRUE, sV) );
       SmVector3d sT = sSenses[i] ? sV[1] : -sV[1];
-      // the input curve it is (its copy, split at tangent breaks, is a plain B-spline): a line or a
-      // circle has none, so it is the one with the same ends and middle
       const SmCurve * pInput = NULL;
-      {
-        SmPoint3d sMid;
-        SER( pC->EvaluatePoint(sI.GetMid(), sMid) );
-        for (ULONG k = 0; k < crInputs.GetSize() && pInput == NULL; k++)
-          {
-            const SmCurve * pIn = crInputs[k];
-            if (pIn == NULL || !(pIn->IsKindOf(SmCircle_TYPE) || pIn->IsKindOf(SmLine_TYPE)))
-              { continue; }
-            SmPoint3d sA, sB, sM;
-            SmExtent1d sJ = pIn->GetNaturalInterval();
-            pIn->GetEnds(sA, sB);
-            SER( pIn->EvaluatePoint(sJ.GetMid(), sM) );
-            SmBoolean bEnds =    (sA.DistanceBetween(rW.sStart) <= dTol && sB.DistanceBetween(rW.sEnd) <= dTol)
-                              || (sB.DistanceBetween(rW.sStart) <= dTol && sA.DistanceBetween(rW.sEnd) <= dTol);
-            if (bEnds && sM.DistanceBetween(sMid) <= dTol)
-              { pInput = pIn; }
-          }
-      }
+      SER( sm_DraftInput(pC, crInputs, dTol, pInput) );
       if (pInput != NULL && pInput->IsKindOf(SmCircle_TYPE))
         {
           const SmCircle * pCircle = (const SmCircle *)pInput;
@@ -3899,6 +3936,47 @@ static SmStatus sm_CreateCurvatureKeepingWalls
         }
     }
 
+  // Tangent planes: where a corner opens a gap, an arc's end continues along its tangent line, a
+  // wall of no length on the profile (a line's wall continues as itself).
+  if (bTangent)
+    {
+      std::vector<sm_DraftWall> sWithTangents;
+      for (ULONG i = 0; i < n; i++)
+        {
+          const sm_DraftWall & rA = sWalls[(i + n - 1) % n];
+          const sm_DraftWall & rB = sWalls[i];
+          SmVector3d sTa = rA.bArc ? rA.sAxis * (rB.sStart - rA.sCenter) : rA.sDir;
+          SmVector3d sTb = rB.bArc ? rB.sAxis * (rB.sStart - rB.sCenter) : rB.sDir;
+          SER( sTa.Unitize() );
+          SER( sTb.Unitize() );
+          double dTurn = 0.0;
+          SER( crN.CCWAngleBetween(sTa, sTb, dTurn) );
+          // the offset parts where the corner turns away from the side it goes to
+          SmBoolean bGap = (fabs(dTurn) > SM_EFF_ZERO_SQRT && dSide * dTurn < 0.0) ? TRUE : FALSE;
+          for (int side = 0; side < 2 && bGap; side++)
+            {
+              SmBoolean bArc = side == 0 ? rA.bArc : rB.bArc;
+              if (!bArc)
+                { continue; }
+              sm_DraftWall sT = sm_DraftWall();
+              sT.bArc    = FALSE;
+              sT.bPoint  = TRUE;
+              sT.sStart  = rB.sStart;
+              sT.sEnd    = rB.sStart;
+              sT.sDir    = side == 0 ? sTa : sTb;
+              sT.sOffset = dSide * dOffset * (crN * sT.sDir);
+              sT.dRadius = 0.0;
+              sT.dShrink = 0.0;
+              sT.dStartAng = sT.dEndAng = 0.0;
+              // after the arc ending here (side 0), before the one starting here (side 1)
+              sWithTangents.push_back(sT);
+            }
+          sWithTangents.push_back(rB);
+        }
+      sWalls.swap(sWithTangents);
+      n = (ULONG)sWalls.size();
+    }
+
   // the seams: seam i is the corner where wall i-1 ends and wall i starts
   std::vector<sm_DraftSeam> sSeams(n);
   for (ULONG i = 0; i < n; i++)
@@ -3908,8 +3986,10 @@ static SmStatus sm_CreateCurvatureKeepingWalls
       sm_DraftSeam       & rS = sSeams[i];
       rS.sP = rB.sStart;
       // the walls' normals at the corner
-      SmVector3d sNa = sm_DraftNormal(rA, rS.sP, sH);
-      SmVector3d sNb = sm_DraftNormal(rB, rS.sP, sH);
+      SmVector3d sNa;
+      SER( sm_DraftNormal(rA, rS.sP, sH, sNa) );
+      SmVector3d sNb;
+      SER( sm_DraftNormal(rB, rS.sP, sH, sNb) );
       SmVector3d sTa = rA.bArc ? rA.sAxis * (rS.sP - rA.sCenter) : rA.sDir;
       SmVector3d sTb = rB.bArc ? rB.sAxis * (rS.sP - rB.sCenter) : rB.sDir;
       double dTurn = 0.0;
@@ -3938,8 +4018,10 @@ static SmStatus sm_CreateCurvatureKeepingWalls
           rCorner  = rS.sP;
           return SM_ERR_INVALID_INPUT;
         }
-      SmVector3d sNa1 = sm_DraftNormal(rA, sFar, sH);
-      SmVector3d sNb1 = sm_DraftNormal(rB, sFar, sH);
+      SmVector3d sNa1;
+      SER( sm_DraftNormal(rA, sFar, sH, sNa1) );
+      SmVector3d sNb1;
+      SER( sm_DraftNormal(rB, sFar, sH, sNb1) );
       sMid = sMid + 0.5 * sH;
       rS.sX = sFar + sH;
       SmVector3d sT0 = sNa * sNb, sT1 = sNa1 * sNb1;
@@ -4096,26 +4178,20 @@ static SmStatus sm_CreateCurvatureKeepingWalls
       double tP1 = sm_DraftParam(rW, rS1.sP, 0.0, rW.bArc ? rW.dEndAng : dMid);
       double tX0 = sm_DraftParam(rW, rS0.sX - sH, 1.0, rW.bArc ? rW.dStartAng : dMid);
       double tX1 = sm_DraftParam(rW, rS1.sX - sH, 1.0, rW.bArc ? rW.dEndAng : dMid);
-      // the loop: the profile's curve, the end seam, the far end's curve back, the start seam back
-      SmCurve *pBottom = NULL, *pTop = NULL;
-      SER( pLow->Copy(crContext, pBottom) );
-      SmObjDelete sCleanBottom(pBottom);
-      SmExtent1d sBottomIvl(tP0, tP1);
-      SER( pBottom->Trim(sBottomIvl) );
-      SER( pHigh->Copy(crContext, pTop) );
-      SmObjDelete sCleanTop(pTop);
-      SmExtent1d sTopIvl(tX0, tX1);
-      SER( pTop->Trim(sTopIvl) );
+      // the loop: the profile's curve (none for a tangent plane's piece), the end seam, the far
+      // end's curve back, the start seam back
       SmBSplineCurve *pSeam0 = NULL, *pSeam1 = NULL;
       SER( sm_DraftSeamCurve(crContext, rS0, pSeam0) );
       SmObjDelete sCleanSeam0(pSeam0);
       SER( sm_DraftSeamCurve(crContext, rS1, pSeam1) );
       SmObjDelete sCleanSeam1(pSeam1);
-      SmBSplineCurve *pcBottom = NULL, *pcTop = NULL, *pcSeam0 = NULL, *pcSeam1 = NULL;
-      SmExtent1d sBottomNow = pBottom->GetNaturalInterval(), sTopNow = pTop->GetNaturalInterval();
-      SER( sm_DraftIsoPcurve(crContext, u0, dV0 + (sBottomNow.GetMin() - rW.dLo) * dVScale, u0, dV0 + (sBottomNow.GetMax() - rW.dLo) * dVScale,
-                             sBottomNow.GetMin(), sBottomNow.GetMax(), pcBottom) );
-      SmObjDelete sCleanPcBottom(pcBottom);
+      SmCurve *pTop = NULL;
+      SER( pHigh->Copy(crContext, pTop) );
+      SmObjDelete sCleanTop(pTop);
+      SmExtent1d sTopIvl(tX0, tX1);
+      SER( pTop->Trim(sTopIvl) );
+      SmExtent1d sTopNow = pTop->GetNaturalInterval();
+      SmBSplineCurve *pcTop = NULL, *pcSeam0 = NULL, *pcSeam1 = NULL;
       SER( sm_DraftIsoPcurve(crContext, u1, dV0 + (sTopNow.GetMin() - rW.dLo) * dVScale, u1, dV0 + (sTopNow.GetMax() - rW.dLo) * dVScale,
                              sTopNow.GetMin(), sTopNow.GetMax(), pcTop) );
       SmObjDelete sCleanPcTop(pcTop);
@@ -4130,37 +4206,49 @@ static SmStatus sm_CreateCurvatureKeepingWalls
         }
       SmObjDelete sCleanPcSeam0(pcSeam0);
       SmObjDelete sCleanPcSeam1(pcSeam1);
-      // every pcurve must lift onto its curve
-      {
-        const SmCurve        * aC[4]  = { pBottom, pSeam1, pTop, pSeam0 };
-        const SmBSplineCurve * aPc[4] = { pcBottom, pcSeam1, pcTop, pcSeam0 };
-        for (int e = 0; e < 4; e++)
-          {
-            SmExtent1d sIvl = aC[e]->GetNaturalInterval();
-            for (int k = 0; k <= 8; k++)
-              {
-                double    t = sIvl.Evaluate(k / 8.0);
-                SmPoint3d sUV, sOn, sAt;
-                SER( aPc[e]->EvaluatePoint(t, sUV) );
-                SER( pSurface->EvaluatePoint(SmPoint2d(sUV.x, sUV.y), sOn) );
-                SER( aC[e]->EvaluatePoint(t, sAt) );
-                if (sOn.DistanceBetween(sAt) > dTol)
-                  {
-                    rRefusal = SM_TCR_NOT_EXACT;
-                    rCorner  = (e == 3) ? rS0.sP : rS1.sP;
-                    return SM_ERR_INVALID_INPUT;
-                  }
-              }
-          }
-      }
-      SmTArray<ULONG> sLoops;
-      sLoops.Add(4);
-      SmTArray<SmCurve*> s3D;
-      s3D.Add(pBottom); s3D.Add(pSeam1); s3D.Add(pTop); s3D.Add(pSeam0);
+      SmCurve        *pBottom = NULL;
+      SmBSplineCurve *pcBottom = NULL;
+      SmObjDelete sCleanBottom, sCleanPcBottom;
+      if (!rW.bPoint)
+        {
+          SER( pLow->Copy(crContext, pBottom) );
+          sCleanBottom.SetObj(pBottom);
+          SmExtent1d sBottomIvl(tP0, tP1);
+          SER( pBottom->Trim(sBottomIvl) );
+          SmExtent1d sBottomNow = pBottom->GetNaturalInterval();
+          SER( sm_DraftIsoPcurve(crContext, u0, dV0 + (sBottomNow.GetMin() - rW.dLo) * dVScale, u0,
+                                 dV0 + (sBottomNow.GetMax() - rW.dLo) * dVScale, sBottomNow.GetMin(), sBottomNow.GetMax(), pcBottom) );
+          sCleanPcBottom.SetObj(pcBottom);
+        }
+      SmTArray<SmCurve*>        s3D;
       SmTArray<SmBSplineCurve*> sUV;
-      sUV.Add(pcBottom); sUV.Add(pcSeam1); sUV.Add(pcTop); sUV.Add(pcSeam0);
-      SmTArray<SmOrientType> sOrient;
-      sOrient.Add(SM_OT_SAME); sOrient.Add(SM_OT_SAME); sOrient.Add(SM_OT_OPPOSITE); sOrient.Add(SM_OT_OPPOSITE);
+      SmTArray<SmOrientType>    sOrient;
+      if (!rW.bPoint)
+        { s3D.Add(pBottom); sUV.Add(pcBottom); sOrient.Add(SM_OT_SAME); }
+      s3D.Add(pSeam1); sUV.Add(pcSeam1); sOrient.Add(SM_OT_SAME);
+      s3D.Add(pTop);   sUV.Add(pcTop);   sOrient.Add(SM_OT_OPPOSITE);
+      s3D.Add(pSeam0); sUV.Add(pcSeam0); sOrient.Add(SM_OT_OPPOSITE);
+      // every pcurve must lift onto its curve
+      for (ULONG e = 0; e < s3D.GetSize(); e++)
+        {
+          SmExtent1d sIvl = s3D[e]->GetNaturalInterval();
+          for (int k = 0; k <= 8; k++)
+            {
+              double    t = sIvl.Evaluate(k / 8.0);
+              SmPoint3d sUVPt, sOn, sAt;
+              SER( sUV[e]->EvaluatePoint(t, sUVPt) );
+              SER( pSurface->EvaluatePoint(SmPoint2d(sUVPt.x, sUVPt.y), sOn) );
+              SER( s3D[e]->EvaluatePoint(t, sAt) );
+              if (sOn.DistanceBetween(sAt) > dTol)
+                {
+                  rRefusal = SM_TCR_NOT_EXACT;
+                  rCorner  = (s3D[e] == pSeam0) ? rS0.sP : rS1.sP;
+                  return SM_ERR_INVALID_INPUT;
+                }
+            }
+        }
+      SmTArray<ULONG> sLoops;
+      sLoops.Add(s3D.GetSize());
       SmTArray<SmPoint3d> sNoPoints;
       SmRegion *pNewRegion = NULL;
       SmShell  *pNewShell  = NULL;
@@ -4424,7 +4512,15 @@ SmBoolean bDebugMe = FALSE ;
   // SolidCraft change: walls that keep their curvature at the corners. Without a sharp corner the
   // three corner rules give the same walls, which the offset method builds.
   if (pOptRefusal != NULL) { *pOptRefusal = SM_TCR_NONE; }
-  SmBoolean bKeepCurvature = (eOffsetCorner == SM_OC_CURVE_EXTENSION && sm_DraftHasCorner(pComposite, rCrvsNormal)) ? TRUE : FALSE;
+  // The tangent rule too, for lines and arcs: their walls continue exactly as their tangent planes
+  // (a line's wall is its own, so two lines meet at a corner edge with no face between them).
+  // Other curves keep the offset method, whose walls approximate their offsets in every rule.
+  SmBoolean bHasCorner = sm_DraftHasCorner(pComposite, rCrvsNormal);
+  SmBoolean bExact = FALSE;
+  if (bHasCorner && eOffsetCorner == SM_OC_LINEAR_EXTENSION)
+    { SER( sm_DraftLinesAndArcs(pComposite, r3DCurves, dBrepTol, bExact) ); }
+  SmBoolean bKeepCurvature = (bHasCorner && eOffsetCorner == SM_OC_CURVE_EXTENSION) ? TRUE : FALSE;
+  SmBoolean bTangentPlanes = (bExact && eOffsetCorner == SM_OC_LINEAR_EXTENSION) ? TRUE : FALSE;
   if (eOffsetCorner == SM_OC_CURVE_EXTENSION)
     { eOffsetCorner = SM_OC_LINEAR_EXTENSION; }
 
@@ -4432,11 +4528,11 @@ SmBoolean bDebugMe = FALSE ;
   SmBoolean bEmptyOffsets = FALSE;
   SmTArray<SmCurve *> sTrimCrvs;  // pass bsplines as curves (sTrimCrvs == sTrimmedOffsets)
 
-  if (bKeepCurvature)
+  if (bKeepCurvature || bTangentPlanes)
     {
       SmTaperCornerRefusal eRefusal = SM_TCR_NONE;
       SmPoint3d            sCorner(0.0, 0.0, 0.0);
-      SmStatus eKeep = sm_CreateCurvatureKeepingWalls(*pContext, pComposite, r3DCurves, rCrvsNormal, dHeight, dOffset,
+      SmStatus eKeep = sm_CreateCurvatureKeepingWalls(*pContext, bTangentPlanes, pComposite, r3DCurves, rCrvsNormal, dHeight, dOffset,
                                                       eOffsetDir, dBrepTol, pBrep, sTrimCrvs, eRefusal, sCorner);
       if (eKeep != SM_SUCCESS)
         {
