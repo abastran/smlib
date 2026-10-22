@@ -663,3 +663,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   compared the radius it had not yet read (still `SM_BIG_DOUBLE`) with the tolerance, so a curve
   with a vanishing radius of curvature was never reported and the analysis was wasted. The
   smallest radius among the analysis' solutions is now compared.
+- **A torus's minor interval never checked** (`SmTorus.cpp`, `SmTorus::AssertValid`, tests 3 and 4;
+  `SmSurfOfRevolution.cpp`, `SmSurfOfRevolution::AssertValid`, test 13): the test that a torus's
+  V (minor) interval is at most a turn read the U interval, so a torus with a minor interval past
+  a turn passed it. The U and V tests, and the surface of revolution's U test, also reported
+  under the ids of other tests (2 and 3, "Same Parameterization" / "Parameterization"). The V test
+  now reads the V interval, and each test reports under its own id.
