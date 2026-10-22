@@ -4,8 +4,9 @@
 // libFuzzer target for the sweeps (src/smlib_sweeps.cpp): curve lists made from the input, half
 // of them well-formed loops (rectangles, discs, polygons and NURBS pieces of random sizes, places
 // and orientations) so SMLib's sweeps run, the rest arbitrary kinds and numbers; each one through
-// smlib_extrude, smlib_revolve, smlib_sweep, smlib_loft, smlib_screw_sweep and
-// smlib_sweep_stations with arbitrary or near-sane options. Any status is fine; a crash, hang, leak or exception is not.
+// smlib_extrude, smlib_revolve, smlib_sweep, smlib_loft, smlib_loft_to_point, smlib_screw_sweep and
+// smlib_sweep_stations with arbitrary or near-sane options. Any status is fine; a crash, hang, leak or
+// exception is not.
 //
 //   cmake -S capi -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DSMLIB_CAPI_FUZZ=ON -DSMLIB_CAPI_TESTS=OFF
 //   cmake --build build-fuzz --target smlib_fuzz_sweeps && build-fuzz/smlib_fuzz_sweeps -max_total_time=120
@@ -165,7 +166,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     }
     int32_t cap = in.byte() % 3 == 0 ? 0 : 1;
     smlib_brep *b = nullptr;
-    switch (in.byte() % 6)
+    switch (in.byte() % 7)
     {
     case 0:
         drop(smlib_extrude(pk, nk, pr, nr, dir, in.in(-1.0, 200.0), in.byte() % 2 ? 0.0 : in.in(-1.7, 1.7), cap, &b), b);
@@ -240,6 +241,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             }
         }
         drop(smlib_sweep_stations(pk, nk, pr, nr, maps.data(), n, static_cast<int32_t>(in.byte() % 4), &b), b);
+        break;
+    }
+    case 5:
+    {
+        double apex[3] = {in.in(-200, 200), in.in(-200, 200), in.byte() % 4 == 0 ? 0.0 : in.in(-200, 200)};
+        drop(smlib_loft_to_point(pk, nk, pr, nr, apex, &b), b);
         break;
     }
     default:
