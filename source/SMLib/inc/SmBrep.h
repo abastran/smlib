@@ -736,8 +736,8 @@ public:
   SmRegion       * GetInfiniteRegion     () const  { return m_pInfiniteRegion; }
   void             GetRegions            (SmTArray<SmRegion*>    & rRegions,      ULONG *pOptAttributeId=NULL) const ;
   void             GetShells             (SmTArray<SmShell*>     & rShells,       ULONG *pOptAttributeId=NULL) const ;
-  void             GetBreps              (SmTArray<SmBrep*>      & rBreps                                    ) const ;
-  void             GetBrepFromRegion     (SmRegion* pRegion, SmBrep*& rBrep                                  ) const ;
+  SmStatus         GetBreps              (SmTArray<SmBrep*>      & rBreps                                    ) const ; // SolidCraft change: was void
+  SmStatus         GetBrepFromRegion     (SmRegion* pRegion, SmBrep*& rBrep                                  ) const ; // SolidCraft change: was void
   void             GetTopology           (SmTArray<SmTopology*>  & rTopology,     ULONG *pOptAttributeId=NULL) const ;
 
   void             GetFaces              (SmTArray<SmFace*>      & rFaces,        ULONG *pOptAttributeId=NULL) const ;
@@ -1467,7 +1467,7 @@ public:
   SmStatus TurnToNURBSAndSubdivide(ULONG  lDegree,         // in :  
                                    double dKnotSpacing) ;  // in :  
 
-  void     UnStitch(SmTArray<SmFace *> *pOptFaces = NULL) ;
+  SmStatus UnStitch(SmTArray<SmFace *> *pOptFaces = NULL) ; // SolidCraft change: was void
 
   SmStatus UpdateVertexEdgeIntervals(SmVertex *pVertex) ;
 

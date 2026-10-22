@@ -137,7 +137,7 @@ static SmStatus sm_CheckUVTrimCurve( SmEdgeuse *pEU )
 
   SmEdge *pEdge = pEU->GetEdge();
   SmExtent1d sEdgeIvl = pEdge->GetInterval();
-  pEdge->GetCurve()->EvaluatePoint( sEdgeIvl.Evaluate(0.0), sEdge3dStart) ;
+  SER( pEdge->GetCurve()->EvaluatePoint( sEdgeIvl.Evaluate(0.0), sEdge3dStart)  );
 
 
   SmVertex *pStartVtx = ( bReverse ) ? pMate->GetVertexuse()->GetVertex()
@@ -147,7 +147,7 @@ static SmStatus sm_CheckUVTrimCurve( SmEdgeuse *pEU )
   SmFace    *pFace = pEU->GetFace();
   SmSurface *pSurf = pFace->GetSurface();
   SmPoint2d sTemp( sStartUV.x, sStartUV.y) ;
-  pSurf->EvaluatePoint( sTemp, sFace3dStart) ;
+  SER( pSurf->EvaluatePoint( sTemp, sFace3dStart)  );
 
   double dFaceTol = pFace->GetTolerance();
   double dEdgeTol = pEdge->GetTolerance();
@@ -171,14 +171,14 @@ static SmStatus sm_CheckUVTrimCurve( SmEdgeuse *pEU )
 
 
   // Now the other end:
-  pEdge->GetCurve()->EvaluatePoint( sEdgeIvl.Evaluate(1.0), sEdge3dEnd) ;
+  SER( pEdge->GetCurve()->EvaluatePoint( sEdgeIvl.Evaluate(1.0), sEdge3dEnd)  );
 
   SmVertex *pEndVtx = ( bReverse ) ?  pEU ->GetVertexuse()->GetVertex()
                                    : pMate->GetVertexuse()->GetVertex();
   sVrtx3dEnd = pEndVtx->GetPoint();
 
   sTemp.Set( sEndUV.x, sEndUV.y) ;
-  pSurf->EvaluatePoint( sTemp, sFace3dEnd) ;
+  SER( pSurf->EvaluatePoint( sTemp, sFace3dEnd)  );
 
   dVrtxTol = pEndVtx->GetTolerance(); // have to update this to End vtx.
 
@@ -537,7 +537,7 @@ SmBrep::SmBrep
     m_pInfiniteRegion->SetIsVoid(TRUE);
     SM_ASSERT(m_pInfiniteRegion != NULL);
     SmObjDelete sClean1(m_pInfiniteRegion);
-    PreInsert(m_pInfiniteRegion);
+    (void)PreInsert(m_pInfiniteRegion); // SolidCraft: a constructor cannot report
 
     // Now create and initialize all of the headers of
     // the auxillary lists.
@@ -633,7 +633,7 @@ SmBrep::SmBrep
   m_pInfiniteRegion = new (this) SmRegion();
   SM_ASSERT(m_pInfiniteRegion != NULL);
   SmObjDelete sClean1(m_pInfiniteRegion);
-  PreInsert(m_pInfiniteRegion);
+  (void)PreInsert(m_pInfiniteRegion); // SolidCraft: a constructor cannot report
 
   // create and initialize headers of all auxillary lists - before setting tolerances or copying
   m_pFaceListHead = new (this) SmOwningTopology();
@@ -770,7 +770,7 @@ SmBrep::~SmBrep()
         {
           SmEdge * pE = sEdges[ii];
 
-          pE->GetEdgeuses(sEUs);
+          (void)pE->GetEdgeuses(sEUs); // SolidCraft: a destructor cannot report
           for(jj=0;jj<sEUs.GetSize();jj++)
             {
               SmEdgeuse * pEU = sEUs[jj];
@@ -1168,10 +1168,10 @@ SmStatus SmBrep::CalculateTightBoundingBox(SmExtent3d & rBrepBBox) const
 
   for ( ii = 0; ii < lNumEdges; ii++ )
     {
-      sEdgeList[ii]->CalculateBoundingBox( &sEdgeBBox) ;
+      SER( sEdgeList[ii]->CalculateBoundingBox( &sEdgeBBox)  );
       if (sEdgeBBox.IsContainedBy(sBrepBBox))
           continue;
-      sEdgeList[ii]->CalculateTightBoundingBox( &sEdgeBBox) ;
+      SER( sEdgeList[ii]->CalculateTightBoundingBox( &sEdgeBBox)  );
       sBrepBBox.Union( sEdgeBBox, sBrepBBox) ;
     }
 
@@ -1183,10 +1183,10 @@ SmStatus SmBrep::CalculateTightBoundingBox(SmExtent3d & rBrepBBox) const
   for ( ii = 0; ii < lNumFaces; ii++ )
     {
 
-      sFaceList[ii]->CalculateBoundingBox( rFaceBBox) ;
+      SER( sFaceList[ii]->CalculateBoundingBox( rFaceBBox)  );
       if (rFaceBBox.IsContainedBy(sBrepBBox))
           continue;
-      sFaceList[ii]->CalculateTightBoundingBox( rFaceBBox) ;
+      SER( sFaceList[ii]->CalculateTightBoundingBox( rFaceBBox)  );
       sBrepBBox.Union( rFaceBBox, sBrepBBox) ;
     }
 
@@ -1363,7 +1363,7 @@ SmBoolean bDebugMe = FALSE ;
       SM_OLDTOL_LINE pSurvivingVertex->SetTolerance( dNewTol) ;
 
       // Deleted vtx has no edges: just delete it
-      DeleteVertex( pVertexToDelete) ;
+      SER( DeleteVertex( pVertexToDelete)  );
 
       return SM_SUCCESS;
     }
@@ -1377,13 +1377,13 @@ SmBoolean bDebugMe = FALSE ;
       pVertexToDelete->GetVertexuses( sVUs2) ;
       for ( ULONG jj=0; jj<sVUs.GetSize(); jj++ )
         {
-          pSurvivingVertex->Remove( sVUs[jj]) ;
-          pVertexToDelete->PostInsert( sVUs[jj]) ;
+          SER( pSurvivingVertex->Remove( sVUs[jj])  );
+          SER( pVertexToDelete->PostInsert( sVUs[jj])  );
         }
       for ( ULONG kk=0; kk<sVUs2.GetSize(); kk++ )
         {
-          pVertexToDelete->Remove( sVUs2[kk]) ;
-          pSurvivingVertex->PostInsert( sVUs2[kk]) ;
+          SER( pVertexToDelete->Remove( sVUs2[kk])  );
+          SER( pSurvivingVertex->PostInsert( sVUs2[kk])  );
         }
 
       // inform the public
@@ -1393,7 +1393,7 @@ SmBoolean bDebugMe = FALSE ;
       SM_OLDTOL_LINE pSurvivingVertex->SetTolerance( dNewTol) ;
 
       // delete the vertex
-      DeleteVertex( pVertexToDelete) ;
+      SER( DeleteVertex( pVertexToDelete)  );
 
       return SM_SUCCESS;
 
@@ -1443,7 +1443,7 @@ SmBoolean bDebugMe = FALSE ;
 
       // Check to see if a loop edge would be formed. [B278]
       double dLength = 0.0;
-      pCommonEdge->GetCurve()->Length( pCommonEdge->GetInterval(), dNewTol, dLength) ;
+      SER( pCommonEdge->GetCurve()->Length( pCommonEdge->GetInterval(), dNewTol, dLength)  );
       if( dLength > dMinDist )
         {
           // long edge ends are being glued together - save the edge - use GlueVertices()
@@ -1589,7 +1589,7 @@ SmBoolean bDebugMe = FALSE ;
 
   if(!pCommonEdge )
     {
-      GlueVertices( pSurvivingVertex, pVertexToDelete) ; // Takes care of everything.
+      SER( GlueVertices( pSurvivingVertex, pVertexToDelete)  ); // Takes care of everything.
     }
   else
     {
@@ -2159,7 +2159,7 @@ SmStatus SmBrep::CopyFaces
       pSurface1 = pFace->GetSurface();
 
       // Copy pSurface1 for new face, when possible as an anaytic surface
-      pSurface1->CopyAndAddAnalytics( *pContext, pSurface2) ;
+      SER( pSurface1->CopyAndAddAnalytics( *pContext, pSurface2)  );
 
       // Now build a new face.
       // Note: previously passed Null for 3d curves.  That's not
@@ -2212,11 +2212,12 @@ NOTES:
          The face pointers on THIS are changed and need 'GetFaces'
 
 ***********************************************************************/
-void SmBrep::UnStitch( SmTArray<SmFace *> *pOptFaces)
+SmStatus SmBrep::UnStitch( SmTArray<SmFace *> *pOptFaces) // SolidCraft change: was void
 {
     // copy faces one at a time into pbrep2
     const SmContext * pContext = this->GetContext();
     SmBrep          * pBrep2   = new (*pContext) SmBrep();
+    SmObjDelete       sCleanBrep2(pBrep2);
     
     SM_OLDTOL_LINE pBrep2->SetTolerance(this->GetTolerance());
      
@@ -2238,17 +2239,17 @@ void SmBrep::UnStitch( SmTArray<SmFace *> *pOptFaces)
         sFacesToCopy.Add(pF);
         sFacesToRemove.Add(pF);
         // you have to copy them individually to make them separate
-        this->CopyFaces(sFacesToCopy, pBrep2);
+        SER(this->CopyFaces(sFacesToCopy, pBrep2));
         sFacesToCopy.ReSet();
     }
 
     SmTemporaryChangeValue<SmBoolean> TempEdit(this->m_bEditingEnabled, TRUE);
-    this->RemoveFaces(sFacesToRemove);  // increments unlocked mark value
+    SER(this->RemoveFaces(sFacesToRemove));  // increments unlocked mark value
 
     sFacesToCopy.RemoveAll();
     pBrep2->GetFaces(sFacesToCopy);
-    pBrep2->CopyFaces(sFacesToCopy, this);
-    delete pBrep2;
+    SER(pBrep2->CopyFaces(sFacesToCopy, this));
+    return SM_SUCCESS; // sCleanBrep2 deletes pBrep2
 } // end SmBrep::UnStitch()
 
 /*******************************************************************//**
@@ -2288,7 +2289,7 @@ SmStatus SmBrep::CreateWireEdgeFromCurve
 
   // glue vertices for short edges
   if (sStartPt.DistanceBetween(sEndPt) < GetTolerance())
-      GlueVertices(pNewV1, pNewV2);
+      SER( GlueVertices(pNewV1, pNewV2) );
 
   // all done
   return SM_SUCCESS;
@@ -2429,7 +2430,7 @@ SmStatus SmBrep::ConvertCurvesToAnalytics
       //      That should be okay since UVTrimCurves are lazy evaluated.  They'll be built next time anyone looks at them.
 
       // for every edge->edgeuse - rebuild UVTrimCurves
-      pE->GetEdgeuses(sEdgeuses);
+      SER( pE->GetEdgeuses(sEdgeuses) );
       for (ULONG kk=0; kk<sEdgeuses.GetSize(); kk++)
         {
           SmEdgeuse      *pEU          = sEdgeuses[kk];
@@ -2675,7 +2676,7 @@ SmBoolean bDebugMe = FALSE ;
         {
           // get Edgeuse->UVTrimCurve
           SmBSplineCurve *pUVCurve = NULL ;
-          pEU->GetOrCreateUVTrimCurve(pUVCurve);
+          SER( pEU->GetOrCreateUVTrimCurve(pUVCurve) );
           SM_ASSERT(pUVCurve != NULL) ;
 
           // copy UVTrimCurve
@@ -2889,8 +2890,8 @@ SmStatus SmBrep::CreateEdgeEdgeBlend
       for (ii = 0; ii < lNumLoc; ii++) 
         {
 
-          pRail1Curve->EvaluatePoint(sIvl1.Evaluate((double) ii / (double)(lNumLoc - 1)), sRail1CurvePos[ii]);
-          pRail2Curve->EvaluatePoint(sIvl2.Evaluate((double) ii / (double)(lNumLoc - 1)), sRail2CurvePos[ii]);
+          SER( pRail1Curve->EvaluatePoint(sIvl1.Evaluate((double) ii / (double)(lNumLoc - 1)), sRail1CurvePos[ii]) );
+          SER( pRail2Curve->EvaluatePoint(sIvl2.Evaluate((double) ii / (double)(lNumLoc - 1)), sRail2CurvePos[ii]) );
 #ifdef SM_DEBUG_CODE
           if( bDebugMe1 )
             {
@@ -2926,8 +2927,8 @@ SmStatus SmBrep::CreateEdgeEdgeBlend
   SmVector3d sEdge1Tangent,  sEdge2Tangent ;
   SmVector3d sEdge1Binormal, sEdge2Binormal ;
   SmVector3d sFace1Normal,   sFace2Normal ;
-  cpEdgeuse1->EvaluateBinormal(sIvl1.Evaluate(.5), TRUE, sEdge1Pos, sEdge1Binormal, &sEdge1Tangent, &sFace1Normal) ;
-  cpEdgeuse2->EvaluateBinormal(sIvl2.Evaluate(.5), TRUE, sEdge2Pos, sEdge2Binormal, &sEdge2Tangent, &sFace2Normal) ;
+  SER( cpEdgeuse1->EvaluateBinormal(sIvl1.Evaluate(.5), TRUE, sEdge1Pos, sEdge1Binormal, &sEdge1Tangent, &sFace1Normal)  );
+  SER( cpEdgeuse2->EvaluateBinormal(sIvl2.Evaluate(.5), TRUE, sEdge2Pos, sEdge2Binormal, &sEdge2Tangent, &sFace2Normal)  );
   if(cpEdgeuse1->GetOrientation()               == SM_OT_OPPOSITE) sEdge1Tangent = -sEdge1Tangent ;
   if(cpEdgeuse2->GetOrientation()               == SM_OT_OPPOSITE) sEdge2Tangent = -sEdge2Tangent ;
   if(cpEdgeuse1->GetFaceuse()->GetOrientation() == SM_OT_OPPOSITE) sFace1Normal = -sFace1Normal ;
@@ -2943,7 +2944,7 @@ SmStatus SmBrep::CreateEdgeEdgeBlend
   // make sure two curve intervals run in the same direction and share a common parameterization
   if(bSameDirCurves == FALSE) 
     { 
-      pRail2Curve->ReverseParameterization(sIvl2, sIvl2) ; 
+      SER( pRail2Curve->ReverseParameterization(sIvl2, sIvl2)  ); 
       bInFromTheLeft = ( bInFromTheLeft == TRUE ) ? FALSE : TRUE ;
     } // end reverse curve direction
 
@@ -2954,9 +2955,9 @@ SmStatus SmBrep::CreateEdgeEdgeBlend
       double dOffset = (sIvl2.GetMin() * sIvl1.GetMax()) - (sIvl1.GetMin() * sIvl2.GetMax()) / (sIvl2.GetMin() - sIvl2.GetMax()) ;
 
       SmExtent1d sNewIvl = pRail2Curve->GetNaturalInterval() ;
-      sNewIvl.SetMinMax(sNewIvl.GetMin() * dScale + dOffset,
-                        sNewIvl.GetMax() * dScale + dOffset) ;
-      pRail2Curve->EditParameterization(sNewIvl, FALSE) ;
+      SER( sNewIvl.SetMinMax(sNewIvl.GetMin() * dScale + dOffset,
+                        sNewIvl.GetMax() * dScale + dOffset)  );
+      SER( pRail2Curve->EditParameterization(sNewIvl, FALSE)  );
       sIvl2 = sIvl1 ;
 
     } // end need to reparameterize Curve2 check
@@ -3017,7 +3018,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // make sure two curve intervals run in the same direction and share a common parameterization
-  if(bSameDirCurves == FALSE) { pRail2Curve->ReverseParameterization(sIvl2, sIvl2) ; }
+  if(bSameDirCurves == FALSE) { SER( pRail2Curve->ReverseParameterization(sIvl2, sIvl2)  ); }
   if(!sIvl1.AreEqual(sIvl2))
     {
       // rescale Curve2
@@ -3025,9 +3026,9 @@ SmBoolean bDebugMe = FALSE ;
       double dOffset = (sIvl2.GetMin() * sIvl1.GetMax()) - (sIvl1.GetMin() * sIvl2.GetMax()) / (sIvl2.GetMin() - sIvl2.GetMax()) ;
 
       SmExtent1d sNewIvl = pRail2Curve->GetNaturalInterval() ;
-      sNewIvl.SetMinMax(sNewIvl.GetMin() * dScale + dOffset,
-                        sNewIvl.GetMax() * dScale + dOffset) ;
-      pRail2Curve->EditParameterization(sNewIvl, FALSE) ;
+      SER( sNewIvl.SetMinMax(sNewIvl.GetMin() * dScale + dOffset,
+                        sNewIvl.GetMax() * dScale + dOffset)  );
+      SER( pRail2Curve->EditParameterization(sNewIvl, FALSE)  );
       sIvl2 = sIvl1 ;
 
     } // end need to reparameterize Curve2 check
@@ -3149,7 +3150,7 @@ SmStatus SmBrep::CreateFromTriangleBag
   for( ULONG ii = 0; ii < nTriangles; ii++ ) {
     s3DCurves.ReSet();
 
-    crTriangleBag.GetTriangle( ii, sP1, sP2, sP3) ;
+    SER( crTriangleBag.GetTriangle( ii, sP1, sP2, sP3)  );
 
     SmBSplineCurve* pBSpline1 = NULL;
         status = SmBSplineCurve::CreateLineSegment(crContext, 3, sP1, sP2, pBSpline1) ;
@@ -3173,8 +3174,8 @@ SmStatus SmBrep::CreateFromTriangleBag
      s3DCurves.Add(pBSpline3);
 
      SmFace* pNewFace = NULL;
-     pNewBrep->CreatePlanarFaceWith3DCurves(pNewBrep->GetInfiniteRegion(), s3DCurves,
-       pNewBrep->GetTolerance(), pNewFace) ;
+     SER( pNewBrep->CreatePlanarFaceWith3DCurves(pNewBrep->GetInfiniteRegion(), s3DCurves,
+       pNewBrep->GetTolerance(), pNewFace)  );
   }
 
   // since stl units is likely in inches we must scale to mm
@@ -3303,7 +3304,7 @@ SmStatus SmBrep::CreateFromCrossCurves
     SmVector3d sSideVector = crSideCurveVectors[ii];
     SmBrep *pSide;
     SER( sm_BuildSweepThroughBox( crContext, sBaseBox, sSweepCurves, sSideVector, pSide )) ;
-    pSide->ShrinkGeometry();
+    SER( pSide->ShrinkGeometry() );
     sSides.Add( pSide) ;
     pSide->GetSurfaces( sSurfaces) ;
     for(ULONG jj = 0; jj<sSurfaces.GetSize(); jj++)
@@ -3677,13 +3678,13 @@ SmBoolean bDebugMe = FALSE ;
           for (kkk=0; kkk<aLoopEdges.GetSize(); kkk++)
             {
               SmEdge* pE = aLoopEdges[kkk];
-              pBrep->DeleteEdge(pE);
+              SER( pBrep->DeleteEdge(pE) );
             }
 
           for (kkk=0; kkk<aLoopVertices.GetSize(); kkk++)
             {
               SmVertex* pV = aLoopVertices[kkk];
-              pBrep->DeleteVertex(pV);
+              SER( pBrep->DeleteVertex(pV) );
             }
         }
     }
@@ -3970,7 +3971,7 @@ SmStatus SmBrep::Simplify
         }
     }
 
-    RebuildFacesFrom3DCurves() ;
+    SER( RebuildFacesFrom3DCurves()  );
     Notify(SM_NO_PRE_EDIT, this, NULL, NULL);
 
     return SM_SUCCESS;
@@ -4009,11 +4010,11 @@ SmStatus SmBrep::Refine3DCurves(double dTol)     // refinement tolerance >200*pB
 
         // Trim the curve by the domain of the pE
         SmExtent1d sIvl = pEdge->GetInterval() ;
-        pBSP->Trim(sIvl);   // may snap sIvl by tol to existing knots
+        SER( pBSP->Trim(sIvl) );   // may snap sIvl by tol to existing knots
         if (pBSP->ApproximateLength(sIvl, 5) < dTol) continue; // dont refine short edges
 
         // Note this is a large knot removal tolerance for Refine
-        pBSP->Refine (dTol);
+        SER( pBSP->Refine (dTol) );
        }
 
     return ( SM_SUCCESS);
@@ -4057,7 +4058,7 @@ SmStatus SmBrep::ExtendSurfaces
         {
           SmExtent3d srfBBox;
           SmExtent2d sUVDomain = pSurface->GetNaturalUVDomain();
-          pSurface->CalculateBoundingBox(sUVDomain, &srfBBox);
+          SER( pSurface->CalculateBoundingBox(sUVDomain, &srfBBox) );
           double size = srfBBox.GetSize().Length();
           if (size >= 1.0e15 || size <= 0.0)
             size = 1.0;
@@ -4123,7 +4124,7 @@ SmStatus SmBrep::RebuildFacesFrom3DCurves()
 
           // get a copy of the surface
           SmSurface *pSrfCopy = NULL;
-          pSurface->Copy(*pContext, pSrfCopy);
+          SER( pSurface->Copy(*pContext, pSrfCopy) );
           pSrfCopy->SetOwner(NULL);
 
           // Now build a new face based on the surface but using same 3d curves
@@ -4150,12 +4151,12 @@ SmStatus SmBrep::RebuildFacesFrom3DCurves()
       SmTArray <SmFace *> sFacesToRemove;
       SmTemporaryChangeValue<SmBoolean> TempEdit(this->m_bEditingEnabled, TRUE);
       GetFaces(sFacesToRemove);
-      RemoveFaces(sFacesToRemove);  // increments unlocked mark value
+      SER( RemoveFaces(sFacesToRemove) );  // increments unlocked mark value
       SmTArray <SmFace *> sFacesToCopy;
       pBrep1->GetFaces(sFacesToCopy);
-      pBrep1->CopyFaces(sFacesToCopy, this);
+      SER( pBrep1->CopyFaces(sFacesToCopy, this) );
       delete pBrep1;
-      this->StitchAndOrient(20.0*sZoneTol3d);
+      SER( this->StitchAndOrient(20.0*sZoneTol3d) );
     }
 
   return SM_SUCCESS;
@@ -4295,7 +4296,7 @@ SmStatus SmBrep::CreateFaceInRegionFromSurface
   for(ii=0; ii<aUVTrimmingCurves.GetSize(); ii++)
     {
       sCrvDomain = a3DTrimmingCurves[ii]->GetNaturalInterval();
-      aUVTrimmingCurves[ii]->EditParameterization( sCrvDomain) ;
+      SER( aUVTrimmingCurves[ii]->EditParameterization( sCrvDomain)  );
     }
 
 #ifdef SM_DEBUG_CODE
@@ -4498,10 +4499,10 @@ static constexpr SmBoolean sbUseOldAlgorithm = TRUE ;
           for(jj=0; jj < 2; jj++)
             {
               sUV = crUVDomain.Evaluate( ii, jj) ;
-              pSurface->EvaluatePoint( sUV, sPt) ;
+              SER( pSurface->EvaluatePoint( sUV, sPt)  );
               if(! sVertPts.FindElement( sPt, idx ) )
                 {
-                  pBrep->MakeVertexLoop( rpNewFace, sPt, pNewLoop, pThisVert, SM_OT_SAME) ;
+                  SER( pBrep->MakeVertexLoop( rpNewFace, sPt, pNewLoop, pThisVert, SM_OT_SAME)  );
                   sVerts.Add( pThisVert) ;
                   sVertPts.Add( sPt) ;
                 }
@@ -4578,7 +4579,7 @@ static constexpr SmBoolean sbUseOldAlgorithm = TRUE ;
           // (Can happen more than once, for a torus, so do this within the loop.)
           if(pNewFace != NULL )
             {
-              this->DeleteFace( pNewFace) ;  pNewFace = NULL;
+              SER( this->DeleteFace( pNewFace)  );  pNewFace = NULL;
             }
     
 #ifdef SM_DEBUG_CODE
@@ -4750,7 +4751,7 @@ SmStatus SmBrep::CreateEndCapsFromSurface
         }
     }
     if (newfacecount > 0)
-        StitchAndOrient();
+        SER( StitchAndOrient() );
 
     return SM_SUCCESS;
 } // end SmBrep::CreateEndCapsFromSurface
@@ -5304,12 +5305,12 @@ SmBoolean bDebugMe = FALSE;
             {
               SmCurve *p3dSectionCurve = p3DSectionCurves->GetAt(kk) ;
 
-              p3DCurve->GlobalCoincidenceChecker(s3DCurveIvl,
+              SER( p3DCurve->GlobalCoincidenceChecker(s3DCurveIvl,
                                                 *p3dSectionCurve,
                                                  p3dSectionCurve->GetNaturalInterval(),
                                                  dTol,
                                                  bAdditionalWorkNeeded,
-                                                 sSolutions) ;
+                                                 sSolutions)  );
               if(  sSolutions.GetSize() == 1
                   && sSolutions[0].m_eSolutionType == SM_ST_RANGE_OF_VALUES
                   && SM_EP_START == s3DCurveIvl.ClassifyPoint(sSolutions[0].m_vStart[0],dParamTol)
@@ -5337,12 +5338,12 @@ SmBoolean bDebugMe = FALSE;
                     { continue ; }
 
                   // check for coincidence
-                  p3DCurve->GlobalCoincidenceChecker(s3DCurveIvl,
+                  SER( p3DCurve->GlobalCoincidenceChecker(s3DCurveIvl,
                                                     *pFaceCurve,
                                                      pFaceEdge->GetInterval(),
                                                      dTol,
                                                      bAdditionalWorkNeeded,
-                                                     sSolutions) ;
+                                                     sSolutions)  );
                  if(  sSolutions.GetSize() == 1
                      && sSolutions[0].m_eSolutionType == SM_ST_RANGE_OF_VALUES
                      && SM_EP_START == s3DCurveIvl.ClassifyPoint(sSolutions[0].m_vStart[0],dParamTol)
@@ -5568,8 +5569,8 @@ SM_EXPORT SmStatus SmBrep::RotateSection
   double        dAngTol = 10.0 * 3.1415 / 180.0;
   int           nchain  = 0;
 
-  sAxis.Unitize();
-  sDirection.Unitize();
+  (void)sAxis.Unitize(); // SolidCraft: a zero vector stays zero
+  (void)sDirection.Unitize(); // SolidCraft: a zero vector stays zero
   if (dDeg < 0.0)
     {
       dDeg = -dDeg;
@@ -5643,8 +5644,8 @@ SM_EXPORT SmStatus SmBrep::RotateSection
       SmPoint3d   pPt0, pPt1;
       SmExtent1d  sDomainS    = pStart->GetNaturalInterval();
       SmExtent1d  sDomainE    = pEnd->GetNaturalInterval();
-      pStart->EvaluatePoint(sDomainS.Evaluate(0.0), pPt0);
-      pEnd  ->EvaluatePoint(sDomainE.Evaluate(1.0), pPt1);
+      SER( pStart->EvaluatePoint(sDomainS.Evaluate(0.0), pPt0) );
+      SER( pEnd  ->EvaluatePoint(sDomainE.Evaluate(1.0), pPt1) );
       SmBoolean   bIsClosed   = pPt0.CloserThan(dFTol, pPt1); // seems to need extra tol here
       SmBoolean   bIsEndCap   = bIsClosed && dDeg < 359.99 && dEndCaps > 0;
 
@@ -5679,17 +5680,17 @@ SM_EXPORT SmStatus SmBrep::RotateSection
           if (bIsEndCap && (dEndCaps > 1))
             {
               SmBSplineCurve *pCrvE;
-              pSrf->CreateIsoParametricCurve(crContext,
+              SER( pSrf->CreateIsoParametricCurve(crContext,
                                              SM_SP_U,
                                              sUVDomain.GetMax().x,
                                              dTol,
                                              pCrvE,
-                                             NULL);
+                                             NULL) );
               EndCurves.Add(pCrvE);
             }
 
           SmFace *pFace;
-          rpBrep2->CreateFaceFromSurface(pSrf, pSrf->GetNaturalUVDomain(), pFace);
+          SER( rpBrep2->CreateFaceFromSurface(pSrf, pSrf->GetNaturalUVDomain(), pFace) );
         }
 
       // Add end caps under ideal conditions
@@ -5720,8 +5721,8 @@ SM_EXPORT SmStatus SmBrep::RotateSection
 
     } // for nchain
 
-  rpBrep2->StitchAndOrient();
-  rpBrep2->ShrinkGeometry();
+  SER( rpBrep2->StitchAndOrient() );
+  (void)rpBrep2->ShrinkGeometry(); // SolidCraft: shrinking surfaces to their faces is a speed-up; the faces are the same either way
 
   return (SM_SUCCESS);
 
@@ -5842,13 +5843,13 @@ static ULONG lDebugCount = 0 ;
           SmVector2d sUV;
           SmVector3d sNorm1, sNorm2;
 
-          pEU->NormalizedEvaluate( 0.5, TRUE, sUV3d) ; // TRUE = UV Eval, FALSE = 3d Eval
+          SER( pEU->NormalizedEvaluate( 0.5, TRUE, sUV3d)  ); // TRUE = UV Eval, FALSE = 3d Eval
           sUV.Set( sUV3d.x, sUV3d.y) ;
-          pSrf->EvaluateNormal( sUV, FALSE, FALSE, sNorm1) ;
+          SER( pSrf->EvaluateNormal( sUV, FALSE, FALSE, sNorm1)  );
 
-          pEURad->NormalizedEvaluate( 0.5, TRUE, sUV3d) ; // TRUE = UV Eval, FALSE = 3d Eval
+          SER( pEURad->NormalizedEvaluate( 0.5, TRUE, sUV3d)  ); // TRUE = UV Eval, FALSE = 3d Eval
           sUV.Set( sUV3d.x, sUV3d.y) ;
-          pSrfRad->EvaluateNormal( sUV, FALSE, FALSE, sNorm2) ;
+          SER( pSrfRad->EvaluateNormal( sUV, FALSE, FALSE, sNorm2)  );
 
           double dDot = sNorm1.Dot( sNorm2) ;
           if(dDot < 0 )
@@ -6201,7 +6202,7 @@ SmBoolean bDebugMe488 = FALSE;
                   // If the normals are opposite, we have to flip the Face's orientation. [BCC00]
                   if(bFlipFace )
                     {
-                       pSurvF->FlipFaceOrientation();
+                       SER( pSurvF->FlipFaceOrientation() );
                     }
 
 
@@ -6283,14 +6284,14 @@ SmBoolean bDebugMe488 = FALSE;
               if (bEUOnPrimarySide == TRUE)
                 {
                   pNewL->m_pLU = pLU;
-                  pFU->PostInsert(pLU);
-                  pFUMate->PostInsert(pLURadMate);
+                  SER( pFU->PostInsert(pLU) );
+                  SER( pFUMate->PostInsert(pLURadMate) );
                 }
               else
                 {
                   pNewL->m_pLU = pLURadMate;
-                  pFUMate->PostInsert(pLU);
-                  pFU->PostInsert(pLURadMate);
+                  SER( pFUMate->PostInsert(pLU) );
+                  SER( pFU->PostInsert(pLURadMate) );
                 }
 
               pLU->m_eOrientation        = SM_OT_OPPOSITE;
@@ -6361,12 +6362,12 @@ SmBoolean bDebugMe488 = FALSE;
           // remove pEU Vertexuse
           SmVertexuse *pVU = pEU->GetVertexuse(); NER(pVU);
           SmVertex    *pV  = pVU->GetVertex();    NER(pV);
-          pV->Remove(pVU);
+          SER( pV->Remove(pVU) );
           SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
 
           // delete pEURadMate->Vertexuse
           SmVertexuse *pVURadMate = pEURadMate->GetVertexuse(); NER(pVURadMate);
-          pV->Remove(pVURadMate);
+          SER( pV->Remove(pVURadMate) );
           SM_ASSERT(pVURadMate != NULL) ; delete pVURadMate ; pVURadMate = NULL ;
         }
 
@@ -6409,25 +6410,25 @@ SmBoolean bDebugMe488 = FALSE;
         {
           SmVertexuse * pVUMate = pEUMate->GetVertexuse(); NER(pVUMate);
           SmVertex    * pVMate  = pVUMate->GetVertex(); NER(pVMate);
-          pVMate->Remove(pVUMate);
+          SER( pVMate->Remove(pVUMate) );
           SM_ASSERT(pVUMate != NULL) ; delete pVUMate ; pVUMate = NULL ;
 
           SmVertexuse * pVURad  = pEURad->GetVertexuse(); NER(pVURad);
-          pVMate->Remove(pVURad);
+          SER( pVMate->Remove(pVURad) );
           SM_ASSERT(pVURad != NULL) ; delete pVURad ; pVURad = NULL ;
         }
 
       // Remove edgeuses from the edge.
-      pEdgeToDelete->Remove(pEU);
-      pEdgeToDelete->Remove(pEUMate);
-      pEdgeToDelete->Remove(pEURad);
-      pEdgeToDelete->Remove(pEURadMate);
+      SER( pEdgeToDelete->Remove(pEU) );
+      SER( pEdgeToDelete->Remove(pEUMate) );
+      SER( pEdgeToDelete->Remove(pEURad) );
+      SER( pEdgeToDelete->Remove(pEURadMate) );
 
       // Also make sure that the Loopuses do not point to the EU's to be deleted.
-      if(pLU->IsEdgeLoopuse()        && pLU->GetEUorVU()        == pEU )         { pLU->SetEdgeuse       ( pEU->GetCCWEdgeuse()) ; }
-      if(pLUMate->IsEdgeLoopuse()    && pLUMate->GetEUorVU()    == pEUMate )     { pLUMate->SetEdgeuse   ( pEUMate->GetCCWEdgeuse()) ; }
-      if(pLURad->IsEdgeLoopuse()     && pLURad->GetEUorVU()     == pEURad )      { pLURad->SetEdgeuse    ( pEURad->GetCCWEdgeuse()) ; }
-      if(pLURadMate->IsEdgeLoopuse() && pLURadMate->GetEUorVU() == pEURadMate )  { pLURadMate->SetEdgeuse( pEURadMate->GetCCWEdgeuse()) ; }
+      if(pLU->IsEdgeLoopuse()        && pLU->GetEUorVU()        == pEU )         { SER( pLU->SetEdgeuse       ( pEU->GetCCWEdgeuse())  ); }
+      if(pLUMate->IsEdgeLoopuse()    && pLUMate->GetEUorVU()    == pEUMate )     { SER( pLUMate->SetEdgeuse   ( pEUMate->GetCCWEdgeuse())  ); }
+      if(pLURad->IsEdgeLoopuse()     && pLURad->GetEUorVU()     == pEURad )      { SER( pLURad->SetEdgeuse    ( pEURad->GetCCWEdgeuse())  ); }
+      if(pLURadMate->IsEdgeLoopuse() && pLURadMate->GetEUorVU() == pEURadMate )  { SER( pLURadMate->SetEdgeuse( pEURadMate->GetCCWEdgeuse())  ); }
 
       // In that same spirit, if these pointers point to something that is
       // going to be deleted, zero out the pointer.
@@ -6443,7 +6444,7 @@ SmBoolean bDebugMe488 = FALSE;
       SM_ASSERT( pEURadMate != NULL ) ; delete pEURadMate; pEURadMate = NULL;
 
       // remove and delete pEdge (deletes pEdge->m_pCurve)
-      m_pEdgeListHead->Remove(pEdgeToDelete);
+      SER( m_pEdgeListHead->Remove(pEdgeToDelete) );
       SM_ASSERT(pEdgeToDelete != NULL) ; delete pEdgeToDelete ; pEdgeToDelete = NULL ;
 
       // If either end was a strut
@@ -6558,13 +6559,13 @@ SmBoolean bDebugMe488 = FALSE;
           // remove DelFace->Faceuses from their shells and delete them
           SmFaceuse *pFUDel, *pFUDelMate;
           pDelF->GetFaceuses(pFUDel,pFUDelMate);
-          pFUDel->GetShell()->Remove(pFUDel);
-          pFUDelMate->GetShell()->Remove(pFUDelMate);
+          SER( pFUDel->GetShell()->Remove(pFUDel) );
+          SER( pFUDelMate->GetShell()->Remove(pFUDelMate) );
           SM_ASSERT(pFUDel     != NULL) ; delete pFUDel;     pFUDel     = NULL ;
           SM_ASSERT(pFUDelMate != NULL) ; delete pFUDelMate; pFUDelMate = NULL ;
 
           // remove DelFace from Brep->FaceList
-          m_pFaceListHead->Remove(pDelF);
+          SER( m_pFaceListHead->Remove(pDelF) );
 
           // delete pDelF (also pDelF->m_pSurface)
           SM_ASSERT(pDelF != NULL) ; delete pDelF ; pDelF = NULL ;
@@ -6678,32 +6679,32 @@ SmBoolean bDebugMe488 = FALSE;
           // remove pEU Vertexuse
           SmVertexuse *pVU = pEU->GetVertexuse(); NER(pVU);
           SmVertex    *pV  = pVU->GetVertex();    NER(pV);
-          pV->Remove(pVU);
+          SER( pV->Remove(pVU) );
           SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
 
           // Now do the vertex at the other end of the Edge.
           SmVertexuse *pVUMate = pEUMate->GetVertexuse(); NER(pVUMate);
           SmVertex *pVMate     = pVUMate->GetVertex(); NER(pVMate);
-          pVMate->Remove(pVUMate);
+          SER( pVMate->Remove(pVUMate) );
           SM_ASSERT(pVUMate != NULL) ; delete pVUMate ; pVUMate = NULL ;
         }
 
       // Remove edgeuses from the edge.
-      pEdgeToDelete->Remove(pEU);
-      pEdgeToDelete->Remove(pEUMate);
+      SER( pEdgeToDelete->Remove(pEU) );
+      SER( pEdgeToDelete->Remove(pEUMate) );
 
       // Also make sure that the Loopuses do not point to the EU's to be deleted.
       if(pLU->GetEUorVU() == pEU )
-        { pLU->SetEdgeuse( pEU->GetCCWEdgeuse()) ; }
+        { SER( pLU->SetEdgeuse( pEU->GetCCWEdgeuse())  ); }
       if(pLUMate->GetEUorVU() == pEUMate )
-        { pLUMate->SetEdgeuse( pEUMate->GetCCWEdgeuse()) ; }
+        { SER( pLUMate->SetEdgeuse( pEUMate->GetCCWEdgeuse())  ); }
 
       // Delete the edgeuses - we're done with them.
       SM_ASSERT( pEU        != NULL ) ; delete pEU;        pEU        = NULL;
       SM_ASSERT( pEUMate    != NULL ) ; delete pEUMate;    pEUMate    = NULL;
 
       // remove and delete pEdge
-      m_pEdgeListHead->Remove(pEdgeToDelete);
+      SER( m_pEdgeListHead->Remove(pEdgeToDelete) );
       SM_ASSERT(pEdgeToDelete != NULL) ; delete pEdgeToDelete ; pEdgeToDelete = NULL ;
 
       // With a lamina Edge, we're not splitting any Loops or merging Faces, etc.
@@ -6727,18 +6728,18 @@ SmBoolean bDebugMe3=FALSE;
 #endif // SM_DEBUG_CODE
 
       // remove Primary and Mate edgeuses from Wire's Edgeuse list - edgeuses not deleted
-      pEdgeToDelete->Remove(pEU);
-      pEdgeToDelete->Remove(pEUMate);
+      SER( pEdgeToDelete->Remove(pEU) );
+      SER( pEdgeToDelete->Remove(pEUMate) );
 
       // remove the Vertexuse connecting the primary Edgeuse to its vertex
       SmVertexuse *pVU1 = pEU->GetVertexuse(); NER(pVU1);
       SmVertex    *pV1  = pVU1->GetVertex(); NER(pV1);
-      pV1->Remove(pVU1);
+      SER( pV1->Remove(pVU1) );
 
       // remove the Vertexuse connecting the primary's mate Edgeuse to its vertex
       SmVertexuse *pVU2 = pEUMate->GetVertexuse(); NER(pVU2);
       SmVertex    *pV2  = pVU2->GetVertex(); NER(pV2);
-      pV2->Remove(pVU2);
+      SER( pV2->Remove(pVU2) );
 
       // change unconnected vertices into shellVertices (so they don't get lost or deleted)
 
@@ -6749,7 +6750,7 @@ SmBoolean bDebugMe3=FALSE;
       if (sVertexuses.GetSize() == 0)
         {
           // reinsert its vertexuse and change it into a shell vertex
-          pV1->PostInsert(pVU1);
+          SER( pV1->PostInsert(pVU1) );
           pVU1->m_tVertexuseType = SmShell_TYPE;
           pVU1->m_pSorLUorEU = pShell;
         }
@@ -6763,7 +6764,7 @@ SmBoolean bDebugMe3=FALSE;
       if (sVertexuses.GetSize() == 0)
         {
           // reinsert its vertexuse and change it into a shell vertex
-          pV2->PostInsert(pVU2);
+          SER( pV2->PostInsert(pVU2) );
           pVU2->m_tVertexuseType = SmShell_TYPE;
           pVU2->m_pSorLUorEU = pShell;
         }
@@ -6773,7 +6774,7 @@ SmBoolean bDebugMe3=FALSE;
         }
 
       // remove the edge from the SmBrep edgeList and delete it
-      m_pEdgeListHead->Remove(pEdgeToDelete);
+      SER( m_pEdgeListHead->Remove(pEdgeToDelete) );
       SM_ASSERT(pEdgeToDelete != NULL) ; delete pEdgeToDelete ; pEdgeToDelete = NULL ;
 
       // Here handle things that happen to shells during deletion of
@@ -6794,7 +6795,7 @@ SmBoolean bDebugMe3=FALSE;
             {
               // reset the shell parameters to be a vertexShell
               pShell->m_pList      = pV1->GetPrimaryVertexuse() ;
-              pShell->UpdateListSize() ;
+              SER( pShell->UpdateListSize()  );
               pShell->m_tShellType = SmVertexuse_TYPE;
             }
           // else edge's shell remains a wireShell
@@ -6804,7 +6805,7 @@ SmBoolean bDebugMe3=FALSE;
               SmVertexuse *pVU = pV1->GetPrimaryVertexuse();
               SmEdgeuse   *pEUse = pVU->GetEdgeuse();
               pShell->m_pList  = pEUse;
-              pShell->UpdateListSize() ;
+              SER( pShell->UpdateListSize()  );
             }
 
           // done with the primary and mate edgeuses
@@ -6820,20 +6821,20 @@ SmBoolean bDebugMe3=FALSE;
           // Give V1 to the existing shell and
           // Create a new shell for V2
           pShell->m_pList      = pVU1 ;
-          pShell->UpdateListSize() ;
+          SER( pShell->UpdateListSize()  );
           pShell->m_tShellType = SmVertexuse_TYPE;
 
           // Create new shell and attach Vertex 2 to it
           SmShell *pNewShell      = new (this) SmShell();
           pNewShell->m_pList      = pVU2 ;
-          pNewShell->UpdateListSize() ;
+          SER( pNewShell->UpdateListSize()  );
           if(pVU2 != NULL )
             { pVU2->m_pSorLUorEU  = pNewShell; }
           else
             { WARN( _T("SmBrep::DeleteEdge(): Vertexuse has been deleted.")) ; }
           pNewShell->m_tShellType = SmVertexuse_TYPE;
           SmRegion *pRegion       = pShell->GetRegion();
-          pRegion->PostInsert(pNewShell);
+          SER( pRegion->PostInsert(pNewShell) );
 
           // done with the primary and mate edgeuses
           SM_ASSERT(pEU     != NULL) ; delete pEU ;     pEU     = NULL ;
@@ -6848,14 +6849,14 @@ SmBoolean bDebugMe3=FALSE;
           // Make a new shell for V1 and give the old one to V2
           SmShell *pNewShell      = new (this) SmShell();
           pNewShell->m_pList      = pVU1 ;
-          pNewShell->UpdateListSize() ;
+          SER( pNewShell->UpdateListSize()  );
           if(pVU1 != NULL )
             { pVU1->m_pSorLUorEU  = pNewShell; }
           else
             { WARN( _T("SmBrep::DeleteEdge(): Vertexuse has been deleted.")) ; }
           pNewShell->m_tShellType = SmVertexuse_TYPE;
           SmRegion *pRegion       = pShell->GetRegion();
-          pRegion->PostInsert(pNewShell);
+          SER( pRegion->PostInsert(pNewShell) );
 
           if (pShell->IsWireShell())
             {
@@ -6867,14 +6868,14 @@ SmBoolean bDebugMe3=FALSE;
               if (sEdges.GetSize() <= 0)
                 {
                   pShell->m_pList      = pV2->GetPrimaryVertexuse() ;
-                  pShell->UpdateListSize() ;
+                  SER( pShell->UpdateListSize()  );
                   pShell->m_tShellType = SmVertexuse_TYPE;
                 }
               else  // the shell remains a wireShell and needs a new primary Edgeuse
                 {   // reset Shell's primary edgeuse
                   SmEdge *pStartWire = sEdges[0];
                   pShell->m_pList      = pStartWire->GetPrimaryEdgeuse() ;
-                  pShell->UpdateListSize() ;
+                  SER( pShell->UpdateListSize()  );
                 }
             }
 
@@ -6891,14 +6892,14 @@ SmBoolean bDebugMe3=FALSE;
           // Make a new shell for V2 and give the old one to V1
           SmShell *pNewShell      = new (this) SmShell();
           pNewShell->m_pList      = pVU2 ;
-          pNewShell->UpdateListSize() ;
+          SER( pNewShell->UpdateListSize()  );
           if(pVU2 != NULL )
             { pVU2->m_pSorLUorEU  = pNewShell; }
           else
             { WARN( _T("SmBrep::DeleteEdge(): Vertexuse has been deleted.")) ; }
           pNewShell->m_tShellType = SmVertexuse_TYPE;
           SmRegion *pRegion       = pShell->GetRegion();
-          pRegion->PostInsert(pNewShell);
+          SER( pRegion->PostInsert(pNewShell) );
 
           if (pShell->IsWireShell())
             {
@@ -6910,14 +6911,14 @@ SmBoolean bDebugMe3=FALSE;
               if (sEdges.GetSize() <= 0)
                 {
                   pShell->m_pList      = pV1->GetPrimaryVertexuse() ;
-                  pShell->UpdateListSize() ;
+                  SER( pShell->UpdateListSize()  );
                   pShell->m_tShellType = SmVertexuse_TYPE;
                 }
               else // the shell remains a wireShell and needs a new primary Edgeuse
                 {  // reset Shell's primary edgeuse
                   SmEdge *pStartWire = sEdges[0];
                   pShell->m_pList    = pStartWire->GetPrimaryEdgeuse() ;
-                  pShell->UpdateListSize() ;
+                  SER( pShell->UpdateListSize()  );
                 }
             }
 
@@ -6955,7 +6956,7 @@ SmBoolean bDebugMe3=FALSE;
           // make a new shell to contain topology objects connected to pV2
           pNewShell           = new (this) SmShell();
           SmRegion *pRegion   = pShell->GetRegion();
-          pRegion->PostInsert(pNewShell);
+          SER( pRegion->PostInsert(pNewShell) );
 
           // find all edgeuses and faceuses connected to pV2 through pShell
           // side-effect: increment sMarkLock mark value
@@ -6978,7 +6979,7 @@ SmBoolean bDebugMe3=FALSE;
                   pNewShell->m_pList = sEdgeuses2[0];
                 }
               pNewShell->m_tShellType = SmEdgeuse_TYPE;
-              pNewShell->UpdateListSize() ;
+              SER( pNewShell->UpdateListSize()  );
             }
           else // NewShell is a FaceuseType - set first ShellType
             {  // the first face is set later by PostInsert(pFU)
@@ -6999,10 +7000,10 @@ SmBoolean bDebugMe3=FALSE;
           for (ULONG jj=0; jj<sFaceuses2.GetSize(); jj++)
             {
               SmFaceuse *pFU = sFaceuses2[jj];
-              pShell->Remove(pFU);
-              pNewShell->PostInsert(pFU);
+              SER( pShell->Remove(pFU) );
+              SER( pNewShell->PostInsert(pFU) );
             }
-         pNewShell->UpdateListSize() ;
+         SER( pNewShell->UpdateListSize()  );
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe2=FALSE;
           if (bDebugMe2) {
@@ -7034,7 +7035,7 @@ SmBoolean bDebugMe2=FALSE;
         if (sEdgeuses1.GetSize() > 0)
         {
             pShell->m_pList      = sEdgeuses1[0] ;
-            pShell->UpdateListSize() ;
+            SER( pShell->UpdateListSize()  );
         }
         pShell->m_tShellType = SmEdgeuse_TYPE ;
 
@@ -7180,7 +7181,7 @@ SmStatus SmBrep::DeleteFace
         {
           SER(SM_ERR); // Should not happen
         }
-      pDelRegion->Remove(pOtherShell);
+      SER( pDelRegion->Remove(pOtherShell) );
       SM_ASSERT(pOtherShell != NULL) ; delete pOtherShell ; pOtherShell = NULL ;
       if (pDelRegion != pSurvivingRegion) // should always be true
         {
@@ -7190,8 +7191,8 @@ SmStatus SmBrep::DeleteFace
           for( ii=0; ii<sShells.GetSize(); ii++)
             {
               SmShell *pS = sShells[ii];
-              pDelRegion->Remove(pS);
-              pSurvivingRegion->PostInsert(pS);
+              SER( pDelRegion->Remove(pS) );
+              SER( pSurvivingRegion->PostInsert(pS) );
             }
           if (pDelRegion == GetInfiniteRegion())
             {
@@ -7203,7 +7204,7 @@ SmStatus SmBrep::DeleteFace
           Notify(SM_NO_MERGE_IN_BREP, pSurvivingRegion, pDelRegion, this) ;
 
           // Remove and Delete the DelRegion
-          Remove(pDelRegion);
+          SER( Remove(pDelRegion) );
           SM_ASSERT(pDelRegion != NULL) ; delete pDelRegion ; pDelRegion = NULL ;
         }
     } // end need to merge two shells into one check
@@ -7238,8 +7239,8 @@ SmStatus SmBrep::DeleteFace
           SmVertexuse *pOtherVU = (SmVertexuse*)pOtherLU->m_pEUorVU; NER(pOtherVU);
           pV->GetVertexuses(sVertexuses);
           // Remove vertexuses from the vertex.
-          pV->Remove(pOtherVU);
-          pV->Remove(pVU);
+          SER( pV->Remove(pOtherVU) );
+          SER( pV->Remove(pVU) );
           SM_ASSERT(pOtherVU != NULL) ; delete pOtherVU ; pOtherVU = NULL ;
           if (sVertexuses.GetSize() == 2)
             {
@@ -7248,12 +7249,12 @@ SmStatus SmBrep::DeleteFace
 
               // Put shell into region's shell list
               SER(pShell->GetRegion()->PostInsert(pNewS));
-              pV->PreInsert(pVU);
+              SER( pV->PreInsert(pVU) );
 
               // Link up shell and vertexuse
               pNewS->m_tShellType   = SmVertexuse_TYPE;
               pNewS->m_pList        = pVU ;
-              pNewS->UpdateListSize() ;
+              SER( pNewS->UpdateListSize()  );
               pVU->m_tVertexuseType = SmShell_TYPE;
               pVU->m_pSorLUorEU     = pNewS;
 
@@ -7301,14 +7302,14 @@ SmStatus SmBrep::DeleteFace
               else
                 {
                   // Easy just remove and delete edgeuses/vertexuses from the list
-                  pE->Remove(pEU);
-                  pE->Remove(pEUMate);
+                  SER( pE->Remove(pEU) );
+                  SER( pE->Remove(pEUMate) );
                   SmVertexuse *pVU1 = pEU->GetVertexuse(); NER(pVU1);
                   SmVertex    *pV1  = pVU1->GetVertex();   NER(pV1);
-                  pV1->Remove(pVU1);
+                  SER( pV1->Remove(pVU1) );
                   SmVertexuse *pVU2 = pEUMate->GetVertexuse(); NER(pVU2);
                   SmVertex    *pV2  = pVU2->GetVertex();       NER(pV2);
-                  pV2->Remove(pVU2);
+                  SER( pV2->Remove(pVU2) );
                   if (pAnyEdgeuse == pEU) pAnyEdgeuse = NULL;
                   SM_ASSERT(pEU     != NULL) ; delete pEU ;     pEU     = NULL ;
                   SM_ASSERT(pEUMate != NULL) ; delete pEUMate ; pEUMate = NULL ;
@@ -7321,17 +7322,17 @@ SmStatus SmBrep::DeleteFace
       // The target loop and its loopuses are no longer connected to any edges or vertices.
       // It's now OK to remove the Loopuse connections from the faceuses and delete the loop and the loopuses.
       SM_ASSERT(pL != NULL) ; delete pL ; pL = NULL ;
-      pLU->GetFaceuse()->Remove(pLU);
-      pOtherLU->GetFaceuse()->Remove(pOtherLU);
+      SER( pLU->GetFaceuse()->Remove(pLU) );
+      SER( pOtherLU->GetFaceuse()->Remove(pOtherLU) );
       SM_ASSERT(pLU      != NULL) ; delete pLU ;      pLU      = NULL ;
       SM_ASSERT(pOtherLU != NULL) ; delete pOtherLU ; pOtherLU = NULL ;
 
     } // end iter every FaceToBeDeleted Loop deleting the loop after removing use connections to edges and vertices
 
   // Take care of face and faceuses - remove from lists
-  pShell->Remove( pFU) ;
+  SER( pShell->Remove( pFU)  );
   if(pOtherShell != NULL )
-    { pOtherShell->Remove( pOtherFU) ; }
+    { SER( pOtherShell->Remove( pOtherFU)  ); }
 
   // Don't allow stale pointers to remain in the Faces.
   // [Ex: during destruction, below, the user callback mechanism
@@ -7354,7 +7355,7 @@ SmStatus SmBrep::DeleteFace
          && (lVertexCount - lNewShellVertexCount) == 0)
         {
           SmRegion *pReg = pShell->GetRegion();
-          pReg->Remove(pShell);
+          SER( pReg->Remove(pShell) );
           SM_ASSERT(pShell != NULL) ; delete pShell; pShell = NULL ;
         }
       else // the shell still connects to edgeuses or vertexuses
@@ -7363,7 +7364,7 @@ SmStatus SmBrep::DeleteFace
           if (pShell->m_lListSize == 0 && pAnyEdgeuse != NULL)
             {
               pShell->m_pList = pAnyEdgeuse;
-              pShell->UpdateListSize();
+              SER( pShell->UpdateListSize() );
               pShell->m_tShellType = SmEdgeuse_TYPE;
             }
 
@@ -7446,7 +7447,7 @@ SmStatus SmBrep::DeleteFace
                   SmShell *pNewShell = new (this) SmShell();
                   pLastNewShell      = pNewShell;
                   SmRegion *pRegion  = pShell->GetRegion();
-                  pRegion->PostInsert(pNewShell);
+                  SER( pRegion->PostInsert(pNewShell) );
                   SmTArray<SmFaceuse*> sFaceuses;
                   sEdgeuses.RemoveAll();
 
@@ -7465,7 +7466,7 @@ SmStatus SmBrep::DeleteFace
                       if (sEdgeuses.GetSize() == 0) SER(SM_ERR);
                       SmEdgeuse *pEU = sEdgeuses[0];
                       pNewShell->m_pList      = pEU ;
-                      pNewShell->UpdateListSize() ;
+                      SER( pNewShell->UpdateListSize()  );
                       pNewShell->m_tShellType = SmEdgeuse_TYPE;
                     }
 
@@ -7479,7 +7480,7 @@ SmStatus SmBrep::DeleteFace
                       pNewShell->m_tShellType = SmVertexuse_TYPE;
                       SmVertexuse *pVU        = pV->GetPrimaryVertexuse();
                       pNewShell->m_pList      = pVU ;
-                      pNewShell->UpdateListSize() ;
+                      SER( pNewShell->UpdateListSize()  );
                       pVU->m_tVertexuseType   = SmShell_TYPE;
                       pVU->m_pSorLUorEU       = pNewShell;
                     }
@@ -7518,8 +7519,8 @@ SmStatus SmBrep::DeleteFace
                   for ( jj=0; jj<sFaceuses.GetSize(); jj++)
                     {
                       SmFaceuse *pFUse = sFaceuses[jj];
-                      pShell->Remove( pFUse) ;
-                      pNewShell->PostInsert( pFUse) ;
+                      SER( pShell->Remove( pFUse)  );
+                      SER( pNewShell->PostInsert( pFUse)  );
                     }
 
                   // start over after processing each vertex
@@ -7549,8 +7550,8 @@ SmStatus SmBrep::DeleteFace
 
           // pShell->m_tShellType = SmUnknown_TYPE ;
 
-          pLastNewShell->TransferChildrenTo(pShell,NULL);
-          pR->Remove(pLastNewShell);
+          SER( pLastNewShell->TransferChildrenTo(pShell,NULL) );
+          SER( pR->Remove(pLastNewShell) );
           SM_ASSERT(pLastNewShell != NULL) ; delete pLastNewShell; pLastNewShell = NULL ;
         } // end vertices separated from pShell need new shell(s) branch
     } // end if bDoRegionNesting
@@ -7560,7 +7561,7 @@ SmStatus SmBrep::DeleteFace
   // in terms of making new shells and the like are done.
 
   // It's now OK to remove and delete the FaceToDelete
-  m_pFaceListHead->Remove(pFaceToDelete);
+  SER( m_pFaceListHead->Remove(pFaceToDelete) );
   SM_ASSERT(pFaceToDelete != NULL) ; delete pFaceToDelete ; pFaceToDelete = NULL ;
 
   if (bDeleteEdgesVertices)   // when asked - delete all hanging edges and vertices
@@ -7573,7 +7574,7 @@ SmStatus SmBrep::DeleteFace
           SmEdge *pEdge = sNewWireEdges[ii];
           if(pOptDeletedEdgesVertices)
             { pOptDeletedEdgesVertices->Add(pEdge) ; }
-          DeleteEdge(pEdge);
+          SER( DeleteEdge(pEdge) );
         }
 
       // remove vertices that have become shell vertices
@@ -7589,7 +7590,7 @@ SmStatus SmBrep::DeleteFace
             {
               if(pOptDeletedEdgesVertices)
                 { pOptDeletedEdgesVertices->Add(pVertex) ; }
-              DeleteVertex(pVertex) ;
+              SER( DeleteVertex(pVertex)  );
             }
         }
     }
@@ -7683,8 +7684,8 @@ SmStatus SmBrep::DeleteTopologicalVertex
       SmExtent1d sSurvRange = pCurveSurvive->GetNaturalInterval();
 
       SmBoolean bAddWork = false;
-      pCurveDelete->GlobalCoincidenceChecker( sDelRange, *pCurveSurvive, sSurvRange,
-                                              0.001, bAddWork, sSolutions) ;
+      SER( pCurveDelete->GlobalCoincidenceChecker( sDelRange, *pCurveSurvive, sSurvRange,
+                                              0.001, bAddWork, sSolutions)  );
 
       // If the two curves are coincident, there will be only one solution with a range of values.
       // Each range will be the same as the range of the input natural interval.
@@ -7716,7 +7717,7 @@ SmStatus SmBrep::DeleteTopologicalVertex
                   SmPoint3d sFarVtxPt, sSurvEdgePt;
                   SmVertex *pFarVtx = pEdgeToDelete->GetOtherVertex( pVertexToDelete) ;
                   sFarVtxPt = pFarVtx->GetPoint();
-                  pSurvivingEdge->GetCurve()->EvaluatePoint( dFarParam, sSurvEdgePt) ;
+                  SER( pSurvivingEdge->GetCurve()->EvaluatePoint( dFarParam, sSurvEdgePt)  );
                   if(sSurvEdgePt.CloserThan( dMaxEdgeGap, sFarVtxPt ) )
                   {
                       bSameGeom = TRUE;
@@ -7833,7 +7834,7 @@ SmBoolean bDebugMe=FALSE;
 
   // Deal with the Edgeuses' UVTrimCurves: just delete them.
   SmTArray<SmEdgeuse*> sEdgeuses;
-  pSurvivingEdge->GetEdgeuses( sEdgeuses) ;
+  SER( pSurvivingEdge->GetEdgeuses( sEdgeuses)  );
   ULONG kk;
   for ( kk=0; kk<sEdgeuses.GetSize(); kk++ )
     {
@@ -7852,7 +7853,7 @@ SmBoolean bDebugMe=FALSE;
   pSurvivingEdge->Notify(SM_NO_PRE_EDIT, pSurvivingEdge, this, NULL);
   if(!pSurvivingEdge->IsWire() )
     {
-      pSurvivingEdge->GetEdgeuses( sEdgeuses) ;
+      SER( pSurvivingEdge->GetEdgeuses( sEdgeuses)  );
       for ( kk=0; kk<sEdgeuses.GetSize(); kk++ )
         {
           SmEdgeuse *pEU = sEdgeuses[kk];
@@ -7928,12 +7929,12 @@ SmStatus SmBrep::DeleteVertex(SmVertex *pVertexToDelete)
           pShell->m_pList == pVU)
         {
           SmRegion *pRegion = pShell->GetRegion();
-          pRegion->Remove(pShell);
+          SER( pRegion->Remove(pShell) );
           SM_ASSERT(pShell != NULL) ; delete pShell ; pShell = NULL ;
         }
 
-      m_pVertexListHead->Remove(pVertexToDelete);
-      pVertexToDelete->Remove(pVU);
+      SER( m_pVertexListHead->Remove(pVertexToDelete) );
+      SER( pVertexToDelete->Remove(pVU) );
       SM_ASSERT(pVertexToDelete != NULL) ; delete pVertexToDelete ; pVertexToDelete = NULL ;
       SM_ASSERT(pVU             != NULL) ; delete pVU ;             pVU             = NULL ;
     } // end ShellVertex branch
@@ -7961,21 +7962,21 @@ SmStatus SmBrep::DeleteVertex(SmVertex *pVertexToDelete)
           pF->Notify(SM_NO_PRE_EDIT, pF, this, NULL);
 
           // remove and delete vertex to loop connections
-          pLU1->GetFaceuse()->Remove(pLU1);
-          pLU2->GetFaceuse()->Remove(pLU2);
+          SER( pLU1->GetFaceuse()->Remove(pLU1) );
+          SER( pLU2->GetFaceuse()->Remove(pLU2) );
           SM_ASSERT(pLU1->GetLoop() != NULL) ; delete pLU1->GetLoop() ; pLU1->SetLoop(NULL) ;
           SM_ASSERT(pLU1            != NULL) ; delete pLU1 ;            pLU1 = NULL ;
           SM_ASSERT(pLU2            != NULL) ; delete pLU2 ;            pLU2 = NULL ;
 
-          pVertexToDelete->Remove(pVU1);
-          pVertexToDelete->Remove(pVU2);
+          SER( pVertexToDelete->Remove(pVU1) );
+          SER( pVertexToDelete->Remove(pVU2) );
           SM_ASSERT(pVU1 != NULL) ; delete pVU1 ; pVU1 = NULL ;
           SM_ASSERT(pVU2 != NULL) ; delete pVU2 ; pVU2 = NULL ;
 
         } // end iter every pair of LoopVertex vertexuses (connection to a face)
 
       // delete unconnected vertex
-      m_pVertexListHead->Remove(pVertexToDelete);
+      SER( m_pVertexListHead->Remove(pVertexToDelete) );
       SM_ASSERT(pVertexToDelete != NULL) ; delete pVertexToDelete ; pVertexToDelete = NULL ;
 
     } // end loopVertex branch
@@ -8321,7 +8322,7 @@ SmStatus SmBrep::FindInfiniteRegion
   }
   else
   {
-      CalculateBoundingBox(sBBox); // GWC: don't need a tight bounding box here
+      SER( CalculateBoundingBox(sBBox) ); // GWC: don't need a tight bounding box here
   }
 
 
@@ -8632,7 +8633,7 @@ SmStatus SmBrep::ResetInfiniteRegion
   // manage IsVoid region bits
   switch(eVoidSettingFlag)
     {
-      case SM_VS_NESTEDSOLID :         SetRegionIsVoidFlagsForNestedSolids() ;  // increments an unused Mark value
+      case SM_VS_NESTEDSOLID :         SER( SetRegionIsVoidFlagsForNestedSolids()  );  // increments an unused Mark value
                                        break ;
       case SM_VS_INFINITEREGION_ONLY : pNewInfRegion->SetIsVoid(TRUE);
                                        break ;
@@ -9109,7 +9110,7 @@ SmStatus SmBrep::RefreshTols()
   if(m_pVertexListHead) GetVertices(sVertices) ;
 
   // Refresh all cached gaps - Values are used by SmTol to compute ZoneTol3d values
-  RefreshGaps() ;
+  SER( RefreshGaps()  );
 
 #ifdef SM_USE_OLDTOL 
   SM_OLDTOL_LINE // for every Face, Edge, and Vertex - refresh Tol
@@ -9228,7 +9229,7 @@ SmStatus SmBrep::SetRegionIsVoidFlagsForNestedSolids()
       SmBoolean sNestedIsVoid = !pRegion->IsVoid() ;
 
       // get all mated shells (from which we get nested regions)
-      pShell->GetMatedShells(sMatedShells) ;   // increments an unused Mark value
+      SER( pShell->GetMatedShells(sMatedShells)  );   // increments an unused Mark value
 
       // set every mated shell->region IsVoid bit
       for(ii=0;ii<sMatedShells.GetSize();ii++)
@@ -9738,7 +9739,7 @@ SmBoolean bDebugMe = FALSE;
         {
           // remove and delete the vertex->shell from the topology graph
           SmRegion *pRegion = pShell->GetRegion();
-          pRegion->Remove(pShell);
+          SER( pRegion->Remove(pShell) );
           SM_ASSERT(pShell != NULL) ; delete pShell ; pShell = NULL ;
           pSurvVShell = NULL;
         }
@@ -9756,7 +9757,7 @@ SmBoolean bDebugMe = FALSE;
   SmEdge *sEData[16];
   SmTArray<SmEdge*> sWireEdgesInBrep(16,sEData);
   if(pOptWireEdgesInBrep ) sWireEdgesInBrep.Append( *pOptWireEdgesInBrep) ;
-  else { pDelVShell->GetWireEdges( sWireEdgesInBrep) ; }
+  else { SER( pDelVShell->GetWireEdges( sWireEdgesInBrep)  ); }
 
   // move every deleteVertex->Vertexuse to survivingVertex->Vertexuse
   SmVertexuse * sVUData[64];
@@ -9770,7 +9771,7 @@ SmBoolean bDebugMe = FALSE;
     }
 
   // remove and delete vertexToDelete now it's not connected to topology graph
-  m_pVertexListHead->Remove(pVertexToDelete);
+  SER( m_pVertexListHead->Remove(pVertexToDelete) );
   SM_ASSERT(pVertexToDelete != NULL) ; delete pVertexToDelete ; pVertexToDelete = NULL ;
 
   // when vertex shells are not equal to one another - they are being merged by the glue operation
@@ -9784,8 +9785,8 @@ SmBoolean bDebugMe = FALSE;
       if (pDelVShell->IsVertexShell())
         {
           SmVertexuse *pVU = (SmVertexuse*)pDelVShell->m_pList;
-          pVU->GetVertex()->Remove(pVU);
-          pDelVShell->m_pList = NULL ; pDelVShell->UpdateListSize() ;
+          SER( pVU->GetVertex()->Remove(pVU) );
+          pDelVShell->m_pList = NULL ; SER( pDelVShell->UpdateListSize()  );
           SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
         }
       else
@@ -9795,7 +9796,7 @@ SmBoolean bDebugMe = FALSE;
 
       // remove and delete shell now it's not connected to the topology graph
       SmRegion *pRegion = pDelVShell->GetRegion() ;
-      pRegion->Remove(pDelVShell);
+      SER( pRegion->Remove(pDelVShell) );
       SM_ASSERT(pDelVShell != NULL) ; delete pDelVShell ; pDelVShell = NULL ;
     }
 
@@ -9853,7 +9854,7 @@ static int bDebugMe = 0;
   // when edge to delete is a wire - delete it and return
   if (pEdgeToDelete->IsWire() )
     {
-      DeleteEdge(pEdgeToDelete);
+      SER( DeleteEdge(pEdgeToDelete) );
       return SM_SUCCESS;
     }
 
@@ -9945,14 +9946,14 @@ static int bDebugMe = 0;
   // get deleteEdge->Edgeuses
   SmTArray<SmEdgeuse*> sSEdgeuses;
   SmTArray<SmEdgeuse*> sEdgeusesToDelete;
-  pEdgeToDelete->GetEdgeuses(sEdgeusesToDelete);
+  SER( pEdgeToDelete->GetEdgeuses(sEdgeusesToDelete) );
   ULONG nEU = sEdgeusesToDelete.GetSize();
 
   // State: At this point, we have not modified the Brep at all.
   // We do that now.
 
   // Remove Edge from the Brep list - pEdgeToDelete is not deleted
-  m_pEdgeListHead->Remove(pEdgeToDelete);
+  SER( m_pEdgeListHead->Remove(pEdgeToDelete) );
 
   // locals
   SmTArray< SmFaceuse *> sTestSplitFaceuses;
@@ -10210,7 +10211,7 @@ static int bDebugMe2 = 0;
                   // Also delete the region if it's empty.
                   if(pRegDel->GetSize() <= 0 )
                     {
-                      this->Remove( pRegDel) ;
+                      SER( this->Remove( pRegDel)  );
                       delete pRegDel; pRegDel = NULL;
                     }
 
@@ -10306,7 +10307,7 @@ static int bDebugMe2 = 0;
         }
 
       // get survivingEdge->Edgeuses prior to adding in deleteEdgeuse pair
-      pSurvivingEdge->GetEdgeuses( sSEdgeuses) ;
+      SER( pSurvivingEdge->GetEdgeuses( sSEdgeuses)  );
 
       // Add this deleteEdge->edgeuse pair to the surviving edge
       SER( pSurvivingEdge->AddOrientedEUPair( pDEU1, pDEU2, pSectorEU ));
@@ -10355,7 +10356,7 @@ static int bDebugMe2 = 0;
       // Delete pEdgeToDelete when it has no more edgeuses
         {
           SmTArray<SmEdgeuse*> sRemainingEdgeuses;
-          pEdgeToDelete->GetEdgeuses(sRemainingEdgeuses);
+          SER( pEdgeToDelete->GetEdgeuses(sRemainingEdgeuses) );
 
           if(sRemainingEdgeuses.GetSize() == 0)
             {
@@ -10381,7 +10382,7 @@ static int bDebugMe2 = 0;
 
     // for every survivingEdge->edgeuse/radial pair, merge shells as needed
     SmTArray<SmEdgeuse*> sEdgeuses;
-    pSurvivingEdge->GetEdgeuses(sEdgeuses);
+    SER( pSurvivingEdge->GetEdgeuses(sEdgeuses) );
     ULONG ii, lNumEUs = sEdgeuses.GetSize();
     for (ii=0; ii<lNumEUs; ii++)
       {
@@ -10439,7 +10440,7 @@ static int bDebugMe2 = 0;
             // Also delete the region if it's empty.
             if(pReg->GetSize() <= 0 )
               {
-                this->Remove( pReg) ;
+                SER( this->Remove( pReg)  );
                 delete pReg; pReg = NULL;
 
                 // Make sure infinite region points where it should.
@@ -10458,10 +10459,10 @@ static int bDebugMe2 = 0;
         ULONG lNumTestFUs = sTestSplitFaceuses.GetSize();
         for ( ii = 0; ii < lNumTestFUs; ii++ )
           {
-            TestClosureSplitRegion( TRUE,                    // increments an unused Mark value
+            SER( TestClosureSplitRegion( TRUE,                    // increments an unused Mark value
                                     sTestSplitFaceuses[ii],
                                     pNewShell,
-                                    pNewRegion) ;
+                                    pNewRegion)  );
           }
         //   }
 
@@ -10472,10 +10473,10 @@ static int bDebugMe2 = 0;
           {
             SmTArray< SmShell * > aNewShells;
             SmTArray< SmRegion* > aNewRegions;
-            TestClosureSplitRegion( TRUE,              // increments an unused Mark value
+            SER( TestClosureSplitRegion( TRUE,              // increments an unused Mark value
                                     pSurvivingEdge,
                                     aNewShells,
-                                    aNewRegions) ;
+                                    aNewRegions)  );
           }
 
         // SER( eStat) ;
@@ -10632,8 +10633,8 @@ static SmStatus sm_RmAndDel_OldLoopVertices
 
       // remove the Tgt LoopVertexuse and its mated pair from their Vertex
       SmVertex * pV = pVertexuse->GetVertex();
-      pV->Remove(pVertexuse);
-      pV->Remove(pVUDel);
+      SER( pV->Remove(pVertexuse) );
+      SER( pV->Remove(pVUDel) );
 
       // delete the LoopVertexuses
       SM_ASSERT(pVertexuse != NULL) ; delete pVertexuse ; pVertexuse = NULL ;
@@ -10710,7 +10711,7 @@ NOTES:
            list and you can delete the 'this' brep on return.
         The New breps are allocated as needed.
 ***********************************************************************/
-void SmBrep::GetBreps(SmTArray < SmBrep*> & rBreps) const
+SmStatus SmBrep::GetBreps(SmTArray < SmBrep*> & rBreps) const // SolidCraft change: was void
 {
   // init output
   rBreps.ReSet();
@@ -10719,7 +10720,7 @@ void SmBrep::GetBreps(SmTArray < SmBrep*> & rBreps) const
   this->GetRegions(sRegions);
   ULONG numRegions = sRegions.GetSize();
   if (numRegions < 3)
-    { return; }
+    { return SM_SUCCESS; }
 
   double dTol = this->GetTolerance();
   SmTArray < SmFace*> sFaces;
@@ -10747,10 +10748,19 @@ void SmBrep::GetBreps(SmTArray < SmBrep*> & rBreps) const
           SM_OLDTOL_LINE pBrep->SetTolerance(dTol);
 
           // Brep cast is required to remove its const attribute
-          ((SmBrep *) this)->CopyFaces(sFacesToCopy, pBrep);
+          SmStatus eCopy = ((SmBrep *) this)->CopyFaces(sFacesToCopy, pBrep);
+          if (eCopy != SM_SUCCESS)
+            {
+              // the breps made so far are ours to free: the caller gets none
+              delete pBrep;
+              for (ULONG kk = 0; kk < rBreps.GetSize(); kk++) { delete rBreps[kk]; }
+              rBreps.ReSet();
+              return eCopy;
+            }
           rBreps.Add(pBrep);
         }
     }
+  return SM_SUCCESS;
 } // end SmBrep::GetBreps
 
 /*******************************************************************//**
@@ -10760,7 +10770,7 @@ NOTES:
         A brep is returned for each non-NULL region
         The New brep are allocated as needed.
 ***********************************************************************/
-void SmBrep::GetBrepFromRegion( SmRegion* region, SmBrep*& rBrep ) const
+SmStatus SmBrep::GetBrepFromRegion( SmRegion* region, SmBrep*& rBrep ) const // SolidCraft change: was void
 {
     SmTArray < SmRegion *> sRegions;
     this->GetRegions(sRegions);
@@ -10792,9 +10802,15 @@ void SmBrep::GetBrepFromRegion( SmRegion* region, SmBrep*& rBrep ) const
             const SmContext *pContext = this->GetContext();
             rBrep                     = new (*pContext) SmBrep();
             SM_OLDTOL_LINE rBrep->SetTolerance(dTol);
-            ((SmBrep *) this)->CopyFaces(sFacesToCopy, rBrep);
+            SmStatus eCopy = ((SmBrep *) this)->CopyFaces(sFacesToCopy, rBrep);
+            if (eCopy != SM_SUCCESS)
+            {
+                delete rBrep; rBrep = NULL;
+                return eCopy;
+            }
         }
     }
+    return SM_SUCCESS;
 } // end SmBrep::GetBrepFromRegion
 
 /*******************************************************************//**
@@ -11566,7 +11582,9 @@ SmBoolean SmBrep::IsDegenerate(double d3DTol)  const  // in : min distance betwe
     }
 
   // If Brep might be degenerate - Do expensive full check
-  CalculateBoundingBox(sBBox) ;
+  // SolidCraft change: without a box there is no evidence the brep is a point
+  if (CalculateBoundingBox(sBBox) != SM_SUCCESS)
+    { return(FALSE) ; }
   SmBoolean bRtn = sBBox.IsPointSized(d3DTol) ;
 
   // all done
@@ -11649,7 +11667,7 @@ SmStatus SmBrep::OrientSheetSurfaces
     {
       // When asked - toggle orientation
       if(bSame == FALSE)
-        { SwapUV() ; }  // increments unlocked mark value
+        { SER( SwapUV()  ); }  // increments unlocked mark value
 
       // all done
       return(SM_SUCCESS) ;
@@ -11976,7 +11994,7 @@ SmStatus SmBrep::LocalOperation
           // when surface normals oppose - reverse the input surface's orientation
           if(sOldNorm.Dot(sNewNorm) < 0.0 )
             {
-              pNewSurf->Reverse( SM_SP_U) ;
+              SER( pNewSurf->Reverse( SM_SP_U)  );
             }
 
           // add the properly oriented input surface to the new Surface list
@@ -11988,7 +12006,7 @@ SmStatus SmBrep::LocalOperation
           SmSurface *pSurface;
 
           // Copy pFace->Surface, when possible as an anaytic surface
-          pFace->GetSurface()->CopyAndAddAnalytics( *cpContext, pSurface) ;
+          SER( pFace->GetSurface()->CopyAndAddAnalytics( *cpContext, pSurface)  );
           sNewSurfaceList.Add( pSurface) ;
         }
 
@@ -12003,7 +12021,7 @@ SmStatus SmBrep::LocalOperation
 
   // get Brep Bounding box and that box's sphere center and radius
   SmExtent3d sBBox;
-  CalculateBoundingBox( sBBox) ;
+  SER( CalculateBoundingBox( sBBox)  );
   SmPoint3d sCenter;
   double dSphRadius;
   sBBox.ComputeSphereBound( sCenter, dSphRadius) ;
@@ -12044,11 +12062,11 @@ SmBoolean bDebugMe = FALSE ;
 
   // remove all faces from this Brep
   this->GetFaces(sShellFaces);
-  this->RemoveFaces(sShellFaces);  // increments unlocked mark value
+  SER( this->RemoveFaces(sShellFaces) );  // increments unlocked mark value
 
   // move all faces from pNewBrep to this Brep
   pNewBrep->GetFaces(sShellFaces);
-  pNewBrep->CopyFaces(sShellFaces, this);
+  SER( pNewBrep->CopyFaces(sShellFaces, this) );
 
   // delete pNewBrep
   SM_ASSERT(pNewBrep != NULL) ; delete pNewBrep ; pNewBrep = NULL ;
@@ -12102,7 +12120,11 @@ SmBoolean bDebugMe = FALSE ;
      && eSeamEdge != SM_SP_NEITHER)
     {
       SM_PTR_ARRAY(sNewEdgeuses, SmEdgeuse, 16) ;
-      pNewE->GetEdgeuses(sNewEdgeuses); SM_ASSERT(sNewEdgeuses.GetSize() == 4) ; 
+      // SolidCraft change: without its four edgeuses, their trim curves and their end points
+      // there is nothing to compare, so nothing is swapped (the statuses were only asserted,
+      // which a release build drops, and the comparison read unset points)
+      if (pNewE->GetEdgeuses(sNewEdgeuses) != SM_SUCCESS || sNewEdgeuses.GetSize() != 4)
+        { return FALSE ; }
 
       // sEdgeuse[0] = Starts At StartVertex OneFace
       // sEdgeuse[1] = Starts At EndVertex   OneFace
@@ -12126,20 +12148,21 @@ SmBoolean bDebugMe = FALSE ;
       SmBSplineCurve * pPrevOtherUVTrimCurve ;
       SmStatus sThisStatus  = pPrevThisEdgeuse->GetOrCreateUVTrimCurve(pPrevThisUVTrimCurve) ; 
       SmStatus sOtherStatus = pPrevOtherEdgeuse->GetOrCreateUVTrimCurve(pPrevOtherUVTrimCurve) ;
-      SM_ASSERT(   sThisStatus == SM_SUCCESS    && sOtherStatus == SM_SUCCESS
-                && pPrevThisUVTrimCurve != NULL && pPrevOtherUVTrimCurve != NULL) ;
+      if(   sThisStatus != SM_SUCCESS    || sOtherStatus != SM_SUCCESS
+         || pPrevThisUVTrimCurve == NULL || pPrevOtherUVTrimCurve == NULL)
+        { return FALSE ; }
 
       // Find the UV point for the two new starting Vertexuses
       SmPoint3d sThisPointUV, sOtherPointUV, sThis1stDerivUV, sOther1stDerivUV ;
       SmPoint3d sPrevThisPointUV, sPrevOtherPointUV, sPrevThis1stDerivUV, sPrevOther1stDerivUV ;
 
       // NewE Start UV values from UVTrimCurves
-      pThisEdgeuse ->NormalizedEvaluate(0.0, TRUE, sThisPointUV,  &sThis1stDerivUV) ;  // TRUE = Eval Edgeuse->UVTrimCurve for a Surface UV Point
-      pOtherEdgeuse->NormalizedEvaluate(0.0, TRUE, sOtherPointUV, &sOther1stDerivUV) ; // TRUE = Eval Edgeuse->UVTrimCurve for a Surface UV Point
-
-      // Prev Start UV values from PrevUVtrimCurves
-      pPrevThisEdgeuse ->NormalizedEvaluate(1.0, TRUE, sPrevThisPointUV,  &sPrevThis1stDerivUV) ; // TRUE = Eval Edgeuse->UVTrimCurve for a Surface UV Point
-      pPrevOtherEdgeuse->NormalizedEvaluate(1.0, TRUE, sPrevOtherPointUV, &sPrevOther1stDerivUV) ;   // TRUE = Eval Edgeuse->UVTrimCurve for a Surface UV Point
+      // TRUE = Eval Edgeuse->UVTrimCurve for a Surface UV Point; Prev: start values from PrevUVtrimCurves
+      if(   pThisEdgeuse     ->NormalizedEvaluate(0.0, TRUE, sThisPointUV,      &sThis1stDerivUV)      != SM_SUCCESS
+         || pOtherEdgeuse    ->NormalizedEvaluate(0.0, TRUE, sOtherPointUV,     &sOther1stDerivUV)     != SM_SUCCESS
+         || pPrevThisEdgeuse ->NormalizedEvaluate(1.0, TRUE, sPrevThisPointUV,  &sPrevThis1stDerivUV)  != SM_SUCCESS
+         || pPrevOtherEdgeuse->NormalizedEvaluate(1.0, TRUE, sPrevOtherPointUV, &sPrevOther1stDerivUV) != SM_SUCCESS )
+        { return FALSE ; }
 
       // make sure sThisPointUV  == sPrevThisPointUV  
       //           sOtherPointUV == sPrevOtherPointUV are the same to tol by switching the UVTrimCurves if needed
@@ -12587,25 +12610,25 @@ SmBoolean bDebugMe=FALSE;
   //                                     pNewE->pNewEU1->pNewEU2->pNewEU3->pNewEU4
   //     so: 1st MatedPair:[pNewEU1 pNewEU2] with pNewEU2->RadialNeighbor = pNewEU3
   //         2nd MatedPair:[pNewEU3 pNewEU4] with pNewEU4->RadialNeighbor = pNewEU1
-  pNewE->PostInsert(pNewEU1); // set m_pNext and m_pLast pointers
+  SER( pNewE->PostInsert(pNewEU1) ); // set m_pNext and m_pLast pointers
   pNewEU1->m_pVU            = pNewVU1;
   pNewVU1->m_pSorLUorEU     = pNewEU1;
   pNewVU1->m_tVertexuseType = SmEdgeuse_TYPE;
   pNewEU1->m_eOrientation   = eCurveOrientation;
 
-  pNewE->PostInsert(pNewEU2);
+  SER( pNewE->PostInsert(pNewEU2) );
   pNewEU2->m_pVU            = pNewVU2;
   pNewVU2->m_pSorLUorEU     = pNewEU2;
   pNewVU2->m_tVertexuseType = SmEdgeuse_TYPE;
   pNewEU2->m_eOrientation   = eEndOrient;
 
-  pNewE->PostInsert(pNewEU3);
+  SER( pNewE->PostInsert(pNewEU3) );
   pNewEU3->m_pVU            = pNewVU3;
   pNewVU3->m_pSorLUorEU     = pNewEU3;
   pNewVU3->m_tVertexuseType = SmEdgeuse_TYPE;
   pNewEU3->m_eOrientation   = eCurveOrientation;
 
-  pNewE->PostInsert(pNewEU4);
+  SER( pNewE->PostInsert(pNewEU4) );
   pNewEU4->m_pVU            = pNewVU4;
   pNewVU4->m_pSorLUorEU     = pNewEU4;
   pNewVU4->m_tVertexuseType = SmEdgeuse_TYPE;
@@ -12668,7 +12691,7 @@ SmBoolean bDebugMe=FALSE;
           sXfm.Translate( sTransVec ) ;
 
           // Translate the UVTrimCurveCopy
-          pUVTrimCurveCopy->Transform( sXfm ) ;
+          SER( pUVTrimCurveCopy->Transform( sXfm )  );
 
         }  // end UVTrimCurve on SeamBoundary check
 
@@ -12836,8 +12859,8 @@ SmBoolean bDebugMe=FALSE;
           // Add NewFace->faceuses to OrigFace->faceuse->shells
           SmFaceuse *pUpFU   = pFace->GetUpwardFaceuse();
           SmFaceuse *pDownFU = pUpFU->GetMate();
-          pUpFU->GetShell()->PostInsert(pNewFU1);
-          pDownFU->GetShell()->PostInsert(pNewFU2);
+          SER( pUpFU->GetShell()->PostInsert(pNewFU1) );
+          SER( pDownFU->GetShell()->PostInsert(pNewFU2) );
 
           // Put face into brep's face list
           SER(m_pFaceListHead->PostInsert(pNewF));
@@ -12854,11 +12877,11 @@ SmBoolean bDebugMe=FALSE;
 
       pNewLU1->m_pL      = pNewL;
       pNewLU1->m_pLUMate = pNewLU2;
-      pNewFU1->PostInsert(pNewLU1);
+      SER( pNewFU1->PostInsert(pNewLU1) );
 
       pNewLU2->m_pL      = pNewL;
       pNewLU2->m_pLUMate = pNewLU1;
-      pNewFU2->PostInsert(pNewLU2);
+      SER( pNewFU2->PostInsert(pNewLU2) );
 
       // set newLoop to be an outer loop
       pNewLU1->m_eOrientation = SM_OT_SAME;
@@ -13063,12 +13086,12 @@ SmBoolean bDebugMe=FALSE;
               SmPoint2d   sUV;
               double      dGap;
               
-              pFace->CalculateUVDomainFromUVTrimCurves( sFaceDomain, TRUE) ;
-              pNewF->CalculateUVDomainFromUVTrimCurves( sNewFDomain, TRUE) ;
+              SER( pFace->CalculateUVDomainFromUVTrimCurves( sFaceDomain, TRUE)  );
+              SER( pNewF->CalculateUVDomainFromUVTrimCurves( sNewFDomain, TRUE)  );
 
               SmBoolean bIsMulti;
-              pSurface->DropPoint(
-                  sTestPoint, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUV, dGap, bIsMulti);
+              SER( pSurface->DropPoint(
+                  sTestPoint, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUV, dGap, bIsMulti) );
               
               bNeedMove = sNewFDomain.ContainsPoint2d( sUV ) ? TRUE : FALSE;
           }
@@ -13325,8 +13348,8 @@ SmBoolean bDebugMe=FALSE;
               // move InnerLoop from pFace to pNewF
               pFace->Notify(SM_NO_PRE_EDIT, pFace, this, NULL);
               pNewF->Notify(SM_NO_PRE_EDIT, pNewF, this, NULL);
-              pFace->RemoveLoop(pLoop);
-              pNewF->InsertLoop(pLoop);
+              SER( pFace->RemoveLoop(pLoop) );
+              SER( pNewF->InsertLoop(pLoop) );
 
               // regen sFaceLoops - Face-LoopList changed - redo all the remaining inner loop classifications
               pFace->GetLoops(sFaceLoops) ; // refresh sFaceLoops - should have 1 fewer loops
@@ -13397,7 +13420,7 @@ SmBoolean bDebugMe=FALSE;
       // remove one of the loops
       if (pLoopToDelete)
         {
-          pFace->RemoveLoop(pLoopToDelete);
+          SER( pFace->RemoveLoop(pLoopToDelete) );
           SmLoopuse *pLUDel1, *pLUDel2;
           pLoopToDelete->GetLoopuses(pLUDel1,pLUDel2);
           SM_ASSERT(pLoopToDelete != NULL) ; delete pLoopToDelete ; pLoopToDelete = NULL ;
@@ -13720,15 +13743,15 @@ SmStatus SmBrep::MakeEdgeTopology
       if (pEndShell->IsVertexShell())
         {
           SmVertexuse *pVU = (SmVertexuse*)pEndShell->m_pList;
-          pVU->GetVertex()->Remove(pVU);
-          pEndShell->m_pList = NULL ; pEndShell->UpdateListSize() ;
+          SER( pVU->GetVertex()->Remove(pVU) );
+          pEndShell->m_pList = NULL ; SER( pEndShell->UpdateListSize()  );
           SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
         }
       else
         {
           SER(pEndShell->TransferChildrenTo(pStartShell,NULL));
         }
-      pEndShell->GetRegion()->Remove(pEndShell);
+      SER( pEndShell->GetRegion()->Remove(pEndShell) );
       SM_ASSERT(pEndShell != NULL) ; delete pEndShell ; pEndShell = NULL ;
     }
 
@@ -13758,11 +13781,11 @@ SmStatus SmBrep::MakeEdgeTopology
   if (pStartShell->IsVertexShell())
     {
       SmVertexuse *pVU          = (SmVertexuse*)pStartShell->m_pList;
-      pVU->GetVertex()->Remove(pVU);
+      SER( pVU->GetVertex()->Remove(pVU) );
       pStartShell->m_pList      = NULL ;
       SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
       pStartShell->m_tShellType = SmEdgeuse_TYPE;
-      pStartShell->m_pList      = pNewEU1 ; pStartShell->UpdateListSize() ;
+      pStartShell->m_pList      = pNewEU1 ; SER( pStartShell->UpdateListSize()  );
     }
 
   // Assign shells to loopuses
@@ -13877,11 +13900,11 @@ SmStatus SmBrep::MakeEdgeVertexTopology
     if (pShell->IsVertexShell())
       {
         SmVertexuse *pVU = (SmVertexuse*)pShell->m_pList;
-        pVU->GetVertex()->Remove(pVU);
+        SER( pVU->GetVertex()->Remove(pVU) );
         pShell->m_pList      = NULL ;
         SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
         pShell->m_tShellType = SmEdgeuse_TYPE;
-        pShell->m_pList      = pNewEU1 ; pShell->UpdateListSize() ;
+        pShell->m_pList      = pNewEU1 ; SER( pShell->UpdateListSize()  );
       }
 
     // Assign shells to edgeuses
@@ -14058,7 +14081,7 @@ SmStatus SmBrep::MakeFaceFromPolyFaceFast
     SER(sXAxis.Unitize());
     SER(sYAxis.Unitize());
     pNewPlane = new (*pContext) SmPlane(sAPlacement.GetOriginRef(), sXAxis, sYAxis ,sScale, sExt2d);
-    pNewPlane->MakeNurb();
+    SER( pNewPlane->MakeNurb() );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE;
@@ -14244,7 +14267,7 @@ SmStatus SmBrep::MakeFaceTopology
     {
       pShell = new (this) SmShell();
       pShell->m_tShellType = SmFaceuse_TYPE;
-      pRegion->PostInsert( pShell) ;
+      SER( pRegion->PostInsert( pShell)  );
 
       // This will also be the output shell.
       rpNewShell = pShell;
@@ -14330,11 +14353,11 @@ SmStatus SmBrep::MakeFaceTopology
     if(  pShell->m_pList
         && pShell->m_tShellType != SmFaceuse_TYPE)
       {
-        pShell->m_pList      = NULL ; pShell->UpdateListSize() ;
+        pShell->m_pList      = NULL ; SER( pShell->UpdateListSize()  );
         pShell->m_tShellType = SmFaceuse_TYPE;
       }
-    pShell->PostInsert(pNewFU1);
-    pShell->PostInsert(pNewFU2);
+    SER( pShell->PostInsert(pNewFU1) );
+    SER( pShell->PostInsert(pNewFU2) );
 
     // loop locals
     SmTArray<SmLoop*>    sNewLoops;
@@ -14369,8 +14392,8 @@ SmStatus SmBrep::MakeFaceTopology
         pNewLU2->m_pL      = pNewL;
         pNewLU1->m_pLUMate = pNewLU2;
         pNewLU2->m_pLUMate = pNewLU1;
-        pNewFU1->PostInsert(pNewLU1);
-        pNewFU2->PostInsert(pNewLU2);
+        SER( pNewFU1->PostInsert(pNewLU1) );
+        SER( pNewFU2->PostInsert(pNewLU2) );
 
       } // end iter every input loop constructing Loop and Loopuses objects
 
@@ -14482,8 +14505,8 @@ SmStatus SmBrep::MakeFaceTopology
                     SmVertex *pV2             = pEU->GetMate()->GetVertexuse()->GetVertex();
                     pNewEU1->SetOrientation(pEU->GetOrientation());
                     pNewEU2->SetOrientation(pEU->GetMate()->GetOrientation());
-                    pV1->PostInsert(pNewVU1);
-                    pV2->PostInsert(pNewVU2);
+                    SER( pV1->PostInsert(pNewVU1) );
+                    SER( pV2->PostInsert(pNewVU2) );
 
                     // If we have a duplicate edge then we may have to insert it into
                     // a different radial sector than that specified by the original.
@@ -14593,7 +14616,7 @@ SmStatus SmBrep::MakeFaceTopology
 #endif // SM_DEBUG_CODE
 
                     // insert new mated edgeuse pair after pEU on the pE radial edgeuse list
-                    pE->AddOrientedEUPair(pNewEU1,pNewEU2,pEU);
+                    SER( pE->AddOrientedEUPair(pNewEU1,pNewEU2,pEU) );
                     sEdgeuses1.Add(pNewEU1);
                     sEdgeuses2.Add(pNewEU2);
 
@@ -14682,11 +14705,11 @@ SmStatus SmBrep::MakeFaceTopology
 
             // remove the vertexuse from the shell and the shell from the vertexuse
             SmShell *pShellVU    = (SmShell*)pVU1->m_pSorLUorEU;
-            pShellVU->m_pList    = NULL ; pShellVU->UpdateListSize() ;
+            pShellVU->m_pList    = NULL ; SER( pShellVU->UpdateListSize()  );
             pVU1->m_pSorLUorEU = NULL;
 
             // remove the shell from the region and delete
-            pShellVU->GetRegion()->Remove( pShellVU) ;
+            SER( pShellVU->GetRegion()->Remove( pShellVU)  );
             SM_ASSERT( pShellVU != NULL) ; delete pShellVU; pShellVU = NULL ;
           }
         else // vertex is connected to some Edges (any combination of wires and edges)
@@ -14694,10 +14717,10 @@ SmStatus SmBrep::MakeFaceTopology
             // make a new loopuse/vertex vertexuse
             pVU1 = new (this) SmVertexuse(); SM_ASSERT(pVU1!=NULL);
             sVertexuses.Add(pVU1);
-            pV->PostInsert(pVU1);
+            SER( pV->PostInsert(pVU1) );
 
             SmShell *pVertexShell = NULL ;
-            crLoopVertices[m]->GetShellInRegion(pRegion,pVertexShell) ;
+            SER( crLoopVertices[m]->GetShellInRegion(pRegion,pVertexShell)  );
 
             // when Vertex shell does not match the keep shell - merge shells
             if (pVertexShell && pVertexShell != pKeepShell)
@@ -14716,7 +14739,7 @@ SmStatus SmBrep::MakeFaceTopology
 
         SmVertexuse *pVU2 = new (this) SmVertexuse(); SM_ASSERT(pVU2!=NULL);
         sVertexuses.Add(pVU2);
-        pV->PostInsert(pVU2);
+        SER( pV->PostInsert(pVU2) );
         SmLoopuse *pLU1        = (SmLoopuse*)sNewLoopuses1[m+crEdgeLoops.GetSize()];
         SmLoopuse *pLU2        = (SmLoopuse*)sNewLoopuses2[m+crEdgeLoops.GetSize()];
         pVU1->m_tVertexuseType = SmLoopuse_TYPE;
@@ -14774,7 +14797,7 @@ SmStatus SmBrep::MakeFaceTopology
                     }
 
                   // set pUVCurve->ParameterRange = assoc Edgeuse->Edge->ParamRange
-                  pUVCurve->EditParameterization( sEdgeuses3[iEdgeuse]->GetEdge()->GetInterval());
+                  SER( pUVCurve->EditParameterization( sEdgeuses3[iEdgeuse]->GetEdge()->GetInterval()) );
 
                   double dMaxDistToSurf;
                   SmBoolean bTrimReplaced;
@@ -14931,7 +14954,7 @@ static SmStatus sm_FindCoinFace
       if(eStat != SM_SUCCESS )
         { sDomain = pThisFace->GetUVDomain(); }
       sUV = sDomain.Evaluate( 0.5, 0.5) ;
-      pThisFace->GetSurface()->EvaluatePoint( sUV, sDropPt) ;
+      SER( pThisFace->GetSurface()->EvaluatePoint( sUV, sDropPt)  );
 
       eStat = pFace->CalculateUVDomainFromUVTrimCurves( sDomain) ;
       if(eStat != SM_SUCCESS )
@@ -15038,8 +15061,8 @@ SmStatus SmBrep::MakeFaceFromLoopOnFace
   // Add NewFaceuses to Shells
   SmFaceuse * pUpperFaceuse = pFace->GetUpwardFaceuse();
   SmFaceuse * pLowerFaceuse = pUpperFaceuse->GetMate();
-  pUpperFaceuse->GetShell()->PostInsert(pNewFaceuse1);
-  pLowerFaceuse->GetShell()->PostInsert(pNewFaceuse2);
+  SER( pUpperFaceuse->GetShell()->PostInsert(pNewFaceuse1) );
+  SER( pLowerFaceuse->GetShell()->PostInsert(pNewFaceuse2) );
 
   // Add NewFace to Brep FaceList
   SER(m_pFaceListHead->PostInsert(pNewFace));
@@ -15061,8 +15084,8 @@ SmStatus SmBrep::MakeFaceFromLoopOnFace
   pTgtLoopuse2->m_pLUMate = pTgtLoopuse1 ;
 
   // Connect TgtLoopuses to NewFaceuses
-  pNewFaceuse1->PostInsert(pTgtLoopuse1) ;
-  pNewFaceuse2->PostInsert(pTgtLoopuse2) ;
+  SER( pNewFaceuse1->PostInsert(pTgtLoopuse1)  );
+  SER( pNewFaceuse2->PostInsert(pTgtLoopuse2)  );
 
   // Set TgtLoopuse Orientation to SAME (SAME = OuterLoop on NewFace)
   pTgtLoopuse1->m_eOrientation = SM_OT_SAME ;
@@ -15087,8 +15110,8 @@ SmStatus SmBrep::MakeFaceFromLoopOnFace
           pNewFace->Notify(SM_NO_PRE_EDIT, pNewFace, this, NULL);
 
           // Move ThisLoop from TgtFace to NewFace
-          pFace->RemoveLoop(pLoop);
-          pNewFace->InsertLoop(pLoop);
+          SER( pFace->RemoveLoop(pLoop) );
+          SER( pNewFace->InsertLoop(pLoop) );
 
         } // end iter every ContainedLoop - moving Loops from TgtFace to NewFace
     } // end given ContainedLoops list branch
@@ -15156,8 +15179,8 @@ SmStatus SmBrep::MakeFaceFromLoopOnFace
               // Move ThisLoop from TgtFace to NewFace
               pFace->Notify(SM_NO_PRE_EDIT, pFace, this, NULL);
               pNewFace->Notify(SM_NO_PRE_EDIT, pNewFace, this, NULL);
-              pFace->RemoveLoop(pLoop);
-              pNewFace->InsertLoop(pLoop);
+              SER( pFace->RemoveLoop(pLoop) );
+              SER( pNewFace->InsertLoop(pLoop) );
             } // end TestPoint in NewFace check
         } // end iter every TgtFace Loop looking for contained loops to move
     } // end Not given ContainedLoops List branch
@@ -15404,9 +15427,9 @@ SmStatus SmBrep::MakeFaceWithCurvesUVHeal
           }
 
           // No need to pass curve pointer, BSplines and Lines are edited in place.
-          pUVCurve->DeformToEndPointTargets(pNewCurveStart, pNewCurveEnd, NULL, NULL, SM_IV_UNCONSTRAINED,
+          SER( pUVCurve->DeformToEndPointTargets(pNewCurveStart, pNewCurveEnd, NULL, NULL, SM_IV_UNCONSTRAINED,
                                           NULL,
-                                          SM_IV_UNCONSTRAINED, pSurface);
+                                          SM_IV_UNCONSTRAINED, pSurface) );
 
           // Clean up from curve editing
           if (pNewCurveStart)
@@ -15435,7 +15458,7 @@ SmStatus SmBrep::MakeFaceWithCurvesUVHeal
   {
       SmExtent3d  sLoopCurveBBox;
       SmBSplineCurve* pBSCurve = rUVCurves->GetAt(ii);
-      pBSCurve->CalculateBoundingBox(pBSCurve->GetNaturalInterval(), &sLoopCurveBBox, NULL, NULL, FALSE);
+      SER( pBSCurve->CalculateBoundingBox(pBSCurve->GetNaturalInterval(), &sLoopCurveBBox, NULL, NULL, FALSE) );
       sLoopBBox.Union(sLoopCurveBBox.GetUVDomain(), sLoopBBox);
   }
 
@@ -15506,11 +15529,11 @@ SmStatus SmBrep::MakeFaceWithCurvesUVHeal
                   SmVector3d sXAxis(1.0, 0, 0);
                   SmVector3d sYAxis(0, 1.0, 0);
 
-                  sTransformAxis.SetCanonical(sTranslate, sXAxis, sYAxis);
+                  SER( sTransformAxis.SetCanonical(sTranslate, sXAxis, sYAxis) );
 
                   for (ii = 0; ii < rUVCurves->GetSize(); ii++)
                   {
-                      (*rUVCurves)[ii]->Transform(sTransformAxis);
+                      SER( (*rUVCurves)[ii]->Transform(sTransformAxis) );
                   }
               }
               else
@@ -15538,7 +15561,7 @@ SmStatus SmBrep::MakeFaceWithCurvesUVHeal
 
           SmExtent3d sCurveBBox;
 
-          pBSCurve->CalculateBoundingBox(pBSCurve->GetNaturalInterval(), &sCurveBBox, NULL, NULL, FALSE);
+          SER( pBSCurve->CalculateBoundingBox(pBSCurve->GetNaturalInterval(), &sCurveBBox, NULL, NULL, FALSE) );
 
           SmExtent2d sBSCurveUV = sCurveBBox.GetUVDomain();
 
@@ -15641,7 +15664,7 @@ SmStatus SmBrep::MakeFaceWithCurvesUVHeal
           // Make the line to replace the UV trim curve
           if(bMakeLine)
           {
-              SmBSplineCurve::CreateLineSegment(*pContext, 2, sLineStart, sLineEnd, pLine);
+              SER( SmBSplineCurve::CreateLineSegment(*pContext, 2, sLineStart, sLineEnd, pLine) );
               NER(pLine);
               delete pBSCurve;
               pBSCurve = NULL;
@@ -15657,7 +15680,7 @@ SmStatus SmBrep::MakeFaceWithCurvesUVHeal
       {
           SmBSplineCurve* pBSCurve = rUVCurves->GetAt(ii);
           SmExtent3d sImage;
-          pBSCurve->CalculateTightBoundingBox(pBSCurve->GetNaturalInterval(), &sImage);
+          SER( pBSCurve->CalculateTightBoundingBox(pBSCurve->GetNaturalInterval(), &sImage) );
 
           AERN_MSG(SmExtent2d(sImage).IsContainedBy(sFaceUV, sTol), SM_ERR_ASSERT_FAILURE, _T("UVCurve is outside Face domain."));
       }
@@ -15950,7 +15973,7 @@ SmBoolean bDebugCheckSurface = FALSE;
           for(jj=0; jj < lNumLoopCurves; jj++ )
             {
               SmBSplineCurve *pUVCurve = cpOptUVCurves->GetAt(lCurveIndex + jj) ;
-              pUVCurve->ConvertTo2D();
+              SER( pUVCurve->ConvertTo2D() );
       
               //  lift UVCurve to make 3DCurve
               double dDist;
@@ -15979,14 +16002,14 @@ SmBoolean bDebugCheckSurface = FALSE;
                     SmBSplineCurve *pNew3DCurve = NULL ;
 
                     // Lift UVCurve to 3D Bspline curve
-                    pSurface->LiftCurve(*GetContext(),                  // in : context for new object construction
+                    SER( pSurface->LiftCurve(*GetContext(),                  // in : context for new object construction
                                         crUVDomain,                     // in : this surface limit
                                         *pUVCurve,                      // in : 2d Parameter curve defined in surface parameter space to lift
                                         pUVCurve->GetNaturalInterval(), // in : curve segment to lift
                                         sZoneTol3d / 4.0,               // in : max allowed distance between output curve and Surface
                                         dDist,                          // out: max dist from output curve to surface
                                         pNew3DCurve,                    // out: 3d Curve = Surface(crUVCurveToLift(crInterval))
-                                        FALSE);                         // in : TRUE = this Surface is at least C1 continuous and
+                                        FALSE) );                         // in : TRUE = this Surface is at least C1 continuous and
                                                                         //             internal surface C0 continuity checks are skipped.
                                                                         //      FALSE= check Surface for C0 discontinuities -
                                                                         //             break lifted curve at each such point
@@ -16059,7 +16082,7 @@ SmBoolean bDebugCheckSurface = FALSE;
                 SmCurve   *pDeformedCurve = NULL;
 
                 // defomr the curve to interpolate the given target points - does nothing when both pNewStartPt and pNewEndPt are NULL
-                pCurve->DeformToEndPointTargets(pNewStartPt,         // in :  NotNULL = Curve StartPt new Tgt position 
+                SER( pCurve->DeformToEndPointTargets(pNewStartPt,         // in :  NotNULL = Curve StartPt new Tgt position 
                                                                      //       NULL    = leave as is
                                                 pNewEndPt,           // in :  NotNULL = Curve EndPt new Tgt position
                                                                      //       NULL    = leave as is
@@ -16076,7 +16099,7 @@ SmBoolean bDebugCheckSurface = FALSE;
                                                                      //            SM_IV_SAME         : set End1stDir = Init End1stDir
                                                                      //            SM_IV_UNCONSTRAINED: set End1stDir = Unspecified
                                                                      //      default:[SM_IV_SAME]
-                                                pSurface) ;          // in : Optional surface for upon which the target points are define. CrvOnSurf editing. If the CrvOnSurf surf agrees with pOptSurfCrvOnSurf
+                                                pSurface)  );          // in : Optional surface for upon which the target points are define. CrvOnSurf editing. If the CrvOnSurf surf agrees with pOptSurfCrvOnSurf
                                                                      //      then we edit the underlying UV curve instead of approximating. Default is NULL.
                                                                      // in : orientation for when we have a crv on surf and will adjust UV points.
                 // when a new deformed curve was made to interpolate mid-gap pt positions
@@ -16542,7 +16565,7 @@ SmBoolean bDebugCheckSurface = FALSE;
       lOrient       = sEdgeOrients[ii];
 
       // Check each of this Edge's EUs.
-      pEdge->GetEdgeuses(sEdgeuses);
+      SER( pEdge->GetEdgeuses(sEdgeuses) );
       ULONG lNumEUs = sEdgeuses.GetSize();
       for (jj=0; jj<lNumEUs; jj++)
         {
@@ -16614,7 +16637,7 @@ SmBoolean bDebugCheckSurface = FALSE;
         {
           SmBSplineCurve * pBSCurve;
           SmBSplineCurve * pOrigUVCurve = cpOptUVCurves->GetAt(ii);
-          pOrigUVCurve->Copy(*GetContext(), pBSCurve);
+          SER( pOrigUVCurve->Copy(*GetContext(), pBSCurve) );
           sNewUVCurves.Add(pBSCurve);
         } // end iter ii, every input UVCurve
 
@@ -16640,7 +16663,7 @@ SmBoolean bDebugCheckSurface = FALSE;
             {
               SmEdge *pEdge = sEdges[ii];
               sEdgeuses.RemoveAll();
-              pEdge->GetEdgeuses(sEdgeuses);
+              SER( pEdge->GetEdgeuses(sEdgeuses) );
               ULONG lNumEUs = sEdgeuses.GetSize();
               for ( jj=0; jj<lNumEUs; jj++ )
                 {
@@ -17069,7 +17092,7 @@ static ULONG lDebugCount = 0 ;
           else // lCurveDim == 3
             {
               // make the 3D projected IsoCurve
-              pSurface->CreateIsoParametricCurve(*cpContext,         // in : context for created objects   
+              SER( pSurface->CreateIsoParametricCurve(*cpContext,         // in : context for created objects   
                                                   eSrfDir,           // in : Defines which Nurb parameter direction on surface to extract curve from                      
                                                                      //    : SM_SP_U = create constant u isoParameter curve                                               
                                                                      //    : SM_SP_V = create constant v isoParameter curve                                               
@@ -17078,7 +17101,7 @@ static ULONG lDebugCount = 0 ;
                                                                      //    : then this is the V parameter                                                                 
                                                   0.0,               // in : passed to ApproximateCurve() when approximation is required.                                 
                                                                      //    : If set to 0.0, tolerance is set by system: old[curve length * 1.0e-4] new[GetApproxTol3d()]   
-                                                  pNewIsoCurve3d ) ; // out: 3d IsoParameterCurve                                                                          
+                                                  pNewIsoCurve3d )  ); // out: 3d IsoParameterCurve                                                                          
                                                                      //cbi (     , NULL, NULL, pOptUVIsoCurve) ;
               sIsoCurvesAtCreases.Add( pNewIsoCurve3d) ;
             }
@@ -17132,11 +17155,11 @@ static ULONG lDebugCount = 0 ;
                   sXSectTol3d = SmTol::GetXSectTol3d(pIsoCurveAtCrease, pLoopCurve  /*, cpContext*/) ;
       
                   // Intersect the curves.  Sort on iso-curve param.
-                  pIsoCurveAtCrease->GlobalCurveIntersect(sIsoDomain,   // in : thisCurve's interval for intersection  
+                  SER( pIsoCurveAtCrease->GlobalCurveIntersect(sIsoDomain,   // in : thisCurve's interval for intersection  
                                                           *pLoopCurve,  // in : target OtherCurve  
                                                           sCrvDomain,   // in : OtherCurve's interval for intersection  
                                                           sXSectTol3d,  // in : max 3d distance between intersecting points  
-                                                          sSolutions) ; // out: Array of Found Solutions: sSol.m_vStart[0] = thisCurve param  
+                                                          sSolutions)  ); // out: Array of Found Solutions: sSol.m_vStart[0] = thisCurve param  
                                                                         //                                sSol.m_vStart[1] = otherCurve param 
                                                                         
                   // Now this is interesting.  GlobalCurveIntersect() doesn't necessarily store the input
@@ -17191,10 +17214,10 @@ static ULONG lDebugCount = 0 ;
                 {
                   // Split the Loop curve
                   SmCurve * pNewCurve = NULL;
-                  pLoopCrv->CreateBySplitCurve( *cpContext, dLoopCrv_Param, pNewCurve) ;
+                  SER( pLoopCrv->CreateBySplitCurve( *cpContext, dLoopCrv_Param, pNewCurve)  );
 
                   // insert the spllit LoopCurve children into sCurveLoops arrays
-                  sCurveLoops.InsertIntoLoops(pNewCurve, pLoopCrv) ;
+                  SER( sCurveLoops.InsertIntoLoops(pNewCurve, pLoopCrv)  );
       
                   // add new Solution for the new curve to SolArray - for use later.
                   SmSolution sNewSol( rSol) ;
@@ -17323,7 +17346,7 @@ static ULONG lDebugCount = 0 ;
                   if(eStat != SM_SUCCESS )
                     { continue; } // Trouble.
         
-                  sIsoXSectSegment.m_sInterval.SetMinMax( dIsoParam1, dIsoParam1) ; // (Can't set just one if uninit.)
+                  SER( sIsoXSectSegment.m_sInterval.SetMinMax( dIsoParam1, dIsoParam1)  ); // (Can't set just one if uninit.)
                   bInSegment = TRUE ;
         
                 } // end Entering a usable segment of the iso curve branch
@@ -17339,10 +17362,10 @@ static ULONG lDebugCount = 0 ;
                     { continue; } // Trouble.
         
                   // save interval start and orientation
-                  if(dIsoParam1 > sIsoXSectSegment.m_sInterval.GetMin() ) { sIsoXSectSegment.m_sInterval.SetMax( dIsoParam1) ;
+                  if(dIsoParam1 > sIsoXSectSegment.m_sInterval.GetMin() ) { SER( sIsoXSectSegment.m_sInterval.SetMax( dIsoParam1)  );
                                                                             sIsoXSectSegment.m_eOrient = SM_OT_SAME;
                                                                           }
-                  else                                                    { sIsoXSectSegment.m_sInterval.SetMin( dIsoParam1) ;
+                  else                                                    { SER( sIsoXSectSegment.m_sInterval.SetMin( dIsoParam1)  );
                                                                             sIsoXSectSegment.m_eOrient = SM_OT_OPPOSITE;
                                                                           }
         
@@ -17452,7 +17475,7 @@ static ULONG lDebugCount = 0 ;
               sCrvDomain = pLoopCurve->GetNaturalInterval();
 
               // near MidPt thisCurve evaluation
-              pLoopCurve->EvaluatePoint(sCrvDomain.Evaluate(0.48), sCrvPt) ;
+              SER( pLoopCurve->EvaluatePoint(sCrvDomain.Evaluate(0.48), sCrvPt)  );
               SmPoint2d sPtUV( sCrvPt.x, sCrvPt.y) ;
       
               // for every Surf subpatch - look for the one that's associated with this CurveLoop
@@ -17536,11 +17559,11 @@ static ULONG lDebugCount = 0 ;
           SmSurface * pSubPatch = sSubPatches[ii];
     
           // Collect the Loops for this subPatch.
-          sThisPatchLoops.Reset();
+          SER( sThisPatchLoops.Reset() );
           for(jj=0;jj<lNumLoops;jj++)
             {
               if(sWhichSubPatch[jj] == ii )
-                { sThisPatchLoops.AppendLoop( sCurveLoops, jj) ; }
+                { SER( sThisPatchLoops.AppendLoop( sCurveLoops, jj)  ); }
             }
     
           // Now sThisPatchLoops has all the loops for this subPatch.
@@ -17558,7 +17581,7 @@ static ULONG lDebugCount = 0 ;
             }
     
           SmTArray<ULONG> sOuterLoopCounts;
-          SmTrimmingTools::FindOuterLoops( sThisPatchLoops.m_sCurves,    // i/o: consecutive Loop CrvSets. (CrvSet = Curves of one loop ordered 1st to last)
+          SER( SmTrimmingTools::FindOuterLoops( sThisPatchLoops.m_sCurves,    // i/o: consecutive Loop CrvSets. (CrvSet = Curves of one loop ordered 1st to last)
                                                                          //      in = Loops not yet ordered
                                                                          //      out= [Sequence of[OuterLoop CCW CrvSet followed by its InnerLoop CW CrvSets]]
                                                                          //      sized:[NumCrvs]      
@@ -17566,7 +17589,7 @@ static ULONG lDebugCount = 0 ;
                                            sThisPatchLoops.m_sOrients,   // i/o: assoc orientation of each Crv in its Loop, sized:[NumCrvs] 
                                            sNorm,                        // in : Normal to plane containing curves
                                            sZoneTol3d,                   // in : min dist between distinct points  
-                                           sOuterLoopCounts) ;           // out: Num of Loops in each outerLoop, sized:[NumOuterLoops]
+                                           sOuterLoopCounts)  );           // out: Num of Loops in each outerLoop, sized:[NumOuterLoops]
                                                                          //      ex: rsOuterLoopCounts[i]=3 => 2 innerLoops inside OuterLoop[i]  
 
 //cbi TODO: another chore: sLoopPoints: can't just throw all of them at the first call,
@@ -17583,10 +17606,10 @@ static ULONG lDebugCount = 0 ;
               ULONG lNumLoopsInGroup = sOuterLoopCounts[jj];  // Total number, outer loop plus all of its inners.
     
               // Collect the outer and inner loops from the sSingleLoops arrays.
-              sThisLoopGroup.Reset();
+              SER( sThisLoopGroup.Reset() );
               for(kk=0;kk<lNumLoopsInGroup;kk++)
                 {
-                  sThisLoopGroup.AppendLoop( sThisPatchLoops, lThisLoopGroupStart + kk) ;
+                  SER( sThisLoopGroup.AppendLoop( sThisPatchLoops, lThisLoopGroupStart + kk)  );
                 }
               lThisLoopGroupStart += lNumLoopsInGroup;
     
@@ -17626,7 +17649,7 @@ static ULONG lDebugCount = 0 ;
               SmSurface *pSrfToUse = pSubPatch;
               if(iSurfaceUses[ ii ] > 0 )
                 {
-                  pSubPatch->Copy( *cpContext, pSrfToUse) ;
+                  SER( pSubPatch->Copy( *cpContext, pSrfToUse)  );
                 }
               sSubDomain = pSrfToUse->GetNaturalUVDomain();
         
@@ -17725,7 +17748,7 @@ SmStatus SmBrep::MakeFaceWithBoundary
     const SmContext* pContext = this->GetContext();
 
     SmBSplineSurface* pSurface = NULL;
-    SmBSplineSurface::ApproximateRandomPoints( *pContext, cpOpt3DPoints, cpOpt3DCurve, 8, 8, 3, 3, pSurface) ;
+    SER( SmBSplineSurface::ApproximateRandomPoints( *pContext, cpOpt3DPoints, cpOpt3DCurve, 8, 8, 3, 3, pSurface)  );
 
     if(cpOpt3DCurve == NULL )
       { SER_MSG( SM_ERR_INVALID_INPUT, _T( "Unable to calculate boundary curve. Try using more points." )) ; }
@@ -17734,7 +17757,7 @@ SmStatus SmBrep::MakeFaceWithBoundary
     curves.Add( (SmCurve*)cpOpt3DCurve) ;
 
     SmVector3d sCrvNormal;
-    SmCurve::ComputeCrvsNormal( curves, sCrvNormal) ;
+    SER( SmCurve::ComputeCrvsNormal( curves, sCrvNormal)  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -17747,13 +17770,13 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
     // Create face given
-    this->CreateFaceFromSurface( pSurface, pSurface->GetNaturalUVDomain(), rNewFace) ;
+    SER( this->CreateFaceFromSurface( pSurface, pSurface->GetNaturalUVDomain(), rNewFace)  );
 
     // find keep point by evaluating middle of surface
     SmPoint3d sKeepPoint;
     SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
     SmPoint2d uv( ( sDomain.GetUMin() + sDomain.GetUMax() ) / 2, ( sDomain.GetVMin() + sDomain.GetVMax() ) / 2) ;
-    pSurface->EvaluatePoint( uv, sKeepPoint) ;
+    SER( pSurface->EvaluatePoint( uv, sKeepPoint)  );
 
 
 #ifdef SM_DEBUG_CODE
@@ -17767,11 +17790,11 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
     // Trim surface to boundary curve
-    this->ProjectAndTrim( *cpOpt3DCurve,       // can increment an unused Mark value
+    SER( this->ProjectAndTrim( *cpOpt3DCurve,       // can increment an unused Mark value
                           -sCrvNormal,
                           sKeepPoint,
                           SM_TT_KEEP_POINT,
-                          NULL, NULL, NULL) ;
+                          NULL, NULL, NULL)  );
 
     //this->ShrinkGeometry();
 
@@ -17876,7 +17899,7 @@ SmBoolean bDebugMe = FALSE ;
               for(jj=0;jj<sEdgeParts.GetSize();jj++)
                 {
                   SmEdge *pEdgePart = sEdgeParts[jj] ;
-                  pEdgePart->GetEdgeuses(sEdgeuses) ;
+                  SER( pEdgePart->GetEdgeuses(sEdgeuses)  );
 
                   // for every edgeuses  (edgeuses come in pairs)
                   for(kk=0;kk<sEdgeuses.GetSize();kk++)
@@ -17922,7 +17945,7 @@ SmBoolean bDebugMe = FALSE ;
           // remove any associated UVTrimCurves
           SmObject * pObj = pSurface->GetOwner() ;
           SmFace   * pFace = (pObj->IsKindOf(SmFace_TYPE)) ? (SmFace *)pObj : NULL ;
-          pFace->RemoveUVTrimCurves() ;
+          SER( pFace->RemoveUVTrimCurves()  );
 
 // Remove Composites
 //          // remove any associated UVTrimCurves
@@ -18054,11 +18077,11 @@ SmBoolean bDebugMe = FALSE;
               if (SM_ARE_SAME(sEdgeIvl.GetMin(),sSegments[0])) 
                 {
                   // Trim Null segment out of Edge Interval - reparameterize Edge to restore original Edge param range
-                  sEdgeIvl.SetMinMax(sSegments[1],sEdgeIvl.GetMax());
+                  SER( sEdgeIvl.SetMinMax(sSegments[1],sEdgeIvl.GetMax()) );
                   ULONG lNumKnot = pCurve->GetNumberNaturalKnots();
                   SER(pCurve->Trim(sEdgeIvl));  // may snap sIvl by tol to existing knots
                   sEdgeIvl = pEdge->GetInterval();
-                  pCurve->EditParameterization(sEdgeIvl);
+                  SER( pCurve->EditParameterization(sEdgeIvl) );
                   if (pCurve->GetNumberNaturalKnots() != lNumKnot) 
                     {
                       sEdges.Add(pEdge) ;
@@ -18070,11 +18093,11 @@ SmBoolean bDebugMe = FALSE;
               else if (SM_ARE_SAME(sEdgeIvl.GetMax(),sSegments.GetLast())) 
                 {
                   // Trim Null segment out of Edge Interval - reparameterize Edge to restore original Edge param range
-                  sEdgeIvl.SetMinMax(sEdgeIvl.GetMin(),sSegments[sSegments.GetSize()-2]);
+                  SER( sEdgeIvl.SetMinMax(sEdgeIvl.GetMin(),sSegments[sSegments.GetSize()-2]) );
                   ULONG lNumKnot = pCurve->GetNumberNaturalKnots();
                   SER(pCurve->Trim(sEdgeIvl));   // may snap sIvl by tol to existing knots
                   sEdgeIvl = pEdge->GetInterval();
-                  pCurve->EditParameterization(sEdgeIvl);
+                  SER( pCurve->EditParameterization(sEdgeIvl) );
                   if (pCurve->GetNumberNaturalKnots() != lNumKnot) 
                     {
                       sEdges.Add(pEdge) ;
@@ -18199,10 +18222,10 @@ SmBoolean bDebugMe = FALSE;
                     }
           
           // create IsoLineCrvOnSurf
-          pSurface->CreateLineOnSurf(*pContext,          // in : context for new Obj construction               
+          SER( pSurface->CreateLineOnSurf(*pContext,          // in : context for new Obj construction               
                                      sUVStartPoint,      // in : StartPt of UVLine(StartPt,EndPt)               
                                      sUVEndPoint,        // in : EndPt of UVLine(StartPt,EndPt)                 
-                                     pIsoCrvOnSurf) ;     // out: 3DProj of UVLine(StartPt,EndPt), NULL on input 
+                                     pIsoCrvOnSurf)  );     // out: 3DProj of UVLine(StartPt,EndPt), NULL on input 
       
           // build merge input arrays
           s3DCurves.Add(pIsoCrvOnSurf) ;
@@ -18764,7 +18787,7 @@ SmStatus SmBrep::MakeShellVertexTopology
 
   // Link up shell and vertexuse
   pNewS->m_tShellType      = SmVertexuse_TYPE;
-  pNewS->m_pList           = pNewVU ; pNewS->UpdateListSize() ;
+  pNewS->m_pList           = pNewVU ; SER( pNewS->UpdateListSize()  );
   pNewVU->m_tVertexuseType = SmShell_TYPE;
   pNewVU->m_pSorLUorEU     = pNewS;
 
@@ -19152,8 +19175,8 @@ SmStatus SmBrep::MakeVertexLoop
 #endif // USE_DEBUG_COUNTER
 
   // Connect up Vertex and Vertexuses
-  pNewV->PostInsert(pNewVU1);
-  pNewV->PostInsert(pNewVU2);
+  SER( pNewV->PostInsert(pNewVU1) );
+  SER( pNewV->PostInsert(pNewVU2) );
 
   // Assign point to vertex
   pNewV->SetPoint(cr3DPointInFace);
@@ -19170,8 +19193,8 @@ SmStatus SmBrep::MakeVertexLoop
   pNewLU2->m_pL           = pNewL;
   pNewLU1->m_pLUMate      = pNewLU2;
   pNewLU2->m_pLUMate      = pNewLU1;
-  pFU1->PostInsert(pNewLU1);
-  pFU2->PostInsert(pNewLU2);
+  SER( pFU1->PostInsert(pNewLU1) );
+  SER( pFU2->PostInsert(pNewLU2) );
 
   // Connect up Vertexuse and Loopuse
   pNewLU1->m_pEUorVU        = pNewVU1;
@@ -19756,7 +19779,7 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
         //      as possible.  Now we guarantee that the Face->Surface->UVDomainBox always
         //      contains the Face->UVDomainBox();  We do that here just by intersecting the
         //      two boxes.
-        pNewF->m_vUVDomain.Intersect(pNewF->GetSurface()->GetNaturalUVDomain(), pNewF->m_vUVDomain) ;
+        SER( pNewF->m_vUVDomain.Intersect(pNewF->GetSurface()->GetNaturalUVDomain(), pNewF->m_vUVDomain)  );
 
         SM_OLDTOL_LINE pNewF->m_sZoneTol3d = smos_Max(rF.m_sZoneTol3d,m_sThisZoneTol3d);
 
@@ -19802,8 +19825,8 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
             pNewLU2->m_pL = pNewL;
             pNewLU1->m_pLUMate = pNewLU2;
             pNewLU2->m_pLUMate = pNewLU1;
-            pNewFU1->PostInsert(pNewLU1);
-            pNewFU2->PostInsert(pNewLU2);
+            SER( pNewFU1->PostInsert(pNewLU1) );
+            SER( pNewFU2->PostInsert(pNewLU2) );
             sNewLU2Cleanup.Clear();
             sNewLU1Cleanup.Clear();
             sNewLoopCleanup.Clear();
@@ -19836,7 +19859,7 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
                 pNewVU1->m_tVertexuseType = SmLoopuse_TYPE;
                 pNewVU1->m_pSorLUorEU     = pNewLU1;
                 pNewLU1->m_pEUorVU        = pNewVU1;
-                pV->PostInsert(pNewVU1);
+                SER( pV->PostInsert(pNewVU1) );
                 sNewVU1Cleanup.Clear();
 
                 SmVertexuse *pNewVU2      = new (this) SmVertexuse(); NER(pNewVU2);
@@ -19844,7 +19867,7 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
                 pNewVU2->m_tVertexuseType = SmLoopuse_TYPE;
                 pNewVU2->m_pSorLUorEU     = pNewLU2;
                 pNewLU2->m_pEUorVU        = pNewVU2;
-                pV->PostInsert(pNewVU2);
+                SER( pV->PostInsert(pNewVU2) );
                 sNewVU2Cleanup.Clear();
               }
           } // end iter every loop
@@ -20333,7 +20356,7 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
                 // and leaves pShell with a ListSize of 0.
                 SER(pVertex->PostInsert(pNewVU));
                 sNewVUCleanup.Clear();
-                pShell->UpdateListSize() ;
+                SER( pShell->UpdateListSize()  );
               } // shell has a single Vertex branch
 
             // wire Shells
@@ -20345,7 +20368,7 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
                 SmEdge    * pWireEdge = pBrepData->m_vEdges[rShellData.m_lEdge].m_pEdge;
                 SmEdgeuse * pEU       = pWireEdge->GetPrimaryEdgeuse();
                 pShell->m_pList       = pEU ;
-                pShell->UpdateListSize() ;
+                SER( pShell->UpdateListSize()  );
               } // shell has a WireEdge branch
             else
               { // Face Shells
@@ -20515,7 +20538,7 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
             pPrimEU = pBrepData->m_vEdgeuses[lIndex].m_pEdgeuse1;
           }
 
-        pE->ResetPrimaryEdgeuse( pPrimEU) ;  // This takes care of next/last pointers.
+        SER( pE->ResetPrimaryEdgeuse( pPrimEU)  );  // This takes care of next/last pointers.
 
       } // end iter every edge
   } // end edges block
@@ -20635,11 +20658,11 @@ else  // branch to translate a non-manifold part or a SmBrepData object created
   if(bHealerIsEnabled && (bHealThisBrep || bAlwaysHeal))
     {
       // Run the Assert/Heal sequences as needed
-      HealBrep(SM_HO_ALL,           // in : Run All Healer Steps up to and including this one
+      SER( HealBrep(SM_HO_ALL,           // in : Run All Healer Steps up to and including this one
                NULL,                // in : optional VertexProps list, NULL=GetProps for all Vertices
                NULL,                // in : optional EdgeProps list, NULL=GetProps for all Edges
                NULL,                // in : optional FaceProps list, NULL=GetProps for all Faces
-               bMakeUVTrimCurves) ; // in : TRUE = call SmFace::CreateUVTrimCurves for each face, FALSE = Don't
+               bMakeUVTrimCurves)  ); // in : TRUE = call SmFace::CreateUVTrimCurves for each face, FALSE = Don't
 
     } // end DoMakeHealing && bHealThisBrep check
 
@@ -20774,7 +20797,7 @@ SmBoolean bDebugMe = FALSE ;
 
   // pass the call along
   SmHealData sHealData ;
-  sHealData.HealBrep(this, eHealerOp, pOptVertices, pOptEdges, pOptFaces, bMakeUVTrimCurves) ;
+  SER( sHealData.HealBrep(this, eHealerOp, pOptVertices, pOptEdges, pOptFaces, bMakeUVTrimCurves)  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDumpHealResults = FALSE ;              
@@ -21134,9 +21157,9 @@ SmStatus sm_MakeVertexSplitUVTrimCurve
         //    sIvl1,   sIvl2   = UVTrimCurve [start,SplitParamUV], [SplitParamUV, end]
         //    sIvl13D, sIvl23D = 3DCurve     [start,SplitParam],   [SplitParam,   end]
         SmExtent1d sIvl2 = sIvl1;
-        sIvl1.SetMinMax( sIvl1.GetMin(), dEdgeSplitParameterUV) ;
+        SER( sIvl1.SetMinMax( sIvl1.GetMin(), dEdgeSplitParameterUV)  );
         SmExtent1d sIvl13D( sIvl1.GetMin(), dEdgeSplitParameter) ;
-        sIvl2.SetMinMax( dEdgeSplitParameterUV, sIvl2.GetMax()) ;
+        SER( sIvl2.SetMinMax( dEdgeSplitParameterUV, sIvl2.GetMax())  );
         SmExtent1d sIvl23D( dEdgeSplitParameter, sIvl2.GetMax()) ;
 
         // trim and bind UVTrimCurves to Edgeuses
@@ -21391,8 +21414,8 @@ SmBoolean bDebugMe = FALSE;
   // build intervals for the split edgeSegments
   SmExtent1d sIvl1 = pEdgeToSplit->GetInterval();
   SmExtent1d sIvl2 = sIvl1;
-  sIvl1.SetMinMax(sIvl1.GetMin(),dEdgeSplitParameter);
-  sIvl2.SetMinMax(dEdgeSplitParameter,sIvl2.GetMax());
+  SER( sIvl1.SetMinMax(sIvl1.GetMin(),dEdgeSplitParameter) );
+  SER( sIvl2.SetMinMax(dEdgeSplitParameter,sIvl2.GetMax()) );
 
   // assign intervals to splitEdges
   if (pEdgeToSplit->GetPrimaryEdgeuse()->GetOrientation() == SM_OT_SAME)
@@ -21424,9 +21447,9 @@ SmBoolean bDebugMe = FALSE;
       // trim the curves
       if (pEdgeToSplit->GetPrimaryEdgeuse()->GetOrientation() == SM_OT_SAME)
         {
-          p3DCurve->Trim(sIvl1);      // may snap sIvl by tol to existing knots
+          SER( p3DCurve->Trim(sIvl1) );      // may snap sIvl by tol to existing knots
           dEdgeSplitParameter = sIvl1.GetMax();
-          pNew3DCurve->Trim(sIvl2);   // may snap sIvl by tol to existing knots
+          SER( pNew3DCurve->Trim(sIvl2) );   // may snap sIvl by tol to existing knots
 
           // due to snapping - reset the Edge Ivls to match the snapped Crv Ivls
           pEdgeToSplit->SetInterval(sIvl1);
@@ -21434,9 +21457,9 @@ SmBoolean bDebugMe = FALSE;
         }
       else
         {
-          p3DCurve->Trim(sIvl2);      // may snap sIvl by tol to existing knots
+          SER( p3DCurve->Trim(sIvl2) );      // may snap sIvl by tol to existing knots
           dEdgeSplitParameter = sIvl2.GetMin();
-          pNew3DCurve->Trim(sIvl1);   // may snap sIvl by tol to existing knots
+          SER( pNew3DCurve->Trim(sIvl1) );   // may snap sIvl by tol to existing knots
 
           // due to snapping - reset the Edge Ivls to match the snapped Crv Ivls
           pEdgeToSplit->SetInterval(sIvl2);
@@ -21481,14 +21504,14 @@ SmBoolean bDebugMe = FALSE;
   // SmObjsDelete<SmVertexuse*> sClean4(&sNewVertexuses);   ...  (See note above. [B361])
 
   SM_PTR_ARRAY(sEdgeuses,SmEdgeuse,16);
-  pEdgeToSplit->GetEdgeuses(sEdgeuses);
+  SER( pEdgeToSplit->GetEdgeuses(sEdgeuses) );
   for (ULONG j=0; j<sEdgeuses.GetSize(); j++)
     {
       SmEdgeuse *pNewEU2 = new (this) SmEdgeuse(); NER(pNewEU2);
-      pNewE2->PostInsert(pNewEU2);
+      SER( pNewE2->PostInsert(pNewEU2) );
       sNewEdgeuses.Add(pNewEU2);
       SmVertexuse *pNewVU2 = new (this) SmVertexuse(); NER(pNewVU2);
-      pNewV->PostInsert(pNewVU2);
+      SER( pNewV->PostInsert(pNewVU2) );
       sNewVertexuses.Add(pNewVU2);
     }
 
@@ -21559,9 +21582,9 @@ SmBoolean bDebugMe = FALSE;
       SmOrTy       eOrient = pEUOrig1->GetOrientation();
 
       // Adjust the UVTrimCurves
-      sm_MakeVertexSplitUVTrimCurve(pEUOrig1, pEUNew1, sSplitPnt, dEdgeSplitParameter, dScaledZero, eOrient, bForTess);
+      SER( sm_MakeVertexSplitUVTrimCurve(pEUOrig1, pEUNew1, sSplitPnt, dEdgeSplitParameter, dScaledZero, eOrient, bForTess) );
 
-      sm_MakeVertexSplitUVTrimCurve(pEUOrig2, pEUNew2, sSplitPnt, dEdgeSplitParameter, dScaledZero, eOrient, bForTess);
+      SER( sm_MakeVertexSplitUVTrimCurve(pEUOrig2, pEUNew2, sSplitPnt, dEdgeSplitParameter, dScaledZero, eOrient, bForTess) );
 
     } // end iter every original edge->edgeuse
 
@@ -22219,7 +22242,7 @@ SmBoolean bDebugMe5 = FALSE;
     {
       SmExtent2d sDomain = pPlane->GetSTEPUVDomain();
       sDomain.ExpandAbsolute(sDomain.GetSize().Length()*dSurfaceExtensionFactor);
-      pPlane->AdjustSTEPUVDomain(sDomain);
+      SER( pPlane->AdjustSTEPUVDomain(sDomain) );
     }
 
   // The first thing to do is to create an extended surface based on the
@@ -22309,7 +22332,7 @@ SmBoolean bDebugMe = FALSE;
   // Create extended UV curves
   // GWC:CHANGED_GETUVTRIMCURVE
   SmBSplineCurve *pUVCCW = NULL ;
-  pEUCCW->GetOrCreateUVTrimCurve(pUVCCW);
+  SER( pEUCCW->GetOrCreateUVTrimCurve(pUVCCW) );
   SM_ASSERT(pUVCCW != NULL) ;
 
   // place a temp copy of UVTrimCurve into pUVCCW
@@ -22323,7 +22346,7 @@ SmBoolean bDebugMe = FALSE;
 
   // GWC:CHANGED_GETUVTRIMCURVE
   SmBSplineCurve *pUVCW = NULL ;
-  pEUCW->GetOrCreateUVTrimCurve(pUVCW);
+  SER( pEUCW->GetOrCreateUVTrimCurve(pUVCW) );
   SM_ASSERT(pUVCW != NULL) ;
 
   // place a temp copy of UVTrimCurve into pUVCW
@@ -22489,10 +22512,10 @@ SmBoolean bDebugMe = FALSE;
   SmExtent1d sCCWTrimIvl = pCCWExtended->GetNaturalInterval();
   if (pEUCCW->GetOrientation() == SM_OT_SAME)
     {
-      sCCWTrimIvl.SetMinMax(dCCWTrim,sCCWTrimIvl.GetMax());
+      SER( sCCWTrimIvl.SetMinMax(dCCWTrim,sCCWTrimIvl.GetMax()) );
     }
   else
-    {  sCCWTrimIvl.SetMinMax(sCCWTrimIvl.GetMin(),dCCWTrim); }
+    {  SER( sCCWTrimIvl.SetMinMax(sCCWTrimIvl.GetMin(),dCCWTrim) ); }
   if (pCCWExtended->Trim(sCCWTrimIvl) != SM_SUCCESS)  // may snap sIvl by tol to existing knots
     {
       return SM_SUCCESS;
@@ -22502,10 +22525,10 @@ SmBoolean bDebugMe = FALSE;
   SmExtent1d sCWTrimIvl = pCWExtended->GetNaturalInterval();
   if (pEUCW->GetOrientation() == SM_OT_SAME)
     {
-      sCWTrimIvl.SetMinMax(sCWTrimIvl.GetMin(),dCWTrim);
+      SER( sCWTrimIvl.SetMinMax(sCWTrimIvl.GetMin(),dCWTrim) );
     }
   else
-    {  sCWTrimIvl.SetMinMax(dCWTrim,sCWTrimIvl.GetMax()); }
+    {  SER( sCWTrimIvl.SetMinMax(dCWTrim,sCWTrimIvl.GetMax()) ); }
   if (pCWExtended->Trim(sCWTrimIvl) != SM_SUCCESS)  // may snap sIvl by tol to existing knots
     {
       return SM_SUCCESS;
@@ -22615,7 +22638,7 @@ SmBoolean bDebugMe4 = FALSE;
       pEUCCW->GetEdge()->SetInterval(sCCWTrimIvl);
       pUVCCW = NULL ;
       SER(pEUCCW->GetOrCreateUVTrimCurve(pUVCCW));
-      pUVCCW->Trim(sCCWTrimIvl);  // may snap sIvl by tol to existing knots
+      SER( pUVCCW->Trim(sCCWTrimIvl) );  // may snap sIvl by tol to existing knots
     }
   else
     {
@@ -22652,7 +22675,7 @@ SmBoolean bDebugMe4 = FALSE;
       // Use existing curves but trim them back.
       pEUCW->GetEdge()->SetInterval(sCWTrimIvl);
       SER(pEUCW->GetOrCreateUVTrimCurve(pUVCW));
-      pUVCW->Trim(sCWTrimIvl);  // may snap sIvl by tol to existing knots
+      SER( pUVCW->Trim(sCWTrimIvl) );  // may snap sIvl by tol to existing knots
     }
   else
     {
@@ -23034,8 +23057,8 @@ SmStatus SmBrep::MergeBrep
         pNewLU2->m_pL = pNewL;
         pNewLU1->m_pLUMate = pNewLU2;
         pNewLU2->m_pLUMate = pNewLU1;
-        pNewFU1->PostInsert( pNewLU1) ;
-        pNewFU2->PostInsert( pNewLU2) ;
+        SER( pNewFU1->PostInsert( pNewLU1)  );
+        SER( pNewFU2->PostInsert( pNewLU2)  );
         pNewLU1->m_eOrientation = pLU1->m_eOrientation;
         pNewLU2->m_eOrientation = pLU2->m_eOrientation;
         pNewLU1->m_tLoopuseType = pLU1->m_tLoopuseType;
@@ -23076,7 +23099,7 @@ SmStatus SmBrep::MergeBrep
       SE( m_pEdgeListHead->PostInsert( pNewE )) ;
 
       // Now do edgeuses
-      pE->GetEdgeuses( sEUs) ;
+      SER( pE->GetEdgeuses( sEUs)  );
       for(ULONG k = 0; k < sEUs.GetSize(); k++)
       {
         SmEdgeuse *pEU = sEUs[k];
@@ -23271,7 +23294,7 @@ SmStatus SmBrep::MergeBrep
       SmEdge *pE = sEdges[i];
 
       // for every edgeuse
-      pE->GetEdgeuses( sEUs) ;
+      SER( pE->GetEdgeuses( sEUs)  );
       for(ULONG k = 0; k < sEUs.GetSize(); k++)
       {
         SmEdgeuse *pEU = sEUs[k];
@@ -23378,7 +23401,7 @@ SmStatus SmBrep::MergeBrep
       SmEdge *pE = sEdges[i];
 
       // for every edgeuse
-      pE->GetEdgeuses( sEUs) ;
+      SER( pE->GetEdgeuses( sEUs)  );
       for(ULONG k = 0; k < sEUs.GetSize(); k++)
       {
         SmEdgeuse *pEU = sEUs[k];
@@ -23427,20 +23450,23 @@ SmStatus SmBrep::MergeBrep
 
 } // end SmBrep::MergeBrep
 
-static void sm_ReverseReflectionEdgeuses(SmEdge& edge)
+// SolidCraft change: both return the status of their list edits (a failed one left the edge's or
+// the shells' lists half changed, and the callers carried on).
+static SmStatus sm_ReverseReflectionEdgeuses(SmEdge& edge)
 {
     SmTArray<SmEdgeuse*> uses;
-    edge.GetEdgeuses(uses);
+    SER(edge.GetEdgeuses(uses));
     for (SmEdgeuse* use : uses)
-        edge.Remove(use);
+        SER(edge.Remove(use));
     for (ULONG i = 0; i < uses.GetSize(); i += 2)
     {
-        edge.PostInsert(uses[i + 1]);
-        edge.PostInsert(uses[i]);
+        SER(edge.PostInsert(uses[i + 1]));
+        SER(edge.PostInsert(uses[i]));
     }
+    return SM_SUCCESS;
 }
 
-static void sm_SwapReflectionShells(SmFace& face)
+static SmStatus sm_SwapReflectionShells(SmFace& face)
 {
     SmFaceuse *first, *second;
     face.GetFaceuses(first, second);
@@ -23448,11 +23474,12 @@ static void sm_SwapReflectionShells(SmFace& face)
     SmShell* b = second->GetShell();
     if (a != b)
     {
-        a->Remove(first);
-        b->Remove(second);
-        a->PostInsert(second);
-        b->PostInsert(first);
+        SER(a->Remove(first));
+        SER(b->Remove(second));
+        SER(a->PostInsert(second));
+        SER(b->PostInsert(first));
     }
+    return SM_SUCCESS;
 }
 
 /*******************************************************************//**
@@ -23541,7 +23568,7 @@ SmBoolean bDebugMe = FALSE;
       for (ULONG kk=0; kk<sEdges.GetSize(); kk++)
         {
           SmEdge *pE = sEdges[kk];
-          sm_ReverseReflectionEdgeuses(*pE);
+          SER(sm_ReverseReflectionEdgeuses(*pE));
         }
 
       // Now delete the curve.
@@ -23590,7 +23617,7 @@ SmBoolean bDebugMe2 = FALSE;
           SmFace *pF = sFaces[jj];
           SER(pF->RemoveUVTrimCurves());
 
-          sm_SwapReflectionShells(*pF);
+          SER(sm_SwapReflectionShells(*pF));
         }
     } // end iter every Brep->Surface
 
@@ -24190,7 +24217,7 @@ SmStatus SmBrep::OrientTrimmedSurfaces
       // If this face needs swapping, do it. Aids in bookkeeping later.
       if (pOptFacesToSwapUV && pOptFacesToSwapUV->FindElement(pFace, sIndex))
       {
-          pFace -> SwapUV();
+          SER( pFace -> SwapUV() );
       }
   
       // when just using topology to justify normals
@@ -24903,13 +24930,13 @@ static SmStatus sm_FindSideOfCurve
   if(sVec.Length() < dTol )
     { return SM_ERR; }
 
-  sVec.Unitize();
+  (void)sVec.Unitize(); // SolidCraft: a zero vector stays zero
   SmVector3d sTan = crProjectionDirection * sPV[1] * crProjectionDirection;
 
   // projection direction is the same as the curve tangent or curve tangent is zero
   if (sTan.Length() < dTol)
     { return SM_ERR; }
-  sTan.Unitize();
+  (void)sTan.Unitize(); // SolidCraft: a zero vector stays zero
 
   // projected vec and curve tangent are parallel
   SmVector3d sSide = sTan * sVec;
@@ -25582,7 +25609,7 @@ SmStatus SmBrep::RayIntersection
           if (pEdge) {
               SmEdgeuse * sEUData[16];
               SmTArray<SmEdgeuse*> sEdgeuses(16,sEUData);
-              pEdge->GetEdgeuses(sEdgeuses);
+              SER( pEdge->GetEdgeuses(sEdgeuses) );
               for (ULONG jj=0; jj<sEdgeuses.GetSize(); jj++) 
                 {
                   SmEdgeuse *pEU = sEdgeuses[jj];
@@ -25612,7 +25639,7 @@ SmStatus SmBrep::RayIntersection
                   if (!pFU) continue;
                   pFace = pFU->GetFace();
                   if (!pFace) continue;
-                  pVU->ComputeUVPoint(sUV);
+                  SER( pVU->ComputeUVPoint(sUV) );
                   break;
                 }
             }
@@ -25879,7 +25906,7 @@ SmBoolean bDebugMe=FALSE;
 
       // locals
       SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 8) ;
-      pEdge->GetEdgeuses(sEdgeuses) ;
+      SER( pEdge->GetEdgeuses(sEdgeuses)  );
       SM_ASSERT(sEdgeuses.GetSize() == 4) ;
 
       // 1st edgeuse Surface
@@ -26269,7 +26296,7 @@ SmStatus SmBrep::RemoveAllTopology()
   ULONG ii, lNumWireEdges = sEdges.GetSize();
   for ( ii = 0; ii < lNumWireEdges; ii++ )
     {
-      DeleteEdge( sEdges[ii]) ;
+      SER( DeleteEdge( sEdges[ii])  );
     }
 
   SmTArray< SmVertex* > sVerts;
@@ -26277,7 +26304,7 @@ SmStatus SmBrep::RemoveAllTopology()
   ULONG lNumShellVerts = sVerts.GetSize();
   for ( ii = 0; ii < lNumShellVerts; ii++ )
     {
-      DeleteVertex( sVerts[ii]) ;
+      SER( DeleteVertex( sVerts[ii])  );
     }
 
 #ifdef SM_DEBUG_CODE
@@ -26342,7 +26369,7 @@ SmStatus SmBrep::ReplaceSurface
 
 // Remove Composites - moved block up from below
   // remove the isoparameter curves
-  pTopFace->RemoveUVTrimCurves();
+  SER( pTopFace->RemoveUVTrimCurves() );
   
   // when asked - remember the modified faces
   if (pOptFacesModified)
@@ -26432,10 +26459,10 @@ SmStatus SmBrep::ReplaceCurve
   this->Notify(SM_NO_PRE_EDIT, this, NULL, NULL) ;
     
   // change the edge
-  pEdge->Replace3DCurve(pNewCurve) ;
+  SER( pEdge->Replace3DCurve(pNewCurve)  );
 
   // remove existing UVTrimCurves
-  pEdge->RemoveUVTrimCurves() ;
+  SER( pEdge->RemoveUVTrimCurves()  );
 
   // all done
   return SM_SUCCESS;
@@ -26489,9 +26516,10 @@ void SmBrep::SetTolerance
   SM_OLDTOL_LINE if (sNewZoneTol3d <= 0.0)
   SM_OLDTOL_LINE   {
   SM_OLDTOL_LINE    SmExtent3d brepBBox;
-  SM_OLDTOL_LINE    CalculateBoundingBox(brepBBox);
+  SM_OLDTOL_LINE    // SolidCraft change: a box that cannot be computed is no size, as an absurd one is not
+  SM_OLDTOL_LINE    SmStatus eBox = CalculateBoundingBox(brepBBox);
   SM_OLDTOL_LINE    double size = brepBBox.GetSize().Length();
-  SM_OLDTOL_LINE    if (size >= 1.0e15 || size <= 0.0) size = 1.0;
+  SM_OLDTOL_LINE    if (eBox != SM_SUCCESS || size >= 1.0e15 || size <= 0.0) size = 1.0;
   SM_OLDTOL_LINE     sNewZoneTol3d = SM_ZONE_TOL_3D * size ;
   SM_OLDTOL_LINE   }
   SM_OLDTOL_LINE 
@@ -26700,14 +26728,14 @@ SmStatus SmBrep::StitchAndOrient
                        : dStitchTol3d ;
 
   // do the 1st stitch
-  this->StitchFaces(dXSectTol3d,        // in : max 3d distance between coincident vertex and edge pairs
+  SER( this->StitchFaces(dXSectTol3d,        // in : max 3d distance between coincident vertex and edge pairs
                  lNumStitched,           // out: number of edges stitched
                  lNumLamina,         // out: number of lamina edges remaining after stitch
                  dMaxVGap,           // out: max gap found between coincident vertices considered for glueing
                  dMaxEGap,           // out: max gap found between coincident edges    considered for glueing
                  NULL,               // in : only stitch topology connected to these faces, NULL=all faces
                                      //      default:[NULL]
-                 bAllowSpineEdges) ; // in : if true this allows formation of spine edges. See c below.
+                 bAllowSpineEdges)  ); // in : if true this allows formation of spine edges. See c below.
                                      //      default:[FALSE]
                                      // NOTE: some coincident vertex and edge pairs do not get glued due to
                                      //       a. gaps exceeding tolerances
@@ -26722,15 +26750,15 @@ SmStatus SmBrep::StitchAndOrient
       dXSectTol3d = (dStitchTol3d <= 0.0) ? dXSectTol3d * 20.0 : dXSectTol3d * 10.0 ;
 
       // try 2nd stitch with larger tolerance
-      this->StitchFaces(dXSectTol3d, lNumStitched, lNumLamina, dMaxVGap, dMaxEGap, NULL, bAllowSpineEdges) ;
+      SER( this->StitchFaces(dXSectTol3d, lNumStitched, lNumLamina, dMaxVGap, dMaxEGap, NULL, bAllowSpineEdges)  );
     }
 
   // and orient faces
   SmBoolean bNormalsOutward = TRUE;
   SmBoolean rbMaybeNotClosedSolid = FALSE; //out
   SmBoolean bJustUnifyNormals = (lNumLamina > 0);  // if not a closed solid
-  this->OrientTrimmedSurfaces(
-      bNormalsOutward, rbMaybeNotClosedSolid, pbJustUnify ? *pbJustUnify : bJustUnifyNormals, pOptFacesToSwap); // increments
+  SER( this->OrientTrimmedSurfaces(
+      bNormalsOutward, rbMaybeNotClosedSolid, pbJustUnify ? *pbJustUnify : bJustUnifyNormals, pOptFacesToSwap) ); // increments
                                                                                                            // unlocked
                                                                                                            // mark value
 
@@ -26803,7 +26831,7 @@ SmStatus SmBrep::SqueezeEdge
   // locals - vertex to delete, edge->edgeuses
   SmVertex *pDelVertex = pEdgeToSqueeze->GetOtherVertex(pSurvivingVertex);
   SmTArray<SmEdgeuse*> sEdgeuses;
-  pEdgeToSqueeze->GetEdgeuses(sEdgeuses);
+  SER( pEdgeToSqueeze->GetEdgeuses(sEdgeuses) );
 
   SmTArray<SmVertexuse*> sVUsTmp;
   pDelVertex->GetVertexuses(sVUsTmp);
@@ -26850,7 +26878,7 @@ SmStatus SmBrep::SqueezeEdge
 
                   // Use an Edgeuse from that Edge.
                   SmTArray<SmEdgeuse*> sSurvivingEUs;
-                  pSurvivingEdge->GetEdgeuses( sSurvivingEUs) ;
+                  SER( pSurvivingEdge->GetEdgeuses( sSurvivingEUs)  );
 
                   // There should be exactly two of these as well.
                   SM_ASSERT( sSurvivingEUs.GetSize() == 2) ;
@@ -26869,7 +26897,7 @@ SmStatus SmBrep::SqueezeEdge
                   // the Edgeuses' backpointers remain on their Edge.
                   // So do this instead:
                   pShell->m_pList = (SmTopology*)pSurvivingEU;
-                  pShell->UpdateListSize();
+                  SER( pShell->UpdateListSize() );
                 }
             }
         } // end for each Edgeuse
@@ -26946,7 +26974,7 @@ SmStatus SmBrep::SqueezeEdge
             {
               // ... convert loop into a vertex loop.
               SmVertexuse *pVUofLoop = new (this) SmVertexuse();
-              pSurvivingVertex->PreInsert(pVUofLoop);
+              SER( pSurvivingVertex->PreInsert(pVUofLoop) );
               pVUofLoop->m_pSorLUorEU           = pEU->GetLoopuse();
               pVUofLoop->m_tVertexuseType       = SmLoopuse_TYPE;
               pEU->GetLoopuse()->m_pEUorVU      = pVUofLoop;
@@ -26970,8 +26998,8 @@ SmStatus SmBrep::SqueezeEdge
     {
       SmEdgeuse   *pEU = sEdgeuses[ii];
       SmVertexuse *pVU = pEU->GetVertexuse();
-      pEdgeToSqueeze->Remove(pEU);
-      pVU->GetVertex()->Remove(pVU);
+      SER( pEdgeToSqueeze->Remove(pEU) );
+      SER( pVU->GetVertex()->Remove(pVU) );
       SM_ASSERT(pEU != NULL) ; delete pEU ; pEU = NULL ;
       SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
     }
@@ -26986,8 +27014,8 @@ SmStatus SmBrep::SqueezeEdge
   for ( ii=0; ii<lNumVUs; ii++ )
     {
       SmVertexuse *pVU = sVUs[ii];
-      pDelVertex->Remove(pVU);
-      pSurvivingVertex->PostInsert(pVU);
+      SER( pDelVertex->Remove(pVU) );
+      SER( pSurvivingVertex->PostInsert(pVU) );
     }
 
   // Delete squeezeEdge and deleteVertex now that they are removed from the topology graph.
@@ -27610,7 +27638,7 @@ SmStatus SmBrep::SqueezeFacesIfDegenerate
                 const SmContext *pContext = GetContext();
                 SmEdge *pE = sEs[jj];
                 SmCurve *pC;
-                pE->GetCurve()->Copy( *pContext, pC) ;
+                SER( pE->GetCurve()->Copy( *pContext, pC)  );
                 sEToCs.SetAt( pE, pC) ;
             }
         }
@@ -27710,7 +27738,7 @@ SmStatus SmBrep::TestClosureSplitRegion
   // Ok, enough chat, let's get down to work.
 
   SmTArray< SmEdgeuse * > sTestEUs;
-  pTestEdge->GetEdgeuses( sTestEUs) ;
+  SER( pTestEdge->GetEdgeuses( sTestEUs)  );
   ULONG lNumEUs = sTestEUs.GetSize();
   if(lNumEUs < 6 )  // maybe 4? in case of joining two lamina edges...
     { return SM_SUCCESS; } // not a spine edge.
@@ -27903,8 +27931,8 @@ SmStatus SmBrep::TestClosureSplitRegion
 
   // set ShellType, connect Shell to Region, place Region in Brep
   pNewShell->SetShellType(SmFaceuse_TYPE);
-  pNewRegion->PostInsert(pNewShell);
-  this->PostInsert(pNewRegion);
+  SER( pNewRegion->PostInsert(pNewShell) );
+  SER( this->PostInsert(pNewRegion) );
 
   // move all faceuses connected to pFUStart through edgeuses into pNewShell
   // locals
@@ -27920,7 +27948,7 @@ SmStatus SmBrep::TestClosureSplitRegion
   SmShell  * pOldShell   = pFUStart->GetShell();
   SmRegion * pOldRegion  = pOldShell->GetRegion();
 
-  pOldShell->GetWireEdges(sWireEdges);
+  SER( pOldShell->GetWireEdges(sWireEdges) );
   pOldShell->GetFaceuses (sFaceuses);
   pOldRegion->GetShells  (sShells);
 
@@ -28008,7 +28036,7 @@ SmBoolean bDebugMe = FALSE ;
       SmBoolean bIsNewInner     = FALSE ;
 
       // New and Old shells will either be one OuterShell and one InnerShell or two InnerShells
-      sTT.IsInnerShell( sReplacedFaceusesStart, bIsNewInner) ;
+      SER( sTT.IsInnerShell( sReplacedFaceusesStart, bIsNewInner)  );
 #ifdef SM_DEBUG_CODE
         {
           SmBoolean bIsOldInner = FALSE ;
@@ -28484,7 +28512,7 @@ SmBoolean bDebugMe = FALSE ;
           double                dTol = SM_EFF_ZERO_SQRT * (1.0 + sPnt.GetMaxDimension());
           SmRegion            * pRegOfPoint;
           SmVector3d            sRayVec(1,1,1);
-          sRayVec.Unitize();
+          (void)sRayVec.Unitize(); // SolidCraft: a zero vector stays zero
           sPnt = sPnt + sRayVec * dTol;
 
           // use RayFire
@@ -28517,8 +28545,8 @@ SmBoolean bDebugMe = FALSE ;
           // might break 'the region's 1st shell is the outer shell' rule.
           if(pOldReg != pFoundReg)
             {
-              pOldReg->Remove(pShell);
-              pFoundReg->PostInsert(pShell);
+              SER( pOldReg->Remove(pShell) );
+              SER( pFoundReg->PostInsert(pShell) );
 
               // Actually, this could violate the 1st-shell rule, above,
               // even if they're not the same.
@@ -28533,7 +28561,7 @@ SmBoolean bDebugMe = FALSE ;
       // which is going to be the infinite region, so just do this anyway.
       if(bMovedShell )
         {
-          pOldRegion->OrderShells();
+          SER( pOldRegion->OrderShells() );
         }
 
 #ifdef SM_DEBUG_CODE
@@ -28561,14 +28589,14 @@ SmBoolean bDebugMe3 = FALSE;
   SmRegion *pTempReg = pOldShell->GetRegion();
   if(pOldShell->GetSize() == 0 )
     {
-      pTempReg->Remove( pOldShell) ;
+      SER( pTempReg->Remove( pOldShell)  );
       delete pOldShell; pOldShell = NULL;
     }
 
   // When OldRegion is empty - delete it
   if(pTempReg->GetSize() == 0 )
     {
-      this->Remove( pTempReg) ;
+      SER( this->Remove( pTempReg)  );
       delete pTempReg; pTempReg = NULL;
       // Make sure infinite region points where it should.
       m_pInfiniteRegion = SM_CAST_PTR( SmRegion, m_pList) ;
@@ -28578,14 +28606,14 @@ SmBoolean bDebugMe3 = FALSE;
   pTempReg = pNewShell->GetRegion();
   if(pNewShell->GetSize() == 0 )
     {
-      pTempReg->Remove( pNewShell) ;
+      SER( pTempReg->Remove( pNewShell)  );
       delete pNewShell; pNewShell = NULL;
     }
 
   // When NewRegion is empty - delete it
   if(pTempReg->GetSize() == 0 )
     {
-      this->Remove( pTempReg) ;
+      SER( this->Remove( pTempReg)  );
       delete pTempReg; pTempReg = NULL;
       // Make sure infinite region points where it should.
       m_pInfiniteRegion = SM_CAST_PTR( SmRegion, m_pList) ;
@@ -28658,7 +28686,7 @@ SmStatus SmBrep::Transform
   if (smos_Fabs(svRow0.Dot(svRow1)) < SM_EFF_ZERO)
   {
       double dAngleCheck = 0.0;
-      (svRow0 * svRow1).AngleBetween(svRow2, dAngleCheck);
+      SER( (svRow0 * svRow1).AngleBetween(svRow2, dAngleCheck) );
       
       if (dAngleCheck <= SM_EFF_ZERO_RAD)
       {
@@ -28682,10 +28710,10 @@ SmStatus SmBrep::Transform
   SmTArray<double> sDDiag;
   sDDiag.SetSize(3);
 
-  sV.SVDecompose(sDDiag, sU);
+  SER( sV.SVDecompose(sDDiag, sU) );
 
   SmMatrix sUt(sU);
-  sUt.Transpose();
+  SER( sUt.Transpose() );
 
   // Build Axis2Placement and scaling vectors for transforms
   SmVector3d sVX(sV[0]);
@@ -28699,7 +28727,7 @@ SmStatus SmBrep::Transform
   SmAxis2Placement sTransformV;
   SmVector3d sScaleV(dVXLen, dVYLen, dVZLen);
   SmVector3d sOrigin(0, 0, 0);
-  sTransformV.SetCanonical(sOrigin, sVX / dVXLen, sVY / dVYLen);
+  SER( sTransformV.SetCanonical(sOrigin, sVX / dVXLen, sVY / dVYLen) );
 
   SmVector3d sUtX(sUt[0]);
   SmVector3d sUtY(sUt[1]);
@@ -28719,7 +28747,7 @@ SmStatus SmBrep::Transform
 
   double dAngleV;
 
-  (sVX * sVY).AngleBetween(sVZ, dAngleV);
+  SER( (sVX * sVY).AngleBetween(sVZ, dAngleV) );
 
   if (dAngleV > SM_HALFPI)
   {
@@ -28728,7 +28756,7 @@ SmStatus SmBrep::Transform
 
   double dAngleUt;
 
-  (sUtX * sUtY).AngleBetween(sUtZ, dAngleUt); 
+  SER( (sUtX * sUtY).AngleBetween(sUtZ, dAngleUt) ); 
 
   if (dAngleUt > SM_HALFPI)
   {
@@ -28752,7 +28780,7 @@ SmStatus SmBrep::Transform
       // 
       if (bMirrorUt)
         {
-          sTransformUt.SetCanonical(sOrigin, sUtX / dUtXLen, sUtY / dUtYLen);
+          SER( sTransformUt.SetCanonical(sOrigin, sUtX / dUtXLen, sUtY / dUtYLen) );
           eStat = std::max(pBrep->Transform(sTransformUt, // in : affine rotate and move transformation
                                             &sScaleUt,    // in : optional scaling about current origin point before RotateNMove (nonIsotropic scaling: convert geometry to BSplines)
                                             bScaleTol),   // in : When TRUE, scale object tolerances as needed by ModelSize changes due to cpOptScale scaling
@@ -28761,12 +28789,12 @@ SmStatus SmBrep::Transform
 
           SmVector3d vX(1, 0, 0), vY(0, 1, 0);
 
-          sTransformUt.SetCanonical(sDisp, vX, vY);
+          SER( sTransformUt.SetCanonical(sDisp, vX, vY) );
           eStat = std::max(pBrep->Transform(sTransformUt), eStat);
         }
       else // trqansform without mirror
         {
-          sTransformUt.SetCanonical(sDisp, sUtX / dUtXLen, sUtY / dUtYLen);
+          SER( sTransformUt.SetCanonical(sDisp, sUtX / dUtXLen, sUtY / dUtYLen) );
           eStat = std::max(pBrep->Transform(sTransformUt, // in : affine rotate and move transformation
                                             &sScaleUt,    // in : optional scaling about current origin point before RotateNMove (nonIsotropic scaling: convert geometry to BSplines)
                                             bScaleTol),   // in : When TRUE, scale object tolerances as needed by ModelSize changes due to cpOptScale scaling
@@ -28816,7 +28844,7 @@ SmStatus SmBrep::Transform
          || cpOptScale->x < SM_EFF_ZERO))
     {
       WARN(_T("Transforming Brep with nonuniform scaling: Turning analytics to NURBs\n"));
-      this->TurnToNURBS();
+      SER( this->TurnToNURBS() );
     } // end nonuniform Opt mscaling input check
 
   // We can scale and rotate a brep by transforming all of its 3D geometry
@@ -28903,10 +28931,10 @@ SmStatus SmBrep::Transform
         SmTArray<SmEdge*> sEdges;
         GetEdges(sEdges);
         for (SmEdge* pEdge : sEdges)
-          { sm_ReverseReflectionEdgeuses(*pEdge); }
+          { SER(sm_ReverseReflectionEdgeuses(*pEdge)); }
         GetFaces(sFaces);
         for (SmFace* pFace : sFaces)
-          { sm_SwapReflectionShells(*pFace); }
+          { SER(sm_SwapReflectionShells(*pFace)); }
       }
 
     // Scale Tolerances
@@ -31204,14 +31232,14 @@ clock_t tStart = 0;
             else if(pShell->IsWireShell())
               {
                 SmTArray<SmTopology*> sShellEdgeuses ;
-                pShell->GetAll(sShellEdgeuses) ;
+                SER( pShell->GetAll(sShellEdgeuses)  );
                 for(ULONG kk=0; kk<sShellEdgeuses.GetSize(); kk++)
                   { SM_CHECK_REQ_EDGEUSE((SmEdgeuse *)sShellEdgeuses[kk]) ; }
               }
             else if(pShell->IsVertexShell())
               {
                 SmTArray<SmTopology*> sShellVertexuses ;
-                pShell->GetAll(sShellVertexuses) ;
+                SER( pShell->GetAll(sShellVertexuses)  );
                 for(ULONG kk=0; kk<sShellVertexuses.GetSize(); kk++)
                   { SM_CHECK_REQ_VERTEXUSE((SmVertexuse *)sShellVertexuses[kk]) ; }
               }
@@ -31283,7 +31311,7 @@ clock_t tStart = 0;
             SM_CHECK_REQ_PTR(134, pEdge->GetList(), pEdge) ;
 
             SmTArray<SmEdgeuse*> sReqEdgeuses ;
-            pEdge->GetEdgeuses(sReqEdgeuses) ;
+            SER( pEdge->GetEdgeuses(sReqEdgeuses)  );
             for(ULONG jj=0; jj<sReqEdgeuses.GetSize(); jj++)
               { SM_CHECK_REQ_EDGEUSE(sReqEdgeuses[jj]) ; }
           }
@@ -31358,7 +31386,7 @@ clock_t tStart = 0;
   for(ULONG ii=0; ii<sOwnerEdges.GetSize(); ii++)
     {
       SmTArray<SmEdgeuse*> sOwnerEdgeuses ;
-      sOwnerEdges[ii]->GetEdgeuses(sOwnerEdgeuses) ;
+      SER( sOwnerEdges[ii]->GetEdgeuses(sOwnerEdgeuses)  );
       for(ULONG jj=0; jj<sOwnerEdgeuses.GetSize(); jj++)
         {
           if(!HasLiveOwner(sOwnerEdgeuses[jj]))
@@ -31668,7 +31696,7 @@ clock_t tStart = 0;
 
         // get Edgeuses - must be an even number of mate and radial pointers.
         // Odd EU count is illegal
-        pE->GetEdgeuses(sEUs);
+        SER( pE->GetEdgeuses(sEUs) );
         bRtn &= SM_ASSERT_OBJ_BOOLEAN_REPORT(this, SM_LIST_1, 62, SM_LEVEL_0, (sEUs.GetSize() % 2 == 0), pE, _T("") ) ;
 
         SmOrientType eLastOrient = sEUs.GetLast()->GetOrientation();
@@ -31733,17 +31761,17 @@ clock_t tStart = 0;
                     SmPoint3d uvPt3d;
                     SmPoint2d uvPt2d;
                     double dP0 = edgeDomain.GetMin();
-                    pUVCurve->EvaluatePoint( dP0, uvPt3d) ;
+                    SER( pUVCurve->EvaluatePoint( dP0, uvPt3d)  );
                     uvPt2d = SmPoint2d( uvPt3d.x, uvPt3d.y) ;
                     bRtn &= SM_ASSERT_OBJ_VALUE_REPORT(this, SM_LIST_1, 70, SM_LEVEL_0, (faceDomain.ContainsPoint2d( uvPt2d, 0.0001)), pUVCurve, 0.0001, SM_UNDEF_DOUBLE, _T("") ) ;
 
                     double dP1 = edgeDomain.GetMax();
-                    pUVCurve->EvaluatePoint( dP1, uvPt3d) ;
+                    SER( pUVCurve->EvaluatePoint( dP1, uvPt3d)  );
                     uvPt2d = SmPoint2d( uvPt3d.x, uvPt3d.y) ;
                     bRtn &= SM_ASSERT_OBJ_VALUE_REPORT(this, SM_LIST_1, 71, SM_LEVEL_0, (faceDomain.ContainsPoint2d( uvPt2d, 0.0001)), pUVCurve, 0.0001, SM_UNDEF_DOUBLE, _T("") ) ;
 
                     double dPMid = ( dP0 + dP1 ) / 2.0;
-                    pUVCurve->EvaluatePoint( dPMid, uvPt3d) ;
+                    SER( pUVCurve->EvaluatePoint( dPMid, uvPt3d)  );
                     uvPt2d = SmPoint2d( uvPt3d.x, uvPt3d.y) ;
                     bRtn &= SM_ASSERT_OBJ_VALUE_REPORT(this, SM_LIST_1, 72, SM_LEVEL_0, (faceDomain.ContainsPoint2d( uvPt2d, 0.0001)), pUVCurve, 0.0001, SM_UNDEF_DOUBLE, _T("") ) ;
                   }
@@ -31903,7 +31931,7 @@ clock_t tStart = 0;
     for (ULONG ii = 0; ii < sEdges.GetSize(); ii++)
       {
         SmTArray<SmEdgeuse*> sEdgeuses;
-        sEdges[ii]->GetEdgeuses(sEdgeuses);
+        SER( sEdges[ii]->GetEdgeuses(sEdgeuses) );
         for (ULONG jj = 1; jj < sEdgeuses.GetSize(); jj += 2)
           {
             SmEdgeuse * pEU0    = sEdgeuses[jj-1];
@@ -32145,7 +32173,7 @@ SmStatus SmBrep::WriteToFile
   SmTArray<SmAttribute*> sAttributes; // willt contain ptrs to all attributes 'this's topology graph - error to delete these ptrs
 
   // load BrepData and array of attribute pointers
-  pBrepData->FromBrep(*this,sAttributes);
+  SER( pBrepData->FromBrep(*this,sAttributes) );
 
   // Output Brep to File
   SER(pBrepData->WriteToFile(cOutputFileName, eType, bNewFile, bWriteAsBSplines, dApproxTol));
@@ -32193,7 +32221,7 @@ SmStatus SmBrep::ReadFromFile
   SmBoolean bCheckUVTrimCurves = !bRebuildUVTrimCurves;
   if(bCheckUVTrimCurves )
     {
-      sm_CheckAndFixUVTrimCurves( this) ;
+      SER( sm_CheckAndFixUVTrimCurves( this)  );
     }
 
 // Remove Composites
@@ -32360,7 +32388,7 @@ SmStatus SmBrep::ReadFromFile
   // when asked - rebuild UVTrimCurves
   if(bRebuildUVTrimCurves)
     {
-      RebuildUVTrimCurves() ;
+      SER( RebuildUVTrimCurves()  );
     }
 
 #ifdef SM_DEBUG_CODE
@@ -32540,7 +32568,7 @@ SmBoolean bDebugMe  = FALSE;
       // Make sure face domain is still within the domain of the surface
       // by intersecting the two.
       SmExtent2d sSurfDomain = pSurface->GetNaturalUVDomain();
-      sSurfDomain.Intersect(sFaceDomain, sFaceDomain);
+      SER( sSurfDomain.Intersect(sFaceDomain, sFaceDomain) );
 
 #ifdef SM_DEBUG_CODE
       if (bDebugMe)
@@ -32593,10 +32621,10 @@ SmBoolean bDebugMe  = FALSE;
       if( !sSurfDomain.AreEqual(sFaceDomain, SM_EFF_ZERO))
         {
           // trim the surface
-          pSurface->TrimWithDomain(sFaceDomain) ;
+          SER( pSurface->TrimWithDomain(sFaceDomain)  );
 
 // Remove Composites - moved 1 line up from below
-          pFace->RemoveUVTrimCurves();
+          SER( pFace->RemoveUVTrimCurves() );
 
 // Remove Composites
 //          // Trimming can modify the parameterization of the surface on the interior,
@@ -32881,7 +32909,7 @@ SmStatus SmBrep::RefitSurfOfRevolutionSurfaces
 
         // simplify the surface representation with an approximation - expect controlPoint count to go down
         SmSurfOfRevolution *pNewSurfOfRevolution = NULL;
-        pSurfOfRevolution->CreateApproxSurface(crContext,  dThisApproxTol3d, pNewSurfOfRevolution);
+        SER( pSurfOfRevolution->CreateApproxSurface(crContext,  dThisApproxTol3d, pNewSurfOfRevolution) );
         if (pNewSurfOfRevolution == NULL)
            return (SM_ERR);
         SmObjDelete sClean2(pNewSurfOfRevolution);
@@ -32919,7 +32947,7 @@ SmStatus SmBrep::TurnToNURBSAndSubdivide
    double dKnotSpacing)
 {
     // First turn it into a NURBS.
-    TurnToNURBS();
+    SER( TurnToNURBS() );
 
     SM_PTR_ARRAY(sCurves,SmCurve,256);
     SM_PTR_ARRAY(sSurfaces,SmSurface,256);
@@ -32929,7 +32957,7 @@ SmStatus SmBrep::TurnToNURBSAndSubdivide
         SmBSplineCurve *pBSC = SM_CAST_PTR(SmBSplineCurve,sCurves[jj]);
         NER(pBSC);
         if (pBSC->GetDegree() < lDegree) {
-            pBSC->DegreeElevate(lDegree);
+            SER( pBSC->DegreeElevate(lDegree) );
         }
         SER(pBSC->InsertKnotsByDistance(dKnotSpacing));
     }
@@ -32939,10 +32967,10 @@ SmStatus SmBrep::TurnToNURBSAndSubdivide
         SmBSplineSurface *pBSS = SM_CAST_PTR(SmBSplineSurface,sSurfaces[kk]);
         NER(pBSS);
         if (pBSS->GetDegree(SM_SP_U) < lDegree) {
-            pBSS->DegreeElevate(SM_SP_U,lDegree);
+            SER( pBSS->DegreeElevate(SM_SP_U,lDegree) );
         }
         if (pBSS->GetDegree(SM_SP_V) < lDegree) {
-            pBSS->DegreeElevate(SM_SP_V,lDegree);
+            SER( pBSS->DegreeElevate(SM_SP_V,lDegree) );
         }
         SER(pBSS->InsertKnotsByDistance(SM_SP_U,dKnotSpacing));
         SER(pBSS->InsertKnotsByDistance(SM_SP_V,dKnotSpacing));
@@ -33041,7 +33069,7 @@ SmBoolean bDebugMe = FALSE;
 
           SmExtent3d srfBBox;
           SmExtent2d sUVDomain = pNewBSS->GetNaturalUVDomain();
-          pNewBSS->CalculateBoundingBox(sUVDomain, &srfBBox);
+          SER( pNewBSS->CalculateBoundingBox(sUVDomain, &srfBBox) );
           double size = srfBBox.GetSize().Length();
           if (size >= 1.0e15 || size <= 0.0)
             { size = 1.0; }
@@ -33091,13 +33119,13 @@ SmBoolean bDebugMe = FALSE;
               SmBSplineCurve  * pUVCurve   = SM_CAST_PTR( SmBSplineCurve, pCrvOnSurf->GetUVCurve()) ;
               const SmSurface * pSurface   = pCrvOnSurf->GetBaseSurface();
               double            dMaxDist;
-              pSurface->LiftCurve(*pContext,                         // in : context for new object construction   
+              SER( pSurface->LiftCurve(*pContext,                         // in : context for new object construction   
                                    pSurface->GetNaturalUVDomain(),   // in : this surface limit
                                   *pUVCurve,                         // in : 2d Parameter curve defined in surface parameter space to lift
                                    pEdge->GetInterval(),             // in : curve segment to lift
                                    SmTol::GetApproxTol3d( pEdge ),   // in : max allowed distance between output curve and Surface
                                    dMaxDist,                         // out: max dist from output curve to surface
-                                   pBSC) ;                           // out: 3d Curve = Surface(crUVCurveToLift(crInterval))
+                                   pBSC)  );                           // out: 3d Curve = Surface(crUVCurveToLift(crInterval))
           }
 
           // Approximate pCurve if we don't have a SmBSplineCurve yet
@@ -33105,8 +33133,8 @@ SmBoolean bDebugMe = FALSE;
           {
               SmTArray<double> sKnots; 
               double           dMaxDist;
-              pCurve->GetKnots( sKnots) ;
-              pCurve->ApproximateCurve( *pContext, sKnots, SmTol::GetApproxTol3d( pEdge ), dMaxDist, pBSC) ;
+              SER( pCurve->GetKnots( sKnots)  );
+              SER( pCurve->ApproximateCurve( *pContext, sKnots, SmTol::GetApproxTol3d( pEdge ), dMaxDist, pBSC)  );
           }
           
           // Must have a BSplineCurve here
@@ -33269,7 +33297,7 @@ SmStatus SmBrep::UpdateVertexEdgeIntervals(SmVertex *pVertex)
         {
           // for every edgeuse mated pair
           SmTArray<SmEdgeuse*> sEdgeuses;
-          pEdge->GetEdgeuses(sEdgeuses);
+          SER( pEdge->GetEdgeuses(sEdgeuses) );
           for (ULONG kk=0; kk<sEdgeuses.GetSize(); kk+=2)
             {
               SmEdgeuse *pEU = sEdgeuses[kk];
@@ -33279,7 +33307,7 @@ SmStatus SmBrep::UpdateVertexEdgeIntervals(SmVertex *pVertex)
               if(pUVCurve)
                 {
                   pEU->SetUVTrimCurve(NULL, 0.0, TRUE) ; // TRUE = delete existing UVTrimCurve
-                  pEU->GetOrCreateUVTrimCurve(pUVCurve) ;
+                  SER( pEU->GetOrCreateUVTrimCurve(pUVCurve)  );
 
                 } // iter has a UVTrimCurve check
             } // end iter every edgeuse mated pair
@@ -33392,7 +33420,7 @@ SmBoolean bDebugMe = FALSE ;
 
   // get bounding box and its size
   SmExtent3d sBBox;
-  CalculateBoundingBox(sBBox);
+  SER( CalculateBoundingBox(sBBox) );
   double dSize = sBBox.GetSize().Length();
 
   // increment and lock an unlocked mark
@@ -33785,7 +33813,7 @@ SmStatus SmBrep::OutputGraphics
        if (dHiddenCurveTolerance < SM_EFF_ZERO)
          {
             SmExtent3d sBBox;
-            CalculateBoundingBox(sBBox);
+            SER( CalculateBoundingBox(sBBox) );
             dHiddenCurveTolerance = smos_Min( 10.0   * GetTolerance(), // [B387]
                                               SM_ZONE_TOL_3D * sBBox.GetSize().Length()) ;
          }
@@ -33795,14 +33823,14 @@ SmStatus SmBrep::OutputGraphics
        SmPoint3d        myOrigin;
        SmVector3d       myXAxis, myYAxis;
        crDispParams.m_vHCRView.GetCanonical(myOrigin, myXAxis, myYAxis);
-       myrView.SetCanonical(myOrigin, myXAxis, myYAxis);
+       SER( myrView.SetCanonical(myOrigin, myXAxis, myYAxis) );
 
        SmHCR sHCR(*GetContext(), this, myrView,
                    dHiddenCurveTolerance, SM_DEG2RAD(crDispParams.m_dCrvTessAngle),
                    crDispParams.m_bDisplaySeams, crDispParams.m_bDisplaySmoothEdges);
 
        // compute Brep->VisibleCurves
-       sHCR.ComputeGlobalVisibility();  // increments unlocked mark value
+       SER( sHCR.ComputeGlobalVisibility() );  // increments unlocked mark value
 
 #ifdef SM_DEBUG_CODE
       smos_sprintf(sBuff,_T("\nHidden Curve Tolerance = %lf\n"), dHiddenCurveTolerance);
@@ -33811,9 +33839,9 @@ SmStatus SmBrep::OutputGraphics
 #endif // SM_DEBUG_CODE
 
       // create display list of Brep->VisibleCurves
-      sHCR.DrawVisibleCurves((crDispParams.m_lHiddenCurveDash == 0),
+      SER( sHCR.DrawVisibleCurves((crDispParams.m_lHiddenCurveDash == 0),
                              crDispParams,
-                             pActiveDisplayList);
+                             pActiveDisplayList) );
 
 #ifdef SM_DEBUG_CODE
       clock_t finish2 = clock(); sm_PrintTime((_T("Cleanup Time for HCR")), finish, finish2);
@@ -33998,7 +34026,7 @@ SmBoolean bDebugMe = FALSE;
               }
 #endif // SM_DEBUG_CODE
 
-              sGfxSets[jj]->Display( sPolyOutput) ;
+              SER( sGfxSets[jj]->Display( sPolyOutput)  );
 
             } // end iter every entry in sGfxSet (each entry is expected to be a face).
 
@@ -34095,7 +34123,7 @@ SmBoolean bDebugMe = FALSE;
       if(  dMax3DEdge < 0.0)
         {
           SmExtent3d brepBBox;
-          pBrep->CalculateBoundingBox(brepBBox);
+          SER( pBrep->CalculateBoundingBox(brepBBox) );
           double size = brepBBox.GetSize().Length();
           if (size >= 1.0e15 || size <= 0.0)
             { size = 1.0; }
@@ -34173,7 +34201,7 @@ SmBoolean bDebugMe = FALSE;
 #endif // SM_DEBUG_CODE
 
       // added to prevent caching very large size surfaces
-      pBrepCopy->ShrinkGeometry();
+      SER( pBrepCopy->ShrinkGeometry() );
 
       // select polygon output behavior for given PolygonType and Shading
       SmPolygonOutputCallback sPolyOutput;
@@ -34276,14 +34304,14 @@ SmBoolean bDebugMe = FALSE;
                   //   m_p3DPolyBrep       = NULL ;
                   if(SM_SUCCESS == sTess.Phase2CreateFacePolygons(pFace))
                     {
-                      sTess.OutputFacePolygons(pFace,          // in : target face
+                      SER( sTess.OutputFacePolygons(pFace,          // in : target face
                                                sPolyOutput,    // in : Chooses how and where to output the polygons
                                                NULL,           // in : only used when rPolygonOutput.GetOutputType() == SM_PO_CREATE_POLYBREP
                                                                //        ppOptPolyShell NULL    = every new SmPolyFace gets a new SmPolyShell and SmPolyRegion
                                                                //       *ppOptPolyShell NotNULL = owner of any new SmPolyFaces constructed
                                                                //       *ppOptPolyShell NULL    = create and save ptr to new PolyShell for New SmPolyFaces of pFace
                                                                //      NULL to ignore, default:[NULL]
-                                               sGfxSets[kk]);  // i/o: only used when rPolygonOutput.GetOutputType() != SM_PO_CREATE_POLYBREP
+                                               sGfxSets[kk]) );  // i/o: only used when rPolygonOutput.GetOutputType() != SM_PO_CREATE_POLYBREP
                                                                //      used for OpenGL ES 2.0. When given, accumulate GfxVertexArrays not GL calls.
                                                                //      NULL to ignore. default:[NULL]
                                                                // note: increments an unlocked mark type
@@ -34335,7 +34363,7 @@ SmBoolean bDebugMe2 = FALSE;
               for ( ii = 0; ii < iNumF; ++ii )
               {
                   SmFace *pFace = rFaces[ii];
-                  sTess.Phase3DeleteFacePolygons( pFace) ;
+                  SER( sTess.Phase3DeleteFacePolygons( pFace)  );
               }
           
           SER(sPolyOutput.CompletedPolygonOutput());
@@ -34352,7 +34380,7 @@ SmBoolean bDebugMe2 = FALSE;
               }
 #endif // SM_DEBUG_CODE
 
-              sGfxSets[kk]->Display( sPolyOutput) ;
+              SER( sGfxSets[kk]->Display( sPolyOutput)  );
 
             } // end loop on each face entry in sGfxSet.
 
@@ -35250,7 +35278,7 @@ SmBoolean bDebugMe = FALSE ;
   SmTArray< SmRegion* > sConnectedRegions;
 
   SmTopologyTraverser sTT;
-  sTT.CollectRegions( m_pInfiniteRegion, sConnectedRegions) ;
+  (void)sTT.CollectRegions( m_pInfiniteRegion, sConnectedRegions) ; // SolidCraft: a validity check reads what it collected
 
   // The topology traverser doesn't put the given region in the list.
   sConnectedRegions.Add( m_pInfiniteRegion) ;
@@ -35441,7 +35469,7 @@ SmBoolean SmBrep::AssertSubTopology
   SmTArray<SmVertex *> sVertices ;
 
   // get all subgraph topology objects
-  SmTopologyTraverser::GetSubTopology(rObject, &sRegions, &sShells, &sFaces, &sLoops, &sEdges, &sVertices) ;
+  (void)SmTopologyTraverser::GetSubTopology(rObject, &sRegions, &sShells, &sFaces, &sLoops, &sEdges, &sVertices) ; // SolidCraft: a validity check reads what it collected
 
 #ifdef SM_DEBUG_CODE
   // test GetSubTopology
@@ -36129,14 +36157,14 @@ SmBoolean bDebugMe = FALSE ;
     } // end iter every curve
 
   SmExtent3d BrepBBox;
-  CalculateBoundingBox(BrepBBox, true);
+  (void)CalculateBoundingBox(BrepBBox, true); // SolidCraft: dump only
   double size = BrepBBox.IsInit()? 0.0 : BrepBBox.GetSize().Length();
 
   // when asked - get max gap values
   if(eDumpType >= SM_BD_MAX_GAPS)
     {
       // when there are problems - this will add output to the I/O stream
-      ((SmBrep *)this)->ValidateAndUpdateTolerances(TRUE,                  // TRUE = validate only - no repairs
+      (void)((SmBrep *)this)->ValidateAndUpdateTolerances(TRUE,                  // TRUE = validate only - no repairs // SolidCraft: dump only
                                                     bTolerancesViolated,
                                                     dMaxEdgeFaceTrimCurveGap,
                                                     dMaxVertexEdgeGap,
@@ -36314,7 +36342,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
                   SmTArray<SmFaceuse*> sShellFaceuses ;  pS->GetFaceuses(sShellFaceuses) ;
-                  SmTArray<SmEdge*>    sShellWireEdges ; pS->GetWireEdges(sShellWireEdges) ;
+                  SmTArray<SmEdge*>    sShellWireEdges ; (void)pS->GetWireEdges(sShellWireEdges) ; // SolidCraft: dump only
                   SmVertex            *pShellVertex    = pS->GetVertex() ;
 
                   if (kk == 0)
@@ -36659,7 +36687,7 @@ void SmBrep::DumpTopology() const
       // rememeber which regions, faces, edges, and vertices are used by shells
       SmRegion * pThisRegion = pShell->GetRegion() ; if(pThisRegion) sRegionsUsedByShells[pThisRegion->m_lMarkIO] = TRUE ; 
       pShell->GetFaceuses(sThisFaceuses) ; for(jj=0;jj<sThisFaceuses.GetSize();jj++) { sFacesUsedByShells[sThisFaceuses[jj]->GetFace()->m_lMarkIO] = TRUE ; }
-      pShell->GetWireEdges(sThisEdges) ; for(jj=0;jj<sThisEdges.GetSize();jj++)      { sEdgesUsedByShells[sThisEdges[jj]->m_lMarkIO] = TRUE ; }
+      (void)pShell->GetWireEdges(sThisEdges) ; for(jj=0;jj<sThisEdges.GetSize();jj++)      { sEdgesUsedByShells[sThisEdges[jj]->m_lMarkIO] = TRUE ; } // SolidCraft: dump only
       SmVertex * pThisVertex = pShell->GetVertex() ; if(pThisVertex) sVerticesUsedByShells[pThisVertex->m_lMarkIO] = TRUE ;  
     }
 
@@ -36707,7 +36735,7 @@ void SmBrep::DumpTopology() const
       pEdge->DumpTopology() ;
 
       // rememeber which shells, faces, and vertices are used by Edges
-      pEdge->GetEdgeuses(sThisEdgeuses) ; for(jj=0;jj<sThisEdgeuses.GetSize();jj++) { sShellsUsedByEdges  [sThisEdgeuses[jj]->GetShell()->m_lMarkIO] = TRUE ; }
+      (void)pEdge->GetEdgeuses(sThisEdgeuses) ; for(jj=0;jj<sThisEdgeuses.GetSize();jj++) { sShellsUsedByEdges  [sThisEdgeuses[jj]->GetShell()->m_lMarkIO] = TRUE ; } // SolidCraft: dump only
       pEdge->GetFaces(sThisFaces) ; for(jj=0;jj<sThisFaces.GetSize();jj++)          { sFacesUsedByEdges   [sThisFaces[jj]->m_lMarkIO] = TRUE ; }
       pEdge->GetVertices(sThisVertices) ; for(jj=0;jj<sThisVertices.GetSize();jj++) { sVerticesUsedByEdges[sThisVertices[jj]->m_lMarkIO] = TRUE ; }
     }
@@ -37617,9 +37645,9 @@ SmStatus SmBrep::ConvertToPolyBrep
       }
 
       // collect and mark all faces connected to pFace through shared edges and vertices
-      sTraverser.CollectFaces( pFace,           // in : Seed face (gets marked)
+      SER( sTraverser.CollectFaces( pFace,           // in : Seed face (gets marked)
                                sConnectedFaces, // out: List of connected faces (Get marked)
-                               eMarkType) ;     // in : specify mark for target objects (not incremented)
+                               eMarkType)  );     // in : specify mark for target objects (not incremented)
       SmPolyShell * pPolyShell = NULL;
 
       // for all connected faces
@@ -37688,7 +37716,7 @@ SmStatus SmBrep::ConvertToPolyBrep
           //   m_vCache           = remove RelatePair<pFace,pSC> and delete SmTrimSrfCache pSC
           //   pSC->mTS_pPolyBrep = deleted
           //   m_p3DPolyBrep      = not modified.
-          sTess.Phase3DeleteFacePolygons( sConnectedFaces[jj]) ;
+          SER( sTess.Phase3DeleteFacePolygons( sConnectedFaces[jj])  );
         } // end SM_SUCCESS == sTess.Phase2CreateFacePolygons(sConnectedFaces[jj]) branch
         else // SM_SUCCESS != sTess.Phase2CreateFacePolygons(sConnectedFaces[jj]) branch
         {
@@ -38227,7 +38255,9 @@ void SmBrep::GetMinEdgeBBoxSize
     {
         pE = sEdges[ii];
         // this is a slow process depending on tessellation
-        pE->CalculateBoundingBox (&pBox, NULL, NULL);
+        // SolidCraft change: an edge without a box has no size to compare (it was read unset)
+        if (pE->CalculateBoundingBox (&pBox, NULL, NULL) != SM_SUCCESS)
+          { continue; }
         dDiff = pBox.GetSize();
         dSize2 = dDiff.LengthSquared();
         if(dSize2 < rdSize && dSize2 > SM_EFF_ZERO)
@@ -38252,7 +38282,7 @@ void SmBrep::GetEdges
   ULONG             * pOptAttributeId  // [in]  : Opt. Include objects containing an attribute with this id
 ) const
 {
-  m_pEdgeListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rEdges), pOptAttributeId); 
+  (void)m_pEdgeListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rEdges), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 // Remove Composites
@@ -38291,7 +38321,7 @@ void SmBrep::GetEdgeuses
   for(ULONG ii=0;ii<sEdges.GetSize();ii++)
     {
       // accumulate all edge->Edgeuses
-      sEdges[ii]->GetEdgeuses(sEdgeuses, pOptAttributeId) ;
+      (void)sEdges[ii]->GetEdgeuses(sEdgeuses, pOptAttributeId) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
       rEdgeuses.Append(sEdgeuses) ;
     }
 
@@ -38335,7 +38365,7 @@ void SmBrep::GetFaces
   ULONG             * pOptAttributeId   // [in]  : Opt. Include objects containing an attribute with this id
 ) const 
 { 
-  m_pFaceListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rFaces), pOptAttributeId); 
+  (void)m_pFaceListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rFaces), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 /*******************************************************************//**
@@ -38427,7 +38457,7 @@ void SmBrep::GetRegions
   ULONG               * pOptAttributeId   // [in]  : Opt. Include objects containing an attribute with this id
 ) const 
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&, rRegions), pOptAttributeId); 
+  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&, rRegions), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 /*******************************************************************//**
@@ -38441,7 +38471,7 @@ void SmBrep::GetVertices
   ULONG              * pOptAttributeId   // [in]  : Opt. Include objects containing an attribute with this id
 ) const 
 { 
-  m_pVertexListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rVertices), pOptAttributeId); 
+  (void)m_pVertexListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rVertices), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 /*******************************************************************//**
@@ -38654,9 +38684,9 @@ SmStatus SmBrep::CreateOneBrepPerBody
         }
 
         // Move Regions to pBrep
-        pBrep->GetInfiniteRegion()->PreInsert(pShell);
+        SER( pBrep->GetInfiniteRegion()->PreInsert(pShell) );
         for (ULONG jj = 0; jj < sRegionsToMove.GetSize(); ++jj)
-        { pBrep->PostInsert(sRegionsToMove[jj]);}
+        { SER( pBrep->PostInsert(sRegionsToMove[jj]) );}
 
         // For all uses and shells, set the context pointer
         if (bNewContexts)
@@ -38678,11 +38708,11 @@ SmStatus SmBrep::CreateOneBrepPerBody
     ULONG lNumEdges = sEdges.GetSize();
     ULONG lNumVertices = sVertices.GetSize();
     for (ULONG ii = 0; ii < lNumFaces; ++ii)
-    { sFaces[ii]->GetBrep()->m_pFaceListHead->PreInsert(sFaces[ii]); }
+    { SER( sFaces[ii]->GetBrep()->m_pFaceListHead->PreInsert(sFaces[ii]) ); }
     for (ULONG ii = 0; ii < lNumEdges; ++ii)
-    { sEdges[ii]->GetBrep()->m_pEdgeListHead->PreInsert(sEdges[ii]); }
+    { SER( sEdges[ii]->GetBrep()->m_pEdgeListHead->PreInsert(sEdges[ii]) ); }
     for (ULONG ii = 0; ii < lNumVertices; ++ii)
-    { sVertices[ii]->GetBrep()->m_pVertexListHead->PreInsert(sVertices[ii]); }
+    { SER( sVertices[ii]->GetBrep()->m_pVertexListHead->PreInsert(sVertices[ii]) ); }
 
     if(bNewContexts )
     {
@@ -38719,7 +38749,7 @@ SmStatus SmBrep::CreateOneBrepPerBody
             ULONG lNumEdgeuses;
             SmEdge* pEdge = sEdges[ii];
             const SmContext* cpContext = pEdge->GetPrimaryEdgeuse()->GetShell()->GetContext();
-            pEdge->GetEdgeuses(sEdgeuses);
+            SER( pEdge->GetEdgeuses(sEdgeuses) );
             lNumEdgeuses = sEdgeuses.GetSize();
 
             pEdge->SetContext(cpContext);
@@ -38750,9 +38780,9 @@ SmStatus SmBrep::CreateOneBrepPerBody
     }
 
     // Clean up this Brep
-    prBrepToSeparate->m_pFaceListHead->UpdateList(NULL);              // No Faces
-    prBrepToSeparate->m_pEdgeListHead->UpdateList(NULL);              // No Edges
-    prBrepToSeparate->m_pVertexListHead->UpdateList(NULL);            // No Vertices
+    SER( prBrepToSeparate->m_pFaceListHead->UpdateList(NULL) );              // No Faces
+    SER( prBrepToSeparate->m_pEdgeListHead->UpdateList(NULL) );              // No Edges
+    SER( prBrepToSeparate->m_pVertexListHead->UpdateList(NULL) );            // No Vertices
     prBrepToSeparate->m_pList           = prBrepToSeparate->m_pInfiniteRegion;   // Only region is infty
     prBrepToSeparate->m_lListSize       = 1;                          // 1 Region
     prBrepToSeparate->m_pInfiniteRegion->m_pNext = prBrepToSeparate->m_pInfiniteRegion; 
