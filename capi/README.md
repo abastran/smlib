@@ -501,6 +501,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   so the check read their right order as out of sequence and refused a valid body. Where two
   faces round an edge leave it within 0.5° of each other, it now orders every face by the
   direction to its point 20 edge tolerances into the face, square to the edge.
+- **An extruded arc is a cylinder** (`SmPrimitiveCreation.cpp`, `CreateLinearSweep`,
+  `CreateLinearSweepSimple`, `ArcSweepCylinder`): upstream made an `SmCylinder` only for a whole
+  circle swept square to its plane ("This can be extended to create partial cylinders") and swept
+  every partial arc as an `SmSurfOfExtrusion`, a NURBS surface. A profile whose circles are drawn
+  as arcs (a hole's or a shaft's wall in two halves, as SolidCraft draws circles) then had no
+  cylinder face, and nothing that looks for one (a thread on the wall) found it. An arc swept
+  square to its plane is now the same `SmCylinder`, its frame turned so the arc runs from angle 0
+  and bounded to the arc's angles.
 - **Analytic copies keep the parameterization** (`SmBSplineSurface.cpp`,
   `SmBSplineSurface::CopyAndAddAnalytics`): splitting a face copies its surface for the new face,
   as an analytic one where the shape is one, and the new face keeps the old UV domain and trim

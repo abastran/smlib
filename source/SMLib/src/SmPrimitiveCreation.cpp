@@ -1041,6 +1041,76 @@ SmStatus SmPrimitiveCreation::CreateTorus
 } // end SmPrimitiveCreation::CreateTorus
 
 /*******************************************************************//**
+PURPOSE: The SmCylinder a circular arc (or whole circle) swept along a vector
+    square to its plane makes: the arc's frame turned so that the arc runs
+    from angle 0 counter-clockwise about the frame's Z axis, Z along the sweep,
+    and the cylinder bounded to the arc's angles and the sweep's distance.
+    NULL when the sweep is not square to the arc's plane (the surface is then
+    an elliptic cylinder, made as a surface of extrusion).
+NOTES: SolidCraft: upstream made an SmCylinder for a whole circle only and
+    swept every partial arc as an SmSurfOfExtrusion, so an extruded profile
+    whose circles are drawn as arcs (a hole's wall in two halves) had no
+    cylinder faces; a partial arc is the same cylinder bounded to its angles.
+***********************************************************************/
+static SmStatus ArcSweepCylinder(const SmContext       & crContext,
+                                 SmAxis2Placement        sFrame,          // in : IsArc's frame (X to the arc's start)
+                                 double                  dRadius,         // in : the arc's radius
+                                 double                  dStartAngleDeg,  // in : IsArc's start angle about Z
+                                 double                  dEndAngleDeg,    // in : IsArc's end angle about Z
+                                 const SmVector3d      & crSweepVec,      // in : the unit sweep vector
+                                 double                  dSweepDist,      // in : the sweep's distance
+                                 double                  dTol,            // in : angle tolerance (degrees) for a whole turn
+                                 SmSurface            *& rpSurface)       // out: the cylinder, or NULL
+{
+    rpSurface = NULL;
+    double dSweepAngleDeg = dEndAngleDeg - dStartAngleDeg;
+    if (!(dSweepAngleDeg > 0.0 && dSweepAngleDeg < 360.0 + dTol))
+    {
+        return SM_SUCCESS;
+    }
+    if (dSweepAngleDeg > 360.0 - dTol)
+    {
+        dSweepAngleDeg = 360.0;
+    }
+    SmVector3d zAxis = sFrame.GetZAxis();
+    if (!zAxis.IsParallelTo(crSweepVec, 0.5))
+    {
+        return SM_SUCCESS;
+    }
+    if (crSweepVec.Dot(zAxis) < 0.0)
+    {
+        // X to the arc's end, then turned over about it: the arc runs from 0 about the new Z.
+        sFrame.RotateAboutAxisAtPoint(dEndAngleDeg * NL_PI / 180, sFrame.GetOrigin(), sFrame.GetZAxis());
+        sFrame.RotateAboutAxisAtPoint(NL_PI, sFrame.GetOrigin(), sFrame.GetXAxis());
+    }
+    else if (dStartAngleDeg != 0.0)
+    {
+        // X to the arc's start.
+        sFrame.RotateAboutAxisAtPoint(dStartAngleDeg * NL_PI / 180, sFrame.GetOrigin(), sFrame.GetZAxis());
+    }
+    SmCylinder* pCylinder = NULL;
+    SmStatus eStat = SmCylinder::CreateCanonical(crContext, sFrame, dRadius, pCylinder);
+    if (eStat != SM_SUCCESS || pCylinder == NULL)
+    {
+        delete pCylinder;
+        return eStat != SM_SUCCESS ? eStat : SM_ERR;
+    }
+    SmExtent2d sExtent;
+    eStat = sExtent.SetMinMax(0, 0, dSweepAngleDeg, dSweepDist);
+    if (eStat == SM_SUCCESS)
+    {
+        eStat = pCylinder->AdjustSTEPUVDomain(sExtent);
+    }
+    if (eStat != SM_SUCCESS)
+    {
+        delete pCylinder;
+        return eStat;
+    }
+    rpSurface = pCylinder;
+    return SM_SUCCESS;
+}
+
+/*******************************************************************//**
 PURPOSE: Creates a toric solid in the given region of the Brep.
             
 NOTES:
@@ -1297,37 +1367,10 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
                 }
             }
         }
-        // If the generation curve is a circle, then create an SmCylinder
+        // If the generation curve is a circle or an arc, then create an SmCylinder
         else if (pCrvToExtrude->IsArc(8, dTol, sFrame, dRadius, dStartAngleDeg, dEndAngleDeg))
         {
-            double dSweepAngleDeg = dEndAngleDeg - dStartAngleDeg;
-
-            // This can be extended to create partial cylinders
-            // Especially if I had access to protected constructor
-            if (dSweepAngleDeg < 360.0 + dTol && dSweepAngleDeg > 360.0 - dTol)
-            {
-                SmVector3d zAxis = sFrame.GetZAxis();
-                if (zAxis.IsParallelTo(crSweepVec, 0.5))
-                {
-                    // If parallel, we still must check if it is opposite
-                    if (crSweepVec.Dot(zAxis) < 0.0)
-                    {
-                        sFrame.RotateAboutAxisAtPoint(180 * NL_PI / 180, sFrame.GetOrigin(), sFrame.GetXAxis());
-                    }
-                    SmCylinder* pCylinder = NULL;
-                    eStat = SmCylinder::CreateCanonical(*pContext, sFrame, dRadius, pCylinder);
-
-                    if (eStat == SM_SUCCESS && pCylinder != NULL)
-                    {
-                        // bound cylinder
-                        SmExtent2d sExtent;
-                        SER( sExtent.SetMinMax(0, 0, 360.0, dSweepDist) );
-                        SER( pCylinder->AdjustSTEPUVDomain(sExtent) );
-
-                        pExtSurface = (SmSurface*)pCylinder;
-                    }
-                }
-            }
+            SER( ArcSweepCylinder(*pContext, sFrame, dRadius, dStartAngleDeg, dEndAngleDeg, crSweepVec, dSweepDist, dTol, pExtSurface) );
         }
 
         // Otherwise create an SmSurfOfExtrusion
@@ -1629,36 +1672,10 @@ SmBoolean bDebugMe = FALSE ;
               { pExtSurface = (SmSurface*)pPlane; }
           }
       }
-      // If the generation curve is a circle, then create an SmCylinder
-      else if( pCrvToExtrude->IsArc( 8, dTol, sFrame, dRadius, dStartAngleDeg, dEndAngleDeg ) )
+      // If the generation curve is a circle or an arc, then create an SmCylinder
+      else if (pCrvToExtrude->IsArc(8, dTol, sFrame, dRadius, dStartAngleDeg, dEndAngleDeg))
       {
-          double dSweepAngleDeg = dEndAngleDeg - dStartAngleDeg;
-
-          // This can be extended to create partial cylinders
-          // Especially if I had access to protected constructor 
-          if( dSweepAngleDeg < 360.0 + dTol && dSweepAngleDeg > 360.0 - dTol )
-          {
-              SmVector3d zAxis = sFrame.GetZAxis();
-              if( zAxis.IsParallelTo( crSweepVec, 0.5 ) )
-              {
-                  // If parallel, we still must check if it is opposite
-                  if( crSweepVec.Dot( zAxis ) < 0.0 ) { 
-                    sFrame.RotateAboutAxisAtPoint( 180 * NL_PI / 180, sFrame.GetOrigin(), sFrame.GetXAxis() );
-                  }
-                  SmCylinder* pCylinder = NULL;
-                  eStat = SmCylinder::CreateCanonical( *pContext, sFrame, dRadius, pCylinder );
-
-                  if( eStat == SM_SUCCESS && pCylinder != NULL ) 
-                  {
-                      // bound cylinder
-                      SmExtent2d sExtent;
-                      SER( sExtent.SetMinMax( 0, 0, 360.0, dSweepDist ) );  
-                      SER( pCylinder->AdjustSTEPUVDomain( sExtent ) );
-
-                      pExtSurface = (SmSurface*)pCylinder;
-                  }
-              }
-          }
+          SER( ArcSweepCylinder(*pContext, sFrame, dRadius, dStartAngleDeg, dEndAngleDeg, crSweepVec, dSweepDist, dTol, pExtSurface) );
       }
 
       // Otherwise create an SmSurfOfExtrusion
