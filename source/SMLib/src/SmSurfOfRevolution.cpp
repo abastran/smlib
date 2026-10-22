@@ -6341,9 +6341,9 @@ SmBoolean SmSurfOfRevolution::AssertValid
 
     } // end SurfaceNurb/GenCurveNurb compatibility
 
-  /* 13 */ // Analytic U Direction Domain too large: spheres can't overlap themselves
+  /* 13 */ // Analytic U Direction Domain too large: surfaces of revolution can't overlap themselves
   SmExtent1d sIvlU = m_vAnalUVDomain.GetUInterval() ;
-  bRtn &= SM_ASSERT_VALUE_REPORT(2, SM_LEVEL_0,
+  bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0,
                                  (sIvlU.GetLength() <= 360.0 + SM_EFF_ZERO_DEG),
                                  SM_EFF_ZERO_DEG, sIvlU.GetLength() - 360.0, _T("")) ;
 

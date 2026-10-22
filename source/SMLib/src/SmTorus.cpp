@@ -1718,13 +1718,13 @@ SmBoolean SmTorus::AssertValid
 
   // Analytic U Direction Domain too large: tori can't overlap themselves
   SmExtent1d sIvlU = m_vAnalUVDomain.GetUInterval() ;
-  bRtn &= SM_ASSERT_VALUE_REPORT(2, SM_LEVEL_0,
+  bRtn &= SM_ASSERT_VALUE_REPORT(3, SM_LEVEL_0,
                                  (sIvlU.GetLength() <= 360.0 + SM_EFF_ZERO_DEG),
                                  SM_EFF_ZERO_DEG, sIvlU.GetLength() - 360.0, _T("") ) ;   
 
   // Analytic V Direction Domain too large: tori can't overlap themselves
-  SmExtent1d sIvlV = m_vAnalUVDomain.GetUInterval() ;
-  bRtn &= SM_ASSERT_VALUE_REPORT(3, SM_LEVEL_0,
+  SmExtent1d sIvlV = m_vAnalUVDomain.GetVInterval() ;
+  bRtn &= SM_ASSERT_VALUE_REPORT(4, SM_LEVEL_0,
                                  (sIvlV.GetLength() <= 360.0 + SM_EFF_ZERO_DEG),
                                  SM_EFF_ZERO_DEG, sIvlV.GetLength() - 360.0, _T("")) ;   
 
