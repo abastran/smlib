@@ -270,6 +270,16 @@ deleted, as `CreateFacesWithCurves` does). The face alone comes back, or with `i
 with the face replaced; the new face and edges carry the attributes (history tags) of the ones
 they stand for.
 
+## Sheets
+
+`src/smlib_sheets.cpp`: `smlib_stitch` sews a body's faces along the vertices and edges that
+coincide within the caller's tolerance (`SmBrep::StitchFaces`, once, at that tolerance; not
+`StitchAndOrient`, which caps the tolerance and stitches again at a larger one), then orients them
+with `SmBrep::OrientTrimmedSurfaces`: outward where every edge is glued, else only so neighbours
+agree. It reports whether the result is a closed manifold solid. `smlib_offset_sheet` moves every
+face of a sheet onto its surface's offset along its normal (`SmApiOffsetBrepFull`, as
+`smlib_thicken` moves a sheet back by half). Tags travel through both.
+
 ## Diagnostics
 
 - **Log:** `smlib_set_log` receives one line per call, written after it returns. Example:
