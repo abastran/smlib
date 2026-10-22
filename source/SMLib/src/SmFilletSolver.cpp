@@ -6004,6 +6004,23 @@ SmStatus SmFilletSolver::TestRollOver
             }
 #endif // SM_DEBUG_CODE
 
+          // SolidCraft change: the rail leaves its face only where it runs outside it. Where it
+          // touches the face's boundary at a vertex or runs along a piece of an edge of it (a
+          // blend whose setback reaches exactly to the rim of a hole), it is still on the face:
+          // neighbouring intervals on the face or its boundary are one interval, so the rollover
+          // below sees only the intervals that really leave the face.
+          for (ULONG jj = pCurveClass->GetSize(); jj-- > 1; )
+          {
+              SmCurveInterval & rPrev = (*pCurveClass)[jj-1];
+              SmCurveInterval & rThis = (*pCurveClass)[jj];
+              if (   rPrev.m_vMid.GetPointClass() == SM_PC_UNKNOWN
+                  || rThis.m_vMid.GetPointClass() == SM_PC_UNKNOWN )
+                { continue; }
+              if ( rPrev.m_vMid.GetPointClass() != SM_PC_FACE )
+                { rPrev.m_vMid = rThis.m_vMid; }
+              SER( pCurveClass->ConnectIntervals( jj, SM_IP_START, FALSE ));
+          }
+
           // If the rail did hit an edge (and so is in more than one piece),
           // check for tiny intervals.  Squeeze out short intervals, if
           // they are the first or last one.  For interior short intervals,

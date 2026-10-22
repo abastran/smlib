@@ -604,6 +604,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   The side is now the one the filleted edge lies on (a copy of the edge's curve, named from the
   fillet surface by an attribute the merge's copies carry), the same side on a round; and a
   merge in which no fillet face separates two regions fails (`SM_FILERR_BAD_MERGE`).
+- **A rail that runs along its face's rim** (`SmFilletSolver.cpp`, `TestRollOver`): the rollover
+  test classifies each rail against its face and treats every interval boundary as the rail
+  crossing a side edge. A blend whose setback reaches exactly to a hole's rim (a 5 mm chamfer or
+  round on a cube edge with openings 5 mm in) touches the rim at its corners and runs along its
+  edge between them, so the classification came back on the face, on the edge, on the face;
+  `sm_FindRolloverSideEdge` found an interval ending at a vertex, not an edge crossing, and the
+  blend failed ("Unable to Process Rollover"). Intervals on the face or on its boundary are now
+  one interval: only the parts of a rail outside its face roll over.
 - **A full-turn revolution nests the shells it leaves inside one another**
   (`SmPrimitiveCreation.cpp`, `SmPrimitiveCreation::CreateRotationalSweep`, the full-turn
   analytic path): it builds a face per profile curve and lets `StitchAndOrient` orient them,
