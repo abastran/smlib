@@ -15341,6 +15341,11 @@ NL_FLAG N_CreateSkinSrfBoundaryContinuity( NL_CURVE ** cur, NL_INDEX lNumSects_1
      sur  , output ,  Swept surface. Must be initialized to  the  null
                       object with N_SrfInitArrays().
      SG   , input  ,  sur's memory stack
+     placed, output,  (SolidCraft fork) Optional, NULL for none: the local
+                      systems the section curve was placed on, four
+                      vectors (OL, XL, YL, ZL) each, for the first section,
+                      the middle one (of all those placed, in order) and
+                      the last: 12 vectors.
 
 
    RETURN CODES:
@@ -15350,7 +15355,7 @@ NL_FLAG N_CreateSkinSrfBoundaryContinuity( NL_CURVE ** cur, NL_INDEX lNumSects_1
 
    ***********************************************************************/
 
-NL_FLAG N_CreateSweepScale( NL_CURVE *curT, NL_CURVE *curC, NL_VECTOR Z0, NL_CURVE *curZ, NL_CURVE *curS, NL_FLAG tflg, NL_PARAMETER tc, NL_DEGREE deg, NL_FLAG dir, NL_REAL E, NL_SURFACE *sur, NL_STACKS *SG )
+NL_FLAG N_CreateSweepScale( NL_CURVE *curT, NL_CURVE *curC, NL_VECTOR Z0, NL_CURVE *curZ, NL_CURVE *curS, NL_FLAG tflg, NL_PARAMETER tc, NL_DEGREE deg, NL_FLAG dir, NL_REAL E, NL_SURFACE *sur, NL_STACKS *SG, NL_VECTOR *placed )
 {
     NL_PRIVATE NL_STRING rname = _T("N_CreateSweepScale");
     NL_PRIVATE NL_INDEX MAXPTS = 1000;
@@ -15382,6 +15387,9 @@ NL_FLAG N_CreateSweepScale( NL_CURVE *curT, NL_CURVE *curC, NL_VECTOR Z0, NL_CUR
 
     NL_INTEGER ZLvec_count = 0;
     NL_VECTOR XL, YL, ZL, *ZLvecs = NULL;
+
+    /* SolidCraft fork: sections placed so far, and in all (see `placed`) */
+    NL_INDEX placed_at = 0, n_placed = 0;
 
     NL_RMATRIX rma;
 
@@ -15868,6 +15876,10 @@ NL_FLAG N_CreateSweepScale( NL_CURVE *curT, NL_CURVE *curC, NL_VECTOR Z0, NL_CUR
 
     k1 = 0; /* index into tt and ZLvecs arrays */
 
+    /* SolidCraft fork: count the sections to be placed, to report the middle one */
+    for ( ii = 0; ii <= n_segs; ii++ )
+        n_placed += n_pars[ii] + 1;
+
     bndy[0] = NL_TOP;
     bndy[1] = NL_BOTTOM;
 
@@ -15994,6 +16006,23 @@ NL_FLAG N_CreateSweepScale( NL_CURVE *curT, NL_CURVE *curC, NL_VECTOR Z0, NL_CUR
 
             if( error EQ NL_YES )
                 NL_OUT;
+
+            /* SolidCraft fork: report the local systems of the first, middle and last sections */
+            if( placed NEQ NULL )
+            {
+                const NL_INDEX slots[3] = { 0, n_placed / 2, n_placed - 1 };
+                for ( NL_INDEX sl = 0; sl < 3; sl++ )
+                {
+                    if( placed_at EQ slots[sl] )
+                    {
+                        N_CopyPt( OL, &placed[4 * sl] );
+                        N_CopyPt( XL, &placed[4 * sl + 1] );
+                        N_CopyPt( YL, &placed[4 * sl + 2] );
+                        N_CopyPt( ZL, &placed[4 * sl + 3] );
+                    }
+                }
+            }
+            placed_at++;
 
             /* gwc:note for new cross-tangent computations
              sweep surface cross-tangent values in the direction of the sweep

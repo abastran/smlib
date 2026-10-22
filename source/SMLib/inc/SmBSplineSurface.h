@@ -737,7 +737,10 @@ public:
                                                       //    :                     + TrajectoryCurve(v)                                 
                                                       //    :        this is an approximate surface.                                   
       double                 dThisApproxTol3d,        // in : Max distance between exact surface and newSurf approximation             
-      SmBSplineSurface    *& rpNewSurf                // out: new sweptSurface
+      SmBSplineSurface    *& rpNewSurf,               // out: new sweptSurface
+      SmAxis2Placement     * pOptPlacements = NULL    // out: (SolidCraft fork) optional, 3 entries: the systems the section curve's
+                                                      //      own coordinates were carried onto for its first, middle and last
+                                                      //      placed instances (the same for the same trajectory)
     );
 
     // create surface by sweeping a series of section curves along

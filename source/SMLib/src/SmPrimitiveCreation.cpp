@@ -4907,7 +4907,8 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
  SmTArray<SmFace*>  & rStartFaces,      // out: list of new faces for start cap
  SmTArray<SmFace*>  & rSideFaces,       // out: list of new faces added to this brep
  SmTArray<SmFace*>  & rEndFaces,        // out: list of new faces for end cap
- SmBoolean            bTestContinuity )  // in : if true test the continuity of the profile curves
+ SmBoolean            bTestContinuity,   // in : if true test the continuity of the profile curves
+ SmAxis2Placement   * pOptPlacements )   // out: optional, 3: the profile carried onto the first, middle and last sections
 {
   // empty entity maps - m_vMapToSame, m_vMapToHigher, m_vMapFromSame, and m_vMapFromLower
   InitEntityMaps();
@@ -4916,6 +4917,8 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   ULONG lNumCurves = rProfileCurves.GetSize();
 
   if(lNumCurves < 1) { SER( SM_ERR ); }
+  // SolidCraft fork: a scaled sweep's sections are no rigid images of the profile.
+  if(pOptPlacements && pScaleCurve) { SER( SM_ERR_INVALID_INPUT ); }
 
   // Locals
   ULONG ii, jj;
@@ -5332,6 +5335,9 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
 // Transform each profile according to input parameters to align with path
 // Then move resulting surface back to original path position
   ULONG lNumComposites = sComposites.GetSize();
+  // SolidCraft fork: where the sweep places the profile, in the space it sweeps in (the same
+  // for every composite: they share the path and its start frame).
+  SmAxis2Placement asPlaced[3];
   // SolidCraft fork: which side faces begin and end the sweep. A swept surface split at a
   // G1 knot along the path (a line then an arc) gives several faces per profile curve, so
   // the first and last faces in rSideFaces are not the caps' curves once the profile has more
@@ -5348,7 +5354,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     SmObjDelete sCleanNurb( pCompNurb );
     SmBSplineSurface *pNewBSS = NULL;
     SER( SmBSplineSurface::CreateSweepSurface( *pContext, pCompNurb, pPathCurveCopy , pScaled,
-         pOptions->bTranslationalSweep, bAppoxTol3d, pNewBSS ) );
+         pOptions->bTranslationalSweep, bAppoxTol3d, pNewBSS, ii == 0 ? asPlaced : NULL ) );
 
 #ifdef SM_DEBUG_CODE
     // GREEN: Draw each swept surface
@@ -5398,6 +5404,43 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   else
   {
     pBrep->Transform( sPathToOriginBack );
+  }
+
+  // SolidCraft fork: the motions carrying the profile as given onto its first, middle and last
+  // sections. A profile point went forward into the sweep's space (to the origin, the path
+  // turned onto x, oriented with the path when asked), the sweep placed it, and the result came
+  // back: each motion is that chain, applied to the global system.
+  if(pOptPlacements)
+  {
+    const SmAxis2Placement &sBackMove = pOptions->bMoveToProfile == TRUE ? sProfileToOriginBack : sPathToOriginBack;
+    auto forward = [&]( const SmPoint3d &q ) {
+      SmPoint3d a, b, c;
+      sProfileToOrigin.TransformPoint( q, a );
+      sPathRot.TransformPoint( a, b );
+      if(pOptions->bOrientProfilePerpendicularToPath) { sProfileTrans.TransformPoint( b, c ); } else { c = b; }
+      return c;
+    };
+    auto back = [&]( const SmPoint3d &q ) {
+      SmPoint3d a, b;
+      sPathRotBack.TransformPoint( q, a );
+      sBackMove.TransformPoint( a, b );
+      return b;
+    };
+    auto turned = [&]( const SmAxis2Placement &sPlaced, const SmVector3d &v ) {
+      SmVector3d a, b, c, d, e;
+      sPathRot.TransformVector( v, a );
+      if(pOptions->bOrientProfilePerpendicularToPath) { sProfileTrans.TransformVector( a, b ); } else { b = a; }
+      sPlaced.TransformVector( b, c );
+      sPathRotBack.TransformVector( c, d );
+      sBackMove.TransformVector( d, e );
+      return e;
+    };
+    for(ii = 0; ii < 3; ii++)
+    {
+      SmPoint3d placed;
+      asPlaced[ii].TransformPoint( forward( SmPoint3d( 0, 0, 0 ) ), placed );
+      pOptPlacements[ii] = SmAxis2Placement( back( placed ), turned( asPlaced[ii], SmVector3d( 1, 0, 0 ) ), turned( asPlaced[ii], SmVector3d( 0, 1, 0 ) ) );
+    }
   }
 
 #ifdef SM_DEBUG_CODE
