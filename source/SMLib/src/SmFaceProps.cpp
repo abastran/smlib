@@ -1313,7 +1313,7 @@ SmBoolean bDebugMe = FALSE ;
       m_sLoopProps[ii].SetContext(m_cpContext) ; 
 
       // Set Loop props (when m_bAreaLoop==FALSE, m_eDesiredLoopOrient && m_bGoodOrient are set in this method)
-      m_sLoopProps[ii].SetProps(pLoop, *this) ; // sets: following Loop Props marked with '*'
+      SER( m_sLoopProps[ii].SetProps(pLoop, *this)  ); // sets: following Loop Props marked with '*'
                                                 //       (Loop Props marked with '##' are set later in this method with SmFace::ClassifyLoops() results)
                                                 //       SmLoopProps::m_cpLoop *              m_tLoopuseType *
                                                 //                  ::m_lEdgeCnt *            m_lEdgeuseCnt *
@@ -1950,11 +1950,11 @@ SmDisplayList * SmFaceProps::Draw
       for(ii=0,lCnt=0;ii<m_pCrvClassU->GetSize();ii++)
         { SmCurveInterval & rCrvIvl = m_pCrvClassU->GetAt(ii) ;
           if(rCrvIvl.m_vStart.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ;
+            { (void)m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ; // SolidCraft: drawing only
              sPoint.Draw() ; lCnt++ ;  
             }
           if(rCrvIvl.m_vEnd.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ;
+            { (void)m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ; // SolidCraft: drawing only
              sPoint.Draw() ; lCnt++ ;  
             }
         } // end iter CrvClassU intervals looking for SeamCrossings
@@ -1974,11 +1974,11 @@ SmDisplayList * SmFaceProps::Draw
       for(ii=0,lCnt=0;ii<m_pCrvClassV->GetSize();ii++)
         { SmCurveInterval & rCrvIvl = m_pCrvClassV->GetAt(ii) ;
           if(rCrvIvl.m_vStart.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ;
+            { (void)m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ; // SolidCraft: drawing only
               sPoint.Draw() ; lCnt++ ;
             }
           if(rCrvIvl.m_vEnd.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ;
+            { (void)m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ; // SolidCraft: drawing only
               sPoint.Draw() ; lCnt++ ;
             }
         } // end iter CrvClassV intervals looking for SeamCrossings
