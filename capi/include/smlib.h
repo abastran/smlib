@@ -86,6 +86,11 @@ void smlib_brep_free(smlib_brep *brep);
 /* A deep copy of `brep`. */
 int32_t smlib_brep_copy(const smlib_brep *brep, smlib_brep **out);
 
+/* `brep` moved by the affine `matrix`: rows 0-2 the images of the x, y and z axes, row 3 the
+ * translation (column 3 is ignored), as SmBrep::Transform takes it. Reflections mirror the body;
+ * a non-uniform scale or a shear turns its geometry into NURBS; tolerances scale with it. */
+int32_t smlib_brep_transform(const smlib_brep *brep, const double matrix[4][4], smlib_brep **out);
+
 /* An axis-aligned box from its lower corner `origin` with edge lengths `size`, in mm. */
 int32_t smlib_make_box(const double origin[3], const double size[3], smlib_brep **out);
 

@@ -136,6 +136,38 @@ extern "C" int32_t smlib_brep_copy(const smlib_brep *brep, smlib_brep **out)
     );
 }
 
+extern "C" int32_t smlib_brep_transform(const smlib_brep *brep, const double matrix[4][4], smlib_brep **out)
+{
+    if (!valid(brep) || matrix == nullptr || out == nullptr || !finite(&matrix[0][0], 16))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_brep_transform", handle(brep));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            // SmBrep::Transform(double[4][4]) (SmBrep.h, "arbitrary 4x4 transform matrix"): rows 0-2
+            // the images of x, y and z, row 3 the translation. It decomposes the linear part, mirrors
+            // where the decomposition is left-handed and turns the geometry into NURBS under a
+            // non-uniform scale; tolerances scale with the model (bScaleTol). It works in place, so on
+            // a copy.
+            SmBrep *r = nullptr;
+            int32_t s = status(SmApiBrepCopy(brep->p, r));
+            if (s == SMLIB_OK)
+            {
+                s = status(r->Transform(matrix, TRUE));
+            }
+            if (s != SMLIB_OK)
+            {
+                delete r;
+                return s;
+            }
+            return take(r, out);
+        }
+    );
+}
+
 extern "C" int32_t smlib_make_box(const double origin[3], const double size[3], smlib_brep **out)
 {
     if (origin == nullptr || size == nullptr || out == nullptr || !finite(origin, 3) || !finite(size, 3) || !(size[0] > 0.0) ||
