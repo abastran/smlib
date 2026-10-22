@@ -91,7 +91,8 @@ shim at a time, each with a case in a fuzz target.
 `src/smlib_sweeps.cpp`: `smlib_extrude` (straight through `SmApiCreateLinearSweep`, drafted
 through `SmApiCreateTaperExtrude`), `smlib_revolve` (`SmApiCreateRotationalSweep`), `smlib_sweep`
 (`SmApiCreateCurveSweep`, the path's curves joined into one B-spline, the profile carried as it
-lies relative to the path; along a straight path `SmApiCreateLinearSweep`, whose walls are exact
+lies relative to the path; round a closed path the walls are sewn to each other where the ends
+meet, with no caps; along a straight path `SmApiCreateLinearSweep`, whose walls are exact
 planes and cylinders where the curve sweep fits B-splines), `smlib_loft`
 (`SmApiCreateSkinPrimitive`: a section's loops, outline then holes, are one profile, each lofted to
 the loop in the same place in the next section), `smlib_loft_to_point` (a pyramid: the planar

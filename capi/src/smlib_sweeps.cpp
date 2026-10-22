@@ -587,13 +587,29 @@ extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const doub
             {
                 return s;
             }
+            // Round a closed path the profile comes back onto itself: the walls close on each
+            // other there, where caps would lie on top of each other inside the solid.
+            SmPoint3d first, last, ignored;
+            path.v.front()->GetEnds(first, ignored);
+            path.v.back()->GetEnds(ignored, last);
+            const bool closed = first.DistanceBetween(last) <= 1e-6;
             SmSweepOptions options;
-            options.bCapEndsArg = cap ? TRUE : FALSE;
+            options.bCapEndsArg = cap && !closed ? TRUE : FALSE;
             options.bTranslationalSweep = frame == SMLIB_SWEEP_TRANSLATE ? TRUE : FALSE;
             options.bProfileAtPathStart = TRUE;
             SmTArray<SmCurve *> a = profile.array();
             SmBrep *r = nullptr;
             s = status(SmApiCreateCurveSweep(a, along.get(), nullptr, nullptr, &options, r, nullptr, nullptr, nullptr));
+            if (s == SMLIB_OK && closed)
+            {
+                ULONG stitched = 0, lamina = 0;
+                double vertex_gap = 0.0, edge_gap = 0.0;
+                s = status(r->StitchFaces(r->GetTolerance(), stitched, lamina, vertex_gap, edge_gap));
+                if (s == SMLIB_OK && lamina != 0)
+                {
+                    s = SMLIB_ERR_NOT_SOLID;
+                }
+            }
             if (s != SMLIB_OK)
             {
                 delete r;

@@ -225,6 +225,26 @@ int main()
         expect(profile == &rect ? "sweep rectangle along lines" : "sweep disc along lines", SMLIB_OK, &b, profile == &rect ? 600.0 : PI * 40.0,
                1e-6);
     }
+    // Round a closed path (a whole circle, R 30) the ends meet: the walls close on themselves,
+    // with no caps (Pappus: a disc r 3 and a 5 x 5 square, each centred on the path, in the
+    // plane square to it at the path's start).
+    List ring_path;
+    ring_path.arc(0, 0, 0, 0, 0, 1, 1, 0, 0, 30, 0, 2 * PI);
+    List round_section = circle(30, 0, 0, 0, 1, 0, 1, 0, 0, 3);
+    List square_section;
+    square_section.polygon({27.5, 0, -2.5, 32.5, 0, -2.5, 32.5, 0, 2.5, 27.5, 0, 2.5});
+    for (const List *section : {&round_section, &square_section})
+    {
+        const bool round = section == &round_section;
+        b = nullptr;
+        int32_t s = smlib_sweep(section->kinds.data(), section->nk(), section->reals.data(), section->nr(), ring_path.kinds.data(),
+                                ring_path.nk(), ring_path.reals.data(), ring_path.nr(), SMLIB_SWEEP_FOLLOW, 1, &b);
+        int64_t counts[3] = {0, 0, 0};
+        CHECK(s == SMLIB_OK && b != nullptr && smlib_brep_counts(b, counts) == SMLIB_OK);
+        std::printf("%-34s faces %lld\n", round ? "sweep disc round a circle" : "sweep square round a circle", static_cast<long long>(counts[0]));
+        CHECK(counts[0] == (round ? 1 : 4));
+        expect(round ? "sweep disc round a circle" : "sweep square round a circle", s, &b, (round ? PI * 9.0 : 25.0) * 2 * PI * 30.0, 1e-3);
+    }
     List bend;
     bend.arc(-20, 0, 0, 0, -1, 0, 1, 0, 0, 20, 0, PI / 2);
     b = nullptr;
