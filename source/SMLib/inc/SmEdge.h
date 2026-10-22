@@ -466,7 +466,7 @@ public:
       SmBoolean  bCallNotify=TRUE       ///< [in] : TRUE = delete all UVTrimCurves, FALSE=don't, default:[TRUE]                          <br>
     );
 
-    void     ReverseOrientation() ;                          // assumes oriented edgeuses and Curve - reverses CurveParam & Edgeuse order, negates Edgeuse orients
+    SmStatus ReverseOrientation() ;                          // assumes oriented edgeuses and Curve - reverses CurveParam & Edgeuse order, negates Edgeuse orients (SolidCraft change: was void)
 
     // Given a sequence of Edges connected end-to-end, set all orientations in the same direction as the sequence.
     static SmStatus OrientEdgeSequence( SmTArray< SmEdge* > & rEdgeList );
