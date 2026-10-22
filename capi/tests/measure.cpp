@@ -168,12 +168,22 @@ int main()
         }
     }
 
-    // A sheet has an area but no mass properties.
+    // A sheet has no material: its area, no volume or inertia, and the centroid of its area
+    // (a rectangle's: the middle of its box).
     SmBrep *sheet = nullptr;
     CHECK(SmApiCreatePlane(at0, 10.0, 20.0, sheet) == SM_SUCCESS && sheet != nullptr);
     smlib_brep sb{sheet};
-    double m[11], a = 0;
-    CHECK(smlib_brep_mass_properties(&sb, 1e-4, m) == SM_ERR_INVALID_INPUT);
+    double m[11], a = 0, lo[3], hi[3];
+    CHECK(smlib_brep_mass_properties(&sb, 1e-4, m) == SMLIB_OK && std::fabs(m[0] - 200.0) < 1e-9 && m[1] == 0.0);
+    CHECK(smlib_brep_bounds(&sb, lo, hi) == SMLIB_OK);
+    for (int i = 0; i < 3; ++i)
+    {
+        CHECK(std::fabs(m[2 + i] - 0.5 * (lo[i] + hi[i])) < 1e-9);
+    }
+    for (int i = 5; i < 11; ++i)
+    {
+        CHECK(m[i] == 0.0);
+    }
     CHECK(smlib_brep_area(&sb, 1e-4, &a) == SMLIB_OK && std::fabs(a - 200.0) < 1e-9);
     delete sheet;
 
