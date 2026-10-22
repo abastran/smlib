@@ -790,3 +790,16 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   disjoint `Intersect` is an answer: a solver branch outside the interval of interest has no
   work. The B-spline curve check reports a test it can't run (tests 5/6, 11-14) instead of
   sizing it from an unset box.
+- **Flat corners counted with their points** (`SmSurface.cpp`, `SmSurface::GetFlatCorners`): asked
+  for the corner points, it tested each corner with `lRtn &= …`, which cleared the other bits: a
+  patch flat at two corners came back with none (0x0 for 0x9) and one point. The bits are tested
+  with `&`.
+- **The perspective cull's projected radii** (`SmGlobalSolver.cpp`, `BranchMayContainAnswers`,
+  `SM_SO_PERSPECTIVE_INTERSECT`): each sphere's radius was projected as a point taken for a vector
+  (0.053 for an image 0.107 across), the second sphere with the first one's radius and centre, so
+  branches with answers could be culled. Each sphere's radius vectors are now projected from its
+  own centre along the image ellipse's axes.
+- **V knots of the raw surface constructor** (`SmBSplineSurface.cpp`, the `(n, m, p, q, r, s, Pw,
+  U, V)` constructor): the V knots were copied into a destination given U's size, which
+  `smos_MemCpy` refuses when V has more knots; the refusal was dropped and the knots stayed as
+  allocated. The destination has V's size.
