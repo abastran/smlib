@@ -1309,23 +1309,22 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
     std::vector<int64_t> sWireEdgeIdx;      // BrepData edge indices of WireEdges (removed from the edge arrays)
     std::vector<int64_t> sNonFaceEdgeuseIdx; // BrepData edgeuse indices of WireEdge edgeuses (removed from the edgeuse arrays)
 
-    // A curved face SMLib made without UV trims (MakeFaceWithCurves attaches them only when its
-    // 3D curves were made from them) gets SMLib's own, made as SMLib makes them when it needs
-    // them, so every exported trim is SMLib's; the edge and vertex tolerances grow to cover the
-    // gaps it measures, as SMLib keeps them consistent with its trims.
+    // Every edgeuse SMLib left without a UV trim (MakeFaceWithCurves attaches them only when its
+    // 3D curves were made from them) gets SMLib's own, as SMLib makes it whenever it needs one
+    // (SmEdgeuse::GetOrCreateUVTrimCurve), so every exported trim is SMLib's. Nothing else is
+    // changed: tolerances stay as SMLib has them.
     {
-        SmTArray<SmFace *> sFaces;
-        pBrep_ii->GetFaces(sFaces);
-        for (ULONG ii = 0; ii < sFaces.GetSize(); ++ii)
+        SmTArray<SmEdgeuse *> sEdgeuses;
+        pBrep_ii->GetEdgeuses(sEdgeuses);
+        for (ULONG ii = 0; ii < sEdgeuses.GetSize(); ++ii)
         {
-            const SmFace *pFace = sFaces[ii];
-            if (pFace == NULL || pFace->GetSurface() == NULL || pFace->GetSurface()->IsKindOf(SmPlane_TYPE) ||
-                SmTrimmingTools::AreUVCurvesPresent(pFace) == TRUE)
+            SmEdgeuse *pEU = sEdgeuses[ii];
+            if (pEU == NULL || pEU->GetFaceuse() == NULL || pEU->GetUVTrimCurvePointer() != NULL)
             {
                 continue;
             }
-            double dMeanGap = 0.0, dMaxGap = 0.0, dMeanVertexGap = 0.0, dMaxVertexGap = 0.0, dMeanCurveGap = 0.0, dMaxCurveGap = 0.0;
-            SmStatus made = pFace->CreateUVTrimCurves(TRUE, NULL, NULL, dMeanGap, dMaxGap, dMeanVertexGap, dMaxVertexGap, dMeanCurveGap, dMaxCurveGap);
+            SmBSplineCurve *pTrim = NULL;
+            SmStatus made = pEU->GetOrCreateUVTrimCurve(pTrim);
             if (made != SM_SUCCESS)
             {
                 return made;
