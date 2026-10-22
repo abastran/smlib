@@ -6096,31 +6096,32 @@ SmBoolean bDebugMe = FALSE;
                 dDesiredAccuracy/10.0,&yscale,crOriginOfComputation,dFaceThickness,sLayout);
             SmODEIntegrator sODE(sAreaEval);
             SmTArray<double> dY(lNumComponents,NULL,lNumComponents);
-            SmExtent1d sIvl = pBSC->GetNaturalInterval();
-            double dSpan = sIvl.GetMax() - sIvl.GetMin();
+            SmTArray<double> dSpanY(lNumComponents,NULL,lNumComponents);
             ULONG lNumOK, lNumBad;
 
-            // A coarse first Runge-Kutta step can trip the integrator's abort
-            // guard for one traversal direction, so a reversed cap loop fails
-            // where its twin succeeds. Try the historical span/2 step first
-            // (already-converged integrations stay unchanged), then fall back
-            // to finer steps; adaptive control converges to the same value.
-            static constexpr double kInitStepDivs[] = { 2.0, 8.0, 64.0, 512.0, 4096.0 };
-            SmStatus rkStat = SM_ERR;
-            for (ULONG iDiv = 0; iDiv < sizeof(kInitStepDivs)/sizeof(kInitStepDivs[0]); iDiv++)
+            // The integrand is smooth only within each knot span of the trim
+            // curve: at an interior knot the curve's derivatives jump (a
+            // rational circle's double knots), and a Runge-Kutta step across
+            // one is outside the method's error model, so its error estimate
+            // does not bound its error and the result misses the requested
+            // accuracy (KNOWN_ISSUES.md, "faces bounded by circles"). Each
+            // span is integrated on its own, from its own span/2 first step.
+            SmTArray<double> sKnots;
+            SER(pBSC->GetKnots(sKnots));
+            dY.SetAll(0.0);
+            for (ULONG iK = 0; iK + 1 < sKnots.GetSize(); iK++)
             {
-                // Zero the accumulator each try; a failed integrate leaves
-                // partial sums in dY that would double-count on the next retry.
-                dY.SetAll(0.0);
-                rkStat = sODE.RungeKuttaODEIntegrate(dY,sIvl.GetMin(), sIvl.GetMax(),
-                    dDesiredAccuracy/10.0, dSpan/kInitStepDivs[iDiv], 0.0, lNumOK, lNumBad,
-                    &yscale);
-                if (rkStat == SM_SUCCESS) { break; }
+                const double dA = sKnots[iK], dB = sKnots[iK+1];
+                if (!(dB > dA)) { continue; }
+                dSpanY.SetAll(0.0);
+                // Propagate failure instead of dropping the span: a silent skip
+                // would return SM_SUCCESS with zero/partial properties, hiding a
+                // numerical failure as a valid zero.
+                SER(sODE.RungeKuttaODEIntegrate(dSpanY, dA, dB,
+                    dDesiredAccuracy/10.0, (dB - dA)/2.0, 0.0, lNumOK, lNumBad,
+                    &yscale));
+                for (ULONG iC = 0; iC < lNumComponents; iC++) { dY[iC] += dSpanY[iC]; }
             }
-            // Propagate failure instead of dropping the boundary: a silent skip
-            // would return SM_SUCCESS with zero/partial properties, hiding a
-            // numerical failure as a valid zero.
-            SER(rkStat);
 
             // ODE evaluator indices are one-based; the result array is zero-based.
             if (sLayout.m_lArea) dTotalArea += dY[sLayout.m_lArea-1];

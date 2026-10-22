@@ -559,6 +559,19 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   extension is made from the base, all of its sides that can grow at once, each by the base
   domain's size times the least power of two that reaches the point, and never less than the
   extension it replaces: the same points give the same extension.
+- **Precise face properties integrate each trim-curve knot span on its own** (`SmFace.cpp`,
+  `SmFace::ComputePreciseProperties`): the area, volume and moments were integrated along each trim
+  curve in one Runge-Kutta run over its whole interval. At an interior knot (a rational circle's
+  double knots) the integrand's derivatives jump, a step across one is outside the method's error
+  model, and its error estimate does not bound its error: a cylinder's volume was 4.4e-4 off at a
+  requested 1e-3, its centroid 0.09 mm off at 1e-1 (KNOWN_ISSUES.md, "faces bounded by circles").
+  Each knot span is now integrated on its own from its own span/2 first step, and the spans summed:
+  at 1e-4 the cylinder's volume is 1.8e-6 off and its centroid exact from 1e-1 on, a block with a
+  round hole's volume 1.7e-7 off. The upstream retry with ever finer first steps (for a reversed
+  circular cap whose first, over-coarse step tripped the abort guard) is gone: on cylinders of
+  radius 0.3 to 25, pipes swept along a line and an arc, every face in both orientations at 1e-1 to
+  1e-4, no span aborts, with or without the split, and a failed span is an error as a failed loop
+  was.
 - **Faces an extended offset already mated are not intersected again** (`SmOffsetExecutive.cpp`,
   `SmOffsetExecutive::PiecewiseMerge`): the offset's self-intersection merge skips the surface
   pairs known to share an edge already (an offset face and its edge's cap face, faces across a
