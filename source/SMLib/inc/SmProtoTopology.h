@@ -355,7 +355,7 @@ class SM_EXPORT SmEdgeDefinition : public SmTopology
   void SetXSectCurveUV ( int iWhichBrep, SmCurve *pCrv )                                             { ( iWhichBrep==1 ? m_pXSectUVCurve1 : m_pXSectUVCurve2 ) = pCrv ; }
   void SetProtoEdge    ( SmProtoEdge * pProtoEdge )                                                  { m_pProtoEdge = pProtoEdge; }
   void SetXSectInterval( const SmExtent1d & crXSectInterval )                                        { m_pXSectInterval = crXSectInterval ; }
-  void SetXSectInterval( double dMin, double dMax) ;                                                 // Allows reversal, if dMin > dMax
+  SmStatus SetXSectInterval( double dMin, double dMax) ;                                             // Allows reversal, if dMin > dMax (SolidCraft change: was void)
   void SetSrcTopo      ( int iWhichBrep, SmPointClassificationType /* eType */ , SmTopology *pTopo ) { (iWhichBrep==1 ? m_pSrcTopo1      : m_pSrcTopo2)      = pTopo ; 
                                                                                                        (iWhichBrep==1 ? m_pSrcTopo1_TYPE : m_pSrcTopo2_TYPE) = pTopo->GetType() ; 
                                                                                                      }
@@ -508,7 +508,7 @@ class SM_EXPORT SmProtoVertex : public SmTopology
   void     AddProtoEdge          ( SmProtoEdge * pPE ) { m_sProtoEdges.Add( pPE) ; } // DD1: Even if already there.
   SmStatus RemoveVertexDefinition( SmVertexDefinition *pVD) ;
   SmStatus RemoveProtoEdge       ( SmProtoEdge *pPE) ;
-  void     CombineProtoVertex    ( SmProtoVertex *pOtherPV) ;
+  SmStatus CombineProtoVertex    ( SmProtoVertex *pOtherPV) ; // SolidCraft change: was void
   SmStatus Resolve               () ;
 
   // utilities
@@ -660,7 +660,7 @@ public:
 
   SmStatus AddEdgeDefinition   (SmEdgeDefinition * pEdgeDef) ;                                  // eff: Add EdgeDef to this ProtoEdge's EdgeDef list
   SmStatus AddEdgeDefinition   (const SmCurveInterval & crCI1, const SmCurveInterval & crCI2) ; // eff: Create EdgeDef and add to this ProtoEdge's EdgeDef list
-  void     CombineProtoEdge    (SmProtoEdge * pOtherPE) ;
+  SmStatus CombineProtoEdge    (SmProtoEdge * pOtherPE) ; // SolidCraft change: was void
   SmStatus RemoveEdgeDefinition(SmEdgeDefinition * pEdgeDef) ;
   SmStatus RemoveProtoVertex   (SmProtoVertex * pPV) ;
 

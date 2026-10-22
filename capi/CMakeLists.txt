@@ -77,6 +77,8 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmStitch.cpp
   ${SRC}/SMLib/src/SmTopologyIntersector.cpp
   ${SRC}/SMLib/src/SmAdvSurfaceIntersector.cpp
+  ${SRC}/SMLib/src/SmSurfaceIntersector.cpp
+  ${SRC}/SMLib/src/SmProtoTopology.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp
