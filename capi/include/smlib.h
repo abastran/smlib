@@ -757,17 +757,24 @@ int32_t smlib_revolve(const int64_t *kinds, int64_t n_kinds, const double *reals
 
 /* The profile swept along a path of end-to-end curves (joined into one B-spline), carried with
  * the path's start: the profile keeps its place relative to it. The side walls are B-spline
- * approximations of the swept surface, one per stretch of profile between tangent breaks. */
+ * approximations of the swept surface, one per stretch of profile between tangent breaks; along a
+ * straight path (lines end to end in one direction) the sweep is an extrusion with exact walls. */
 int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *path_kinds,
                     int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals, int32_t frame, int32_t cap,
                     smlib_brep **out);
 
 /* A loft (skin) through `n_sections` (>= 2) sections, each a closed loop of curves: the curve
  * list holds the sections' curves one section after the other, `section_sizes[i]` curves for
- * section i. `degree` (1 ruled, 2, 3) is the walls' degree across the sections. With `cap` 1 the
- * first and last sections close the ends. */
+ * section i. A section with holes holds its loops one after the other, its outline first; each loop
+ * is lofted to the loop in the same place in the next section. `degree` (1 ruled, 2, 3) is the
+ * walls' degree across the sections. With `cap` 1 the first and last sections close the ends. */
 int32_t smlib_loft(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *section_sizes,
                    int64_t n_sections, int32_t degree, int32_t cap, smlib_brep **out);
+
+/* A loft from a planar section to a point off its plane (a pyramid): the section, one closed loop
+ * of lines in order, closes the base, and each line spans a triangle to `apex`. A section with a
+ * curve, or an apex in its plane, is SMLIB_ERR_ARG. */
+int32_t smlib_loft_to_point(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double apex[3], smlib_brep **out);
 
 /* The profile carried by a screw motion about the axis through `origin` along `direction`:
  * `turns` (0.001 to SMLIB_SCREW_MAX_TURNS) turns right-handed about the axis, rising `pitch`

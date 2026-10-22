@@ -360,6 +360,45 @@ bool one_loop(const Curves &c, double tol)
     return !c.v.empty() && prev.DistanceBetween(first) <= tol;
 }
 
+// Whether the path is lines end to end along one direction: then `dir` is that unit direction
+// and `distance` the path's length.
+bool straight(const Curves &path, SmVector3d &dir, double &distance)
+{
+    distance = 0.0;
+    SmPoint3d prev;
+    for (size_t i = 0; i < path.v.size(); ++i)
+    {
+        if (SM_CAST_PTR(SmLine, path.v[i]) == nullptr)
+        {
+            return false;
+        }
+        SmPoint3d a, b;
+        path.v[i]->GetEnds(a, b);
+        if (i > 0 && a.DistanceBetween(prev) > 1e-9)
+        {
+            return false;
+        }
+        prev = b;
+        SmVector3d d = b - a;
+        double l = d.Length();
+        if (!(l > 1e-12))
+        {
+            return false;
+        }
+        d = d / l;
+        if (i == 0)
+        {
+            dir = d;
+        }
+        else if (d.Dot(dir) < 1.0 - 1e-12)
+        {
+            return false;
+        }
+        distance += l;
+    }
+    return !path.v.empty();
+}
+
 // A path of end-to-end curves as one B-spline (CreateCurveSweep takes a single curve).
 int32_t joined(const Curves &path, std::unique_ptr<SmBSplineCurve> &out)
 {
@@ -527,6 +566,21 @@ extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const doub
             {
                 return s;
             }
+            // Along a straight path the sweep is an extrusion: SM_API's linear sweep builds the walls
+            // exactly (planes, cylinders) where the curve sweep fits B-splines to them.
+            SmVector3d dir;
+            double distance = 0.0;
+            if (straight(path, dir, distance))
+            {
+                SmBrep *r = nullptr;
+                s = status(SmApiCreateLinearSweep(profile.array(), dir, distance, cap ? TRUE : FALSE, r));
+                if (s != SMLIB_OK)
+                {
+                    delete r;
+                    return s;
+                }
+                return finish(r, cap != 0, out);
+            }
             std::unique_ptr<SmBSplineCurve> along;
             s = joined(path, along);
             if (s != SMLIB_OK)
@@ -598,6 +652,101 @@ extern "C" int32_t smlib_loft(const int64_t *kinds, int64_t n_kinds, const doubl
                 return s;
             }
             return finish(r, cap != 0, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_loft_to_point(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double apex[3],
+                                       smlib_brep **out)
+{
+    if (out == nullptr || apex == nullptr || !coord_ok(apex, 3))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_loft_to_point", list(n_kinds, n_reals) + ", apex=" + vec(apex, 3));
+    dump_curves(c, "section", kinds, n_kinds, reals, n_reals);
+    return c.run(
+        [&]
+        {
+            Curves section;
+            int32_t s = parse(kinds, n_kinds, reals, n_reals, section);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            if (section.v.size() < 3 || !one_loop(section, 1e-6))
+            {
+                return SMLIB_ERR_ARG;
+            }
+            // The base's corners, each line's start.
+            std::vector<SmPoint3d> corners;
+            for (SmCurve *x : section.v)
+            {
+                if (SM_CAST_PTR(SmLine, x) == nullptr)
+                {
+                    return SMLIB_ERR_ARG;
+                }
+                SmPoint3d a, b;
+                x->GetEnds(a, b);
+                corners.push_back(a);
+            }
+            SmTArray<SmCurve *> loop = section.array();
+            SmVector3d normal;
+            if (SmCurve::ComputeCrvsNormal(loop, normal) != SM_SUCCESS)
+            {
+                return SMLIB_ERR_ARG;
+            }
+            SmPoint3d top(apex[0], apex[1], apex[2]);
+            double size = 0.0;
+            for (const SmPoint3d &q : corners)
+            {
+                size = std::max(size, q.DistanceBetween(corners.front()));
+            }
+            SmVector3d up = top - corners.front();
+            if (!(std::fabs(up.Dot(normal)) > 1e-9 * std::max(size, 1.0)))
+            {
+                return SMLIB_ERR_ARG;
+            }
+            const SmContext &ctx = *SmApiGetOrCreateContext();
+            std::unique_ptr<SmBrep> brep(new (ctx) SmBrep());
+            SmRegion *region = brep->GetInfiniteRegion();
+            const double tol = 1e-6;
+            // Each face is made of new lines it takes over.
+            auto face = [&](const std::vector<SmPoint3d> &pts) -> int32_t
+            {
+                SmTArray<SmCurve *> edges;
+                for (size_t i = 0; i < pts.size(); ++i)
+                {
+                    SmLine *l = nullptr;
+                    SmStatus ls = SmLine::CreateLineSegment(ctx, 3, pts[i], pts[(i + 1) % pts.size()], l);
+                    if (ls != SM_SUCCESS || l == nullptr)
+                    {
+                        delete l;
+                        for (ULONG k = 0; k < edges.GetSize(); ++k)
+                        {
+                            delete edges[k];
+                        }
+                        return ls != SM_SUCCESS ? status(ls) : static_cast<int32_t>(SM_ERR);
+                    }
+                    edges.Add(l);
+                }
+                SmFace *f = nullptr;
+                return status(brep->CreatePlanarFaceWith3DCurves(region, edges, tol, f));
+            };
+            s = face(corners);
+            for (size_t i = 0; s == SMLIB_OK && i < corners.size(); ++i)
+            {
+                s = face({corners[i], corners[(i + 1) % corners.size()], top});
+            }
+            if (s == SMLIB_OK)
+            {
+                s = status(brep->StitchAndOrient());
+            }
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            return finish(brep.release(), true, out);
         }
     );
 }

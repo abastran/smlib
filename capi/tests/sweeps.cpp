@@ -198,6 +198,33 @@ int main()
            smlib_sweep(disc.kinds.data(), disc.nk(), disc.reals.data(), disc.nr(), up.kinds.data(), up.nk(), up.reals.data(), up.nr(),
                        SMLIB_SWEEP_FOLLOW, 1, &b),
            &b, PI * 4.0 * 10.0, 1e-4);
+    // Along a straight path (here two lines one after the other) a sweep is an extrusion, its
+    // walls exact: a rectangle's are six planes, a disc's wall a cylinder.
+    List straight;
+    straight.line(0, 0, 0, 0, 0, 4).line(0, 0, 4, 0, 0, 10);
+    for (const List *profile : {&rect, &disc})
+    {
+        b = nullptr;
+        CHECK(smlib_sweep(profile->kinds.data(), profile->nk(), profile->reals.data(), profile->nr(), straight.kinds.data(), straight.nk(),
+                          straight.reals.data(), straight.nr(), SMLIB_SWEEP_FOLLOW, 1, &b) == SMLIB_OK);
+        smlib_flat *f = nullptr;
+        const int64_t *kinds = nullptr;
+        int64_t n = 0;
+        CHECK(b != nullptr && smlib_brep_export(b, &f) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_FACE_SURFACE_TYPE, &kinds, &n) == SMLIB_OK);
+        int64_t planes = 0, cylinders = 0;
+        for (int64_t i = 0; i < n; ++i)
+        {
+            planes += kinds[i] == SMLIB_FLAT_SURFACE_PLANE;
+            cylinders += kinds[i] == SMLIB_FLAT_SURFACE_CYLINDER;
+        }
+        std::printf("%-34s faces %lld, planes %lld, cylinders %lld\n", profile == &rect ? "sweep rectangle along lines" : "sweep disc along lines",
+                    static_cast<long long>(n), static_cast<long long>(planes), static_cast<long long>(cylinders));
+        CHECK(profile == &rect ? planes == n && n == 6 : planes == 2 && cylinders == n - 2);
+        smlib_flat_free(f);
+        expect(profile == &rect ? "sweep rectangle along lines" : "sweep disc along lines", SMLIB_OK, &b, profile == &rect ? 600.0 : PI * 40.0,
+               1e-6);
+    }
     List bend;
     bend.arc(-20, 0, 0, 0, -1, 0, 1, 0, 0, 20, 0, PI / 2);
     b = nullptr;
@@ -260,6 +287,60 @@ int main()
     b = nullptr;
     expect("loft circle to circle", smlib_loft(cone.kinds.data(), cone.nk(), cone.reals.data(), cone.nr(), one, 2, 1, 1, &b), &b,
            PI * 6.0 / 3.0 * (25.0 + 9.0 + 15.0), 1e-4);
+
+    // Lofts through sections with holes: each section's loops (outline, then holes) are one
+    // profile, lofted loop to loop. A tube (r 20 out, 12 in, 20 long), a square frame (20 x 20
+    // with a 10 x 10 hole, 10 long, both rings ruled).
+    List tube = circle(0, 0, 0, 0, 0, 1, 1, 0, 0, 20);
+    tube.append(circle(0, 0, 0, 0, 0, -1, 1, 0, 0, 12));
+    tube.append(circle(0, 0, 20, 0, 0, 1, 1, 0, 0, 20));
+    tube.append(circle(0, 0, 20, 0, 0, -1, 1, 0, 0, 12));
+    const int64_t two[2] = {2, 2};
+    b = nullptr;
+    expect("loft ring to ring", smlib_loft(tube.kinds.data(), tube.nk(), tube.reals.data(), tube.nr(), two, 2, 1, 1, &b), &b,
+           PI * (400.0 - 144.0) * 20.0, 1e-4);
+    List square_ring;
+    square_ring.polygon({-10, -10, 0, 10, -10, 0, 10, 10, 0, -10, 10, 0}).polygon({-5, -5, 0, -5, 5, 0, 5, 5, 0, 5, -5, 0});
+    square_ring.polygon({-10, -10, 10, 10, -10, 10, 10, 10, 10, -10, 10, 10}).polygon({-5, -5, 10, -5, 5, 10, 5, 5, 10, 5, -5, 10});
+    const int64_t eight[2] = {8, 8};
+    b = nullptr;
+    expect("loft frame to frame",
+           smlib_loft(square_ring.kinds.data(), square_ring.nk(), square_ring.reals.data(), square_ring.nr(), eight, 2, 1, 1, &b), &b,
+           300.0 * 10.0, 1e-6);
+    // Two holes whose sizes swap from one section to the other: each is lofted to the hole
+    // given in its place, whatever the sizes. A 40 x 20 plate 10 long, less two square frusta
+    // between 4 and 8 wide (h/3 (16 + 64 + 32) each).
+    List two_holes;
+    two_holes.polygon({-20, -10, 0, 20, -10, 0, 20, 10, 0, -20, 10, 0});
+    two_holes.polygon({-12, -2, 0, -12, 2, 0, -8, 2, 0, -8, -2, 0}).polygon({6, -4, 0, 6, 4, 0, 14, 4, 0, 14, -4, 0});
+    two_holes.polygon({-20, -10, 10, 20, -10, 10, 20, 10, 10, -20, 10, 10});
+    two_holes.polygon({-14, -4, 10, -14, 4, 10, -6, 4, 10, -6, -4, 10}).polygon({8, -2, 10, 8, 2, 10, 12, 2, 10, 12, -2, 10});
+    const int64_t twelve[2] = {12, 12};
+    b = nullptr;
+    expect("loft two holes swapping sizes",
+           smlib_loft(two_holes.kinds.data(), two_holes.nk(), two_holes.reals.data(), two_holes.nr(), twelve, 2, 1, 1, &b), &b,
+           800.0 * 10.0 - 2.0 * 10.0 / 3.0 * (16.0 + 64.0 + 32.0), 1e-6);
+
+    // Lofts to a point: a square base 20 x 20 to an apex 15 above its centre (A h / 3), and an
+    // off-centre apex below a triangle (the same, whatever the apex's sideways place).
+    List base;
+    base.polygon({-10, -10, 0, 10, -10, 0, 10, 10, 0, -10, 10, 0});
+    const double top[3] = {0, 0, 15};
+    b = nullptr;
+    expect("loft square to a point", smlib_loft_to_point(base.kinds.data(), base.nk(), base.reals.data(), base.nr(), top, &b), &b,
+           400.0 * 15.0 / 3.0, 1e-9);
+    List tri;
+    tri.polygon({0, 0, 5, 12, 0, 5, 0, 9, 5});
+    const double below[3] = {30, -7, -1};
+    b = nullptr;
+    expect("loft triangle to a point below", smlib_loft_to_point(tri.kinds.data(), tri.nk(), tri.reals.data(), tri.nr(), below, &b), &b,
+           54.0 * 6.0 / 3.0, 1e-9);
+    // An apex in the base's plane, or a curved base, is refused.
+    const double flat[3] = {30, 30, 0};
+    b = nullptr;
+    CHECK(smlib_loft_to_point(base.kinds.data(), base.nk(), base.reals.data(), base.nr(), flat, &b) == SMLIB_ERR_ARG && b == nullptr);
+    b = nullptr;
+    CHECK(smlib_loft_to_point(cone.kinds.data(), 1, cone.reals.data(), 12, top, &b) == SMLIB_ERR_ARG && b == nullptr);
 
     // Screw sweeps: a 0.4 x 0.4 square at radius 4..4.4 in the xz plane, 3 turns of pitch 1,
     // up and down (Pappus: area x 2 pi x centroid radius x turns).

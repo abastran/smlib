@@ -91,8 +91,12 @@ shim at a time, each with a case in a fuzz target.
 `src/smlib_sweeps.cpp`: `smlib_extrude` (straight through `SmApiCreateLinearSweep`, drafted
 through `SmApiCreateTaperExtrude`), `smlib_revolve` (`SmApiCreateRotationalSweep`), `smlib_sweep`
 (`SmApiCreateCurveSweep`, the path's curves joined into one B-spline, the profile carried as it
-lies relative to the path), `smlib_loft` (`SmApiCreateSkinPrimitive`), `smlib_screw_sweep` and
-`smlib_sweep_stations`.
+lies relative to the path; along a straight path `SmApiCreateLinearSweep`, whose walls are exact
+planes and cylinders where the curve sweep fits B-splines), `smlib_loft`
+(`SmApiCreateSkinPrimitive`: a section's loops, outline then holes, are one profile, each lofted to
+the loop in the same place in the next section), `smlib_loft_to_point` (a pyramid: the planar
+base and a triangle from each of its lines to the apex, stitched and oriented as
+`SmApiCreatePyramid` builds its own), `smlib_screw_sweep` and `smlib_sweep_stations`.
 Profiles, paths and sections cross as curve lists (lines, circular arcs, NURBS; `include/smlib.h`
 gives the layout), checked before SMLib sees them and built into SMLib curves inside the call.
 With `cap` the result must be a closed manifold solid (`SMLIB_ERR_NOT_SOLID` otherwise).
@@ -113,7 +117,7 @@ where the last section lies on the first, glues the walls' ends to their starts
 (`SmApiStitchIntoSolid`).
 
 `tests/sweeps.cpp` checks each against closed-form volumes and SMLib's check, and feeds hostile
-curve lists; `fuzz/fuzz_sweeps.cpp` (`smlib_fuzz_sweeps`) fuzzes all six.
+curve lists; `fuzz/fuzz_sweeps.cpp` (`smlib_fuzz_sweeps`) fuzzes all seven.
 
 ## Flat B-rep arrays
 
