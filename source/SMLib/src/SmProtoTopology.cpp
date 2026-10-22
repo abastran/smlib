@@ -3753,9 +3753,10 @@ SmStatus SmProtoEdge::Resolve()
           for(ii=0;ii<lNumEDs;ii++)
             {
               pED1 = m_sEdgeDefs[ii];
-              SER( pED1->Destruct() ); // Its destructor does not clear out geometry because that normally is consumed.
+              SmStatus eDestruct = pED1->Destruct(); // Its destructor does not clear out geometry because that normally is consumed.
               delete( pED1) ;  pED1 = NULL;
               m_sEdgeDefs[ii] = NULL;
+              SER( eDestruct ); // SolidCraft change: freed first, it is ours either way
             }
           m_sEdgeDefs.ReSet();
         }
@@ -3827,8 +3828,9 @@ SmStatus SmProtoEdge::Resolve()
              {
                 //m_pProtoTopoMgr->CombineEdgeDefinitions( pED2, pED1) ;
                 SER( this->RemoveEdgeDefinition( pED1)  );
-                SER( pED1->Destruct() );
+                SmStatus eDestruct = pED1->Destruct(); // SolidCraft change: removed, it is ours: freed first
                 delete pED1;  pED1 = NULL;
+                SER( eDestruct );
                 ii--;
                 break;
                 //jj = lNumEDs + 1; // We're done with PE[ii].
@@ -3837,8 +3839,9 @@ SmStatus SmProtoEdge::Resolve()
             {
                 //m_pProtoTopoMgr->CombineEdgeDefinitions( pED1, pED2) ;
                 SER( this->RemoveEdgeDefinition( pED2)  );
-                SER( pED2->Destruct() );
+                SmStatus eDestruct = pED2->Destruct(); // SolidCraft change: removed, it is ours: freed first
                 delete pED2;  pED2 = NULL;
+                SER( eDestruct );
                 jj--;
               }
           }
@@ -6409,9 +6412,12 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
 
                               // Don't remove the PE if empty.  Else would have to keep track,
                               // and remove them from the PFs.  And, empty PEs don't hurt anything.
-                              SER( this->RemoveEdgeDefinition( pEDToDelete, FALSE)  );
-                              SER( pEDToDelete->Destruct() );
+                              // SolidCraft change: on failure the ProtoEdge still lists the definition and frees it;
+                              // once removed it is ours, and it is freed whatever Destruct says.
+                              SER( this->RemoveEdgeDefinition( pEDToDelete, FALSE) );
+                              SmStatus eDestruct = pEDToDelete->Destruct();
                               delete pEDToDelete; pEDToDelete = NULL;
+                              SER( eDestruct );
                           }
                       }
                       else
@@ -6506,9 +6512,12 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
 
                               // Don't remove the PE if empty.  Else would have to keep track,
                               // and remove them from the PFs.  And, empty PEs don't hurt anything.
-                              SER( this->RemoveEdgeDefinition( pEDToDelete, FALSE)  );
-                              SER( pEDToDelete->Destruct() );
+                              // SolidCraft change: on failure the ProtoEdge still lists the definition and frees it;
+                              // once removed it is ours, and it is freed whatever Destruct says.
+                              SER( this->RemoveEdgeDefinition( pEDToDelete, FALSE) );
+                              SmStatus eDestruct = pEDToDelete->Destruct();
                               delete pEDToDelete; pEDToDelete = NULL;
+                              SER( eDestruct );
                           }
                       }
                       else
@@ -6596,8 +6605,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                     || sDeletedEdges2.IsIn( pThisED->GetFinalEdge( 2 ) ) )
                   {
                       SER( pThisPE->RemoveEdgeDefinition( pThisED)  );
-                      SER( pThisED->Destruct() );
+                      SmStatus eDestruct = pThisED->Destruct(); // SolidCraft change: removed, it is ours: freed first
                       delete pThisED; pThisED = NULL;
+                      SER( eDestruct );
                   }
               }
           }
@@ -7535,8 +7545,11 @@ SmBoolean bDebugMe=FALSE;
             { 
               SmEdgeDefinition * pOverlapED = sOverlapEDs[kk] ;
 
+              // SolidCraft change: on failure the ProtoEdge still lists the definition and frees it;
+              // once removed it is ours, and it is freed whatever Destruct says.
               SER( RemoveEdgeDefinition( pOverlapED, FALSE)  ); // FALSE =  Don't remove the PE if empty, otherwise keep track and remove from PF.  note: empty PEs don't hurt anything
-              SER( pOverlapED->Destruct()  ); delete pOverlapED ; pOverlapED = NULL ;
+              SmStatus eDestruct = pOverlapED->Destruct(); delete pOverlapED ; pOverlapED = NULL ;
+              SER( eDestruct );
             }
 
           // remove PE from End and Start ProtoVertex->PE list 
