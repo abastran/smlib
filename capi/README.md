@@ -760,3 +760,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   an internal point within tolerance of the other's surface, inside its box) and face opposite
   ways are removed; the Edges left on one Face are stitched, and an Edge one Loop then runs
   along both ways is deleted. A representability step; it changes no contact.
+- **Area counts the faces between solid and void only** (`SmBrep.cpp`,
+  `SmBrep::ComputePreciseProperties`): a face whose two sides lie in different regions added its
+  area, and its volume, for every faceuse it integrated, whichever of the two behaviours selected
+  it. A face between two solid regions therefore counted its area once per side, although
+  `SmMassPropertyBehavior` (`SmTopoTypes.h`) has the default area "only for those faces which lie
+  between a solid region and a void region"; three solid regions of a merge of two overlapping
+  10 mm cubes measured 1200 mm² instead of 800. Under area behaviour 2 the void side's faceuse
+  also added its volume. Each faceuse now adds its volume and mass where it bounds a non void
+  region, and its area and area moments where the area behaviour selects it.

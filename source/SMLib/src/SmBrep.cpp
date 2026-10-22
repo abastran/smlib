@@ -1736,15 +1736,20 @@ SmStatus SmBrep::ComputePreciseProperties
                     dRelativeAccuracy,crOriginOfComputation,dEstimatedArea,0.0,
                     dDeltaArea,dDeltaVolume,sDeltaMoments));
 
-                // Now figure out how to use this faceuses data in the total computation
-                rdVolume += dDeltaVolume;
-                rdArea += dDeltaArea;
-                rdMass += dDeltaVolume * sMassVector.x; // mass = Volume times density
-                for (ULONG kk=0; kk<rMoments.GetSize(); kk++) {
-                    if (kk > 3) {
+                // The faceuse's volume and mass enter only when it bounds a non void region
+                // (m_lFaceVolumeBehavior), its area and area moments only when the area
+                // behaviour selects it (m_lFaceAreaBehavior): a face between two solid
+                // regions bounds both volumes but is no part of the area.
+                if (bDoFUVolume) {
+                    rdVolume += dDeltaVolume;
+                    rdMass += dDeltaVolume * sMassVector.x; // mass = Volume times density
+                    for (ULONG kk=4; kk<rMoments.GetSize(); kk++) {
                         rMoments[kk] = rMoments[kk] + sDeltaMoments[kk] * sMassVector.x;
                     }
-                    else {
+                }
+                if (bDoFUArea) {
+                    rdArea += dDeltaArea;
+                    for (ULONG kk=0; kk<4 && kk<rMoments.GetSize(); kk++) {
                         rMoments[kk] = rMoments[kk] + sDeltaMoments[kk];
                     }
                 }
