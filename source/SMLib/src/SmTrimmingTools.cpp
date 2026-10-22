@@ -3127,6 +3127,25 @@ SmStatus SmTrimmingTools::CheckLoop
                             previous_start,
                             previous_end));
 
+      // An edgeuse with no UVTrimCurve has its ends from its vertexuses' projections
+      // (GetEdgeUVExtremes), which on a closed direction are known only modulo the period: a
+      // seam edge's two uses project to the same side. Such an end is taken on the period
+      // nearest the end it is compared with, so the seam is not read as a jump.
+      if(sEdgeuses[ii]->GetUVTrimCurve() == NULL || sEdgeuses[previous]->GetUVTrimCurve() == NULL)
+        {
+          SmExtent2d sNatural = pSurface->GetNaturalUVDomain();
+          if(pSurface->IsClosed(sNatural, SM_SP_U))
+            {
+              double dPeriod = sNatural.XLength();
+              current_start.x -= dPeriod * floor((current_start.x - previous_end.x) / dPeriod + 0.5);
+            }
+          if(pSurface->IsClosed(sNatural, SM_SP_V))
+            {
+              double dPeriod = sNatural.YLength();
+              current_start.y -= dPeriod * floor((current_start.y - previous_end.y) / dPeriod + 0.5);
+            }
+        }
+
       // When UVPoints vary by more than 1e-10
       if (previous_end.DistanceBetween(current_start) > 1e-10)
         {
