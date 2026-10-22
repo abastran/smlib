@@ -1662,3 +1662,46 @@ extern "C" int32_t smlib_thicken(const smlib_brep *brep, double thickness, int32
         }
     );
 }
+
+extern "C" int32_t smlib_merge_faces(const smlib_brep *brep, const double *keep, int64_t n_keep, double tolerance, smlib_brep **out,
+                                     int64_t *out_failed_point)
+{
+    if (!valid(brep) || out == nullptr || !points_ok(keep, n_keep, true) || !tolerance_ok(tolerance))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_merge_faces", handle(brep) + ", keep=" + pts(keep, n_keep) + ", tolerance=" + num(tolerance));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            int32_t s = SMLIB_OK;
+            Owned w = copy_of(brep, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            std::vector<SmEdge *> kept;
+            if (n_keep > 0)
+            {
+                s = pick_edges(w.get(), keep, n_keep, tolerance, kept, out_failed_point);
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+            }
+            bool solid_in = w->IsManifoldSolid();
+            SmTArray<SmEdge *> keep_edges;
+            for (SmEdge *e : kept)
+            {
+                keep_edges.Add(e);
+            }
+            SmStatus r = w->RemoveTopologicalEdgesAndVertices(kept.empty() ? nullptr : &keep_edges, nullptr);
+            if (r != SM_SUCCESS)
+            {
+                return static_cast<int32_t>(r);
+            }
+            return finish(std::move(w), solid_in, out);
+        }
+    );
+}
