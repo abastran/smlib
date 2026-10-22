@@ -77,7 +77,7 @@ SmStatus SmTranslationalSweepGeometry::GetStartCoordSystem
   sXAxis = sYAxis * m_sSweepVector;
   SER( sXAxis.Unitize() );
 
-  rCoordSys.SetCanonical( rPt, sXAxis, sYAxis );
+  SER( rCoordSys.SetCanonical( rPt, sXAxis, sYAxis ) );
 
   return SM_SUCCESS;
 
@@ -503,7 +503,7 @@ SmStatus SmTranslationalSweepGeometry::EdgeSweepSame
 
   // trim the new curve to edge->interval
   SmExtent1d sIvl = pOriginalEdgeArg->GetInterval();
-  pNewEdgeCurve->Trim(sIvl);     // may snap sIvl by tol to existing knots
+  SER( pNewEdgeCurve->Trim(sIvl) );     // may snap sIvl by tol to existing knots
 
   // define the translation transformation
   SmAxis2Placement sRefFrame;
@@ -675,7 +675,7 @@ SmBoolean bDebugMe = FALSE;
   SmSolutionArray sPointParallelSols ;
 
   // get all places on the curve parallel to the sweep vector
-  crCurve.GlobalPropertyAnalysis(crIvl,                    // in : ThisCurve target interval
+  SER( crCurve.GlobalPropertyAnalysis(crIvl,                    // in : ThisCurve target interval
                                  SM_CP_PARALLEL_TO_VECTOR, // in : The property of the curve to extract or find on the curve
                                  NULL,                     // in : Value used to specify a particular property.
                                 &crSweepVec,               // in : Vectors or points used to define a particular property.
@@ -685,7 +685,7 @@ SmBoolean bDebugMe = FALSE;
                                  sPointParallelSols,       // out: SolArray of Curve Points at dist to line maxima
                                  NULL,                     // out: opt check comb: curve sample points
                                                            //      NULL to ignore, default:[NULL]
-                                 NULL) ;                   // out: opt check comb: tines - lengths proportional to property being zeroed.
+                                 NULL)  );                   // out: opt check comb: tines - lengths proportional to property being zeroed.
                                                            //      NULL to ignore, default:[NULL]
   if(sPointParallelSols.GetSize() > 0)
     {

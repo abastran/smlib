@@ -724,7 +724,7 @@ SmStatus SmTopologySweep::DoSweep
             { 
               // Get an approximate center point for the Brep
               SmExtent3d sBBox;
-              pBrepToSweep->CalculateBoundingBox( sBBox );
+              SER( pBrepToSweep->CalculateBoundingBox( sBBox ) );
               SmPoint3d sCentroid = sBBox.GetMid();
 
               // get StartCoordinate system
@@ -733,9 +733,9 @@ SmStatus SmTopologySweep::DoSweep
 
               // invert CoordinateSystem for HCR.
               // Also have to set its origin to zero first. (Why?)
-              sRefFrame.SetCanonical(SmPoint3d(0,0,0),               // in : coordinate origin
+              SER( sRefFrame.SetCanonical(SmPoint3d(0,0,0),               // in : coordinate origin
                                      sStartCoordSys.GetXAxisRef(),   // in : coordinate X Axis (should be perp to Y axis)
-                                     sStartCoordSys.GetYAxisRef()) ; // in : coordinate Y Axis (should be perp to X axis)
+                                     sStartCoordSys.GetYAxisRef())  ); // in : coordinate Y Axis (should be perp to X axis)
               sRefFrame.Invert(sRefFrameInv) ;
 
 #ifdef SM_DEBUG_CODE
@@ -808,7 +808,7 @@ SmStatus SmTopologySweep::DoSweep
 
               // remove sDelFacest faces from pBrepToSweep
               SmTemporaryChangeValue<SmBoolean> sChange( pBrepToSweep->m_bEditingEnabled, TRUE );
-              pBrepToSweep->RemoveFaces( sDelFaces );  // increments unlocked mark value
+              SER( pBrepToSweep->RemoveFaces( sDelFaces ) );  // increments unlocked mark value
 
             } // end scope - remove all interior faces from pBrepToSweep
 
@@ -847,7 +847,7 @@ SmStatus SmTopologySweep::DoSweep
           sHCR.SetHCRForSilhouettes( TRUE );
 
           // Calculate silhouettes, make sHCR.m_pSceneBrep with silhouette edges
-          sHCR.ComputeGlobalVisibility(); // increments unlocked mark value
+          SER( sHCR.ComputeGlobalVisibility() ); // increments unlocked mark value
 
           // pSceneBrep locals
           SmBrep *pSceneBrep = sHCR.GetSceneBrep();
@@ -893,8 +893,8 @@ SmStatus SmTopologySweep::DoSweep
               // copy WireEdges and ShellVerts from pBrepToSweep to temp pWireBrep 
               SmTArray< SmEdge*   > sNewBrepEdges;
               SmTArray< SmVertex* > sNewBrepVerts;
-              pBrepToSweep->CopyEdges(    sWireEdges,  pWireBrep, &sNewBrepEdges );
-              pBrepToSweep->CopyVertices( sShellVerts, pWireBrep, &sNewBrepVerts );
+              SER( pBrepToSweep->CopyEdges(    sWireEdges,  pWireBrep, &sNewBrepEdges ) );
+              SER( pBrepToSweep->CopyVertices( sShellVerts, pWireBrep, &sNewBrepVerts ) );
 
             } // end WireEdges and ShellVerts existence check
 
@@ -930,11 +930,11 @@ SmStatus SmTopologySweep::DoSweep
 //           pBrepToSweep->m_bMakeComposites = TRUE;
 // #endif // SM_NO_COMPOSITES
 
-          pSceneBrep->CopyFaces(sSceneFaces, 
+          SER( pSceneBrep->CopyFaces(sSceneFaces, 
                                 pBrepToSweep, 
                                 NULL, 
                                 TRUE, 
-                                &sMergeObj );
+                                &sMergeObj ) );
 
 #ifdef SM_DEBUG_CODE
           if ( bDebugMe ) 
@@ -950,7 +950,7 @@ SmStatus SmTopologySweep::DoSweep
 #endif // SM_DEBUG_CODE
 
           //  2c. Transform pBrepToSweep back from the HCR's space.
-          pBrepToSweep->Transform( sRefFrame );
+          SER( pBrepToSweep->Transform( sRefFrame ) );
 
 #ifdef SM_DEBUG_CODE
           if ( bDebugMe ) 
@@ -968,7 +968,7 @@ SmStatus SmTopologySweep::DoSweep
           SmTArray <SmEdge*>      sEdgesToSweep ;
           SmTArray< SmEdge* >     sSilEdges ;
           SmTopologyIntersector & rTI = sMergeObj.GetTopologyIntersector() ;
-          sHCR.GetSilhouetteEdges(sSilEdges) ;
+          SER( sHCR.GetSilhouetteEdges(sSilEdges)  );
 
           // for every silhouette edge
           for(ULONG jj=0;jj<sSilEdges.GetSize();jj++)
@@ -1037,7 +1037,7 @@ SmStatus SmTopologySweep::DoSweep
             {
               SmTArray< SmFace* > sFaces;
               pBrepToSweep->GetFaces( sFaces );
-              pBrepToSweep->RemoveFaces( sFaces ); // increments unlocked mark value
+              SER( pBrepToSweep->RemoveFaces( sFaces ) ); // increments unlocked mark value
             }
 
           // else doing a open sweep branch
@@ -1070,7 +1070,7 @@ SmStatus SmTopologySweep::DoSweep
                       SmEdgeuse * pEU      = pEdge->GetPrimaryEdgeuse();
                       SmExtent1d  sEdgeIvl = pEdge->GetInterval();
                       SmVector3d  sPt, sBiNorm;
-                      pEU->EvaluateBinormal( sEdgeIvl.GetMid(), FALSE, sPt, sBiNorm );
+                      SER( pEU->EvaluateBinormal( sEdgeIvl.GetMid(), FALSE, sPt, sBiNorm ) );
 
                       // The back-face binormal is in same direction as the view vector.  
                       // Otherwise, the back-face is the Edgeuse->radial partner.
@@ -1092,9 +1092,9 @@ SmStatus SmTopologySweep::DoSweep
 
                   // Collect faces connected to pStartFace on the same side of the (marked:[eMarkType]) silhouette edges.
                   SmTopologyTraverser sTT;
-                  sTT.CollectFaces( pStartFace,        // in : Seed face (gets marked:[eMarkType])
+                  SER( sTT.CollectFaces( pStartFace,        // in : Seed face (gets marked:[eMarkType])
                                     sTheseBackFaces,   // out: List of connected faces (Get marked:[eMarkType])
-                                    eMarkType) ;       // in : specify mark for target objects (not incremented)
+                                    eMarkType)  );       // in : specify mark for target objects (not incremented)
                   sBackFaces.Append(sTheseBackFaces) ;
 #ifdef SM_DEBUG_CODE
                   if ( bDebugMe ) 
@@ -1124,7 +1124,7 @@ SmStatus SmTopologySweep::DoSweep
 
               // copy back-faces to pBackBrep
               pBackBrep->m_bEditingEnabled = TRUE;
-              pBrepToSweep->CopyFaces( sBackFaces, pBackBrep, NULL, TRUE, &sMergeObj2 );
+              SER( pBrepToSweep->CopyFaces( sBackFaces, pBackBrep, NULL, TRUE, &sMergeObj2 ) );
 
               // But -- if a face is Lamina, then there's no front and back.
               // In that case, we make a copy of the face and transform the copy.
@@ -1137,16 +1137,16 @@ SmStatus SmTopologySweep::DoSweep
                   if ( ! pBackFace->HasLaminaEdge() )
                     { sFacesToRemove.Add( pBackFace ); }
                 }
-              pBrepToSweep->RemoveFaces( sFacesToRemove );  // increments unlocked mark value
+              SER( pBrepToSweep->RemoveFaces( sFacesToRemove ) );  // increments unlocked mark value
 
               // Transform the back-facing faces to the end of the sweep.
               SmAxis2Placement sSweepXFM;
-              m_pGeometryCreation->GetSweepTransform( sSweepXFM );
-              pBackBrep->Transform( sSweepXFM );
+              SER( m_pGeometryCreation->GetSweepTransform( sSweepXFM ) );
+              SER( pBackBrep->Transform( sSweepXFM ) );
 
               // Step 5: Merge it back together.
               // Merge the temp Brep back into the main one.
-              pBrepToSweep->MergeBrep( *pBackBrep );
+              SER( pBrepToSweep->MergeBrep( *pBackBrep ) );
 
             } // end else, sweep not closed and there are faces branch
 
@@ -1381,9 +1381,9 @@ SmStatus SmTopologySweep::DoSweep
          SmBoolean bNormalsOutward       = TRUE;
          SmBoolean bMaybeNotClosedSolid  = FALSE; 
          SmBoolean bJustUnifyNormals     = TRUE;
-         pBrepToSweep->OrientTrimmedSurfaces(bNormalsOutward,        // in : 
+         SER( pBrepToSweep->OrientTrimmedSurfaces(bNormalsOutward,        // in : 
                                                 bMaybeNotClosedSolid,   // out: 
-                                                bJustUnifyNormals);     // in : 
+                                                bJustUnifyNormals) );     // in : 
                                                                         // note: increments unlocked mark value
          DBG_VALIDATE_POINTERS // pRegion->GetBrep()->ValidatePointers()
                                // if(bDebugMe) pRegion->GetBrep()->ValidatePointers() 

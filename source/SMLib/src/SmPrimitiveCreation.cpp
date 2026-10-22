@@ -223,7 +223,7 @@ SmStatus SmPrimitiveCreation::CreateCircle
 
     SmCircle* pCircle = NULL;
     SmExtent1d sDomain( 0.0, 360.0 );
-    SmCircle::CreateCanonical( *pContext, crRefFrame, dRadius, pCircle, &sDomain );
+    SER( SmCircle::CreateCanonical( *pContext, crRefFrame, dRadius, pCircle, &sDomain ) );
     
     if (!pCircle) { SE(SM_ERR); return SM_ERR; }
 
@@ -264,7 +264,7 @@ static SmStatus AddBoxFace(SmBrep * pBrep, const SmContext & crContext, const Sm
       delete pPlane;
       return eStatus != SM_SUCCESS ? eStatus : SM_ERR;
     }
-  pPlane->AdjustSTEPUVDomain(crDomain);
+  SER( pPlane->AdjustSTEPUVDomain(crDomain) );
   SmFace * pFace = NULL;
   eStatus = pBrep->CreateFaceFromSurface( (SmSurface*)pPlane, pPlane->GetSTEPUVDomain(), pFace );
   if (pFace == NULL)
@@ -317,35 +317,35 @@ SmStatus SmPrimitiveCreation::CreateBox
 
   // 2. Build Top plane by translating ref frame to top, domain:[same as BaseFace]
   SmVector3d sZAxis = sRefFrame.GetZAxis();
-  sZAxis.Unitize();
+  (void)sZAxis.Unitize(); // SolidCraft: a zero vector stays zero
   sZAxis = sZAxis * dHeight;
   sRefFrame.Translate( sZAxis );
   SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
 
   // 3. Build Right plane by flipping ref frame to Y-Z plane, domain:[u=width, v=height]
-  sRefFrame.SetCanonical( rRefFrame.GetOrigin(), rRefFrame.GetYAxis(), rRefFrame.GetZAxis() ); 
+  SER( sRefFrame.SetCanonical( rRefFrame.GetOrigin(), rRefFrame.GetYAxis(), rRefFrame.GetZAxis() ) ); 
   sUVMax.Set( dWidth, dHeight );
-  sAnalDomain.SetMinMax(sUVMin,sUVMax);
+  SER( sAnalDomain.SetMinMax(sUVMin,sUVMax) );
   SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
   // 4. Build Left plane by translating ref frame to opposite side, domain:[same as Right plane]
   sZAxis = sRefFrame.GetZAxis();
-  sZAxis.Unitize();
+  (void)sZAxis.Unitize(); // SolidCraft: a zero vector stays zero
   sZAxis = sZAxis * dLength;
   sRefFrame.Translate( sZAxis );
   SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
 
   // 5. Build Front plane by flipping ref frame to X-Z plane, domain:[u=length, v=height]
-  sRefFrame.SetCanonical( rRefFrame.GetOrigin() , rRefFrame.GetXAxis(), rRefFrame.GetZAxis() ); 
+  SER( sRefFrame.SetCanonical( rRefFrame.GetOrigin() , rRefFrame.GetXAxis(), rRefFrame.GetZAxis() ) ); 
   sUVMax.Set( dLength, dHeight );
-  sAnalDomain.SetMinMax(sUVMin,sUVMax);
+  SER( sAnalDomain.SetMinMax(sUVMin,sUVMax) );
   SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
 
   // 6. Build Back plane by translating ref frame to opposite side, domain:[same as Front plane]
   sZAxis = sRefFrame.GetZAxis();
-  sZAxis.Unitize();
+  (void)sZAxis.Unitize(); // SolidCraft: a zero vector stays zero
   sZAxis = sZAxis * -dWidth;
   sRefFrame.Translate( sZAxis );
   SER( AddBoxFace( pBrep, *pContext, sRefFrame, sAnalDomain ) );
@@ -377,7 +377,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // build the topology connections between the 6 new faces
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)
@@ -515,9 +515,9 @@ SmStatus SmPrimitiveCreation::CreateCylindricalBox
   // 1. Make and Add BotFace to Brep 
   
   // Build Bot Plane positioned through original ref frame, domain:[-dOutsideRadius, -dOutsideRadius, dOutsideRadius, dOutsideRadius]
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
+  SER( SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane ) );
   SmExtent2d sSurfUVDomain(-dOutsideRadius, -dOutsideRadius, dOutsideRadius, dOutsideRadius) ;
-  pPlane->AdjustSTEPUVDomain(sSurfUVDomain);
+  SER( pPlane->AdjustSTEPUVDomain(sSurfUVDomain) );
 
   // curves of the Bot Plane
   SmLine   * pBotStartLine     = new (*pContext) SmLine  (sBotInsideStartPoint,  sBotOutsideStartPoint, 3, pContext) ;
@@ -533,7 +533,7 @@ SmStatus SmPrimitiveCreation::CreateCylindricalBox
   sCurves.Add(pBotInsideCircle ) ; 
 
   // Make Bot Plane Face in Brep - trim curves now owned by new Face - don't delete or use them again                   
-  pBrep->MakeFaceWithCurves(m_pRegion,          // in : region to contain new topology objects
+  SER( pBrep->MakeFaceWithCurves(m_pRegion,          // in : region to contain new topology objects
                             sCurveLoops,        // in : 1 entry per loop, value = loop edge count, 1st entry=outer loop
                             &sCurves,           // in : opt ordered 3d trimming curves assigned to loops per sLoopEUCounts, curves owned by new face
                             NULL,               // in : opt ordered 2d trimming curves assigned to loops per sLoopEUCounts, curves owned by new face
@@ -544,7 +544,7 @@ SmStatus SmPrimitiveCreation::CreateCylindricalBox
                             SM_OT_SAME,         // in : Surface orient, oneof SM_OT_SAME or SM_OT_OPPOSITE
                             pNewRegion,         // out: New region if any. NULL when building trimmed surfaces, may be NotNULL for solids.
                             pNewShell,          // out: New shell if any.  Trimmed surfaces always create a new shell.
-                            pNewFace) ;         // out: the new face
+                            pNewFace)  );         // out: the new face
                        //     bRunHeal) ;         // in : TRUE = Run Healer on new Face - may edit the Face data to fix problems
                                                   //      FALSE= don't
 
@@ -552,9 +552,9 @@ SmStatus SmPrimitiveCreation::CreateCylindricalBox
   
   // Build Top Plane ref frame translated by length in Z direction, domain:[-dOutsideRadius, -dOutsideRadius, dOutsideRadius, dOutsideRadius]
   sRefFrame.Translate(sLengthVec) ;
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  sSurfUVDomain.SetMinMax(-dOutsideRadius, -dOutsideRadius, dOutsideRadius, dOutsideRadius) ;
-  pPlane->AdjustSTEPUVDomain(sSurfUVDomain);
+  SER( SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane ) );
+  SER( sSurfUVDomain.SetMinMax(-dOutsideRadius, -dOutsideRadius, dOutsideRadius, dOutsideRadius)  );
+  SER( pPlane->AdjustSTEPUVDomain(sSurfUVDomain) );
 
   // curves of the Top Plane
   SmLine   * pTopStartLine     = new (*pContext) SmLine(sTopInsideStartPoint, sTopOutsideStartPoint, 3, pContext) ;
@@ -570,7 +570,7 @@ SmStatus SmPrimitiveCreation::CreateCylindricalBox
   sCurves.Add(pTopInsideCircle ) ; 
 
   // Make Bot Plane Face in Brep - trim curves now owned by new Face - don't delete or use them again                   
-  pBrep->MakeFaceWithCurves(m_pRegion,          // in : region to contain new topology objects
+  SER( pBrep->MakeFaceWithCurves(m_pRegion,          // in : region to contain new topology objects
                             sCurveLoops,        // in : 1 entry per loop, value = loop edge count, 1st entry=outer loop
                             &sCurves,           // in : opt ordered 3d trimming curves assigned to loops per sLoopEUCounts, curves owned by new face
                             NULL,               // in : opt ordered 2d trimming curves assigned to loops per sLoopEUCounts, curves owned by new face
@@ -581,46 +581,46 @@ SmStatus SmPrimitiveCreation::CreateCylindricalBox
                             SM_OT_SAME,         // in : Surface orient, oneof SM_OT_SAME or SM_OT_OPPOSITE
                             pNewRegion,         // out: New region if any. NULL when building trimmed surfaces, may be NotNULL for solids.
                             pNewShell,          // out: New shell if any.  Trimmed surfaces always create a new shell.
-                            pNewFace) ;         // out: the new face
+                            pNewFace)  );         // out: the new face
                        //     bRunHeal) ;         // in : TRUE = Run Healer on new Face - may edit the Face data to fix problems
                        //                         //      FALSE= don't
 
   // 3. Make and Add StartFace to Brep - It's naturally trimmed, so call CreateFaceFromSurface() 
   
   // Build Start Plane positioned:[orig, StartVec, ZVec], domain:[InsideRad, 0, OutSideRad, Length]
-  sRefFrame.SetCanonical(rRefFrame.GetOriginRef(), sStartVec, rRefFrame.GetZAxis()) ; 
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  sSurfUVDomain.SetMinMax(dInsideRadius, 0, dOutsideRadius, dLength) ;
-  pPlane->AdjustSTEPUVDomain(sSurfUVDomain);
-  pBrep->CreateFaceFromSurface( pPlane, pPlane->GetNaturalUVDomain(), pNewFace );
+  SER( sRefFrame.SetCanonical(rRefFrame.GetOriginRef(), sStartVec, rRefFrame.GetZAxis())  ); 
+  SER( SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane ) );
+  SER( sSurfUVDomain.SetMinMax(dInsideRadius, 0, dOutsideRadius, dLength)  );
+  SER( pPlane->AdjustSTEPUVDomain(sSurfUVDomain) );
+  SER( pBrep->CreateFaceFromSurface( pPlane, pPlane->GetNaturalUVDomain(), pNewFace ) );
 
   // 4. Make and Add EndFace to Brep - It's naturally trimmed, so call CreateFaceFromSurface() 
   
   // Build End Plane positioned:[orig, EndVec, ZVec], domain:[InsideRad, 0, OutSideRad, Length]
-  sRefFrame.SetCanonical(rRefFrame.GetOriginRef(), sEndVec, rRefFrame.GetZAxis()) ; 
-  SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane );
-  sSurfUVDomain.SetMinMax(dInsideRadius, 0, dOutsideRadius, dLength) ;
-  pPlane->AdjustSTEPUVDomain(sSurfUVDomain);
-  pBrep->CreateFaceFromSurface( pPlane, pPlane->GetNaturalUVDomain(), pNewFace );
+  SER( sRefFrame.SetCanonical(rRefFrame.GetOriginRef(), sEndVec, rRefFrame.GetZAxis())  ); 
+  SER( SmPlane::CreateCanonical( *pContext, sRefFrame, pPlane ) );
+  SER( sSurfUVDomain.SetMinMax(dInsideRadius, 0, dOutsideRadius, dLength)  );
+  SER( pPlane->AdjustSTEPUVDomain(sSurfUVDomain) );
+  SER( pBrep->CreateFaceFromSurface( pPlane, pPlane->GetNaturalUVDomain(), pNewFace ) );
 
 // 5. Make and Add InsideFace to Brep - It's naturally trimmed, so call CreateFaceFromSurface() 
   
   // Build End Plane positioned:[orig, EndVec, ZVec], domain:[dStartAngDeg, 0, dEndAngDeg, dLength]
-  SmCylinder::CreateCanonical(*pContext, rRefFrame, dInsideRadius, pCylinder) ; 
-  sSurfUVDomain.SetMinMax(dStartAngDeg, 0, dEndAngDeg, dLength) ;
-  pCylinder->AdjustSTEPUVDomain(sSurfUVDomain);
-  pBrep->CreateFaceFromSurface( pCylinder, pCylinder->GetNaturalUVDomain(), pNewFace );
+  SER( SmCylinder::CreateCanonical(*pContext, rRefFrame, dInsideRadius, pCylinder)  ); 
+  SER( sSurfUVDomain.SetMinMax(dStartAngDeg, 0, dEndAngDeg, dLength)  );
+  SER( pCylinder->AdjustSTEPUVDomain(sSurfUVDomain) );
+  SER( pBrep->CreateFaceFromSurface( pCylinder, pCylinder->GetNaturalUVDomain(), pNewFace ) );
 
   // 6. Make and Add OutsideFace to Brep - It's naturally trimmed, so call CreateFaceFromSurface() 
   
   // Build End Plane positioned:[orig, EndVec, ZVec], domain:[dStartAngDeg, 0, dEndAngDeg, dLength]
-  SmCylinder::CreateCanonical(*pContext, rRefFrame, dOutsideRadius, pCylinder) ; 
-  sSurfUVDomain.SetMinMax(dStartAngDeg, 0, dEndAngDeg, dLength) ;
-  pCylinder->AdjustSTEPUVDomain(sSurfUVDomain);
-  pBrep->CreateFaceFromSurface( pCylinder, pCylinder->GetNaturalUVDomain(), pNewFace );
+  SER( SmCylinder::CreateCanonical(*pContext, rRefFrame, dOutsideRadius, pCylinder)  ); 
+  SER( sSurfUVDomain.SetMinMax(dStartAngDeg, 0, dEndAngDeg, dLength)  );
+  SER( pCylinder->AdjustSTEPUVDomain(sSurfUVDomain) );
+  SER( pBrep->CreateFaceFromSurface( pCylinder, pCylinder->GetNaturalUVDomain(), pNewFace ) );
 
   // build the topology connections between the 6 new faces
-  pBrep->StitchAndOrient() ;
+  SER( pBrep->StitchAndOrient()  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -1266,12 +1266,12 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
         if (pCrvToExtrude->IsAnalytic())
         {
             SmExtent1d sCrvAnalDomain = pCrvToExtrude->GetSTEPInterval();
-            sAnalDomain.SetUInterval(sCrvAnalDomain);
+            SER( sAnalDomain.SetUInterval(sCrvAnalDomain) );
         }
         else
         {
             SmExtent1d sCrvNurbDomain = pCrvToExtrude->GetNaturalInterval();
-            sAnalDomain.SetUInterval(sCrvNurbDomain);
+            SER( sAnalDomain.SetUInterval(sCrvNurbDomain) );
         }
 
         // If the generation curve is a line, then create an SmPlane
@@ -1283,7 +1283,7 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
             SmVector2d sScale(sLineVector.Length(), dSweepDist);
             SmExtent2d sDomain(0.0, 0.0, 1.0, 1.0);
 
-            sLineVector.Unitize();
+            (void)sLineVector.Unitize(); // SolidCraft: a zero vector stays zero
 
             // SMLib requires that SmPlanes be a rectangle
             // Therefore, we check for an orthogonal sweep vector
@@ -1321,8 +1321,8 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
                     {
                         // bound cylinder
                         SmExtent2d sExtent;
-                        sExtent.SetMinMax(0, 0, 360.0, dSweepDist);
-                        pCylinder->AdjustSTEPUVDomain(sExtent);
+                        SER( sExtent.SetMinMax(0, 0, 360.0, dSweepDist) );
+                        SER( pCylinder->AdjustSTEPUVDomain(sExtent) );
 
                         pExtSurface = (SmSurface*)pCylinder;
                     }
@@ -1337,7 +1337,7 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
 
             // Copy the input curve.
             SmCurve* pCrvCopy = NULL;
-            pCrvToExtrude->Copy(*pContext, pCrvCopy);
+            SER( pCrvToExtrude->Copy(*pContext, pCrvCopy) );
             SmBSplineCurve* pBSplCopy = SM_CAST_PTR(SmBSplineCurve, pCrvCopy);
             NER(pBSplCopy);
 
@@ -1345,7 +1345,7 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
 
             if (pSrfExt != NULL && eStat == SM_SUCCESS)
             {
-                pSrfExt->AdjustSTEPUVDomain(sAnalDomain);
+                SER( pSrfExt->AdjustSTEPUVDomain(sAnalDomain) );
                 pExtSurface = (SmSurface*)pSrfExt;
             }
             else
@@ -1377,7 +1377,7 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
 
         // add new surface to brep
         SmFace* pNewFace = NULL;
-        pBrep->CreateFaceFromSurface(pExtSurface, pExtSurface->GetNaturalUVDomain(), pNewFace);
+        SER( pBrep->CreateFaceFromSurface(pExtSurface, pExtSurface->GetNaturalUVDomain(), pNewFace) );
 
     } // end iter every cr3DCurve - adding extruded faces to pBrep
 
@@ -1423,14 +1423,14 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
 
         // create planar start cap
         SmTArray<SmFace*> sStartFaces;
-        pBrep->CreatePlanarFacesWith3DCurves(m_pRegion, cr3DCurves, dTol, sStartFaces);
+        SER( pBrep->CreatePlanarFacesWith3DCurves(m_pRegion, cr3DCurves, dTol, sStartFaces) );
 
         // Note: Instead of copying and translating the curves to create the second cap,
         // does it make sense to simply copy and translate the first cap?
 
         // build sweep transform into an SmAxis2Placement object
         SmVector3d sExtrudeVector(crSweepVec.x, crSweepVec.y, crSweepVec.z);
-        sExtrudeVector.Unitize();
+        (void)sExtrudeVector.Unitize(); // SolidCraft: a zero vector stays zero
         sExtrudeVector = sExtrudeVector * dSweepDist;
         SmAxis2Placement sTranslate(SmVector3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0));
         sTranslate.Translate(sExtrudeVector);
@@ -1440,14 +1440,14 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
         for (ULONG ii = 0; ii < cr3DCurves.GetSize(); ii++)
         {
             SmCurve* crvCopy = NULL;
-            cr3DCurves[ii]->Copy(*pContext, crvCopy);
-            crvCopy->Transform(sTranslate);
+            SER( cr3DCurves[ii]->Copy(*pContext, crvCopy) );
+            SER( crvCopy->Transform(sTranslate) );
             sEndCurves.Add(crvCopy);
         }
 
         // create planar end cap
         SmTArray<SmFace*> endFaces;
-        pBrep->CreatePlanarFacesWith3DCurves(m_pRegion, sEndCurves, dTol, endFaces);
+        SER( pBrep->CreatePlanarFacesWith3DCurves(m_pRegion, sEndCurves, dTol, endFaces) );
 
     } // end adding endcaps to pBrep
 
@@ -1486,7 +1486,7 @@ SmStatus SmPrimitiveCreation::CreateLinearSweep(SmTArray<SmCurve*>& cr3DCurves, 
 #endif // SM_DEBUG_CODE
 
     // Stitch geometry into connected topology graph
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_DEBUG_CODE
     if (bDebugMe)
@@ -1600,12 +1600,12 @@ SmBoolean bDebugMe = FALSE ;
       if( pCrvToExtrude->IsAnalytic() ) 
         {
           SmExtent1d sCrvAnalDomain = pCrvToExtrude->GetSTEPInterval();
-          sAnalDomain.SetUInterval( sCrvAnalDomain );
+          SER( sAnalDomain.SetUInterval( sCrvAnalDomain ) );
         }
       else
         {
           SmExtent1d sCrvNurbDomain = pCrvToExtrude->GetNaturalInterval();
-          sAnalDomain.SetUInterval( sCrvNurbDomain );
+          SER( sAnalDomain.SetUInterval( sCrvNurbDomain ) );
         }
 
       // If the generation curve is a line, then create an SmPlane
@@ -1617,7 +1617,7 @@ SmBoolean bDebugMe = FALSE ;
           SmVector2d sScale(sLineVector.Length(), dSweepDist);
           SmExtent2d sDomain(0.0, 0.0, 1.0, 1.0) ;
 
-          sLineVector.Unitize();
+          (void)sLineVector.Unitize(); // SolidCraft: a zero vector stays zero
 
           // SMLib requires that SmPlanes be a rectangle
           // Therefore, we check for an orthogonal sweep vector
@@ -1652,8 +1652,8 @@ SmBoolean bDebugMe = FALSE ;
                   {
                       // bound cylinder
                       SmExtent2d sExtent;
-                      sExtent.SetMinMax( 0, 0, 360.0, dSweepDist );  
-                      pCylinder->AdjustSTEPUVDomain( sExtent );
+                      SER( sExtent.SetMinMax( 0, 0, 360.0, dSweepDist ) );  
+                      SER( pCylinder->AdjustSTEPUVDomain( sExtent ) );
 
                       pExtSurface = (SmSurface*)pCylinder;
                   }
@@ -1668,7 +1668,7 @@ SmBoolean bDebugMe = FALSE ;
 
           // Copy the input curve.
           SmCurve * pCrvCopy = NULL;
-          pCrvToExtrude->Copy( *pContext, pCrvCopy );
+          SER( pCrvToExtrude->Copy( *pContext, pCrvCopy ) );
           SmBSplineCurve * pBSplCopy = SM_CAST_PTR( SmBSplineCurve, pCrvCopy );
           NER( pBSplCopy );
 
@@ -1677,7 +1677,7 @@ SmBoolean bDebugMe = FALSE ;
   
           if( pSrfExt != NULL  && eStat == SM_SUCCESS )
           {
-              pSrfExt->AdjustSTEPUVDomain(sAnalDomain);
+              SER( pSrfExt->AdjustSTEPUVDomain(sAnalDomain) );
               pExtSurface = (SmSurface*)pSrfExt;
           }
           else
@@ -1701,7 +1701,7 @@ SmBoolean bDebugMe = FALSE ;
 
       // add new surface to brep
       SmFace *pNewFace = NULL ;
-      pBrep->CreateFaceFromSurface(pExtSurface, pExtSurface->GetNaturalUVDomain(), pNewFace );
+      SER( pBrep->CreateFaceFromSurface(pExtSurface, pExtSurface->GetNaturalUVDomain(), pNewFace ) );
     
     } // end iter every cr3DCurve - adding extruded faces to pBrep
 
@@ -1732,14 +1732,14 @@ SmBoolean bDebugMe = FALSE ;
       sCleanInputCurves.Clear();
 
       SmFace* sStartFace = NULL;
-      pBrep->CreatePlanarFaceWith3DCurves(m_pRegion, cr3DCurves, dTol, sStartFace);
+      SER( pBrep->CreatePlanarFaceWith3DCurves(m_pRegion, cr3DCurves, dTol, sStartFace) );
 
       // Note: Instead of copying and translating the curves to create the second cap,
       // does it make sense to simply copy and translate the first cap?
 
       // build sweep transform into an SmAxis2Placement object
       SmVector3d sExtrudeVector(crSweepVec.x, crSweepVec.y, crSweepVec.z);
-      sExtrudeVector.Unitize();
+      (void)sExtrudeVector.Unitize(); // SolidCraft: a zero vector stays zero
       sExtrudeVector = sExtrudeVector * dSweepDist;
       SmAxis2Placement sTranslate(SmVector3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0));
       sTranslate.Translate(sExtrudeVector);
@@ -1748,9 +1748,9 @@ SmBoolean bDebugMe = FALSE ;
       SmBrep* pTmpBrep = new (*pContext) SmBrep();
       SmTArray<SmFace*> sStartFaces;
       sStartFaces.Add(sStartFace);
-      pBrep->CopyFaces(sStartFaces, pTmpBrep);
-      pTmpBrep->Transform(sTranslate);
-      pBrep->MergeBrep(*pTmpBrep);
+      SER( pBrep->CopyFaces(sStartFaces, pTmpBrep) );
+      SER( pTmpBrep->Transform(sTranslate) );
+      SER( pBrep->MergeBrep(*pTmpBrep) );
       delete pTmpBrep;
 
     } // end adding endcaps to pBrep
@@ -1776,7 +1776,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // Stitch geometry into connected topology graph
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)
@@ -1864,10 +1864,10 @@ SmBoolean bDebugMe = FALSE ;
       for (ULONG ii = 0; ii < cr3DCurves.GetSize(); ii++)
         {
           // split input curves at c1 discontinuities
-          ((SmBSplineCurve *)cr3DCurves[ii])->SubdivideAtDiscontinuity
+          SER( ((SmBSplineCurve *)cr3DCurves[ii])->SubdivideAtDiscontinuity
                                               (*pContext,  // in : context for new object construction
                                                SM_CT_C1,   // in : curve is split at internal continuities <= to this value
-                                               c3DBSPLC1); // out: newly copied curves - may be 1 curve copy when no internal discontinuities
+                                               c3DBSPLC1) ); // out: newly copied curves - may be 1 curve copy when no internal discontinuities
 
           // when curve was split
           if ( c3DBSPLC1.GetSize() > 1 )
@@ -2022,7 +2022,7 @@ SmBoolean bDebugMe = FALSE ;
         {
           // FALSE: Don't delete all connected edges and vertices.
           // TRUE:  Do region nesting: combine regions/shells as appropriate.
-          pBrep->DeleteFace( aFaces[ii], FALSE, TRUE );
+          SER( pBrep->DeleteFace( aFaces[ii], FALSE, TRUE ) );
         }
     } // end sweep wire edges branch
   
@@ -2094,10 +2094,10 @@ SmBoolean bDebugMe = FALSE ;
         {
           SmCurve* crv = sEdges[jj]->GetCurve();
           SmCurve* crvCopy = NULL;
-          crv->Copy( *pContext, crvCopy );
+          SER( crv->Copy( *pContext, crvCopy ) );
 
           SmExtent1d sInt = sEdges[jj]->GetInterval();
-          crvCopy->Trim( sInt );
+          SER( crvCopy->Trim( sInt ) );
           s3DCurves.Add( crvCopy );
         }
     } // end iter every face
@@ -2213,9 +2213,9 @@ SmBoolean bDebugMe = FALSE ;
       for ( i=0; i<rFaces.GetSize(); i++ )
         {
           //
-          pBrep->DeleteFace( rFaces[i], 
+          SER( pBrep->DeleteFace( rFaces[i], 
                              FALSE,      // FALSE: Don't delete all connected edges and vertices.           
-                             TRUE );     // TRUE:  Do region nesting: combine regions/shells as appropriate.
+                             TRUE ) );     // TRUE:  Do region nesting: combine regions/shells as appropriate.
         }
     } // end bCapsEnds == FALSE branch
 
@@ -2276,8 +2276,8 @@ SmBoolean bDebugMe = FALSE ;
     SmPoint3d sStartPt, sEndPt;
     r3DCurve->GetEnds( sStartPt, sEndPt );
 
-    smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dStartDist, NULL );
-    smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt,   dEndDist,   NULL );
+    SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dStartDist, NULL ) );
+    SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt,   dEndDist,   NULL ) );
 
     // Revolving a line can be a cylinder or a cone
     if( r3DCurve->IsLinear( )  )
@@ -2313,10 +2313,10 @@ SmBoolean bDebugMe = FALSE ;
             // Find the base point for the cylinder.
             // Drop the Start point to the axis.
             double dT;
-            smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dT );
+            SER( smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dT ) );
             SmPoint3d sBasePoint = crRotAxisBasePt + dT * crRotAxisDir;
 
-            sFrame.SetCanonical( sBasePoint, sXAxis, sYAxis );
+            SER( sFrame.SetCanonical( sBasePoint, sXAxis, sYAxis ) );
 
             SmCylinder* pCylinder = NULL;
             eStat = SmCylinder::CreateCanonical( *pContext, sFrame, dStartDist, pCylinder ); 
@@ -2325,8 +2325,8 @@ SmBoolean bDebugMe = FALSE ;
             {
                 double dHeight = sStartPt.DistanceBetween( sEndPt );
                 SmExtent2d sExtent;
-                sExtent.SetMinMax( 0, 0, 360.0, dHeight );  
-                pCylinder->AdjustSTEPUVDomain( sExtent );
+                SER( sExtent.SetMinMax( 0, 0, 360.0, dHeight ) );  
+                SER( pCylinder->AdjustSTEPUVDomain( sExtent ) );
 
                 pAnalSrf = pCylinder;
             }
@@ -2342,11 +2342,11 @@ SmBoolean bDebugMe = FALSE ;
             // Find the center point for circles.
             // Both Start and End points should drop to the same point.
             double dT;
-            smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dT );
+            SER( smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dT ) );
             SmPoint3d sBasePoint = crRotAxisBasePt + dT * crRotAxisDir;
 
             double dEndDistance   = 0.0;
-            smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dEndDistance );
+            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dEndDistance ) );
 
             // Reference frame: Make the vector point away from the axis,
             // and make the rotation CCW (right-hand rule).
@@ -2355,18 +2355,18 @@ SmBoolean bDebugMe = FALSE ;
             if ( dStartDist > dEndDistance)
               { sLineVector *= -1.0; }
             SmVector3d sYAxis = crRotAxisDir * sLineVector;
-            sFrame.SetCanonical( sBasePoint, sLineVector, sYAxis );
+            SER( sFrame.SetCanonical( sBasePoint, sLineVector, sYAxis ) );
 
             SmScaledZero dScaledZero = SmTol::GetScaledZero(sStartPt, sEndPt) ;
 
             if ( dStartDist > dScaledZero )
               {
-                SmCircle::CreateCanonical( *pContext, sFrame, dStartDist, pCircle );
+                SER( SmCircle::CreateCanonical( *pContext, sFrame, dStartDist, pCircle ) );
                 sCurves.Add( pCircle );
               }
             if (dEndDistance > dScaledZero )
               {
-                SmCircle::CreateCanonical( *pContext, sFrame, dEndDistance, pCircle );
+                SER( SmCircle::CreateCanonical( *pContext, sFrame, dEndDistance, pCircle ) );
                 sCurves.Add( pCircle );
               }
 
@@ -2389,18 +2389,18 @@ SmBoolean bDebugMe = FALSE ;
             // Determine radius by dropping start pt onto axis 
             double dBottomRadius = 0.0;
             double dBottomParam = 0.0;
-            smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dBottomRadius, &dBottomParam );
+            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dBottomRadius, &dBottomParam ) );
 
             double dTopRadius = 0.0;
             double dTopParam = 0.0;
-            smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dTopRadius, &dTopParam );
+            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dTopRadius, &dTopParam ) );
 
             SmLine sAxisLine( crRotAxisBasePt, crRotAxisDir, 3, TRUE, pContext, FALSE );
 
             SmSolutionArray sSolutions;
-            sAxisLine.GlobalCurveIntersect( sAxisLine.GetNaturalInterval(),
+            SER( sAxisLine.GlobalCurveIntersect( sAxisLine.GetNaturalInterval(),
                                             *r3DCurve, r3DCurve->GetNaturalInterval(), dBrepTol,
-                                            sSolutions );
+                                            sSolutions ) );
 
             if( sSolutions.GetSize() > 0 ) 
             {
@@ -2421,10 +2421,10 @@ SmBoolean bDebugMe = FALSE ;
             }
 
             SmPoint3d sBottomPt;
-            sAxisLine.EvaluatePoint( dBottomParam, sBottomPt );
+            SER( sAxisLine.EvaluatePoint( dBottomParam, sBottomPt ) );
 
             SmPoint3d sTopPt;
-            sAxisLine.EvaluatePoint( dTopParam, sTopPt );
+            SER( sAxisLine.EvaluatePoint( dTopParam, sTopPt ) );
 
             // The height is the distance between drop points.
             double dHeight = sBottomPt.DistanceBetween( sTopPt );
@@ -2440,7 +2440,7 @@ SmBoolean bDebugMe = FALSE ;
             SER( sYAxis.Unitize() );
             SmVector3d sXAxis  ( sYAxis * sTmpVector );
 
-            sFrame.SetCanonical( sBottomPt, sXAxis, sYAxis );
+            SER( sFrame.SetCanonical( sBottomPt, sXAxis, sYAxis ) );
 
             SmCone* pCone = NULL;
             eStat = SmCone::CreateCanonical( *pContext, sFrame, dBottomRadius, dTopRadius, dHeight, pCone ); 
@@ -2463,11 +2463,11 @@ SmBoolean bDebugMe = FALSE ;
         if( dSweepAngleDeg < 180.0 + dBrepTol && dSweepAngleDeg > 180.0 - dBrepTol )
         {
             double dDist = 0.0;
-            smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dDist, NULL );
+            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dDist, NULL ) );
             if( dDist > dBrepTol )
                 return( SM_ERR );
 
-            smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dDist, NULL );
+            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dDist, NULL ) );
             if( dDist > dBrepTol )
                 return( SM_ERR );
                
@@ -2485,7 +2485,7 @@ SmBoolean bDebugMe = FALSE ;
             SmLine sAxisLine( crRotAxisBasePt, crRotAxisDir, 3, TRUE, pContext, FALSE );
 
             SmSolutionArray sSolutions;
-            sAxisLine.GlobalCurveIntersect( sAxisLine.GetNaturalInterval(), *r3DCurve, r3DCurve->GetNaturalInterval(), dBrepTol, sSolutions );
+            SER( sAxisLine.GlobalCurveIntersect( sAxisLine.GetNaturalInterval(), *r3DCurve, r3DCurve->GetNaturalInterval(), dBrepTol, sSolutions ) );
             if( sSolutions.GetSize() > 0 ) 
                 return( SM_ERR );
 
@@ -2493,7 +2493,7 @@ SmBoolean bDebugMe = FALSE ;
             // The major radius is the distance from the center of the circle to the perpedicular to the axis
             double dMajorRadius = 0.0;
             double dParamOnAxis = 0.0;
-            smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sFrame.GetOriginRef(), dMajorRadius, &dParamOnAxis );
+            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sFrame.GetOriginRef(), dMajorRadius, &dParamOnAxis ) );
 
             // sPntOnAxis is the point where the center of the circle drops to the axis
             SmPoint3d sPntOnAxis = crRotAxisBasePt + dParamOnAxis * crRotAxisDir;
@@ -2502,7 +2502,7 @@ SmBoolean bDebugMe = FALSE ;
             sInputCurves.Add( r3DCurve );
 
             SmVector3d sCrvNormal;
-            SmCurve::ComputeCrvsNormal( sInputCurves, sCrvNormal );
+            SER( SmCurve::ComputeCrvsNormal( sInputCurves, sCrvNormal ) );
 
             // The frame for the torus must be based at the base of the axis
             // And oriented 
@@ -2511,7 +2511,7 @@ SmBoolean bDebugMe = FALSE ;
             //    xAxis.Set( 0,1,0 );
 
             SmVector3d yAxis = xAxis * crRotAxisDir;
-            sFrame.SetCanonical( sPntOnAxis, xAxis, yAxis );
+            SER( sFrame.SetCanonical( sPntOnAxis, xAxis, yAxis ) );
 
 #ifdef SM_DEBUG_CODE
     if(bDebugMe)
@@ -2756,7 +2756,7 @@ if(bDebugMe)
       // locals
       double dLengthOfCrv = 0.0;
       double dAccuracyTol = 0.001;    // Is there a better value for this?
-      pCrvToRevolve->Length( pCrvToRevolve->GetNaturalInterval(), dAccuracyTol, dLengthOfCrv );
+      SER( pCrvToRevolve->Length( pCrvToRevolve->GetNaturalInterval(), dAccuracyTol, dLengthOfCrv ) );
       
       // degenerate curves are considered bad 
       // closed curves should be ok
@@ -2768,10 +2768,10 @@ if(bDebugMe)
       pCrvToRevolve->GetEnds( sStartPt, sEndPt );
 
       double dStartDist = 0.0;
-      smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dStartDist );
+      SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dStartDist ) );
 
       double dEndDist   = 0.0;
-      smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dEndDist );
+      SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dEndDist ) );
 
       // Get an appropriate angle tolerance.  Both ends of line should be
       // within 3d tol of parallel or perpendicular.
@@ -2795,7 +2795,7 @@ if(bDebugMe)
 
           // Find the center point for circles.
           // Both Start and End points should drop to the same point.
-          smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dParam );
+          SER( smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dParam ) );
           SmPoint3d sBasePoint = crRotAxisBasePt + dParam * crRotAxisDir;
 
           // Reference frame: Make the vector point away from the axis,
@@ -2804,19 +2804,19 @@ if(bDebugMe)
           //                  sLineVector is the x-axis.
           if ( dStartDist > dEndDist ) { sLineVector *= -1.0; }
           SmVector3d sYAxis = crRotAxisDir * sLineVector;
-          sFrame.SetCanonical( sBasePoint, sLineVector, sYAxis );
+          SER( sFrame.SetCanonical( sBasePoint, sLineVector, sYAxis ) );
 
           // start radius circle
           if ( dStartDist > dScaledZero )
             {
-              SmCircle::CreateCanonical( *pContext, sFrame, dStartDist, pCircle );
+              SER( SmCircle::CreateCanonical( *pContext, sFrame, dStartDist, pCircle ) );
               sCurves.Add( pCircle );
             }
 
           // end radius circle
           if ( dEndDist > dScaledZero )
             {
-              SmCircle::CreateCanonical( *pContext, sFrame, dEndDist, pCircle );
+              SER( SmCircle::CreateCanonical( *pContext, sFrame, dEndDist, pCircle ) );
               sCurves.Add( pCircle );
             }
 
@@ -2878,7 +2878,7 @@ if(bDebugMe)
 
   } // end for each curve.
 
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
   SER(sm_NestRevolvedShells(pBrep));
 
   pBrep->m_bEditingEnabled = FALSE;
@@ -2969,10 +2969,10 @@ SmBoolean bDebugMe = FALSE ;
 
       for (ULONG i = 0; i < r3DCurves.GetSize(); i++) 
         {
-          ((SmBSplineCurve *)r3DCurves[i])->SubdivideAtDiscontinuity
+          SER( ((SmBSplineCurve *)r3DCurves[i])->SubdivideAtDiscontinuity
                                              (*pContext,   // in : context for new object construction
                                               SM_CT_C1,    // in : curve is split at internal continuities <= to this value
-                                              c3DBSPLC1);  // out: newly copied curves - may be 1 curve copy when no internal discontinuities
+                                              c3DBSPLC1) );  // out: newly copied curves - may be 1 curve copy when no internal discontinuities
           if (c3DBSPLC1.GetSize() > 1) 
             {
               delete r3DCurves[i]; // delete this curve, which is now replaced
@@ -3108,7 +3108,7 @@ SmBoolean bDebugMe = FALSE ;
                          NULL,NULL,NULL,NULL));             // edges high
       const SmContext *pBrepContext = pBrep->GetContext();
       SmTopologyIntersector sTI(*pBrepContext );
-      sTI.DeleteFaces(aFaces);
+      SER( sTI.DeleteFaces(aFaces) );
 
       // Now that we have deleted the interior face - stitch 
       // and do region determination.
@@ -3226,16 +3226,17 @@ SmStatus SmPrimitiveCreation::CreateDraftSweep
   SmAxis2Placement sMove;
   SmVector3d sUnitSweep = crSweepVec;
   if (sUnitSweep.LengthSquared() < 0.00001)
-      SmCurve::ComputeCrvsNormal(cr3DCurves, sUnitSweep);
-  else sUnitSweep.Unitize();
+    { SER( SmCurve::ComputeCrvsNormal(cr3DCurves, sUnitSweep) ); }
+  else
+    { (void)sUnitSweep.Unitize(); } // SolidCraft: a zero vector stays zero
   SmVector3d sTrans = dSweepDist * sUnitSweep;
   sMove.Translate(sTrans);
 
   SmTArray<SmCurve*> sCopyCrvs;
   for (ULONG ii=0; ii<cr3DCurves.GetSize(); ii++) {
       SmCurve *pCopy = NULL;
-      cr3DCurves[ii]->Copy(*m_pRegion->GetContext(),pCopy);
-      pCopy->Transform(sMove);
+      SER( cr3DCurves[ii]->Copy(*m_pRegion->GetContext(),pCopy) );
+      SER( pCopy->Transform(sMove) );
       sCopyCrvs.Add(pCopy);
   }
 
@@ -3370,7 +3371,7 @@ NOTES:
   corners the same pivot, and an outward draft of such a loop came out open.)
 
 *****************************************************************/
-static void sm_FindPivotPoint
+static SmStatus sm_FindPivotPoint // SolidCraft change: returns the status of its steps
  (SmBSplineCurve * pCrv1,       // in : one link in a chain of curve
   SmBSplineCurve * pCrv2,       // in : adjacent line in same chain
   const SmCurve  * pCornerCrv,  // in : the corner's offset curve, made round the joint sought
@@ -3381,14 +3382,14 @@ static void sm_FindPivotPoint
   SmExtent1d sDomain1 = pCrv1->GetNaturalInterval();
   SmExtent1d sDomain2 = pCrv2->GetNaturalInterval();
   SmPoint3d  sEnds1[2], sEnds2[2];
-  pCrv1->EvaluatePoint(sDomain1.GetMin(), sEnds1[0]);
-  pCrv1->EvaluatePoint(sDomain1.GetMax(), sEnds1[1]);
-  pCrv2->EvaluatePoint(sDomain2.GetMin(), sEnds2[0]);
-  pCrv2->EvaluatePoint(sDomain2.GetMax(), sEnds2[1]);
+  SER( pCrv1->EvaluatePoint(sDomain1.GetMin(), sEnds1[0]) );
+  SER( pCrv1->EvaluatePoint(sDomain1.GetMax(), sEnds1[1]) );
+  SER( pCrv2->EvaluatePoint(sDomain2.GetMin(), sEnds2[0]) );
+  SER( pCrv2->EvaluatePoint(sDomain2.GetMax(), sEnds2[1]) );
 
   // a point of the corner's offset curve, to tell two joints apart
   SmPoint3d  sCorner;
-  pCornerCrv->EvaluatePoint(pCornerCrv->GetNaturalInterval().GetMid(), sCorner);
+  SER( pCornerCrv->EvaluatePoint(pCornerCrv->GetNaturalInterval().GetMid(), sCorner) );
 
   // the coincident end pairs, nearest the corner first
   SmBoolean bFound = FALSE;
@@ -3414,8 +3415,7 @@ static void sm_FindPivotPoint
     { PivotPoint = sEnds2[1]; }
 
   // all done
-  return;
-
+  return SM_SUCCESS;
 } // end SmPrimitiveCreation::sm_FindPivotPoint
 
 /*****************************************************************
@@ -3447,7 +3447,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
 
   // reduce the TargetCurve degree as much as possible
   if ( pBSC != NULL )
-    { pBSC->DegreeReduction(dBrepTol , TRUE); }
+    { SER( pBSC->DegreeReduction(dBrepTol , TRUE) ); }
 
   // Get the map attributes for this curve to marry curve segments with offset segments
   SmTArray<SmAttribute*> sAttributes;
@@ -3512,7 +3512,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
   SmTArray<double> sWeights;
   SmKnotType eKnotT;
   SmObjDelete sCleanCurve;
-  pRuleCurve2->GetCanonical( lDimension, lDegree, sControlPointList, eBSCForm, sKnotMult, sUniqueKnots, eKnotT, sWeights );
+  SER( pRuleCurve2->GetCanonical( lDimension, lDegree, sControlPointList, eBSCForm, sKnotMult, sUniqueKnots, eKnotT, sWeights ) );
 
   // when offset curve was made from a corner between two curves and not from an original curve       
   if ( bCorner )
@@ -3524,11 +3524,11 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
 
       // get 3d Point between two original links
       SmPoint3d sPivotPoint;
-      sm_FindPivotPoint(pRuleCurve2 ,          // in : one link in a chain of curve
+      SER( sm_FindPivotPoint(pRuleCurve2 ,          // in : one link in a chain of curve
                          pRuleCurveOther ,     // in : adjacent line in same chain
                          pOffsetCrv ,          // in : the corner's offset curve
                          dSamePointTolerance , // in : Same point tol
-                         sPivotPoint);         // out: 3D location of the join point between the two links
+                         sPivotPoint) );         // out: 3D location of the join point between the two links
 
       // create degenerate curve at pivot point for upcoming ruledSurface call
       SmBSplineCurve *pLinePoint = NULL ;
@@ -3536,7 +3536,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
       sCleanCurve.SetObj( pLinePoint );
 
       // transform to final location and rule curve to point
-      pRuleCurve1->Transform(sMove);
+      SER( pRuleCurve1->Transform(sMove) );
       sTheseCurves.Add(pRuleCurve1);
       sTheseCurves.Add(pLinePoint);
     }
@@ -3548,9 +3548,9 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
       SmExtent1d sOIvl = pRuleCurve1->GetNaturalInterval();
       SmPoint3d  sCrvS, sCrvE, sOCrvS;
       double     dSS, dES;
-      pRuleCurve2->EvaluatePoint( sIvl.GetMin(),  sCrvS );
-      pRuleCurve2->EvaluatePoint( sIvl.GetMax(),  sCrvE );
-      pRuleCurve1->EvaluatePoint( sOIvl.GetMin(), sOCrvS );
+      SER( pRuleCurve2->EvaluatePoint( sIvl.GetMin(),  sCrvS ) );
+      SER( pRuleCurve2->EvaluatePoint( sIvl.GetMax(),  sCrvE ) );
+      SER( pRuleCurve1->EvaluatePoint( sOIvl.GetMin(), sOCrvS ) );
       dSS = sCrvS.DistanceBetweenSquared( sOCrvS );
       dES = sCrvE.DistanceBetweenSquared( sOCrvS );
       
@@ -3564,8 +3564,8 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
           ULONG      lDim = 3;
           SmBoolean  bClosed = FALSE;
 
-          pRuleCurve2->EvaluatePoint( sIvl.GetMid(), sCrvM );
-          smgu_CircleFrom3Points( sCrvS, sCrvM, sCrvE, sCenter, sXAxis, sYAxis, sIvl, sRadius, lDim, bClosed );
+          SER( pRuleCurve2->EvaluatePoint( sIvl.GetMid(), sCrvM ) );
+          SER( smgu_CircleFrom3Points( sCrvS, sCrvM, sCrvE, sCenter, sXAxis, sYAxis, sIvl, sRadius, lDim, bClosed ) );
 
           // create degenerate curve at pivot point for upcoming ruledSurface call
           SmBSplineCurve *pLinePoint = NULL;
@@ -3577,7 +3577,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
           sO.y = sRadius / dOffset * sMove.GetOrigin().y;
           sO.z = sRadius / dOffset * sMove.GetOrigin().z;
           SmAxis2Placement sTempMove(sO, sMove.GetXAxis(), sMove.GetYAxis() );
-          pLinePoint->Transform( sTempMove );
+          SER( pLinePoint->Transform( sTempMove ) );
           sTheseCurves.Add( pLinePoint );
           sTheseCurves.Add( pRuleCurve2 );
 
@@ -3585,7 +3585,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
       }
       else
       {
-          pRuleCurve1->Transform( sMove );
+          SER( pRuleCurve1->Transform( sMove ) );
           sTheseCurves.Add( pRuleCurve1 );
           sTheseCurves.Add( pRuleCurve2 );
 
@@ -3596,7 +3596,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
   {
       // This case is likely solvable similar to the above solution for SM_CF_CIRCULAR_ARC. Implement if needed. Needs 5 points?
       SM_DBG_WARN( _T( "Offsetting elliptic curve. If offset too far, self intersecting surfaces may arise." ) );
-      pRuleCurve1->Transform( sMove );
+      SER( pRuleCurve1->Transform( sMove ) );
       sTheseCurves.Add( pRuleCurve1 );
       sTheseCurves.Add( pRuleCurve2 );
 
@@ -3604,7 +3604,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
   }
   else // offset curve not a corner....just rule between curves transform offset to final location
     {
-      pRuleCurve1->Transform(sMove);
+      SER( pRuleCurve1->Transform(sMove) );
       sTheseCurves.Add(pRuleCurve1);
       sTheseCurves.Add(pRuleCurve2);
 
@@ -3650,7 +3650,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
       // set the degenerate curve weights
       if ( pDegenCurve != NULL )
         {
-          pDegenCurve->MatchWeights(pOtherCurve);
+          SER( pDegenCurve->MatchWeights(pOtherCurve) );
         }
     } // end circle offset from a chain corner check
 
@@ -3819,7 +3819,7 @@ SmBoolean bDebugMe = FALSE ;
   // If the direction is given as [0,0,0] then compute normal from curve sample points
   if (rCrvsNormal.LengthSquared() < 0.00001)
     {
-      SmCurve::ComputeCrvsNormal(r3DCurves, rCrvsNormal);
+      SER( SmCurve::ComputeCrvsNormal(r3DCurves, rCrvsNormal) );
 
       // snap curves to Z axis when close
       // GWC: this is odd - either snap to all the coordinate axes or none
@@ -3831,11 +3831,11 @@ SmBoolean bDebugMe = FALSE ;
     {
       // check that the curves order conforms to the specified input normal
       SmPoint3d sCrvNormal;
-      SmCurve::ComputeCrvsNormal(r3DCurves, sCrvNormal);
+      SER( SmCurve::ComputeCrvsNormal(r3DCurves, sCrvNormal) );
  
       // get angle between computed and given normal running from 0 to Pi in radians
       double dAngleBetweenRad = 0.0;
-      sCrvNormal.AngleBetween(rCrvsNormal, dAngleBetweenRad);
+      SER( sCrvNormal.AngleBetween(rCrvsNormal, dAngleBetweenRad) );
       
       // if ComputedNormal is not consistent with the specified normal, reverse all the curves 
       if(fabs(dAngleBetweenRad - SM_PI) < 0.0001)
@@ -3845,7 +3845,7 @@ SmBoolean bDebugMe = FALSE ;
             {
               SmCurve *pCrv = r3DCurves[ii];
               SmExtent1d sIvl = pCrv->GetNaturalInterval();
-              pCrv->ReverseParameterization(sIvl, sIvl);
+              SER( pCrv->ReverseParameterization(sIvl, sIvl) );
             }
           
           // rechain all the curves    
@@ -3878,9 +3878,9 @@ SmBoolean bDebugMe = FALSE ;
 
       SmBSplineCurve *pBSC =(SmBSplineCurve *)r3DCurves[ii];
       SmTArray < SmBSplineCurve *> sG1Curves;
-      pBSC->SubdivideAtDiscontinuity(*pContext,  // in : context for new object construction
+      SER( pBSC->SubdivideAtDiscontinuity(*pContext,  // in : context for new object construction
                                      SM_CT_G1,   // in : curve is split at internal continuities <= to this value
-                                     sG1Curves); // out: newly copied curves - may be 1 curve copy when no internal discontinuities
+                                     sG1Curves) ); // out: newly copied curves - may be 1 curve copy when no internal discontinuities
 
       // load results into working arrays
       sCurves.Append(sG1Curves);          // list of all split at G1 copied curves
@@ -3891,7 +3891,7 @@ SmBoolean bDebugMe = FALSE ;
   double dDistanceToCreateLine = 0.0;
 
   // connect sCurves into composite curves - ownership moves from sCurves to sCompCurves array
-  SmCompositeCurve::BuildCompositesFromCurves
+  SER( SmCompositeCurve::BuildCompositesFromCurves
     (*pContext,             // in : context for new object construction
      sCurves,               // in : unordered curves to connect into composites
                             //      note: Curve ownership is NOT moved to the output composites.
@@ -3903,7 +3903,7 @@ SmBoolean bDebugMe = FALSE ;
      0.0,                   // in : (not yet used) else if gap < dOptDistanceToExtendTrim, trim and connect        - not implemented
      dDistanceToCreateLine, // in : else if gap < dOptDistanceToCreateLine, insert line seg and connect, 0.0 to ignore
      0.0,                   // in : (not yet used) else if gap < dOptDistanceToCreateBlend, insert blend and connect
-     sCompositeCurves);     // out: Composite Curve(s) ref unordered crCurves[i] as segments but don't own them.
+     sCompositeCurves) );     // out: Composite Curve(s) ref unordered crCurves[i] as segments but don't own them.
                             //      They may also contain and own NewCurves used to fill gaps which are deleted when they are deleted. 
                             //      crCurves must exist as long as these objs and their mem must
                             //      be managed after the Composites are deleted.
@@ -3935,7 +3935,7 @@ SmBoolean bDebugMe = FALSE ;
   SmTArray <SmBSplineCurve*> sTrimmedOffsets;
 
   // GWC_NEEDS_WORK GET_BETTER_VALUES_FOR_TOLERANCE_IN_FOLLOWING_CALL GWC_LINE ;
-  pComposite->CreateTrimmedOffsets    // eff: call CreateOffsetsOfManyCurves() for this curve.
+  SER( pComposite->CreateTrimmedOffsets    // eff: call CreateOffsetsOfManyCurves() for this curve.
     (*pContext,                       // in : context for new object construction
      2.*dZoneTol,                     // in : Minimum distance at which offset curve end-gaps are filled with corner curves
      dApproxTol,                      // in : Tolerance to which BSpline Approximations to exact offset curves are built
@@ -3949,7 +3949,7 @@ SmBoolean bDebugMe = FALSE ;
      TRUE,                            // in : TRUE = concave raw offsets are intersected and trimmed back to common intersection points
                                       //      FALSE= skip trim step
      dOffset,                         // in : offset distance (a negative value negates the offset direction)
-     sTrimmedOffsets);                // out: Resulting new offset curves will have attribute attached
+     sTrimmedOffsets) );                // out: Resulting new offset curves will have attribute attached
                                       //      describing origination of curve
                                       // in : TRUE = if BSplineCurve just copy it (preserves CrvParams)
                                       //      FALSE= approximate BSplineCurves (changes CrvParams), NonBSplineCrvs always Approximated
@@ -4089,9 +4089,9 @@ SmBoolean bDebugMe = FALSE ;
 
       if ( pRuledSurface != NULL )
         {
-          pBrep->CreateFaceFromSurface(pRuledSurface,                       // in : target face
+          SER( pBrep->CreateFaceFromSurface(pRuledSurface,                       // in : target face
                                        pRuledSurface->GetNaturalUVDomain(), // in : desired face Nurb domain
-                                       pNewFace);                           // out: New Face connected to this Brep
+                                       pNewFace) );                           // out: New Face connected to this Brep
         }
       else
         { WARN(_T("SmPrimitiveCreation::CreateTaperExtrude(): pRuledSurface creation failed.")) ; }
@@ -4147,7 +4147,7 @@ SmBoolean bDebugMe = FALSE ;
   // Stitch the potential result to get the topology
   ULONG  lNumStitched, lNumLamina;
   double dMaxVGap = 0.0, dMaxEGap = 0.0;
-  pBrep->StitchFaces(dBrepTol, lNumStitched, lNumLamina, dMaxVGap, dMaxEGap); 
+  SER( pBrep->StitchFaces(dBrepTol, lNumStitched, lNumLamina, dMaxVGap, dMaxEGap) ); 
 
 #ifdef SM_DEBUG_CODE
   if ( bDebugMe )
@@ -4174,7 +4174,7 @@ SmBoolean bDebugMe = FALSE ;
     { 
       SmTArray<SmFace*> sFaces;
       pBrep->GetFaces(sFaces);
-      pBrep->CopyFaces(sFaces, pResultBrep, NULL, FALSE);
+      SER( pBrep->CopyFaces(sFaces, pResultBrep, NULL, FALSE) );
     } // end no missing faces
   else  {
 
@@ -4196,7 +4196,7 @@ SmBoolean bDebugMe = FALSE ;
       SmObjsDelete< SmBSplineCurve*> sCleanTrimmedBSCurves( &sUnTrimmedOffsets );
 
       // GWC_NEEDS_WORK GET_BETTER_VALUES_FOR_TOLERANCE_IN_FOLLOWING_CALL GWC_LINE ;
-      pComposite->CreateTrimmedOffsets  // eff: call CreateOffsetsOfManyCurves() for this curve.
+      SER( pComposite->CreateTrimmedOffsets  // eff: call CreateOffsetsOfManyCurves() for this curve.
       (*pContext,                       // in : context for new object construction
        2.*dZoneTol,                        // in : Minimum distance at which offset curve end-gaps are filled with corner curves
        dApproxTol,                      // in : Tolerance to which BSpline Approximations to exact offset curves are built
@@ -4210,7 +4210,7 @@ SmBoolean bDebugMe = FALSE ;
        FALSE,                           // in : TRUE = concave raw offsets are intersected and trimmed back to common intersection points
                                         //      FALSE= skip trim step
        dOffset,                         // in : offset distance (a negative value negates the offset direction)
-       sUnTrimmedOffsets);              // out: Resulting new offset curves will have attribute attached
+       sUnTrimmedOffsets) );              // out: Resulting new offset curves will have attribute attached
                                         //      describing origination of curve
                                         // in : TRUE = if BSplineCurve just copy it (preserves CrvParams)
                                         //      FALSE= approximate BSplineCurves (changes CrvParams), NonBSplineCrvs always Approximated
@@ -4326,9 +4326,9 @@ SmBoolean bDebugMe = FALSE ;
 
           if ( pRuledSurface != NULL )
             {
-              pSurfBrep->CreateFaceFromSurface(pRuledSurface,                       // in : target face
+              SER( pSurfBrep->CreateFaceFromSurface(pRuledSurface,                       // in : target face
                                                pRuledSurface->GetNaturalUVDomain(), // in : desired face Nurb domain
-                                               pNewFace);                           // out: New Face connected to this Brep
+                                               pNewFace) );                           // out: New Face connected to this Brep
             }
           else
             { WARN(_T("SmPrimitiveCreation::CreateTaperExtrude(): pRuledSurface creation failed.")) ; }
@@ -4431,13 +4431,13 @@ SmBoolean bDebugMe = FALSE ;
           // A side generated from a corner needs to connect to one vertex, if from a curve it connects to both
           if(   !( bCorner && (bConnectStart || bConnectEnd) )
              && !(!bCorner && (bConnectStart && bConnectEnd) ) )
-            { pSurfXSectBrep->DeleteFace(pFace, TRUE); }
+            { SER( pSurfXSectBrep->DeleteFace(pFace, TRUE) ); }
 
         } // end loop over faces
 
       // Boolean new extruded face to the original Brep
       SmMerge sResultMergeExec(*pContext, pResultBrep, pSurfXSectBrep, dBrepTol);
-      sResultMergeExec.ManifoldBoolean(SM_BO_UNION, pResultBrep);
+      SER( sResultMergeExec.ManifoldBoolean(SM_BO_UNION, pResultBrep) );
 
     } // end if bMissingFaces
 
@@ -4583,8 +4583,8 @@ SmBoolean bDebugMe = FALSE ;
   // clean up the Brep
   // If we call StitchAndOrient, at least one of the curves in r3DCurves is corrupted
   // This will cause a crash when we execute the debug draw again bDebugMe = True (see above)
-  pResultBrep->ShrinkGeometry();      
-  pResultBrep->StitchAndOrient();   // has coincident geometry - won't pass AssertValid() until all coincident geometry is removed.      
+  SER( pResultBrep->ShrinkGeometry() );      
+  SER( pResultBrep->StitchAndOrient() );   // has coincident geometry - won't pass AssertValid() until all coincident geometry is removed.      
 
 #ifdef SM_DEBUG_CODE     
   if (bDebugMe) 
@@ -4806,7 +4806,7 @@ SmBoolean bDebugMe = FALSE ;
   SmBrep    * pNewBrep = new (crContext) SmBrep();
   SmObjDelete sCleanNewBrep(pNewBrep);
   SmTemporaryChangeValue<SmBoolean> sChange2(pNewBrep->m_bEditingEnabled, TRUE);
-  pBrep->CalculateBoundingBox(sBBox);
+  SER( pBrep->CalculateBoundingBox(sBBox) );
 
   // double dSize = sBBox.GetSize().Length();
 // Remove Composites
@@ -4931,9 +4931,9 @@ SmStatus SmPrimitiveCreation::CreateCurveSweepFromEdges
     for( ULONG ii = 0; ii < rEdges.GetSize(); ii++ ) {
         SmEdge  * pEdge = rEdges[ii];
         SmCurve * pCrv = NULL;
-        pEdge->GetCurve()->Copy( *pContext, pCrv );
+        SER( pEdge->GetCurve()->Copy( *pContext, pCrv ) );
         SmExtent1d sInterval = pEdge->GetInterval();
-        pCrv->Trim( sInterval, FALSE );
+        SER( pCrv->Trim( sInterval, FALSE ) );
         sCurves.Add( pCrv );
     }
 
@@ -4975,9 +4975,9 @@ SmStatus SmPrimitiveCreation::CreateCurveSweepFromFaces
         for( jj = 0; jj < sEdges.GetSize(); jj++ ) {
             SmEdge *pEdge = sEdges[jj];
             SmCurve *pCrv = NULL;
-            pEdge->GetCurve()->Copy( *cpContext, pCrv );
+            SER( pEdge->GetCurve()->Copy( *cpContext, pCrv ) );
             SmExtent1d sInterval = pEdge->GetInterval();
-            pCrv->Trim( sInterval, FALSE );
+            SER( pCrv->Trim( sInterval, FALSE ) );
 
             sCurves.Add( pCrv );
         }
@@ -5070,10 +5070,10 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     SmTArray <SmBSplineCurve *>c3DBSPLC1;
     for(ii = 0; ii < sNurbs.GetSize(); ii++)
     {
-      sNurbs[ii]->SubdivideAtDiscontinuity
+      SER( sNurbs[ii]->SubdivideAtDiscontinuity
         ( *pContext,  // in : context for new object construction
           SM_CT_C1,   // in : curve is split at internal continuities <= to this value
-          c3DBSPLC1 ); // out: newly copied curves - may be 1 curve copy when no internal discontinuities
+          c3DBSPLC1 ) ); // out: newly copied curves - may be 1 curve copy when no internal discontinuities
       if(c3DBSPLC1.GetSize() > 1)
       {
         delete sNurbs[ii]; // delete this curve, which is now replaced
@@ -5174,7 +5174,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   SER( pPathCurveCopy->Evaluate( pPathCurveCopy->GetNaturalInterval().GetMin(), 1, TRUE, sPathPtAndDir ) );
   SmAxis2Placement sPathToOrigin( sOrigin, sXAxis, sYAxis );
   sPathToOrigin.Translate( -sPathPtAndDir[0] );
-  pPathCurveCopy->Transform( sPathToOrigin );
+  SER( pPathCurveCopy->Transform( sPathToOrigin ) );
 
   // Move Profiles to orgin
   SmVector3d sProfileRefPt( 0, 0, 0 );
@@ -5191,7 +5191,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     for(ii = 0; ii < lNumCurves; ii++)
     {
       SmCurve* pCrv = sNurbs[ii];
-      pCrv->CalculateBoundingBox( pCrv->GetNaturalInterval(), &sBBox );
+      SER( pCrv->CalculateBoundingBox( pCrv->GetNaturalInterval(), &sBBox ) );
       sBBoxTotal.AddPoint3d( sBBox.GetMin() );
       sBBoxTotal.AddPoint3d( sBBox.GetMax() );
     }
@@ -5199,7 +5199,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   }
   else
   {
-    sNurbs[0]->EvaluatePoint( sNurbs[0]->GetNaturalInterval().GetMin(), sProfileRefPt );
+    SER( sNurbs[0]->EvaluatePoint( sNurbs[0]->GetNaturalInterval().GetMin(), sProfileRefPt ) );
   }
 
   // Translate Profiles to Origin
@@ -5207,7 +5207,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   sProfileToOrigin.Translate( -sProfileRefPt );
   for(ii = 0; ii < lNumCurves; ii++)
   {
-    sNurbs[ii]->Transform( sProfileToOrigin );
+    SER( sNurbs[ii]->Transform( sProfileToOrigin ) );
   }
 
 #ifdef SM_DEBUG_CODE
@@ -5231,7 +5231,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   SER( pPathCurveCopy->Evaluate( pPathCurveCopy->GetNaturalInterval().GetMin(), 1, TRUE, sPathPtAndDir ) );
 
   SmVector3d sFromX, sFromY, sFromZ;
-  sPathPtAndDir[1].MakeUnitOrthoVectors( NULL, sFromX, sFromY, sFromZ );
+  SER( sPathPtAndDir[1].MakeUnitOrthoVectors( NULL, sFromX, sFromY, sFromZ ) );
 
   // SolidCraft fork: the path is turned so that this frame becomes the global one, and the
   // sweep (N_CreateSweepScale, Z0 = global z) carries the profile on a frame that starts there
@@ -5251,7 +5251,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
         if ( sFromZ.Unitize() == SM_SUCCESS )
           { sFromY = sFromZ * sFromX ; }
         else
-          { sPathPtAndDir[1].MakeUnitOrthoVectors( NULL, sFromX, sFromY, sFromZ ); }
+          { SER( sPathPtAndDir[1].MakeUnitOrthoVectors( NULL, sFromX, sFromY, sFromZ ) ); }
       }
   }
 
@@ -5259,12 +5259,12 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   SmAxis2Placement sPathRot( sOrigin, sFromX, sFromY,
                              sOrigin, sToXAxis, sToYAxis );
 
-  pPathCurveCopy->Transform( sPathRot );
+  SER( pPathCurveCopy->Transform( sPathRot ) );
 
   // Maintain relationship between path and profile by transforming profiles too
   for(ii = 0; ii < lNumCurves; ii++)
   {
-    sNurbs[ii]->Transform( sPathRot );
+    SER( sNurbs[ii]->Transform( sPathRot ) );
   }
 
 #ifdef SM_DEBUG_CODE
@@ -5326,7 +5326,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
       SmVector3d sStartVector[2];
       SmCurve* pProfile = sNurbs[0];
       SmExtent1d sDomain = pProfile->GetNaturalInterval();
-      pProfile->Evaluate( sDomain.Evaluate( 0 ), 1, TRUE, sStartVector );
+      SER( pProfile->Evaluate( sDomain.Evaluate( 0 ), 1, TRUE, sStartVector ) );
       // Because begin tangent of path should be x axis at this point
 
       sProfileNormal = xAxis * sStartVector[1];
@@ -5336,7 +5336,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     sPathCurves.Add( pPathCurveCopy );
 
     SmVector3d sPathNormal;
-    SmCurve::ComputeCrvsNormal( sPathCurves, sPathNormal );
+    SER( SmCurve::ComputeCrvsNormal( sPathCurves, sPathNormal ) );
 
     // determine the relationship between profileNormal and the xAxis
     // if profileNormal is neg X at all then flip it
@@ -5357,7 +5357,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     // Determine angle to transform profile curves
     double angle = 0.0;
     //if (dot != 0.0) {
-    xAxis.AngleBetween( sProfileNormal, angle );
+    SER( xAxis.AngleBetween( sProfileNormal, angle ) );
     //}
 
     // Shade3d0316_60    requires that dot != 0
@@ -5387,7 +5387,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     // Transform Profile curves according to input options
     for(ii = 0; ii < lNumCurves; ii++)
     {
-      sNurbs[ii]->Transform( sProfileTrans );
+      SER( sNurbs[ii]->Transform( sProfileTrans ) );
     }
   }
 
@@ -5493,7 +5493,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
     const SmExtent2d sSweptDomain = pNewBSS->GetNaturalUVDomain();
     const SmExtent1d sAlongPath = pOptions->bTranslationalSweep ? sSweptDomain.GetVInterval() : sSweptDomain.GetUInterval();
     const double dAlongZero = SM_EFF_ZERO * (1.0 + smos_Max( smos_Fabs( sAlongPath.GetMin() ), smos_Fabs( sAlongPath.GetMax() ) ));
-    pBrep->CreateFacesFromSurface( pNewBSS, sSweptDomain, SM_CT_G1, sNewFaces );
+    SER( pBrep->CreateFacesFromSurface( pNewBSS, sSweptDomain, SM_CT_G1, sNewFaces ) );
     for(jj = 0; jj < sNewFaces.GetSize(); jj++)
     {
       const SmExtent2d sFaceDomain = sNewFaces[jj]->GetSurface()->GetNaturalUVDomain();
@@ -5506,7 +5506,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   } // end for each curve in sComposites
 
   // Move the resulting surface back to original path position
-  pBrep->Transform( sPathRotBack );
+  SER( pBrep->Transform( sPathRotBack ) );
 
 #ifdef SM_DEBUG_CODE
   // BLACK: Draw Resulting brep
@@ -5520,11 +5520,11 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
   // Move the result from the path location to the profile location
   if(pOptions->bMoveToProfile == TRUE)
   {
-    pBrep->Transform( sProfileToOriginBack );
+    SER( pBrep->Transform( sProfileToOriginBack ) );
   }
   else
   {
-    pBrep->Transform( sPathToOriginBack );
+    SER( pBrep->Transform( sPathToOriginBack ) );
   }
 
   // SolidCraft fork: the motions carrying the profile as given onto its first, middle and last
@@ -5683,7 +5683,7 @@ SmStatus SmPrimitiveCreation::CreateCurveSweep
 
   } // end if doing end capping
 
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
 
   return SM_SUCCESS;
 
@@ -5694,7 +5694,7 @@ PURPOSE: Copy each segment of the path and extend it by given distance
 
 NOTES: Helper function for CreateSweepAlongPlanarPath
 ***********************************************************************/
-static void ExtendPathCurves
+static SmStatus ExtendPathCurves // SolidCraft change: returns the status of its steps
 ( 
   const SmContext& crContext, 
   SmTArray<SmCurve*>& rPathCurves,
@@ -5725,35 +5725,36 @@ static void ExtendPathCurves
 
     if( pPathBefore )
     {
-      pPathBefore->Evaluate( pPathBefore->GetNaturalInterval().GetMax(), 1, TRUE, sPVBefore );
-      pPath->Evaluate( pPath->GetNaturalInterval().GetMin(), 1, FALSE, sPVAfter );
+      SER( pPathBefore->Evaluate( pPathBefore->GetNaturalInterval().GetMax(), 1, TRUE, sPVBefore ) );
+      SER( pPath->Evaluate( pPath->GetNaturalInterval().GetMin(), 1, FALSE, sPVAfter ) );
 
       // do not extend if adjacent path curves are parallel
       if(sPVBefore[1].IsParallelTo( sPVAfter[1], 2.0 ) == 0)
-        pPath->CreateExtendedCurve( crContext, dDistance, 1, SM_CT_G1, pPath );
+        SER( pPath->CreateExtendedCurve( crContext, dDistance, 1, SM_CT_G1, pPath ) );
     }
     else if ( bIsPathClosed && !bIsPathPeriodic )
     {
-      pPath->CreateExtendedCurve( crContext, dDistance, 1, SM_CT_G1, pPath );
+      SER( pPath->CreateExtendedCurve( crContext, dDistance, 1, SM_CT_G1, pPath ) );
     }
 
     if( pPathAfter )
     {
-      pPath->Evaluate( pPath->GetNaturalInterval().GetMax(), 1, TRUE, sPVBefore );
-      pPathAfter->Evaluate( pPathAfter->GetNaturalInterval().GetMin(), 1, FALSE, sPVAfter );
+      SER( pPath->Evaluate( pPath->GetNaturalInterval().GetMax(), 1, TRUE, sPVBefore ) );
+      SER( pPathAfter->Evaluate( pPathAfter->GetNaturalInterval().GetMin(), 1, FALSE, sPVAfter ) );
 
       // do not extend if adjacent path curves are parallel
       if ( sPVBefore[1].IsParallelTo( sPVAfter[1], 2.0 ) == 0 )
-        { pPath->CreateExtendedCurve( crContext, dDistance, 2, SM_CT_G1, pPath ); }
+        { SER( pPath->CreateExtendedCurve( crContext, dDistance, 2, SM_CT_G1, pPath ) ); }
     }
     else if( bIsPathClosed && !bIsPathPeriodic )
     {
-      pPath->CreateExtendedCurve( crContext, dDistance, 2, SM_CT_G1, pPath );
+      SER( pPath->CreateExtendedCurve( crContext, dDistance, 2, SM_CT_G1, pPath ) );
     }
 
     rsExtendedPathCurves.Add( (SmCurve*)pPath );
   }
 
+  return SM_SUCCESS;
 } // end static ExtendPathCurves
 
 /*******************************************************************//**
@@ -5762,7 +5763,7 @@ PURPOSE: Translate and rotate profile curves so they sit at the
 
 NOTES: Helper function for CreateSweepAlongPlanarPath
 ***********************************************************************/
-static void PositionProfileCurves
+static SmStatus PositionProfileCurves // SolidCraft change: returns the status of its steps
  (const SmContext    & crContext,             // in :
   SmTArray<SmCurve*> & rProfileCurves,        // in :
   double               dTol3D,                // NotUsed: in :
@@ -5776,11 +5777,11 @@ static void PositionProfileCurves
   ULONG ii;
   for(ii = 0; ii < rProfileCurves.GetSize(); ii++)
   {
-    rProfileCurves[ii]->CalculateBoundingBox( rProfileCurves[ii]->GetNaturalInterval(), &sBBox );
+    SER( rProfileCurves[ii]->CalculateBoundingBox( rProfileCurves[ii]->GetNaturalInterval(), &sBBox ) );
     sBBoxTotal.AddPoint3d( sBBox.GetMin() );
     sBBoxTotal.AddPoint3d( sBBox.GetMax() );
 
-    rProfileCurves[ii]->Copy( crContext, pNewProfile );
+    SER( rProfileCurves[ii]->Copy( crContext, pNewProfile ) );
     rsNewProfileCurves.Add( pNewProfile );
   }
 
@@ -5791,32 +5792,32 @@ static void PositionProfileCurves
 
   // translate profle curves to the origin
   SmAxis2Placement sTransMatrix1;
-  sTransMatrix1.SetCanonical( -(mid), sXAxis, sYAxis );
+  SER( sTransMatrix1.SetCanonical( -(mid), sXAxis, sYAxis ) );
 
   for(ii = 0; ii < rsNewProfileCurves.GetSize(); ii++)
-    { rsNewProfileCurves[ii]->Transform( sTransMatrix1 ); }
+    { SER( rsNewProfileCurves[ii]->Transform( sTransMatrix1 ) ); }
 
 
   // Calculate normal of profile curves
   SmVector3d sProfileNormal;
-  SmCurve::ComputeCrvsNormal( rProfileCurves, sProfileNormal );
+  SER( SmCurve::ComputeCrvsNormal( rProfileCurves, sProfileNormal ) );
 
   SmAxis2Placement sOrientationMatrix;
-  sOrientationMatrix.SetCanonical( SmVector3d( 0, 0, 0 ), sXAxis, sYAxis );
+  SER( sOrientationMatrix.SetCanonical( SmVector3d( 0, 0, 0 ), sXAxis, sYAxis ) );
 
   double dAngle = 0.0;
-  sXAxis.AngleBetween( sProfileNormal, dAngle );
+  SER( sXAxis.AngleBetween( sProfileNormal, dAngle ) );
   SmVector3d sRotationAxis = sXAxis * sProfileNormal;
   sOrientationMatrix.RotateAboutAxis( -dAngle, sRotationAxis );
 
   // Orient profle curves to the Y-Z plane.
   for ( ii = 0; ii < rsNewProfileCurves.GetSize(); ii++ )
-    { rsNewProfileCurves[ii]->Transform( sOrientationMatrix ); }
+    { SER( rsNewProfileCurves[ii]->Transform( sOrientationMatrix ) ); }
 
 
   // Calculate the start position and derivative of the path
   SmVector3d startPtDeriv[2];
-  pPathCurve->Evaluate( pPathCurve->GetNaturalInterval().GetMin(), 1, TRUE, startPtDeriv );
+  SER( pPathCurve->Evaluate( pPathCurve->GetNaturalInterval().GetMin(), 1, TRUE, startPtDeriv ) );
 
   // calculate axis at start of path so that xAxis points along path derivative
   sYAxis = sZAxis * startPtDeriv[1];
@@ -5826,14 +5827,14 @@ static void PositionProfileCurves
     sYAxis.Set( 0, 1, 0 );
   }
 
-  startPtDeriv[1].MakeUnitOrthoVectors( &sYAxis, sXAxis, sYAxis, sZAxis );
+  SER( startPtDeriv[1].MakeUnitOrthoVectors( &sYAxis, sXAxis, sYAxis, sZAxis ) );
 
   SmAxis2Placement sTransMatrix;
-  sTransMatrix.SetCanonical( startPtDeriv[0], sXAxis, sYAxis );
+  SER( sTransMatrix.SetCanonical( startPtDeriv[0], sXAxis, sYAxis ) );
 
   // translate profle curves to the start of the path
   for ( ii = 0; ii < rsNewProfileCurves.GetSize(); ii++ )
-    { rsNewProfileCurves[ii]->Transform( sTransMatrix ); }
+    { SER( rsNewProfileCurves[ii]->Transform( sTransMatrix ) ); }
 
 #ifdef SM_DEBUG_CODE
   SmBoolean bDebugMe = FALSE;
@@ -5846,8 +5847,9 @@ static void PositionProfileCurves
   }
 #endif // SM_DEBUG_CODE
 
-  return;
+  return SM_SUCCESS;
 
+  return SM_SUCCESS;
 } // end static PositionProfileCurves
 
 
@@ -5859,7 +5861,7 @@ PURPOSE: Sweep profile curves along one path segment.
 
 NOTES: Helper function for CreateSweepAlongPlanarPath
 ***********************************************************************/
-static void SweepProfilesAlongPath
+static SmStatus SweepProfilesAlongPath // SolidCraft change: returns the status of its steps
 ( 
   const SmContext& crContext, 
   SmTArray<SmCurve*>& rProfileCurves,
@@ -5873,7 +5875,7 @@ static void SweepProfilesAlongPath
 {
   // CreateCurveSweep somehow mangles the path curve
   SmCurve* crvCopy = NULL;
-  pPathCrv->Copy( crContext, crvCopy );
+  SER( pPathCrv->Copy( crContext, crvCopy ) );
   SmBSplineCurve *bsPath = (SmBSplineCurve*)crvCopy;
 
   SmTArray<SmFace*> startFaces;
@@ -5890,24 +5892,25 @@ static void SweepProfilesAlongPath
   sOptions.bOrientProfilePerpendicularToPath = FALSE;
 
   SmPrimitiveCreation pPC( pBrep->GetInfiniteRegion() );
-  pPC.CreateCurveSweep( rProfileCurves, bsPath, pScaleReference, pScaleCurve, dTol,
-                        &sOptions, startFaces, sideFaces, endFaces, FALSE );
+  SER( pPC.CreateCurveSweep( rProfileCurves, bsPath, pScaleReference, pScaleCurve, dTol,
+                        &sOptions, startFaces, sideFaces, endFaces, FALSE ) );
 
   if ( bCapStart == FALSE )
   {
     pBrep->m_bEditingEnabled = TRUE;
-    pBrep->RemoveFaces( startFaces );  // increments unlocked mark value
+    SER( pBrep->RemoveFaces( startFaces ) );  // increments unlocked mark value
   }
 
   if ( bCapEnd == FALSE )
   {
     pBrep->m_bEditingEnabled = TRUE;
-    pBrep->RemoveFaces( endFaces );  // increments unlocked mark value
+    SER( pBrep->RemoveFaces( endFaces ) );  // increments unlocked mark value
   }
 
   // should we stitch here???
   //pBrep->StitchAndOrient();
 
+  return SM_SUCCESS;
 } // end static SweepProfilesAlongPath
 
 /*******************************************************************//**
@@ -5956,8 +5959,8 @@ SmStatus SmPrimitiveCreation::CreateSweepAlongPlanarPath
 
   // Determine whether path curves form a closed and periodic loop.
   SmVector3d sStartPV[2], sEndPV[2];
-  rPathCurves[0]->Evaluate( rPathCurves[0]->GetNaturalInterval().GetMin(), 1, 1, sStartPV );
-  rPathCurves[rPathCurves.GetSize() - 1]->Evaluate( rPathCurves[rPathCurves.GetSize() - 1]->GetNaturalInterval().GetMax(), 1, 1, sEndPV );
+  SER( rPathCurves[0]->Evaluate( rPathCurves[0]->GetNaturalInterval().GetMin(), 1, 1, sStartPV ) );
+  SER( rPathCurves[rPathCurves.GetSize() - 1]->Evaluate( rPathCurves[rPathCurves.GetSize() - 1]->GetNaturalInterval().GetMax(), 1, 1, sEndPV ) );
 
   SmBoolean bIsPathClosed = FALSE;
   if ( sStartPV[0].DistanceBetween( sEndPV[0] ) < dTol )
@@ -5971,7 +5974,7 @@ SmStatus SmPrimitiveCreation::CreateSweepAlongPlanarPath
   SmExtent3d sBBoxTotal, sBBox;
   for( ii = 0; ii < rProfileCurves.GetSize(); ii++ )
   {
-    rProfileCurves[ii]->CalculateBoundingBox( rProfileCurves[ii]->GetNaturalInterval(), &sBBox );
+    SER( rProfileCurves[ii]->CalculateBoundingBox( rProfileCurves[ii]->GetNaturalInterval(), &sBBox ) );
     sBBoxTotal.AddPoint3d( sBBox.GetMin() );
     sBBoxTotal.AddPoint3d( sBBox.GetMax() );
   }
@@ -5994,12 +5997,12 @@ SmBoolean bDebugMe=FALSE;
   // Extend all the path curves at start and end to make sure sweeps go past corner
   // We cannot go too far for fear of causing second intersection
   SmTArray <SmCurve*> sExtendedPathCurves;
-  ExtendPathCurves( crContext,
+  SER( ExtendPathCurves( crContext,
                     rPathCurves,
                     bIsPathClosed,
                     bIsPathPeriodic,
                     dDistToExtend,
-                    sExtendedPathCurves );
+                    sExtendedPathCurves ) );
 
 #ifdef SM_DEBUG_CODE
   if ( bDebugMe ) {
@@ -6012,7 +6015,7 @@ SmBoolean bDebugMe=FALSE;
 
   // get the normal to the plane of the path
   SmVector3d sPathNormal;
-  SmCurve::ComputeCrvsNormal( rPathCurves, sPathNormal );
+  SER( SmCurve::ComputeCrvsNormal( rPathCurves, sPathNormal ) );
 
   // Prepare for loop where we position profile curves, sweep, and trim
   SmTArray<SmCurve*> sNewProfileCurves;
@@ -6045,12 +6048,12 @@ SmBoolean bDebugMe=FALSE;
 
     // find start point and derivative of new path segment
     sPathRange = pPath->GetNaturalInterval();
-    pPath->Evaluate( sPathRange.GetMin(), 1, FALSE, sPVAfter );
-    sPVAfter[1].Unitize();
+    SER( pPath->Evaluate( sPathRange.GetMin(), 1, FALSE, sPVAfter ) );
+    (void)sPVAfter[1].Unitize(); // SolidCraft: a zero vector stays zero
 
     // position profile curves at the start of the path segment
     sNewProfileCurves.RemoveAll();
-    PositionProfileCurves( crContext, rProfileCurves, dTol, pExtendedPath, sNewProfileCurves );
+    SER( PositionProfileCurves( crContext, rProfileCurves, dTol, pExtendedPath, sNewProfileCurves ) );
 
     // sweep the profiles along this path segment creating new brep
     pBrepAfter = new (crContext)SmBrep();
@@ -6075,14 +6078,14 @@ SmBoolean bDebugMe=FALSE;
 #endif // SM_DEBUG_CODE
 
     // Do the sweep.
-    SweepProfilesAlongPath( crContext,
+    SER( SweepProfilesAlongPath( crContext,
                             sNewProfileCurves,
                             pExtendedPath,
                             dTol,
                             bCapStart,
                             bCapEnd,
                             bMoveProfileCenterToPath,
-                            pBrepAfter );
+                            pBrepAfter ) );
 
 #ifdef SM_DEBUG_CODE
     if ( bDebugMe ) {
@@ -6110,11 +6113,11 @@ SmBoolean bDebugMe=FALSE;
       {
         // Average the derivatives to determine cutting plane normal.
         sAverageDir = (-sPVBefore[1]) + sPVAfter[1];
-        sAverageDir.Unitize();
+        (void)sAverageDir.Unitize(); // SolidCraft: a zero vector stays zero
 
         // The angleBetween the derivatives helps us determine if this is an outer or inner corner.
         // If this is an inner corner than flip the average direction so we can extend correctly.
-        sPathNormal.CCWAngleBetween( (-sPVBefore[1]), sPVAfter[1], dAngleBetween );
+        SER( sPathNormal.CCWAngleBetween( (-sPVBefore[1]), sPVAfter[1], dAngleBetween ) );
         dAngleBetween = SM_RAD2DEG( dAngleBetween );
         if ( dAngleBetween > 0 )
           { sAverageDir = -sAverageDir; }
@@ -6125,10 +6128,10 @@ SmBoolean bDebugMe=FALSE;
         sCuttingPt = sPVAfter[0] + ( sAverageDir * dDistToExtend );
 
         // Creating a line from the corner where the paths meet to the approx end point
-        SmBSplineCurve::CreateLineSegment( crContext, 3, sPVAfter[0], sCuttingPt, pCutLine );
+        SER( SmBSplineCurve::CreateLineSegment( crContext, 3, sPVAfter[0], sCuttingPt, pCutLine ) );
 
         // Now extend the line backwards
-        pCutLine->CreateExtendedCurve( crContext, dDistToExtend, 1, SM_CT_G1, pTempCuttingCrv );
+        SER( pCutLine->CreateExtendedCurve( crContext, dDistToExtend, 1, SM_CT_G1, pTempCuttingCrv ) );
 
 #ifdef SM_DEBUG_CODE
         if(bDebugMe)
@@ -6151,7 +6154,7 @@ SmBoolean bDebugMe=FALSE;
         else
         {
           SmTArray <SmCurve*> sIntersectionCrvs;
-          pBrepBefore->BrepIntersect( crContext, pBrepAfter, dTol, 2.0, sIntersectionCrvs, NULL );
+          SER( pBrepBefore->BrepIntersect( crContext, pBrepAfter, dTol, 2.0, sIntersectionCrvs, NULL ) );
 
 #ifdef SM_DEBUG_CODE
           if(bDebugMe)
@@ -6179,7 +6182,7 @@ SmBoolean bDebugMe=FALSE;
             for(jj = 0; jj < lNumIntCurves; jj++)
             {
               SmSolutionArray sSolutions;
-              pTempCuttingCrv->GlobalCurveSolve( pTempCuttingCrv->GetNaturalInterval(), *sIntersectionCrvs[jj], sIntersectionCrvs[jj]->GetNaturalInterval(), SM_SO_MINIMIZE, dTol, NULL, NULL, SM_SR_SINGLE, sSolutions );
+              SER( pTempCuttingCrv->GlobalCurveSolve( pTempCuttingCrv->GetNaturalInterval(), *sIntersectionCrvs[jj], sIntersectionCrvs[jj]->GetNaturalInterval(), SM_SO_MINIMIZE, dTol, NULL, NULL, SM_SR_SINGLE, sSolutions ) );
 
               double dDist;
               for(ULONG kk = 0; kk < sSolutions.GetSize(); kk++)
@@ -6187,10 +6190,10 @@ SmBoolean bDebugMe=FALSE;
                 SmSolution & rSol = sSolutions[kk];
 
                 SmPoint3d sPtOnLine;
-                rSol.GetPoint( pTempCuttingCrv, TRUE, sPtOnLine );
+                SER( rSol.GetPoint( pTempCuttingCrv, TRUE, sPtOnLine ) );
 
                 SmPoint3d sPtOnIntersectionCrv;
-                rSol.GetPoint( sIntersectionCrvs[jj], TRUE, sPtOnIntersectionCrv );
+                SER( rSol.GetPoint( sIntersectionCrvs[jj], TRUE, sPtOnIntersectionCrv ) );
 
                 dDist = sPtOnIntersectionCrv.DistanceBetween( sPtOnLine );
 
@@ -6236,9 +6239,9 @@ SmBoolean bDebugMe=FALSE;
                 if ( sBestPt.DistanceBetween( sBestPt2 ) > dTol * 10.0 )
                   {
                     SmBSplineCurve* pCrv = NULL;
-                    SmBSplineCurve::CreateLineSegment( crContext, 3, sBestPt, sBestPt2, pCrv );
-                    pCrv->CreateExtendedCurve( crContext, dDistToExtend, 0, SM_CT_G1, pCrv );
-                    pCrv->CreateExtendedCurve( crContext, dDistToExtend, 1, SM_CT_G1, pCuttingCrv );
+                    SER( SmBSplineCurve::CreateLineSegment( crContext, 3, sBestPt, sBestPt2, pCrv ) );
+                    SER( pCrv->CreateExtendedCurve( crContext, dDistToExtend, 0, SM_CT_G1, pCrv ) );
+                    SER( pCrv->CreateExtendedCurve( crContext, dDistToExtend, 1, SM_CT_G1, pCuttingCrv ) );
                   }
               }
 
@@ -6273,17 +6276,17 @@ SmBoolean bDebugMe=FALSE;
           }
 #endif // SM_DEBUG_CODE
 
-          pBrepBefore->ProjectAndTrim( *pCuttingCrv, // can increment an unused Mark value
+          SER( pBrepBefore->ProjectAndTrim( *pCuttingCrv, // can increment an unused Mark value
                                        sPathNormal,
                                        sRefPoint2,
                                        SM_TT_DELETE_POINT,
-                                       &dTol, NULL, NULL );
+                                       &dTol, NULL, NULL ) );
 
-          pBrepAfter->ProjectAndTrim( *pCuttingCrv,  // can increment an unused Mark value
+          SER( pBrepAfter->ProjectAndTrim( *pCuttingCrv,  // can increment an unused Mark value
                                       sPathNormal,
                                       sRefPoint1,
                                       SM_TT_DELETE_POINT,
-                                      &dTol, NULL, NULL );
+                                      &dTol, NULL, NULL ) );
 
         } // end if pCuttingCurve was created
 
@@ -6295,8 +6298,8 @@ SmBoolean bDebugMe=FALSE;
     pBrepBefore = pBrepAfter;
 
     // find end derivative of path before
-    pPath->Evaluate( sPathRange.GetMax(), 1, TRUE, sPVBefore );
-    sPVBefore[1].Unitize();
+    SER( pPath->Evaluate( sPathRange.GetMax(), 1, TRUE, sPVBefore ) );
+    (void)sPVBefore[1].Unitize(); // SolidCraft: a zero vector stays zero
 
     // is path is a closed loop, trim end of last and beginning of first 
     if ( bIsPathClosed && ii == rPathCurves.GetSize() - 1 )
@@ -6309,11 +6312,11 @@ SmBoolean bDebugMe=FALSE;
       if ( ! sPVBefore[1].IsParallelTo( sPVAfter[1], 2.0 ) )
       {
         // Average the derivatives to determine cutting plane normal.
-        sPVBefore[1].Unitize();
-        sPVAfter [1].Unitize();
+        (void)sPVBefore[1].Unitize(); // SolidCraft: a zero vector stays zero
+        (void)sPVAfter [1].Unitize(); // SolidCraft: a zero vector stays zero
         sAverageDir = (-sPVBefore[1]) + sPVAfter[1];
 
-        sPathNormal.CCWAngleBetween( (-sPVBefore[1]), sPVAfter[1], dAngleBetween );
+        SER( sPathNormal.CCWAngleBetween( (-sPVBefore[1]), sPVAfter[1], dAngleBetween ) );
         dAngleBetween = SM_RAD2DEG( dAngleBetween );
         if(dAngleBetween > 0)
           { sAverageDir = -sAverageDir; }
@@ -6323,8 +6326,8 @@ SmBoolean bDebugMe=FALSE;
         // but there are cases where a long cutting curve will intersect the breps in two places.
         // How can I determine the correct distance???
         sCuttingPt = sPVAfter[0] + (sAverageDir * 50);
-        SmBSplineCurve::CreateLineSegment( crContext, 3, sPVAfter[0], sCuttingPt, pCutLine );
-        pCutLine->CreateExtendedCurve( crContext, 50, 1, SM_CT_G1, pCuttingCrv );
+        SER( SmBSplineCurve::CreateLineSegment( crContext, 3, sPVAfter[0], sCuttingPt, pCutLine ) );
+        SER( pCutLine->CreateExtendedCurve( crContext, 50, 1, SM_CT_G1, pCuttingCrv ) );
 
         // determine reference points on either side of the cutting line
         if(pBrepBefore == pBrepAfter)
@@ -6355,13 +6358,13 @@ SmBoolean bDebugMe=FALSE;
 
           ULONG nEdges, nLaminaEdges, jj, kk;
           double dMaxVertexGap = 0.0, dMaxEdgeGap = 0.0;
-          pBrepBefore->StitchFaces( 0.01, nEdges, nLaminaEdges, dMaxVertexGap, dMaxEdgeGap );
+          SER( pBrepBefore->StitchFaces( 0.01, nEdges, nLaminaEdges, dMaxVertexGap, dMaxEdgeGap ) );
 
-          pBrepBefore->ProjectAndTrim( *pCuttingCrv,   // can increment an unused Mark value
+          SER( pBrepBefore->ProjectAndTrim( *pCuttingCrv,   // can increment an unused Mark value
                                        sPathNormal,
                                        sRefPoint2,
                                        SM_TT_SPLIT,
-                                       &dTol, NULL, NULL );
+                                       &dTol, NULL, NULL ) );
 
           SmTArray<SmFace*> sRemoveFaces;
           SmTArray<SmFace*> sFaces;
@@ -6378,23 +6381,23 @@ SmBoolean bDebugMe=FALSE;
             }
           }
 
-          pBrepBefore->RemoveFaces( sRemoveFaces );  // increments unlocked mark value
+          SER( pBrepBefore->RemoveFaces( sRemoveFaces ) );  // increments unlocked mark value
 
-          pBrepBefore->RemoveTopologicalEdgesAndVertices();
+          SER( pBrepBefore->RemoveTopologicalEdgesAndVertices() );
         }
         else
         {
-          pBrepBefore->ProjectAndTrim( *pCuttingCrv,         // can increment an unused Mark value
+          SER( pBrepBefore->ProjectAndTrim( *pCuttingCrv,         // can increment an unused Mark value
                                        sPathNormal,
                                        sRefPoint2,
                                        SM_TT_DELETE_POINT,
-                                       &dTol, NULL, NULL );
+                                       &dTol, NULL, NULL ) );
 
-          pBrepAfter->ProjectAndTrim( *pCuttingCrv,          // can increment an unused Mark value
+          SER( pBrepAfter->ProjectAndTrim( *pCuttingCrv,          // can increment an unused Mark value
                                       sPathNormal,
                                       sRefPoint1,
                                       SM_TT_DELETE_POINT,
-                                      &dTol, NULL, NULL );
+                                      &dTol, NULL, NULL ) );
         }
       } // end if adjacent segments are not parallel
     } // end if path is closed, trim end of last and beginning of first 
@@ -6427,10 +6430,10 @@ SmBoolean bDebugMe=FALSE;
   SER_DELETE( pSweepBrep->StitchFaces( dTol, nEdges, nLaminaEdges, dMaxVertexGap, dMaxEdgeGap ),
               pSweepBrep );
 
-  pSweepBrep->RemoveTopologicalEdgesAndVertices();
+  SER( pSweepBrep->RemoveTopologicalEdgesAndVertices() );
 
   // A second attempt can remove additional edges
-  pSweepBrep->RemoveTopologicalEdgesAndVertices();
+  SER( pSweepBrep->RemoveTopologicalEdgesAndVertices() );
 
   // A closed path, or an open path with both endpoint caps, expresses solid
   // intent when the swept profile closes into a manifold boundary.  Boolean
@@ -7054,10 +7057,10 @@ SmBoolean bDebugMe = FALSE;
             }
 #endif // SM_DEBUG_CODE
       // create a face from the natural domain of the new Skin Surface SmBSplineSurface
-      m_pRegion->GetBrep()->CreateFacesFromSurface(pNewBSS,
+      SER( m_pRegion->GetBrep()->CreateFacesFromSurface(pNewBSS,
                                                    pNewBSS->GetNaturalUVDomain(),
                                                    SM_CT_G1,
-                                                   sNewFaces);
+                                                   sNewFaces) );
       rNewFaces.Append(sNewFaces);
 
     } // end iter every layer
@@ -7097,13 +7100,13 @@ SmStatus SmPrimitiveCreation::CreatePipeSweep
   SmAxis2Placement sPlace;
   SmCircle* pCircle = NULL;
   SmExtent1d sDomain( 0.0, 360.0 );
-  SmCircle::CreateCanonical( *pContext, sPlace, dPipeRadius, pCircle, &sDomain );
+  SER( SmCircle::CreateCanonical( *pContext, sPlace, dPipeRadius, pCircle, &sDomain ) );
       
   SmTArray<SmCurve*> sShapeCurves;
   sShapeCurves.Add(pCircle);
   
   SmExtent3d sBBox2;
-  pPathCurve->CalculateBoundingBox(pPathCurve->GetNaturalInterval(),&sBBox2);
+  SER( pPathCurve->CalculateBoundingBox(pPathCurve->GetNaturalInterval(),&sBBox2) );
   double dSize = sBBox2.GetSize().Length();
   dSize = dSize/2.0;
   double dTolerance = dSize * SM_ZONE_TOL_3D;
@@ -7193,13 +7196,13 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
   // 1st Face: make sur into an SmBSplineSurface and then to an SmBrep 
   //     note: edges are natural boundaries and should be tolerance free
   SmBSplineSurface *pBSS0 = new(*pContext) SmBSplineSurface((gw_SURFACE *)&sur) ;
-  pBrep->CreateFaceFromSurface(pBSS0, pBSS0->GetNaturalUVDomain(), pFace1);  
+  SER( pBrep->CreateFaceFromSurface(pBSS0, pBSS0->GetNaturalUVDomain(), pFace1) );  
   if(pFace1) pFace1->GetEdges(sEdges1) ;
 
   // 2nd Face: rotate sur 180 degrees about y axis and make 2nd face (center 1/2 surface) in the SmBrep
   N_SrfRotateAtPt(&sur, sCenterRot, sAxisRot, dAlpha);
   SmBSplineSurface *pBSS1 = new(*pContext) SmBSplineSurface((gw_SURFACE *)&sur) ;
-  pBrep->CreateFaceFromSurface(pBSS1, pBSS1->GetNaturalUVDomain(), pFace2);
+  SER( pBrep->CreateFaceFromSurface(pBSS1, pBSS1->GetNaturalUVDomain(), pFace2) );
   if(pFace2) pFace2->GetEdges(sEdges2) ;
   
   // 3rd Face: rotate sur 90 degrees about x axis - trim it to endCap circle
@@ -7213,8 +7216,8 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
   
   // make sure order of curves has not changed
   SmPoint3d sTestPt1, sTestPt2 ;
-  sEdges1[3]->GetCurve()->EvaluatePoint(sEdges1[3]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt1) ; 
-  sEdges2[3]->GetCurve()->EvaluatePoint(sEdges2[3]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt2) ;
+  SER( sEdges1[3]->GetCurve()->EvaluatePoint(sEdges1[3]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt1)  ); 
+  SER( sEdges2[3]->GetCurve()->EvaluatePoint(sEdges2[3]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt2)  );
 
 #ifdef SM_DEBUG_CODE
   // Note: upper and lower radius: rad  must be less than Height
@@ -7225,21 +7228,21 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
 
   // Get 3rd face 3d boundary copies
   SmCurve * pCurveCopy1 = NULL, * pCurveCopy2 = NULL ;
-  sEdges1[3]->GetCurve()->Copy(*pContext, pCurveCopy1) ;
-  sEdges2[3]->GetCurve()->Copy(*pContext, pCurveCopy2) ;
+  SER( sEdges1[3]->GetCurve()->Copy(*pContext, pCurveCopy1)  );
+  SER( sEdges2[3]->GetCurve()->Copy(*pContext, pCurveCopy2)  );
   s3DCurves.Add(pCurveCopy1) ;
   s3DCurves.Add(pCurveCopy2) ;
 
   // Drop s3DCurves[0] Boundary to UVSpace
   double dMaxDistToSurf, dDeviation;
-  pBSS2->DropCurve(* pContext,                            // in : context for new object construction                                        
+  SER( pBSS2->DropCurve(* pContext,                            // in : context for new object construction                                        
                      pBSS2->GetNaturalUVDomain(),         // in : domain of interest for this surface                                        
                    * s3DCurves[0],                        // in : Curve to project onto the surface                                          
                      s3DCurves[0]->GetNaturalInterval(),  // in : interval of interest for target curve                                      
                      dTolerance,                          // in : max allowed distance between 3dCurve and Surface for successful drops.        
                      dMaxDistToSurf,                      // out: MaxDist(DropPt, 3dCurvePt), found by sampling, may be slightly less than actual max.                                                           
                      dDeviation,                          // out: MaxDist(DropPt->SrfNormalLine, 3dCurvePt), Quality Measure: expected to be close to 0.0     
-                     s2DCurves);                          // out: 1 (or 2) curves constructed by projection.                                 
+                     s2DCurves) );                          // out: 1 (or 2) curves constructed by projection.                                 
                                                           //      (2 curves for closed surfaces when cr3DCurve is coincident with seam)      
   // Expect 1 UVCurve - set MakeFaceWithCurves input arrays
   SM_ASSERT_MSG(s2DCurves.GetSize() == 1, _T("SmPrimitiveCreation::CreateSphereNoPole, Dropped Edge failed to generate 1 UVtrimCurve")) ;  
@@ -7249,14 +7252,14 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
   sCurveOrients.Add(eOrientation1 == SM_OT_SAME ? SM_OT_OPPOSITE : SM_OT_SAME);    // curve orientation opposite of the edge's use in pFace1
 
   // Drop s3DCurves[1] Boundary to UVSpace
-  pBSS2->DropCurve(* pContext,                            // in : context for new object construction                                        
+  SER( pBSS2->DropCurve(* pContext,                            // in : context for new object construction                                        
                      pBSS2->GetNaturalUVDomain(),         // in : domain of interest for this surface                                        
                    * s3DCurves[1],                        // in : Curve to project onto the surface                                          
                      s3DCurves[1]->GetNaturalInterval(),  // in : interval of interest for target curve                                      
                      dTolerance,                          // in : max allowed distance between 3dCurve and Surface for successful drops.        
                      dMaxDistToSurf,                      // out: MaxDist(DropPt, 3dCurvePt), found by sampling, may be slightly less than actual max.                                                           
                      dDeviation,                          // out: MaxDist(DropPt->SrfNormalLine, 3dCurvePt), Quality Measure: expected to be close to 0.0     
-                     s2DCurves);                          // out: 1 (or 2) curves constructed by projection.                                 
+                     s2DCurves) );                          // out: 1 (or 2) curves constructed by projection.                                 
                                                           //      (2 curves for closed surfaces when cr3DCurve is coincident with seam)      
   // Expect 1 UVCurve - set MakeFaceWithCurves input arrays
   SM_ASSERT_MSG(s2DCurves.GetSize() == 1, _T("SmPrimitiveCreation::CreateSphereNoPole, Dropped Edge failed to generate 1 UVtrimCurve")) ;  
@@ -7268,7 +7271,7 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
   // Loop has 2 edges
   sLoops.Add(2);                    // 2 curves in outer loop
 
-  pBrep->MakeFaceWithCurves
+  SER( pBrep->MakeFaceWithCurves
      (pBrep->GetInfiniteRegion(),   // in : region to contain new topology objects
       sLoops,                       // in : 1 entry per loop, value = loop edge count, 1st entry=outer loop
       &s3DCurves,                   // in : opt ordered 3d trimming curves assigned to loops per sLoopEUCounts
@@ -7280,7 +7283,7 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
       SM_OT_SAME,                   // in : Surface orient, oneof SM_OT_SAME or SM_OT_OPPOSITE                                    
       pNewRegion,                   // out: New region if any. NULL when building trimmed surfaces, may be NotNULL for solids.
       pNewShell,                    // out: New shell if any.  Trimmed surfaces always create a new shell.
-      pFace3);                      // out: the new face
+      pFace3) );                      // out: the new face
 
   // 4th face: rotate sur 180 degrees about x axis
   N_VectorCreate(1.0, 0.0, 0.0, &sAxisRot);
@@ -7289,28 +7292,28 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
 
 
   // make sure order of curves has not changed
-  sEdges1[1]->GetCurve()->EvaluatePoint(sEdges1[1]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt1) ; 
-  sEdges2[1]->GetCurve()->EvaluatePoint(sEdges2[1]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt2) ;
+  SER( sEdges1[1]->GetCurve()->EvaluatePoint(sEdges1[1]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt1)  ); 
+  SER( sEdges2[1]->GetCurve()->EvaluatePoint(sEdges2[1]->GetCurve()->GetNaturalInterval().Evaluate(0.5), sTestPt2)  );
 
   SM_ASSERT_MSG(SM_IS_ZERO_TO_TOL(sTestPt1.y+dHeight,SmTol::GetScaledZero(sTestPt1)), _T("SmPrimitiveCreation::CreateSphereNoPole, AssumedFace->Edge order has changed - debug here")) ;  
   SM_ASSERT_MSG(SM_IS_ZERO_TO_TOL(sTestPt2.y+dHeight,SmTol::GetScaledZero(sTestPt2)), _T("SmPrimitiveCreation::CreateSphereNoPole, AssumedFace->Edge order has changed - debug here")) ;  
   
   // Get 4th face 3d boundary curve copies
   s3DCurves.ReSet() ;
-  sEdges1[1]->GetCurve()->Copy(*pContext, pCurveCopy1) ;
-  sEdges2[1]->GetCurve()->Copy(*pContext, pCurveCopy2) ;
+  SER( sEdges1[1]->GetCurve()->Copy(*pContext, pCurveCopy1)  );
+  SER( sEdges2[1]->GetCurve()->Copy(*pContext, pCurveCopy2)  );
   s3DCurves.Add(pCurveCopy1) ;
   s3DCurves.Add(pCurveCopy2) ;
 
   // Drop s3DCurves[0] Boundary to UVSpace
-  pBSS3->DropCurve(* pContext,                            // in : context for new object construction                                        
+  SER( pBSS3->DropCurve(* pContext,                            // in : context for new object construction                                        
                      pBSS3->GetNaturalUVDomain(),         // in : domain of interest for this surface                                        
                    * s3DCurves[0],                        // in : Curve to project onto the surface                                          
                      s3DCurves[0]->GetNaturalInterval(),  // in : interval of interest for target curve                                      
                      dTolerance,                          // in : max allowed distance between 3dCurve and Surface for successful drops.        
                      dMaxDistToSurf,                      // out: MaxDist(DropPt, 3dCurvePt), found by sampling, may be slightly less than actual max.                                                           
                      dDeviation,                          // out: MaxDist(DropPt->SrfNormalLine, 3dCurvePt), Quality Measure: expected to be close to 0.0     
-                     s2DCurves);                          // out: 1 (or 2) curves constructed by projection.                                 
+                     s2DCurves) );                          // out: 1 (or 2) curves constructed by projection.                                 
                                                           //      (2 curves for closed surfaces when cr3DCurve is coincident with seam)      
   // Expect 1 UVCurve
   SM_ASSERT_MSG(s2DCurves.GetSize() == 1, _T("SmPrimitiveCreation::CreateSphereNoPole, Dropped Edge failed to generate 1 UVtrimCurve")) ;  
@@ -7322,14 +7325,14 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
   sCurveOrients.Add(eOrientation1 == SM_OT_SAME ? SM_OT_OPPOSITE : SM_OT_SAME);    // these curve orientations are opposite to loop
 
   // Drop s3DCurves[1] Boundary to UVSpace
-  pBSS3->DropCurve(* pContext,                            // in : context for new object construction                                        
+  SER( pBSS3->DropCurve(* pContext,                            // in : context for new object construction                                        
                      pBSS3->GetNaturalUVDomain(),         // in : domain of interest for this surface                                        
                    * s3DCurves[1],                        // in : Curve to project onto the surface                                          
                      s3DCurves[1]->GetNaturalInterval(),  // in : interval of interest for target curve                                      
                      dTolerance,                          // in : max allowed distance between 3dCurve and Surface for successful drops.        
                      dMaxDistToSurf,                      // out: MaxDist(DropPt, 3dCurvePt), found by sampling, may be slightly less than actual max.                                                           
                      dDeviation,                          // out: MaxDist(DropPt->SrfNormalLine, 3dCurvePt), Quality Measure: expected to be close to 0.0     
-                     s2DCurves);                          // out: 1 (or 2) curves constructed by projection.                                 
+                     s2DCurves) );                          // out: 1 (or 2) curves constructed by projection.                                 
                                                           //      (2 curves for closed surfaces when cr3DCurve is coincident with seam)      
   // Expect 1 UVCurve
   SM_ASSERT_MSG(s2DCurves.GetSize() == 1, _T("SmPrimitiveCreation::CreateSphereNoPole, Dropped Edge failed to generate 1 UVtrimCurve")) ;  
@@ -7342,7 +7345,7 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
   sLoops.ReSet() ;
   sLoops.Add(2);                    // 2 curves in outer loop
 
-  pBrep->MakeFaceWithCurves
+  SER( pBrep->MakeFaceWithCurves
      (pBrep->GetInfiniteRegion(),   // in : region to contain new topology objects
       sLoops,                       // in : 1 entry per loop, value = loop edge count, 1st entry=outer loop
       &s3DCurves,                   // in : opt ordered 3d trimming curves assigned to loops per sLoopEUCounts
@@ -7354,7 +7357,7 @@ SmStatus SmPrimitiveCreation::CreateSphereNoPole
       SM_OT_SAME,                   // in : Surface orient, oneof SM_OT_SAME or SM_OT_OPPOSITE                                    
       pNewRegion,                   // out: New region if any. NULL when building trimmed surfaces, may be NotNULL for solids.
       pNewShell,                    // out: New shell if any.  Trimmed surfaces always create a new shell.
-      pFace4);                      // out: the new face
+      pFace4) );                      // out: the new face
 
 #ifdef SM_DEBUG_CODE
 ULONG di, dj ;
@@ -7438,7 +7441,7 @@ SmBoolean bDebugMe = FALSE ;
   // move the sphere to requested location
   SmAxis2Placement sRef;
   sRef.Translate(sSphereCenter);
-  pBrep->Transform(sRef);
+  SER( pBrep->Transform(sRef) );
 
   // all done
   return sRtn ;
@@ -7500,7 +7503,7 @@ SmStatus SmPrimitiveCreation::CreateConeEllipticEnds
     
   // to get outward facing face, reverse.
   SmExtent1d sIvl = pFrontEllipse->GetNaturalInterval();
-  pFrontEllipse->ReverseParameterization(sIvl, sIvl);
+  SER( pFrontEllipse->ReverseParameterization(sIvl, sIvl) );
 
   // make face from front
   SmTArray < SmCurve *> pCurves;
@@ -7700,7 +7703,7 @@ SmStatus SmPrimitiveCreation::CreateBlendPrimitive
   pBrep->m_bEditingEnabled = TRUE;
 
   // set side-effect - use new blend surface to build a face in this->pBrep
-  pBrep->CreateFaceFromSurface(pBlendSurface, pBlendSurface->GetNaturalUVDomain(), rpBlendFace);
+  SER( pBrep->CreateFaceFromSurface(pBlendSurface, pBlendSurface->GetNaturalUVDomain(), rpBlendFace) );
 
   // is there a need for a stitch here?
 
@@ -7778,14 +7781,14 @@ SmStatus SmPrimitiveCreation::CreateBlendPrimitive
   ULONG           lCurvesDirFlag  = bSameDirCurves == TRUE ? 1 : 2 ;
 
   // Pass call along
-  CreateBlendPrimitive(pEdgeuse1, 
+  SER( CreateBlendPrimitive(pEdgeuse1, 
                        pEdgeuse2, 
                        rpBlendFace,
                        eCurvatureType, 
                        eBlendEndType, 
                        lCurvesDirFlag,
                        dStartTanLength,
-                       dEndTanLength);
+                       dEndTanLength) );
   
   // all done
   return SM_SUCCESS;
@@ -7896,8 +7899,8 @@ SmBoolean bDebugMe = FALSE;
       AERN_MSG(bPlanar2 == TRUE, SM_ERR_INVALID_INPUT ,_T("SmPrimitiveCreation::Boolean2D - Bad input - Face->Surface is not planar - both input Breps may only have planar coincident faces"))
 
       // check state - coplanar
-      smgu_PlanePointDistance(sPlanePoint1, sPlaneUnitNormal1, sPlanePoint2, dDist2) ;
-      smgu_PlanePointDistance(sPlanePoint2, sPlaneUnitNormal2, sPlanePoint1, dDist1) ;
+      SER( smgu_PlanePointDistance(sPlanePoint1, sPlaneUnitNormal1, sPlanePoint2, dDist2)  );
+      SER( smgu_PlanePointDistance(sPlanePoint2, sPlaneUnitNormal2, sPlanePoint1, dDist1)  );
       AERN_MSG(   (smos_Max(dDist2, dDist1) < SM_ZONE_TO_XSECTTOL3D(dZoneTol3d)) 
                && (sPlaneUnitNormal1.IsParallelTo(sPlaneUnitNormal2)),  
                SM_ERR_INVALID_INPUT ,
@@ -8041,7 +8044,7 @@ SmBoolean bDebugMe10 = FALSE;
       SmEdge *pOtherEdge = sOtherEdges[ii];
       
       // iter every other pEdge->edgeuse (skip edgeuse mates)
-      pEdge->GetEdgeuses(sEdgeuses);
+      SER( pEdge->GetEdgeuses(sEdgeuses) );
       for (jj=0; jj<sEdgeuses.GetSize(); jj+=2) 
         {
           SmEdgeuse * pEU   = sEdgeuses[jj];
@@ -8073,12 +8076,12 @@ SmBoolean bDebugMe5 = FALSE;
             {
               SmFace *pOFace = pFoundFU->GetFace();
               pOFace->Mark(eOtherMarkType);
-              sTI.Relate(pF,pOFace);
+              SER( sTI.Relate(pF,pOFace) );
             }
         } // For edge edgeuse in edge
       
       // iter every other pOtherEdge->edgeuse (skip edgeuse mates)
-      pOtherEdge->GetEdgeuses(sEdgeuses);
+      SER( pOtherEdge->GetEdgeuses(sEdgeuses) );
       for (jj=0; jj<sEdgeuses.GetSize(); jj+=2) 
         {
           SmEdgeuse *pEU    = sEdgeuses[jj];
@@ -8223,7 +8226,7 @@ SmBoolean bDebugMe8 = FALSE;
                     if(pSurface1->GetOwner() != NULL)
                       {
                         SmSurface *pCopySurface = NULL;
-                        pSurface1->Copy( *( pSurface1->GetContext() ), pCopySurface );
+                        SER( pSurface1->Copy( *( pSurface1->GetContext() ), pCopySurface ) );
                         NER( pCopySurface );
                         pSurface1 = pCopySurface;
                       }
@@ -8252,7 +8255,7 @@ SmBoolean bDebugMe8 = FALSE;
 
       // Now we can remove all pBrepA Faces no longer needed.
         {
-          sTI.DeleteFaces(sDelFaces);
+          SER( sTI.DeleteFaces(sDelFaces) );
         }
 
 

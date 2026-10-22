@@ -144,7 +144,7 @@ SmApiStatus SmApiCreatePlane
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     double dTol = 1.0e-5;
     rpResult = SmPrimitiveCreation::CreateRectangle(*SmApiGetOrCreateContext(), dTol, dX, dY, sRefFrame);
@@ -190,7 +190,7 @@ SmApiStatus SmApiCreatePlane
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmPlane* pPlane = NULL;
     long status = SmPlane::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, pPlane); 
@@ -202,7 +202,7 @@ SmApiStatus SmApiCreatePlane
     }
 
     SmExtent2d sExtent;
-    sExtent.SetMinMax( 0, 0, dLength, dWidth );
+    SER( sExtent.SetMinMax( 0, 0, dLength, dWidth ) );
     status = pPlane->AdjustSTEPUVDomain( sExtent );
     if( status != SM_SUCCESS ) {
         delete pPlane;
@@ -245,7 +245,7 @@ SmApiStatus SmApiCreatePlanarCircle
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     double dTol = 1.0e-5;
     rpResult = SmPrimitiveCreation::CreateCircle(*SmApiGetOrCreateContext(), dTol, dRadius, sRefFrame);
@@ -296,7 +296,7 @@ SmApiStatus SmApiCreateBox
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     rpResult = NULL;
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
@@ -347,7 +347,7 @@ SmApiStatus SmApiCreateSphere
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -414,7 +414,7 @@ SmApiStatus SmApiCreateCylinder
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmCylinder* pCylinder = NULL;
     long status = SmCylinder::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, dRadius, pCylinder); 
@@ -426,7 +426,7 @@ SmApiStatus SmApiCreateCylinder
     }
 
     SmExtent2d sExtent;
-    sExtent.SetMinMax( 0, 0, 360.0, dHeight );
+    SER( sExtent.SetMinMax( 0, 0, 360.0, dHeight ) );
     status = pCylinder->AdjustSTEPUVDomain( sExtent );
     if( status != SM_SUCCESS ) {
         delete pCylinder;
@@ -475,7 +475,7 @@ SmApiStatus SmApiCreateCone
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -525,7 +525,7 @@ SmApiStatus SmApiCreateCone
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmCone* pCone = NULL;
     long status = SmCone::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, dRadiusBase, dRadiusTop, dHeight, pCone); 
@@ -537,7 +537,7 @@ SmApiStatus SmApiCreateCone
     }
 
     SmExtent2d sExtent;
-    sExtent.SetMinMax( 0, 0, 360.0, dHeight );
+    SER( sExtent.SetMinMax( 0, 0, 360.0, dHeight ) );
     status = pCone->AdjustSTEPUVDomain( sExtent );
     if( status != SM_SUCCESS ) {
         delete pCone;
@@ -582,7 +582,7 @@ SmApiStatus SmApiCreateTorus
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -627,7 +627,7 @@ SmApiStatus SmApiCreateTorus
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmTorus* pTorus = NULL;
     SmApiStatus status = SmTorus::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, dRadiusMajor, dRadiusMinor, pTorus);
@@ -786,7 +786,7 @@ SmApiStatus SmApiCreateCylindricalBox
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     rpResult = NULL;
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
@@ -833,7 +833,7 @@ SmApiStatus SmApiCreatePartialSphere
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -926,7 +926,7 @@ SmApiStatus SmApiCreatePartialCone
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -1041,7 +1041,7 @@ SmApiStatus SmApiCreatePartialTorus
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
