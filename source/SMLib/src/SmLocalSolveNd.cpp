@@ -180,7 +180,9 @@ SmStatus SmLocalSolveNd::SolveIt
                                                                    //      [dF0/dx0 dF0/dx1 ... dF0/dxn, dF1/dx0 ... dF1/dxn, ...]
                                                  bFoundAnswer))    // out: TRUE = F within tolerance, 
     { // exit case - Evaluate() call failed                        //       note: not set by many derived functions
-      rbFoundSolution      = TRUE;
+      // SolidCraft: the guess could not be evaluated, so it is no solution: not converged, as
+      // when an evaluation fails during the iteration (it said the guess was a solution)
+      rbFoundSolution      = FALSE;
       m_eTerminationReason = SM_TR_UNABLE_TO_CONVERGE;
       return SM_SUCCESS;
     }
