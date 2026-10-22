@@ -89,7 +89,7 @@ SmStatus sm_ComputeParentData
                                       + pRight->m_dMaxTurningAngleDeg;
   pParent->m_dMaxChordHeightSquared = 0.0;
 
-  pParent->m_sIvl.SetMinMax(pLeft->m_sIvl.GetMin(), pRight->m_sIvl.GetMax()) ;
+  SER( pParent->m_sIvl.SetMinMax(pLeft->m_sIvl.GetMin(), pRight->m_sIvl.GetMax())  );
   
   // When NOT making a full tree - compute parent MaxChordHeightSquared 
   //  we need it later to decide when two children nodes can be collapsed into one parent 
@@ -114,7 +114,7 @@ SmStatus sm_ComputeParentData
         { sLineVec.Set(1,0,0); // Chose any old vector
         }
       else 
-        { sLineVec.Unitize(); 
+        { (void)sLineVec.Unitize(); // SolidCraft: a zero vector stays zero
         }
 
       // find max chord height to polygon vertices
@@ -412,7 +412,7 @@ SmStatus SmCurveCache::BuildTree
       // compute pNode->BoundingBox = BezSpan->BoundingBox
       //         and PseudoBox      = BezSpan->PseudoBox
       SmBSplineCurve sBSP(rLeafBeziers.GetAt(i), lCrvDim, TRUE);
-      sBSP.CalculateBoundingBox(sBSP.GetNaturalInterval(),&pNode->m_sBBox,&pBezSpan->GetPseudoBox());
+      SER( sBSP.CalculateBoundingBox(sBSP.GetNaturalInterval(),&pNode->m_sBBox,&pBezSpan->GetPseudoBox()) );
 
       // init other node values
       pNode->m_pTree        = pTree;
@@ -505,12 +505,12 @@ SmStatus SmCurveCache::BuildTree
 
               // compute Parent properties from Children 
               //   note: m_bMakeFullTree == FALSE, compute parent->m_dMaxChordHeightSquared, TRUE=don't
-              sm_ComputeParentData(pCurveCache,        // in : Containing Curve Cache
+              SER( sm_ComputeParentData(pCurveCache,        // in : Containing Curve Cache
                                    pAuxSpanParent,     // i/o: target Parent Span to update
                                    pBezLeft,           // in : Child 1 Span
                                    pBezRight,          // in : Child 2 Span
                                    rLeafBeziers,       // in : ordered list of leafNode Bezier curves
-                                   m_bMakeFullTree);   // in : TRUE =
+                                   m_bMakeFullTree) );   // in : TRUE =
                                                       //      FALSE=
 
               // when(    m_bMakeFullTree == FALSE
@@ -580,7 +580,7 @@ void SmBezierAux1d::GetStart
 {
   // set output
   dStart = m_sIvl.GetMin() ;
-  crCurveCache.GetCurve()->EvaluatePoint(dStart, rStart) ;
+  (void)crCurveCache.GetCurve()->EvaluatePoint(dStart, rStart) ; // SolidCraft: an accessor; the span lies inside its own curve, where it evaluates
 
 } // end SmBezierAux1d::GetStart
 
@@ -597,7 +597,7 @@ void SmBezierAux1d::GetEnd
 {
   // set output
   dEnd = m_sIvl.GetMax() ;
-  crCurveCache.GetCurve()->EvaluatePoint(dEnd, rEnd) ;
+  (void)crCurveCache.GetCurve()->EvaluatePoint(dEnd, rEnd) ; // SolidCraft: an accessor; the span lies inside its own curve, where it evaluates
 
 } // end SmBezierAux1d::GetEnd
 
@@ -616,8 +616,8 @@ void SmBezierAux1d::GetEnds
   // set output
 
   rIvl = m_sIvl ;
-  crCurveCache.GetCurve()->EvaluatePoint(rIvl.GetMin(), rStart) ;
-  crCurveCache.GetCurve()->EvaluatePoint(rIvl.GetMax(), rEnd) ;
+  (void)crCurveCache.GetCurve()->EvaluatePoint(rIvl.GetMin(), rStart) ; // SolidCraft: an accessor; the span lies inside its own curve, where it evaluates
+  (void)crCurveCache.GetCurve()->EvaluatePoint(rIvl.GetMax(), rEnd) ; // SolidCraft: an accessor; the span lies inside its own curve, where it evaluates
 
 } // end SmBezierAux1d::GetEnds
 
@@ -1085,18 +1085,18 @@ SmBoolean bDebugMe = FALSE;
   double dPrevF = 0;
   double dPrevT = sInterval.GetMin();
   SmBoolean bFoundSolution;
-  sEFO.Evaluate( dPrevT, dPrevF, dF1, bFoundSolution );
+  SER( sEFO.Evaluate( dPrevT, dPrevF, dF1, bFoundSolution ) );
 
   for ( ULONG ii = 1; ii <= lNumSteps; ++ii )
     {
       dFrac  = (double)ii / dDenom;
       dParam = sInterval.Evaluate( dFrac );
 
-      sEFO.Evaluate( dParam, dF, dF1, bFoundSolution );
+      SER( sEFO.Evaluate( dParam, dF, dF1, bFoundSolution ) );
       if ( bFoundSolution )
         {
-          rBez.EvaluatePoint( dParam, sPt1 );
-          rOriginalCurve.EvaluatePoint( dParam, sPt2 );
+          SER( rBez.EvaluatePoint( dParam, sPt1 ) );
+          SER( rOriginalCurve.EvaluatePoint( dParam, sPt2 ) );
           double dDistanceSquared = sPt1.DistanceBetweenSquared( sPt2 );
           if ( dDistanceSquared > dApproxTolSquared )
           { 
@@ -1110,8 +1110,8 @@ SmBoolean bDebugMe = FALSE;
           double dGuessParam = dPrevT - dPrevF * ( dParam - dPrevT ) / ( dF - dPrevF );
           if ( sLS.SolveIt( dGuessParam, 10.*SM_EFF_ZERO, bFoundSolution, dFoundT ) == SM_SUCCESS )
             {
-              rBez.EvaluatePoint( dParam, sPt1 );
-              rOriginalCurve.EvaluatePoint( dParam, sPt2 );
+              SER( rBez.EvaluatePoint( dParam, sPt1 ) );
+              SER( rOriginalCurve.EvaluatePoint( dParam, sPt2 ) );
               double dDistanceSquared = sPt1.DistanceBetweenSquared( sPt2 );
               if ( dDistanceSquared > dApproxTolSquared )
               { 
@@ -1180,7 +1180,7 @@ static SmStatus sm_BuildBezierSpans(
     double dDeltaT;
 
     double dParam = rKnots[0];
-    pCurve->Evaluate( dParam, 1, TRUE, sPV );  // first eval: FromLeft == TRUE.
+    SER( pCurve->Evaluate( dParam, 1, TRUE, sPV ) );  // first eval: FromLeft == TRUE.
 
     for ( i = 1; i < lNumKnots; i++ )
     {
@@ -1192,7 +1192,7 @@ static SmStatus sm_BuildBezierSpans(
         sCtrlPts[0] = sPV[0];
         sCtrlPts[1] = sCtrlPts[0] + sPV[1] * dDeltaT / 3.0;
 
-        pCurve->Evaluate( dParam, 1, FALSE, sPV );
+        SER( pCurve->Evaluate( dParam, 1, FALSE, sPV ) );
         sCtrlPts[3] = sPV[0];
         sCtrlPts[2] = sCtrlPts[3] - sPV[1] * dDeltaT / 3.0;
 
@@ -1259,7 +1259,7 @@ static SmStatus sm_CreateBezierSegmentBlock
 
       // Have to use knot vector, because caller uses CalculateContinuities(),
       // which is assumed to match up with knot vector.
-      pCurve->GetKnots( sKnots );
+      SER( pCurve->GetKnots( sKnots ) );
 
 //cbi TODO: make deg 1 if linear ... must tell my new routines about it, they're cubic.
 
@@ -1350,7 +1350,7 @@ static SmStatus sm_SplitSegment(
 
     // Now the control points.
     SmVector3d sOrigEvalMid[2];
-    cpCurve->Evaluate( dMidParam, 1, FALSE, sOrigEvalMid );
+    SER( cpCurve->Evaluate( dMidParam, 1, FALSE, sOrigEvalMid ) );
 
     // Derivative multiplier: parameter span, divided by 3 for cubic.
     double dScale = ( dMidParam - pKnotsFull[0] ) / 3.0;
@@ -1812,20 +1812,23 @@ SmStatus SmCurveCache::Tessellate()
         // fetch memory for the next SmBezierSpan from the m_sBezMgr, and
         //  1. set all SmBezierSpan data.
         //  2. Place3 SmBezierSpan into ordered LeafArray
-        sLeafBeziers.Add( OutputSegment( pBez,                    // pBez points to sBezStack scratch memory
+        // SolidCraft change: a span it could not copy is no span (NULL was listed)
+        gw_CURVE * pSegment = OutputSegment( pBez,                    // pBez points to sBezStack scratch memory
                           &sSegmentBeziersMgr,     // copy gw_CURVE to this bit of working memory
                           dMaxLength,
                           dMaxChordHeightSquared,
                           dMaxTurningAngleDeg,
                           eLeftCont,
-                          eRightCont ) );
+                          eRightCont ) ;
+        NER( pSegment );
+        sLeafBeziers.Add( pSegment );
         continue;
       } // end found a leaf-node check
 
     // arrive here when current BezierSpan needs to be subdivided again to pass tessellation tests
 
     // Split the current BezierSpan in half placing the children in the sBezStack for further processing
-      sm_CopyNurbCurve( pBez, pWorkBez );   // copy is required.  pBez points to sBezStack scratch memory.
+      SER( sm_CopyNurbCurve( pBez, pWorkBez ) );   // copy is required.  pBez points to sBezStack scratch memory.
                                             //   pWorkBez points to sSegmentBeziersMgr work memory.
                                             //   The upcoming split builds the children Beziers into the
                                             //   sBezStack scratch memory over the current pBez location. 
@@ -2041,13 +2044,13 @@ gw_CURVE *SmCurveCache::OutputSegment
   //       bounding box as well.  Its efficient to compute the regular
   //       and the pseudo boxes at the same time.
 
-  pNew->m_sIvl.SetMinMax(pBezCurve->knt->U[0], pBezCurve->knt->U[pBezCurve->knt->m]) ;
+  (void)pNew->m_sIvl.SetMinMax(pBezCurve->knt->U[0], pBezCurve->knt->U[pBezCurve->knt->m]) ; // SolidCraft: knots of a Bezier span are ordered
 
   // when asked copy the pBezCurve to working memory
   if(pSegmentBeziersMgr)
     {
       gw_CURVE *pWorkBez = SM_REINTERPRET_CAST(gw_CURVE*,pSegmentBeziersMgr->GetNewElement());
-      sm_CopyNurbCurve(pBezCurve, pWorkBez);
+      if ( sm_CopyNurbCurve(pBezCurve, pWorkBez) != SM_SUCCESS ) { return NULL ; } // SolidCraft change: a span it could not copy is none
       return(pWorkBez) ;
     }
   else

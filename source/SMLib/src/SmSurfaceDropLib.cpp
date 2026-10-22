@@ -586,8 +586,8 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
     {
       // which surface bdry, Sv 1stDeriv, and m_SrfNorm
       SmBoolean bEvalLowSide = ( this->m_UVPD[0].x < crURange.GetMid() );
-      crSurface.Evaluate1stDerivatives( this->m_UVPD[0], bEvalLowSide, FALSE, sSrfPt, sSu, sSv );
-      crSurface.EvaluateNormal( this->m_UVPD[0], bEvalLowSide, FALSE, sSrfNorm) ;
+      if ( crSurface.Evaluate1stDerivatives( this->m_UVPD[0], bEvalLowSide, FALSE, sSrfPt, sSu, sSv ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
+      if ( crSurface.EvaluateNormal( this->m_UVPD[0], bEvalLowSide, FALSE, sSrfNorm)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
 
       // when either Crv or SrfBdry is zero length - then not moving along boundary
       if(   sSv.LengthSquared()        < SM_EFF_ZERO_SQ
@@ -595,7 +595,7 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
         { return( SM_POC_UNKNOWN ) ; }
       
       // curveTangent to Surface Sv angle - [-Pi to Pi] returns zero for zero length vectors
-      sSrfNorm.CCWAngleBetween( sSv, this->m_CrvPD[1], dAngRad) ;
+      (void)sSrfNorm.CCWAngleBetween( sSv, this->m_CrvPD[1], dAngRad) ; // SolidCraft: CCWAngleBetween succeeds, with 0, for zero vectors (as the comment above says)
 
       // sector classification
       ePOCType =   (   dAngRad > -SM_PI + dAngLimitRad
@@ -615,11 +615,11 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
           SmPoint3d  sOtherPt ;
           SmVector3d sOtherSu, sOtherSv, sOtherNorm ;
           double     dOtherAngRad ;
-          crSurface.Evaluate1stDerivatives( sOtherUV, !bEvalLowSide, FALSE, sOtherPt, sOtherSu, sOtherSv );
-          crSurface.EvaluateNormal( sOtherUV, !bEvalLowSide, FALSE, sOtherNorm) ;
+          if ( crSurface.Evaluate1stDerivatives( sOtherUV, !bEvalLowSide, FALSE, sOtherPt, sOtherSu, sOtherSv ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
+          if ( crSurface.EvaluateNormal( sOtherUV, !bEvalLowSide, FALSE, sOtherNorm)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
 
           // curveTangent to Surface Sv angle - [-Pi to Pi] returns zero for zero length vectors
-          sOtherNorm.CCWAngleBetween( sOtherSv, this->m_CrvPD[1], dOtherAngRad) ;
+          (void)sOtherNorm.CCWAngleBetween( sOtherSv, this->m_CrvPD[1], dOtherAngRad) ; // SolidCraft: CCWAngleBetween succeeds, with 0, for zero vectors (as the comment above says)
 
           // other sector classification
           eOtherPOCType =   (   dOtherAngRad > -SM_PI + dAngLimitRad
@@ -632,7 +632,7 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
             {
               // let ePOCType = INSIDE when m_dNormalToCrvAngDeg is closer to 90 deg than OtherNormalToCrvAngDeg
               double dOtherNormalToCrvAngRad ;
-              sOtherNorm.AngleBetween(this->m_CrvPD[1],dOtherNormalToCrvAngRad) ;
+              if ( sOtherNorm.AngleBetween(this->m_CrvPD[1],dOtherNormalToCrvAngRad)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
               
               ePOCType = smos_Fabs(m_dNormalToCrvAngDeg - 90.0) < smos_Fabs(SM_RAD2DEG(dOtherNormalToCrvAngRad) - 90.0)
                          ? SM_POC_INSIDE
@@ -668,11 +668,11 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
     {
       // which surface bdry, Su 1stDeriv, and m_SrfNorm
       SmBoolean bEvalLowSide = ( this->m_UVPD[0].y < crVRange.GetMid() );
-      crSurface.Evaluate1stDerivatives( this->m_UVPD[0], FALSE, bEvalLowSide, sSrfPt, sSu, sSv );
-      crSurface.EvaluateNormal( this->m_UVPD[0], FALSE, bEvalLowSide, sSrfNorm) ;
+      if ( crSurface.Evaluate1stDerivatives( this->m_UVPD[0], FALSE, bEvalLowSide, sSrfPt, sSu, sSv ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
+      if ( crSurface.EvaluateNormal( this->m_UVPD[0], FALSE, bEvalLowSide, sSrfNorm)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
 
       // curveTangent to Surface Su angle - [-Pi to Pi] returns zero for zero length vectors
-      sSrfNorm.CCWAngleBetween( sSu, this->m_CrvPD[1], dAngRad) ;
+      (void)sSrfNorm.CCWAngleBetween( sSu, this->m_CrvPD[1], dAngRad) ; // SolidCraft: CCWAngleBetween succeeds, with 0, for zero vectors (as the comment above says)
 
       // sector classification
       ePOCType =   (   dAngRad > -SM_PI + dAngLimitRad
@@ -692,11 +692,11 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
           SmPoint3d  sOtherPt ;
           SmVector3d sOtherSu, sOtherSv, sOtherNorm ;
           double     dOtherAngRad ;
-          crSurface.Evaluate1stDerivatives( sOtherUV, !bEvalLowSide, FALSE, sOtherPt, sOtherSu, sOtherSv );
-          crSurface.EvaluateNormal( sOtherUV, !bEvalLowSide, FALSE, sOtherNorm) ;
+          if ( crSurface.Evaluate1stDerivatives( sOtherUV, !bEvalLowSide, FALSE, sOtherPt, sOtherSu, sOtherSv ) != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
+          if ( crSurface.EvaluateNormal( sOtherUV, !bEvalLowSide, FALSE, sOtherNorm)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
 
           // curveTangent to Surface Sv angle - [-Pi to Pi] returns zero for zero length vectors
-          sOtherNorm.CCWAngleBetween( sOtherSu, this->m_CrvPD[1], dOtherAngRad) ;
+          (void)sOtherNorm.CCWAngleBetween( sOtherSu, this->m_CrvPD[1], dOtherAngRad) ; // SolidCraft: CCWAngleBetween succeeds, with 0, for zero vectors (as the comment above says)
 
           // other sector classification
           eOtherPOCType =   (   dOtherAngRad > -SM_PI + dAngLimitRad
@@ -709,7 +709,7 @@ SmPointObjectContainmentType SmDropPt::IsMovingAlongBoundary
             {
               // let ePOCType = INSIDE when m_dNormalToCrvAngDeg is closer to 90 deg than OtherNormalToCrvAngDeg
               double dOtherNormalToCrvAngRad ;
-              sOtherNorm.AngleBetween(this->m_CrvPD[1],dOtherNormalToCrvAngRad) ;
+              if ( sOtherNorm.AngleBetween(this->m_CrvPD[1],dOtherNormalToCrvAngRad)  != SM_SUCCESS ) { return SM_POC_UNKNOWN ; } // SolidCraft change: without these the motion along the boundary is not known
               
               ePOCType = smos_Fabs(m_dNormalToCrvAngDeg - 90.0) < smos_Fabs(SM_RAD2DEG(dOtherNormalToCrvAngRad) - 90.0)
                          ? SM_POC_INSIDE
@@ -908,8 +908,8 @@ SmBoolean bDebugMe = FALSE ;
           SmPoint3d sPtFromUV ;
           SmPoint3d sPtFromClampUV;
           SmPoint2d sClampUV = crUVDomain.ClampPoint2d( sUV ) ;
-          crSurface.EvaluatePoint( sUV,      sPtFromUV) ;
-          crSurface.EvaluatePoint( sClampUV, sPtFromClampUV ) ;
+          SER( crSurface.EvaluatePoint( sUV,      sPtFromUV)  );
+          SER( crSurface.EvaluatePoint( sClampUV, sPtFromClampUV )  );
 
           // check clamp move distance against sApproxTol3d. Used to be - if (crUVDomain.MinimumDistance(sUV) > SM_EFF_ZERO*100.0)
           if(sPtFromUV.DistanceBetween( sPtFromClampUV ) > sApproxTol3d )     
@@ -1107,10 +1107,10 @@ SmBoolean bDebugMe = FALSE ;
 
   // get StartPoint Surf DU, DV, DUU, DVV, DUV values
   SmVector3d sSrfPt, sSu, sSv, sSuu, sSuv, sSvv;
-  crSurface.Evaluate2ndDerivatives( rStart.m_UVPD[0], 
+  SER( crSurface.Evaluate2ndDerivatives( rStart.m_UVPD[0], 
                                     rStart.m_bFromLeftU, rStart.m_bFromLeftV,        
                                     sSrfPt,              
-                                    sSu, sSv, sSuv, sSuu, sSvv) ; // NonZeroTangent values
+                                    sSu, sSv, sSuv, sSuu, sSvv)  ); // NonZeroTangent values
 
   // LocalPointSolve locals: Find SpanEnd[UV] from local drop of SpanEnd[CrvPt]
   ULONG ii, jj ;
@@ -1137,7 +1137,7 @@ SmBoolean bDebugMe = FALSE ;
   // solve for UVtt from: Su*UVtt.x + Sv*UVtt.y = Ctt - [ Suu*Ut^2 + 2*Suv*Ut*Vt + Svv*Vt^2 ]
   SmVector3d s2ndDerivQuantity = sSuu * dUt*dUt + 2*sSuv*dUt*dVt + sSvv * dVt*dVt;
   SmVector3d sRHS              = rStart.m_CrvPD[2] - s2ndDerivQuantity;
-  smgu_VecLinCombTwoVectors( sSu, sSv, sRHS, sUVtt );
+  (void)smgu_VecLinCombTwoVectors( sSu, sSv, sRHS, sUVtt ) ; // SolidCraft: SM_ERR is a degenerate Su/Sv frame (a pole); sUVtt stays zero, the first-order guess
 
   // calc GuessSpanEnd[UV] with Taylor step from SpanStart[UV UV1stDeriv UV2ndDeriv]
   double dDeltaT  = rEnd.m_dT - rStart.m_dT;
@@ -1285,7 +1285,7 @@ SmBoolean bDebugMe = FALSE ;
       // SM_ASSERT(lSingularities2 == lSingularities);
       if(lSingularities2 != 0)
         {
-          crSurface.FindDegenParamForDirection(rEnd.m_UVPD[0],      // i/o: a point on the surface singularity,                                        
+          (void)crSurface.FindDegenParamForDirection(rEnd.m_UVPD[0],      // i/o: a point on the surface singularity, // SolidCraft: by its implementation SM_ERR means no exact match within the tolerance, with the best value left in the UV, which is used
                                                                     //      when 2 sols are possible (seam), the sol closest to initial rUV pt is used 
                                                rEnd.m_CrvPD[1],     // in : the 3d direction to match with the NonSingular Surface tangent                  
                                                FALSE,               // in : TRUE  = Dir to match is from the pole heading out, as in starting a curve
@@ -1464,6 +1464,20 @@ SmBoolean bDebugMe = FALSE ;
 } // end SmDropPt::GetNextPoint
 
 /*******************************************************************//**
+PURPOSE: TRUE when eStat is one of the answers SmDropPt::SetProperties
+   documents, with the drop point's properties set: SM_SUCCESS,
+   SM_ERR (a curve tangent it cannot drop), SM_ERR_BAD_TANGENT_DROP and
+   SM_ERR_NOT_WITHIN_TOLERANCE. (SolidCraft fork.)
+***********************************************************************/
+static SmBoolean sm_IsDropPtAnswer(SmStatus eStat)
+{
+  return(   eStat == SM_SUCCESS
+         || eStat == SM_ERR
+         || eStat == SM_ERR_BAD_TANGENT_DROP
+         || eStat == SM_ERR_NOT_WITHIN_TOLERANCE) ;
+}
+
+/*******************************************************************//**
 PURPOSE: DropCurve helper function.
        Find: all DropPoint properties
        Given: a CurvePoint Dropped to a SurfaceUVPoint
@@ -1551,7 +1565,7 @@ SmBoolean bDebugMe = FALSE ;
       if(bAdjustPolePt)
         {
            // find degenParam value at a singularity that matches the dropCurve UV direction
-           crSurface.FindDegenParamForDirection
+           (void)crSurface.FindDegenParamForDirection // SolidCraft: by its implementation SM_ERR means no exact match within the tolerance, with the best value left in the UV, which is used
                              (m_UVPD[0],           // i/o: a point on the surface singularity moved along degenerate UV Boundary.                                        
                                                    //      when 2 sols are possible (seam), the sol closest to initial rUV pt is used 
                               m_CrvPD[1],          // in : the 3d direction to match with the NonSingular Surface tangent              
@@ -1652,7 +1666,7 @@ SmBoolean bDebugMe = FALSE ;
           
           // new check
           double dCCWRad ;
-          m_SrfNormal.CCWAngleBetween(sSrfDV, m_CrvPD[1], dCCWRad) ; 
+          SER( m_SrfNormal.CCWAngleBetween(sSrfDV, m_CrvPD[1], dCCWRad)  ); 
 
           if ( dCCWRad < 0 ) // This returns [-Pi, Pi]. [B260]
             { dCCWRad += 2*SM_PI; }
@@ -1710,7 +1724,7 @@ SmBoolean bDebugMe = FALSE ;
 
           // new check
           double dCCWRad ;
-          m_SrfNormal.CCWAngleBetween(sSrfDU, m_CrvPD[1], dCCWRad) ; 
+          SER( m_SrfNormal.CCWAngleBetween(sSrfDU, m_CrvPD[1], dCCWRad)  ); 
 
           if ( dCCWRad < 0 ) // This returns [-Pi, Pi]. [B260]
             { dCCWRad += 2*SM_PI; }
@@ -1732,7 +1746,7 @@ SmBoolean bDebugMe = FALSE ;
 
   // save the curve/Surface drop distance and deviation (distance from SurfNormalLine to CurvePoint)
   double dDropParam ;
-  smgu_LinePointDistance(m_3dPD[0], m_SrfNormal, m_CrvPD[0], m_dApproxDev, &dDropParam) ;
+  SER( smgu_LinePointDistance(m_3dPD[0], m_SrfNormal, m_CrvPD[0], m_dApproxDev, &dDropParam)  );
   m_dDropToSurf = dDropParam;      // was:   sStartGap.Length()   [B488]
 
   // A drop is good if the original point being dropped is within a tolerant shape of the SrfNormalLine 
@@ -1768,7 +1782,7 @@ SmBoolean bDebugMe = FALSE ;
           SmVector3d  sLMNOfSecondFundForm ;      
           SmVector3d  sPrincipleCurvatureVector1 ;
           SmVector3d  sPrincipleCurvatureVector2 ;
-          crSurface.EvaluateGeometric(m_UVPD[0], m_bFromLeftU, m_bFromLeftV,
+          SER( crSurface.EvaluateGeometric(m_UVPD[0], m_bFromLeftU, m_bFromLeftV,
                                       sdGaussianCurvature,       
                                       sdNormalCurvature,         
                                       sdPrincipleCurvature1,     
@@ -1776,7 +1790,7 @@ SmBoolean bDebugMe = FALSE ;
                                       sEFGOfFirstFundForm,       
                                       sLMNOfSecondFundForm,      
                                       sPrincipleCurvatureVector1,
-                                      sPrincipleCurvatureVector2) ;
+                                      sPrincipleCurvatureVector2)  );
 
          // center of curvature for both principle curvatures
          SmPoint3d sCenter1 = m_3dPD[0] + m_SrfNormal * sdPrincipleCurvature1 ;
@@ -1819,7 +1833,7 @@ SmBoolean bDebugMe = FALSE ;
     {
       // can't drop Crv1stDeriv vectors parallel to m_SrfNormal (degenerate case)
       double dSrfNormCrvTanAngRad ;
-      m_SrfNormal.AngleBetween(m_CrvPD[1], dSrfNormCrvTanAngRad) ;
+      SER( m_SrfNormal.AngleBetween(m_CrvPD[1], dSrfNormCrvTanAngRad)  );
       if(SM_RAD2DEG(dSrfNormCrvTanAngRad) < 3.0)
         { if(m_bGoodDrop)
             { m_bGoodDrop = FALSE ;
@@ -1868,7 +1882,7 @@ SmBoolean bDebugMe = FALSE ;
 
     if(!m_UVPD[1].IsZero())
     {
-      rOffset.EvaluateDirectionalDerivs( m_UVPD[0], m_UVPD[1], 1, sOffsetPD, m_bFromLeftU, m_bFromLeftV );
+      SER( rOffset.EvaluateDirectionalDerivs( m_UVPD[0], m_UVPD[1], 1, sOffsetPD, m_bFromLeftU, m_bFromLeftV ) );
       double dUVSpeed = m_UVPD[1].Length();
       sOffsetPD[1] = dUVSpeed * sOffsetPD[1];
 
@@ -1877,12 +1891,12 @@ SmBoolean bDebugMe = FALSE ;
 
       // angle between Crv and SrfNormal 
       double dNormalToCrvAngRad = 0.0;
-      m_CrvPD[1].AngleBetween( m_SrfNormal, dNormalToCrvAngRad );
+      SER( m_CrvPD[1].AngleBetween( m_SrfNormal, dNormalToCrvAngRad ) );
       m_dNormalToCrvAngDeg = SM_RAD2DEG( dNormalToCrvAngRad );
 
       // angle between Crv and Srf 1stDerivs
       double dOffsetToCrvAngRad = 0.0;
-      sCrvProj1stDeriv.AngleBetween( sOffsetPD[1], dOffsetToCrvAngRad );
+      (void)sCrvProj1stDeriv.AngleBetween( sOffsetPD[1], dOffsetToCrvAngRad ) ; // SolidCraft: SM_ERR is a vanishing projected tangent or surface tangent, answered 0; the speed ratio below marks it
       m_dSrfToCrvAngDeg = SM_RAD2DEG( dOffsetToCrvAngRad );
 
       // size ratios
@@ -2464,12 +2478,12 @@ SmBoolean bDebugMe = FALSE ;
   SmContinuityType           eSrfMinContU,  eSrfMinContV,  eCrvMinCont ;
   SmTArray<SmContinuityType> sSrfKnotContU, sSrfKnotContV, sCrvKnotCont ;
   SmTArray<double>           sSrfKnotsU,    sSrfKnotsV,    sCrvKnots ;
-  crSurface.CalculateContinuities(SM_SP_U, eSrfMinContU, sSrfKnotContU) ;      
-  crSurface.CalculateContinuities(SM_SP_V, eSrfMinContV, sSrfKnotContV) ;      
-  cr3dCurve.CalculateContinuities(eCrvMinCont, sCrvKnotCont) ;
-  crSurface.GetKnots(SM_SP_U, sSrfKnotsU) ;      
-  crSurface.GetKnots(SM_SP_V, sSrfKnotsV) ;      
-  cr3dCurve.GetKnots(sCrvKnots) ;
+  SER( crSurface.CalculateContinuities(SM_SP_U, eSrfMinContU, sSrfKnotContU)  );      
+  SER( crSurface.CalculateContinuities(SM_SP_V, eSrfMinContV, sSrfKnotContV)  );      
+  SER( cr3dCurve.CalculateContinuities(eCrvMinCont, sCrvKnotCont)  );
+  SER( crSurface.GetKnots(SM_SP_U, sSrfKnotsU)  );      
+  SER( crSurface.GetKnots(SM_SP_V, sSrfKnotsV)  );      
+  SER( cr3dCurve.GetKnots(sCrvKnots)  );
 
   // figure out if any discontinuities have been crossed by this span
   ULONG ii ;
@@ -2583,7 +2597,7 @@ SmBoolean bDebugMe = FALSE ;
           adT[gpt]          = sIvl.Evaluate(adNormalized[gpt]) ;
 
           // Get SpanGpt[UV UV1stDeriv] for this gpt
-          rStart.GetNextPoint
+          SER( rStart.GetNextPoint
             ( crSurface,                // in : main surface                                                         
               rOffset,                  // i/o: offset of main surface, its offset distance is set in this routine
               lSingularities,           // in : orof: SM_SS_NONE, SM_SS_UMIN, SM_SS_VMIN, SM_SS_UMAX, SM_SS_VMAX, SM_SS_UNKNOWN
@@ -2596,7 +2610,7 @@ SmBoolean bDebugMe = FALSE ;
               dUVTolX,                  // in : UV tol in u dir
               dUVTolY,                  // in : UV tol in v dir
               adT[gpt],                 // in : target EndT
-              rEnd) ;                   // out: rEnd.m_dT
+              rEnd)  );                   // out: rEnd.m_dT
                                         //      rEnd.m_CrvPD
                                         //      rEnd.m_UVPD, rEnd.m_bFromLeftU, rEnd.m_bFromLeftV,
                                         //      rEnd.m_3dPD
@@ -2673,7 +2687,10 @@ SmBoolean bDebugMe = FALSE ;
                     sB.SetSize(2) ;                    
                     sABCD.SetSize(2) ;                 
                     sB[0] = dB1 ; sB[1] = dB2 ; 
-                    sMat.SolveLinearSystem(sB, sABCD) ;
+                    // SolidCraft change: SM_ERR_WARNING is a solution of a nearly singular system
+                    // (SmMatrix::LUDecompose); anything else is no solution
+                    { SmStatus eSolve = sMat.SolveLinearSystem(sB, sABCD) ;
+                      if (eSolve != SM_SUCCESS && eSolve != SM_ERR_WARNING) { return eSolve ; } }
                     
                     // scale the magnitudes
                     rStart.m_UVPD[1] = sABCD[0] * rStart.m_UVPD[1] ;
@@ -2687,7 +2704,10 @@ SmBoolean bDebugMe = FALSE ;
                     sB.SetSize(3) ;                                       
                     sABCD.SetSize(3) ;
                     sB[0] = dB1 ; sB[1] = dB2 ; sB[2] = dB3 ;
-                    sMat.SolveLinearSystem(sB, sABCD) ;
+                    // SolidCraft change: SM_ERR_WARNING is a solution of a nearly singular system
+                    // (SmMatrix::LUDecompose); anything else is no solution
+                    { SmStatus eSolve = sMat.SolveLinearSystem(sB, sABCD) ;
+                      if (eSolve != SM_SUCCESS && eSolve != SM_ERR_WARNING) { return eSolve ; } }
                     
                     // scale the magnitudes
                     rStart.m_UVPD[1] = sABCD[0] * rStart.m_UVPD[1] + sABCD[2] * sL0 ;
@@ -2702,7 +2722,10 @@ SmBoolean bDebugMe = FALSE ;
                     sB.SetSize(3) ;                                       
                     sABCD.SetSize(3) ;
                     sB[0] = dB1 ; sB[1] = dB2 ; sB[2] = dB4 ;
-                    sMat.SolveLinearSystem(sB, sABCD) ;
+                    // SolidCraft change: SM_ERR_WARNING is a solution of a nearly singular system
+                    // (SmMatrix::LUDecompose); anything else is no solution
+                    { SmStatus eSolve = sMat.SolveLinearSystem(sB, sABCD) ;
+                      if (eSolve != SM_SUCCESS && eSolve != SM_ERR_WARNING) { return eSolve ; } }
 
                     // scale the magnitudes
                     rStart.m_UVPD[1] = sABCD[0] * rStart.m_UVPD[1] ;
@@ -2718,7 +2741,10 @@ SmBoolean bDebugMe = FALSE ;
                     sB.SetSize(4) ;
                     sABCD.SetSize(4) ;
                     sB[0] = dB1 ; sB[1] = dB2 ; sB[2] = dB3 ; sB[3] = dB4 ;
-                    sMat.SolveLinearSystem(sB, sABCD) ;
+                    // SolidCraft change: SM_ERR_WARNING is a solution of a nearly singular system
+                    // (SmMatrix::LUDecompose); anything else is no solution
+                    { SmStatus eSolve = sMat.SolveLinearSystem(sB, sABCD) ;
+                      if (eSolve != SM_SUCCESS && eSolve != SM_ERR_WARNING) { return eSolve ; } }
                     
                     // scale the magnitudes
                     rStart.m_UVPD[1] = sABCD[0] * rStart.m_UVPD[1] + sABCD[2] * sL0 ;
@@ -2817,8 +2843,8 @@ SmBoolean bDebugMe = FALSE ;
       double    dUVDist = sUVSpan.Length() ;
 
       // update the output
-      rStart.m_UVPD[1].Unitize() ;
-      rEnd.m_UVPD[1].Unitize() ;
+      (void)rStart.m_UVPD[1].Unitize() ; // SolidCraft: a zero vector stays zero
+      (void)rEnd.m_UVPD[1].Unitize() ; // SolidCraft: a zero vector stays zero
       rStart.m_UVPD[1] *= dUVDist ;
       rEnd.m_UVPD[1]   *= dUVDist ;
       return(SM_SUCCESS) ;
@@ -2837,7 +2863,7 @@ SmBoolean bDebugMe = FALSE ;
 
   // CurveMidSpan 3dPoint
   SmPoint3d sCrvMidSpanPt ;
-  cr3dCurve.EvaluatePoint((rStart.m_dT + rEnd.m_dT)/2.0, sCrvMidSpanPt) ;
+  SER( cr3dCurve.EvaluatePoint((rStart.m_dT + rEnd.m_dT)/2.0, sCrvMidSpanPt)  );
 
   // locals
   double     dA, dB ;
@@ -4405,12 +4431,16 @@ static ULONG lDebugCount = 0 ;
 
   // Classify the 1st start DropSolution point, in: m_UVPD[0]=SrfDropUV, m_CrvPD[0,1,2]=position, 1stDer, 2ndDer pCurve(dT),
   sStart.m_UVPD[0].Set(sSolutions[0].m_vStart[0], sSolutions[0].m_vStart[1]) ;
-  sStart.SetProperties(*this,            // in : target drop surface                                                            
+  // SolidCraft change: SM_ERR_NOT_WITHIN_TOLERANCE, SM_ERR_BAD_TANGENT_DROP and SM_ERR (a curve
+  // tangent it cannot drop) are the drop's answers, kept in m_bGoodDrop and m_eDropDerivRtn and
+  // read below; any other status is a failure
+  { SmStatus eProps = sStart.SetProperties(*this,            // in : target drop surface                                                            
                         sOffset,         // i/o: Offset from crSurface, it's offset dist gets modified to minimize tolerances   
                         lSingularities,  // in : orof: SM_SS_NONE, SM_SS_UMIN, SM_SS_VMIN, SM_SS_UMAX, SM_SS_VMAX               
                         sApproxTol3d,    // in : min dist between distinct 3d points                                            
                         sUVDomain,       // in : Domain of interest for crSurface                                               
                         TRUE) ;          // in : TRUE = adjust m_UVPD[0] with FindDegenParamForDirection when m_UVPD[0] is on pole 
+    if (!sm_IsDropPtAnswer(eProps)) { SER(eProps) ; } }
                         
 #ifdef SM_DEBUG_CODE
   if (bDebugMe) 
@@ -4587,8 +4617,8 @@ static ULONG lDebugCount = 0 ;
             }
 
           // create a UVCurve that spans the singular Edge and return
-          SmBSplineCurve::CreateLineSegment(crContext, 2, sUVStart, sUVEnd, pUVTrimCurve) ;
-          pUVTrimCurve->EditParameterization(crInterval); 
+          SER( SmBSplineCurve::CreateLineSegment(crContext, 2, sUVStart, sUVEnd, pUVTrimCurve)  );
+          SER( pUVTrimCurve->EditParameterization(crInterval) ); 
 
           // set output
           rUVCurves.Add(pUVTrimCurve) ;
@@ -5232,12 +5262,15 @@ static ULONG lDebugCount = 0 ;
 
           // Get SpanStart[UV1stDeriv] by dropping SpanStart[Crv1stDeriv] to offset surface running through SpanStart[CrvPt]
           if( !bHaveStartUVTan)
-            { sStart.SetProperties(*this,           // in : target drop surface                                                                                                  
+            { // SolidCraft change: the drop's answers (see sm_IsDropPtAnswer) are kept in sStart and
+              // read below; any other status is a failure
+              SmStatus eProps = sStart.SetProperties(*this,           // in : target drop surface                                                                                                  
                                     sOffset,        // i/o: Offset from crSurface, it's offset dist gets modified to minimize tolerances                                         
                                     lSingularities, // in : orof: SM_SS_NONE, SM_SS_UMIN, SM_SS_VMIN, SM_SS_UMAX, SM_SS_VMAX
                                     sApproxTol3d,   // in : min dist between distinct 3d points                                                                             
                                     sUVDomain,      // in : Domain of interest for crSurface
                                     TRUE) ;         // in : FALSE = don't adjust m_UVPD[0] with a call FindDegenParamForDirection
+              if (!sm_IsDropPtAnswer(eProps)) { SER(eProps) ; }
                                                     // in : m_UVPD[0]  = drop pCurve(dT) position to surface 2d point (Solution of GlobalPointSolve for dT) 
             /* GWC: I think above should be TRUE */ //      m_CrvPD[0] = position pCurve(dT)
                                                     //      m_CrvPD[1] = 1stDeriv pCurve(dT)
@@ -5490,7 +5523,7 @@ static ULONG lDebugCount = 0 ;
                     {
                       // and if the distance between the edge end to the boundary point is small
                       SmPoint3d sCurveEnd ;
-                      p3dCurve->EvaluatePoint(sInterval.GetMax(), sCurveEnd) ;
+                      SER( p3dCurve->EvaluatePoint(sInterval.GetMax(), sCurveEnd)  );
                       double dEndGapLength = sStart.m_3dPD[0].DistanceBetween(sCurveEnd) ;
                       if(dEndGapLength < sApproxTol3d)
                         {
@@ -5646,7 +5679,7 @@ static ULONG lDebugCount = 0 ;
 
               // load sEnd.m_dT=param, sEnd.m_UVPD[0]=position point, sEnd.m_UVPD[1]=1stDeriv vec from last entry in sStack
               SER( sm_StackLook(sEnd.m_dT, sEnd.m_UVPD, sStack )) ;
-              sIvl.SetMinMax(sStart.m_dT, sEnd.m_dT) ;
+              SER( sIvl.SetMinMax(sStart.m_dT, sEnd.m_dT)  );
 
               // when span starts and ends on the same domain boundary - 
               //   assume curve between is walking the boundary, set start/end 1stDerivs parallel to boundary 
@@ -6170,7 +6203,7 @@ static ULONG lDebugCount = 0 ;
 
       double dMaxDropToSurfT, dMaxDropToSurfOtherT ;
       double dMaxDevT, dMaxDevOtherT ;
-      sCrvOnSurf.SurfaceCurveMaxDistanceBetween
+      SER( sCrvOnSurf.SurfaceCurveMaxDistanceBetween
            (sUVIvl,               // in : interval limit for this curve
            *p3dCurve,             // in : other curve to test
             sUVIvl.GetMin(),      // in : OtherCurve param mapping to ThisCurve Interval.Min value
@@ -6185,7 +6218,7 @@ static ULONG lDebugCount = 0 ;
            &dMaxDropToSurfT,      // out: Curve param for returned MaxDist Found, NULL to ignore.
            &dMaxDropToSurfOtherT, // out: OtherCurve param for returned MaxDist Found, NULL to ignore.
            &dMaxDevT,             // out: Curve param for returned MaxDev Found, NULL to ignore.
-           &dMaxDevOtherT) ;      // out: OtherCurve param for returned MaxDev Found, NULL to ignore.
+           &dMaxDevOtherT)  );      // out: OtherCurve param for returned MaxDev Found, NULL to ignore.
         
       // save sampled MaxDist between 3DCurve and Surf(UVCurve)
       if ( dDropToSurf > rdMaxDropToSurf ) { rdMaxDropToSurf = dDropToSurf; 
@@ -6635,7 +6668,7 @@ SmBoolean bDebugMe = FALSE;
       SER(cr3dCurve.EvaluatePoint(dParam,sCPnt));
       SER(EvaluatePoint (sUVTest,sSPnt));
       SER(EvaluateNormal(sUVTest, TRUE, TRUE, sSNrm));  // unitized normal
-      smgu_LinePointDistance(sSPnt, sSNrm, sCPnt, dDropLineDist, &dLineParam) ;  // dLineParam is drop dist because sSNrm is unitLength
+      SER( smgu_LinePointDistance(sSPnt, sSNrm, sCPnt, dDropLineDist, &dLineParam)  );  // dLineParam is drop dist because sSNrm is unitLength
 
       // when gap is too large - quit
       if(dDropLineDist > sApproxTol3d)

@@ -103,6 +103,10 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmEllipse.cpp
   ${SRC}/SMLib/src/SmSurfOfRevolution.cpp
   ${SRC}/SMLib/src/SmSurfOfExtrusion.cpp
+  ${SRC}/SMLib/src/SmSurfacePointSolve.cpp
+  ${SRC}/SMLib/src/SmSurfaceDropLib.cpp
+  ${SRC}/SMLib/src/SmSurfaceCache.cpp
+  ${SRC}/SMLib/src/SmCurveCache.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp

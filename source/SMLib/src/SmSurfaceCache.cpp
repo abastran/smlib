@@ -133,7 +133,7 @@ SmDisplayList * SmPatchBoundaryBoundingPlanes::Draw
 
   // local - surface bounding box 
   SmExtent3d sBBox ;
-  m_pSurface->CalculateBoundingBox(m_sUVDomain, &sBBox) ;
+  (void)m_pSurface->CalculateBoundingBox(m_sUVDomain, &sBBox) ; // SolidCraft: drawing only
   double dScale = sBBox.GetSize().Length() ;
 
   // start DisplayList (or use currently open one)
@@ -149,7 +149,7 @@ SmDisplayList * SmPatchBoundaryBoundingPlanes::Draw
         {
           // create temporary Finite Plane from the BBox/infinite Plane intersection
           SmSurface *pPlane = NULL ;
-          SmSurface::CreatePlaneFromBBox(*m_pSurface->GetContext(),
+          (void)SmSurface::CreatePlaneFromBBox(*m_pSurface->GetContext(), // SolidCraft: drawing only
                                          sBBox,
                                          m_vBasePoint[ii],
                                          m_vNormalVector[ii],
@@ -281,9 +281,9 @@ static SmStatus sm_ComputePlaneFrom3Points
         return SM_SUCCESS;
     }
 
-    sP12V.Unitize();
-    sP23V.Unitize();
-    sP31V.Unitize();
+    (void)sP12V.Unitize(); // SolidCraft: a zero vector stays zero
+    (void)sP23V.Unitize(); // SolidCraft: a zero vector stays zero
+    (void)sP31V.Unitize(); // SolidCraft: a zero vector stays zero
 
     double dAngleTol = 0.01;
 
@@ -316,7 +316,7 @@ static SmStatus sm_ComputePlaneFrom3Points
     rbPlaneExistsArg = TRUE;
     rsPlaneBaseArg =   (sP1Arg  + sP2Arg  + sP3Arg )  / 3.0;
     rsPlaneNormalArg = (sP123   + sP231   + sP312 )   / 3.0;
-    rsPlaneNormalArg.Unitize();
+    (void)rsPlaneNormalArg.Unitize(); // SolidCraft: a zero vector stays zero
     return SM_SUCCESS;
 
 } // end sm_ComputePlaneFrom3Points
@@ -1066,10 +1066,10 @@ SmStatus SmSurfaceCache::GetCorners
       gw_KNOTVECTOR * pKNOTV = pSurface->knv ;     NER(pKNOTV) ;
       
       // set output
-      rDomain.SetMinMax(pKNOTU->U[0],         
+      SER( rDomain.SetMinMax(pKNOTU->U[0],         
                         pKNOTV->U[0],        
                         pKNOTU->U[pKNOTU->m], 
-                        pKNOTV->U[pKNOTV->m]) ;
+                        pKNOTV->U[pKNOTV->m])  );
 
       TO_EUCLID(Pw[0][0],                               rU0V0Point) ;
       TO_EUCLID(Pw[pSurface->net->n][0],                rU1V0Point) ;
@@ -1279,7 +1279,7 @@ SmStatus SmBezierAux2d::BuildPolarBox()
     else
     {
         const SmSurface* pLastBSS = pLastAux->mBA_pSurface;
-        pLastBSS->CalculateBoundingBox(pLastAux->m_sUVDomain, NULL, NULL, &(pLastAux->m_sPolarBox), NULL, NULL);
+        SER( pLastBSS->CalculateBoundingBox(pLastAux->m_sUVDomain, NULL, NULL, &(pLastAux->m_sPolarBox), NULL, NULL) );
         pLastPolar = &(pLastAux->m_sPolarBox);
     }
 
@@ -1298,7 +1298,7 @@ SmStatus SmBezierAux2d::BuildPolarBox()
         }
 
         // now build the polar box and set us up for the next iteration.
-        pBSS->CalculateBoundingBox(pAux->m_sUVDomain, NULL, NULL, &(pAux->m_sPolarBox), NULL, pLastPolar);
+        SER( pBSS->CalculateBoundingBox(pAux->m_sUVDomain, NULL, NULL, &(pAux->m_sPolarBox), NULL, pLastPolar) );
         pLastPolar = &(pAux->m_sPolarBox);
     }
 
@@ -1446,8 +1446,8 @@ SmBoolean SmSurfaceCache::HasCachedCurves
                                           cpUserPointer)) 
         {
           // get copies of curves and return
-          m_apAltSrfCaches[i]->GetCopyOfCurves(crContext,pCopyOf3DCurvesInCache,
-              pCopyOfUVCurvesInCache);
+          if ( m_apAltSrfCaches[i]->GetCopyOfCurves(crContext,pCopyOf3DCurvesInCache, // SolidCraft change: curves it could not copy are not handed out as cached
+              pCopyOfUVCurvesInCache) != SM_SUCCESS ) { return FALSE ; }
 
           return TRUE;
 
@@ -2686,12 +2686,12 @@ SmBoolean bDebugMe = FALSE;
           pAux2->mBA_pSurface = SM_CAST_PTR(SmBSplineSurface,pRightBSS);
 
           // Set child pAux->UVDomains
-          pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(dSplitParam,sUVMax.y));
-          pAux2->m_sUVDomain.SetMinMax(SmPoint2d(dSplitParam,sUVMin.y),sUVMax);
+          SER( pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(dSplitParam,sUVMax.y)) );
+          SER( pAux2->m_sUVDomain.SetMinMax(SmPoint2d(dSplitParam,sUVMin.y),sUVMax) );
 
           // set pNode Bounding boxes
-          pLeftBSS->CalculateBoundingBox(pAux1->m_sUVDomain, &pNode1->m_sBBox, NULL, NULL, NULL, NULL);
-          pRightBSS->CalculateBoundingBox(pAux2->m_sUVDomain, &pNode2->m_sBBox, NULL, NULL, NULL, NULL);
+          SER( pLeftBSS->CalculateBoundingBox(pAux1->m_sUVDomain, &pNode1->m_sBBox, NULL, NULL, NULL, NULL) );
+          SER( pRightBSS->CalculateBoundingBox(pAux2->m_sUVDomain, &pNode2->m_sBBox, NULL, NULL, NULL, NULL) );
 
           SM_ASSERT_MSG(pNode1->m_sBBox.IsContainedBy(pNode->m_sBBox, SM_EFF_ZERO_SQRT),_T("pChild1 BBox not contained in pParent BBox")) ;
           SM_ASSERT_MSG(pNode2->m_sBBox.IsContainedBy(pNode->m_sBBox, SM_EFF_ZERO_SQRT),_T("pChild2 BBox not contained in pParent BBox")) ;
@@ -2710,8 +2710,8 @@ SmBoolean bDebugMe = FALSE;
            //           - or embedding a Edgeuse - no geometry but get uvBox and bounding box
         {
           // Set child pAux->UVDomains
-          pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(dSplitParam,sUVMax.y));
-          pAux2->m_sUVDomain.SetMinMax(SmPoint2d(dSplitParam,sUVMin.y),sUVMax);
+          SER( pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(dSplitParam,sUVMax.y)) );
+          SER( pAux2->m_sUVDomain.SetMinMax(SmPoint2d(dSplitParam,sUVMin.y),sUVMax) );
 
           // compute bounding box for SM_AD_AUX_DATA as best as we can
           //         but not for Node types SM_AD_BEZIER_SURFACE since the bbox is computed below.
@@ -2805,8 +2805,8 @@ SmBoolean bDebugMe = FALSE;
           pAux2->mBA_pSurface = SM_CAST_PTR(SmBSplineSurface,pTopBSS);
 
           // Set child pAux->UVDomains
-          pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(sUVMax.x,dSplitParam));
-          pAux2->m_sUVDomain.SetMinMax(SmPoint2d(sUVMin.x,dSplitParam),sUVMax);
+          SER( pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(sUVMax.x,dSplitParam)) );
+          SER( pAux2->m_sUVDomain.SetMinMax(SmPoint2d(sUVMin.x,dSplitParam),sUVMax) );
 
           // set pNode Bounding boxes
           // It's useless to continue if these fail, so SER. [B62]
@@ -2841,8 +2841,8 @@ SmBoolean bDebugMe = FALSE;
            //           - or embedding a Edgeuse - no geometry but get uvBox and bounding box
         {
           // Set child pAux->UVDomains
-          pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(sUVMax.x,dSplitParam));
-          pAux2->m_sUVDomain.SetMinMax(SmPoint2d(sUVMin.x,dSplitParam),sUVMax);
+          SER( pAux1->m_sUVDomain.SetMinMax(sUVMin,SmPoint2d(sUVMax.x,dSplitParam)) );
+          SER( pAux2->m_sUVDomain.SetMinMax(SmPoint2d(sUVMin.x,dSplitParam),sUVMax) );
 
           // compute bounding box for SM_AD_AUX_DATA as best as we can
           //         but not for Node types SM_AD_BEZIER_SURFACE since the bbox is computed below.
@@ -2969,10 +2969,10 @@ SmBoolean bDebugMe = FALSE;
           // let child BezierPatch surfaces = parent approximations.
           //  These are very coarse approximations for all but the final leaf nodes.
           pSur1 = pBez1->GetBezierPtr();
-          sm_ComputeBezierApproximation(*m_cpSurface,pAux1->m_sUVDomain,pSur1);
+          SER( sm_ComputeBezierApproximation(*m_cpSurface,pAux1->m_sUVDomain,pSur1) );
 
           gw_SURFACE *pSurf2 = pBez2->GetBezierPtr();
-          sm_ComputeBezierApproximation(*m_cpSurface,pAux2->m_sUVDomain,pSurf2);
+          SER( sm_ComputeBezierApproximation(*m_cpSurface,pAux2->m_sUVDomain,pSurf2) );
         }
   
       // Get and store child 1 and 2 Bounding and Pseudo boxes
@@ -3203,11 +3203,11 @@ SmBoolean bDebugMe = FALSE;
 
               // Attempt to embed polyedge in Child1, if successful
               // we label the child as SM_NC_ON_BOUNDARY
-              ImplantPolyEdge(pPolyEdge, pNode1);
+              SER( ImplantPolyEdge(pPolyEdge, pNode1) );
 
               // Attempt to embed polyedge in Child2, if successful
               // we label the child as SM_NC_ON_BOUNDARY
-              ImplantPolyEdge(pPolyEdge, pNode2);
+              SER( ImplantPolyEdge(pPolyEdge, pNode2) );
             } // end for each polyedge in cache
         }
       else
@@ -3220,10 +3220,10 @@ SmBoolean bDebugMe = FALSE;
               SmEdgeuse* pEU = pEdgeuseListNode->m_pEU;
 
               // implant edgeuse in Child1 without subsequent subdivision
-              ImplantEdgeuse(pEU, FALSE, sTempExt, pNode1);
+              SER( ImplantEdgeuse(pEU, FALSE, sTempExt, pNode1) );
                 
               // implant edgeuse in Child2 without subsequent subdivision
-              ImplantEdgeuse(pEU, FALSE, sTempExt, pNode2);
+              SER( ImplantEdgeuse(pEU, FALSE, sTempExt, pNode2) );
 
              } // end iter every edgeuse
         }
@@ -3417,7 +3417,7 @@ SmStatus SmSurfaceCache::LookAhead
     {
       SmBoolean       bNeedsSubdivision ;
       SmSurfParamType eSubdivisionDirection ;
-      TestAgainstTolerances(NULL, bNeedsSubdivision, eSubdivisionDirection) ;
+      SER( TestAgainstTolerances(NULL, bNeedsSubdivision, eSubdivisionDirection)  );
       eBestSplitDir = eSubdivisionDirection ;
       dBestArea     = bNeedsSubdivision ? 0.0 : 100.0 ; 
     }
@@ -3433,10 +3433,10 @@ SmStatus SmSurfaceCache::LookAhead
       SmExtent2d sUVDomainBot  (sMin.x, sMin.y, sMax.x, sMid.y) ; 
       SmExtent2d sUVDomainTop  (sMin.x, sMid.y, sMax.x, sMax.y) ;
       
-      LookAhead(sUVDomainLeft , lMoveCnt-1, eBestSplitDir, dAreaLeft ) ;
-      LookAhead(sUVDomainRight, lMoveCnt-1, eBestSplitDir, dAreaRight) ;
-      LookAhead(sUVDomainBot  , lMoveCnt-1, eBestSplitDir, dAreaBot  ) ;
-      LookAhead(sUVDomainTop  , lMoveCnt-1, eBestSplitDir, dAreaTop  ) ;
+      SER( LookAhead(sUVDomainLeft , lMoveCnt-1, eBestSplitDir, dAreaLeft )  );
+      SER( LookAhead(sUVDomainRight, lMoveCnt-1, eBestSplitDir, dAreaRight)  );
+      SER( LookAhead(sUVDomainBot  , lMoveCnt-1, eBestSplitDir, dAreaBot  )  );
+      SER( LookAhead(sUVDomainTop  , lMoveCnt-1, eBestSplitDir, dAreaTop  )  );
 
       double dAreaUSplit = (dAreaLeft + dAreaRight)/2.0 ;
       double dAreaVSplit = (dAreaBot  + dAreaTop)/2.0 ;
@@ -4144,12 +4144,12 @@ SmStatus SmSurfaceCache::SubdivideByBlock(SmTree* pTree, // in : Tree under cons
     {
         if (lNumSplitsU > 20)
         {
-            sm_CullArray(sUSplits);
+            SER( sm_CullArray(sUSplits) );
             lNumSplitsU = sUSplits.GetSize();
         }
         if (lNumSplitsV > 20)
         {
-            sm_CullArray(sVSplits);
+            SER( sm_CullArray(sVSplits) );
             lNumSplitsV = sVSplits.GetSize();
         }
         lTotal = lNumSplitsU * lNumSplitsV;
@@ -4236,7 +4236,7 @@ SmStatus SmSurfaceCache::SubdivideByBlock(SmTree* pTree, // in : Tree under cons
           
           // for pBaseNode->m_sBBox and pBaseAux->m_sPolarBox
           SmBSplineSurface *pPatch = NULL ;
-          ((SmBSplineSurface*)pSurface)->CopySubPatch(*GetContext(), sNodeUVDomain, pPatch) ;
+          SER( ((SmBSplineSurface*)pSurface)->CopySubPatch(*GetContext(), sNodeUVDomain, pPatch)  );
 
           // If that fails, do what we can and continue.  [B429]
           if ( pPatch == NULL )
@@ -4250,13 +4250,13 @@ SmStatus SmSurfaceCache::SubdivideByBlock(SmTree* pTree, // in : Tree under cons
           SmObjDelete sClean(pPatch) ; 
 
           // set pBaseNode->m_sBBox and pBaseAux->m_sPolarBox
-          pPatch->CalculateBoundingBox( pPatch->GetNaturalUVDomain(), // in : only whole surfaces are bounded (except for polarBoxes of analytic surfaces) 
+          SER( pPatch->CalculateBoundingBox( pPatch->GetNaturalUVDomain(), // in : only whole surfaces are bounded (except for polarBoxes of analytic surfaces) 
                                        &pBaseNode->m_sBBox,           // out: Axis alligned box
                                         NULL,                         // out: Non-axis aligned box
                                         NULL,                         // out: Surface normal vector field bounding box
                                         NULL,                         // in : guess for PseudoBox basis vectors - used unless another better orientation is found
                                                                       //      NULL to ignore, default:[NULL]
-                                        NULL) ;                       // in : guess for PolarBox basis vectors - used unless another better orientation is found
+                                        NULL)  );                       // in : guess for PolarBox basis vectors - used unless another better orientation is found
                                                                       //      NULL to ignore, default:[NULL]
 
           SM_ASSERT_MSG(pBaseNode->m_sBBox.IsContainedBy(pNode->m_sBBox, SM_EFF_ZERO_SQRT),_T("SmSurfaceCache::SubdivideByBlock - BlockChild BBox not contained in BlockRoot BBox")) ;
@@ -4725,7 +4725,7 @@ SmBoolean bDebugMe = FALSE;
       SmBezierPatch *pBez2 = (SmBezierPatch*)pNode->m_pChild2->m_pData ;
 
       // Set Parent Pseudo and Polar BBoxes = Union(Child BBoxes)
-      pBez1->GetPseudoBox().Union(pBez2->GetPseudoBox(), pBez->GetPseudoBox().GetBasis(), pBez->GetPseudoBox()) ;
+      SER( pBez1->GetPseudoBox().Union(pBez2->GetPseudoBox(), pBez->GetPseudoBox().GetBasis(), pBez->GetPseudoBox())  );
       //pBez1->GetPolarBox().Union (pBez2->GetPolarBox(),  pBez->GetPolarBox()) ;
     }  
   // else // not building BezierPatch approximations to non BSplineSurfaces, so
@@ -4959,7 +4959,7 @@ static SmStatus sm_CreateApproximateBezierPatchBlock
           sm_InitNurbSurfaceMemory(pSurface,3,3,3,3,3*2+1,3*2+1);
 
           // approximate the surface shape with a degree 3x3 bezier patch
-          sm_ComputeBezierApproximation(crSurface,sUVDomain,pSurface);
+          SER( sm_ComputeBezierApproximation(crSurface,sUVDomain,pSurface) );
 
           // make the surface pointer array
           rBeziers[lCount] = pSurface;
@@ -5042,8 +5042,8 @@ SmBoolean bDebugMe = FALSE;
       SmBSplineSurface & rSurface = (SmBSplineSurface&)*pSurfaceCache->m_cpSurface ;
 
       // Get the UniqueKnot values - they're being used as the split points in sm_CreateBezierPatchBlock
-      rSurface.GetKnots(SM_SP_U, sUSplits) ;
-      rSurface.GetKnots(SM_SP_V, sVSplits) ;
+      SER( rSurface.GetKnots(SM_SP_U, sUSplits)  );
+      SER( rSurface.GetKnots(SM_SP_V, sVSplits)  );
 
       // create an array of bezier patches - one for every every non-zero surface span
       SmStatus sRtn = sm_CreateBezierPatchBlock
@@ -6184,8 +6184,8 @@ SmBoolean SmSurfaceCache::AssertValid
 
   // surface unique knot count should equal the m_pUContinuity and m_pVContinuity array sizes
   SmTArray<double> sUKnots, sVKnots ;
-  m_cpSurface->GetKnots(SM_SP_U, sUKnots ) ; // arrays are not computed in SmTessSrfCache::BuildTreeWithSubdivision
-  m_cpSurface->GetKnots(SM_SP_V, sVKnots ) ; // because the continuities are not needed for tessellations.  Allow for array lengths to be zero
+  (void)m_cpSurface->GetKnots(SM_SP_U, sUKnots ) ; // arrays are not computed in SmTessSrfCache::BuildTreeWithSubdivision // SolidCraft: a validity check reads what it computed
+  (void)m_cpSurface->GetKnots(SM_SP_V, sVKnots ) ; // because the continuities are not needed for tessellations.  Allow for array lengths to be zero // SolidCraft: a validity check reads what it computed
   bOK = m_pUContinuities->GetSize() == 0 || m_pUContinuities->GetSize() == sUKnots.GetSize() ; 
   bRtn &= SM_ASSERT_BOOLEAN_REPORT(4, SM_LEVEL_0, (bOK), _T("") ) ;
   bOK = m_pVContinuities->GetSize() == 0 || m_pVContinuities->GetSize() == sVKnots.GetSize() ; 
@@ -6585,16 +6585,16 @@ SmBoolean bDebugMe = FALSE ;
                   if (pBezElem->m_eUCurveConts[j] < SM_CT_G1) 
                     {
                       double     dLineWidth = smgfx_SetLineWidth(3.0*smgfx_GetLineWidth());
-                      pBSS->EvaluatePoint(sUVDomain.Evaluate(j,0),sP1);
-                      pBSS->EvaluatePoint(sUVDomain.Evaluate(j,1),sP2);
+                      (void)pBSS->EvaluatePoint(sUVDomain.Evaluate(j,0),sP1); // SolidCraft: drawing only
+                      (void)pBSS->EvaluatePoint(sUVDomain.Evaluate(j,1),sP2); // SolidCraft: drawing only
                       smgfx_DrawLine(sP1.x,sP1.y,sP1.z,sP2.x,sP2.y,sP2.z);
                       smgfx_SetLineWidth(dLineWidth) ;
                     }
                   if (pBezElem->m_eVCurveConts[j] < SM_CT_G1) 
                     {
                       double     dLineWidth = smgfx_SetLineWidth(3.0*smgfx_GetLineWidth());
-                      pBSS->EvaluatePoint(sUVDomain.Evaluate(0,j),sP1);
-                      pBSS->EvaluatePoint(sUVDomain.Evaluate(1,j),sP2);
+                      (void)pBSS->EvaluatePoint(sUVDomain.Evaluate(0,j),sP1); // SolidCraft: drawing only
+                      (void)pBSS->EvaluatePoint(sUVDomain.Evaluate(1,j),sP2); // SolidCraft: drawing only
                       smgfx_DrawLine(sP1.x,sP1.y,sP1.z,sP2.x,sP2.y,sP2.z);
                       smgfx_SetLineWidth(dLineWidth);
                     }
@@ -6670,10 +6670,10 @@ SmDisplayList * SmSurfaceCache::DrawSubdivision2D
             {
               SmVertexuse *pVertexuse = sVUses[k];
               SmPoint2d sUV;
-              pVertexuse->ComputeUVPoint(sUV);
+              (void)pVertexuse->ComputeUVPoint(sUV); // SolidCraft: drawing only
               SmPoint3d sPnt(sUV);
               if(pOptOutPlane)
-                { pOptOutPlane->EvaluatePoint(sUV, sPnt) ; }
+                { (void)pOptOutPlane->EvaluatePoint(sUV, sPnt) ; } // SolidCraft: drawing only
               sPnt.Draw(NULL, NULL, pOptGfxSet);
             }
 
@@ -6754,7 +6754,7 @@ SmDisplayList * SmSurfaceCache::DrawSubdivision2D
       if(pOptOutPlane)
         { 
           SmPoint2d sMidUV(sMid.x, sMid.y) ;
-          pOptOutPlane->EvaluatePoint(sMidUV,sMid) ;
+          (void)pOptOutPlane->EvaluatePoint(sMidUV,sMid) ; // SolidCraft: drawing only
         }
 
       sMid.Draw(NULL, NULL, pOptGfxSet);
