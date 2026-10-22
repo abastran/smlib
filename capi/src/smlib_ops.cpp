@@ -10,6 +10,8 @@
 // modelling tolerance. The API thereby never depends on SMLib's internal topology order.
 
 #include "smlib_shim.h"
+
+#include <vector>
 #include "smlib_pick.h"
 
 #include <SmApiBrep.h>
@@ -965,6 +967,81 @@ extern "C" int32_t smlib_boolean2d(const smlib_brep *a, const smlib_brep *b, int
                 return finish(Owned(r), false, out);
             }
             return finish(std::move(ca), false, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_boolean_union_all(const smlib_brep *const *breps, int64_t n, smlib_brep **out)
+{
+    if (breps == nullptr || out == nullptr || n < 1 || n > SMLIB_BOOLEAN_MAX_BREPS)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    for (int64_t i = 0; i < n; ++i)
+    {
+        if (!valid(breps[i]))
+        {
+            return SMLIB_ERR_ARG;
+        }
+    }
+    Call c("smlib_boolean_union_all", "n=" + std::to_string(n));
+    for (int64_t i = 0; i < n && i < 2; ++i)
+    {
+        c.input(i == 0 ? "first" : "second", breps[i]);
+    }
+    return c.run(
+        [&]
+        {
+            // Copies, as smlib_boolean's: SM_API edits the first operand in place and deletes the
+            // second.
+            std::vector<Owned> level;
+            level.reserve(static_cast<size_t>(n));
+            bool solid_in = true;
+            for (int64_t i = 0; i < n; ++i)
+            {
+                int32_t s = SMLIB_OK;
+                Owned copy = copy_of(breps[i], s);
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+                solid_in = solid_in && copy->IsManifoldSolid();
+                level.push_back(std::move(copy));
+            }
+            // Pairwise, level by level: the bodies of a level are unioned two by two, an odd one
+            // carried to the next level as it is.
+            while (level.size() > 1)
+            {
+                std::vector<Owned> next;
+                next.reserve((level.size() + 1) / 2);
+                for (size_t i = 0; i + 1 < level.size(); i += 2)
+                {
+                    Owned a = std::move(level[i]);
+                    Owned b = std::move(level[i + 1]);
+                    SmBrep *r = nullptr;
+                    int32_t s = status(SmApiBoolean(a.get(), b.get(), SM_BO_UNION, r));
+                    if (s != SMLIB_OK)
+                    {
+                        // Both operands are still allocated (possibly modified); the owners free them.
+                        return s;
+                    }
+                    // Success: b is deleted and the result is a, edited in place.
+                    b.release();
+                    if (r != nullptr && r != a.get())
+                    {
+                        // Not what SM_API documents; SMLib owns a now, so leave it be.
+                        a.release();
+                        a.reset(r);
+                    }
+                    next.push_back(std::move(a));
+                }
+                if (level.size() % 2 == 1)
+                {
+                    next.push_back(std::move(level.back()));
+                }
+                level = std::move(next);
+            }
+            return finish(std::move(level.front()), solid_in, out, true);
         }
     );
 }
