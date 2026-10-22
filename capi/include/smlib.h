@@ -937,6 +937,22 @@ int32_t smlib_extend_sheet(const smlib_brep *sheet, const double point[3], doubl
 int32_t smlib_untrim_face(const smlib_brep *body, const double point[3], double tol, const double *holes, int64_t n_holes, int32_t outer,
                           int32_t in_place, smlib_brep **out);
 
+/* ---- Sheets (src/smlib_sheets.cpp) -------------------------------------------------------- */
+
+/* A new body: `brep`'s faces sewn along the vertices and edges that coincide within `tolerance`
+ * (> 0, at most 1e3 mm), glued once at that tolerance (SmBrep::StitchFaces), then oriented
+ * (SmBrep::OrientTrimmedSurfaces): outward where every edge is glued and the faces close, else
+ * turned only to agree with their neighbours across the edges they share. `*out_closed` is 1 when
+ * the result is a closed manifold solid, 0 for a sheet. Tags (smlib_history_tag) travel with the
+ * faces, and a glued edge stands for both edges it was glued from. */
+int32_t smlib_stitch(const smlib_brep *brep, double tolerance, int32_t *out_closed, smlib_brep **out);
+
+/* A new sheet: the sheet `sheet` (not a closed solid: SMLIB_ERR_ARG) with every face moved onto
+ * its surface's offset by `distance` (non-zero, |distance| <= 1e6) along its normal (negative:
+ * against it), by SM_API's offset (SmApiOffsetBrepFull, extended at convex edges, with
+ * self-intersections handled). Tags travel to each face's offset. */
+int32_t smlib_offset_sheet(const smlib_brep *sheet, double distance, smlib_brep **out);
+
 #ifdef __cplusplus
 }
 #endif
