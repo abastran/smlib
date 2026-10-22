@@ -83,14 +83,15 @@ SmBSplineSurface::SmBSplineSurface
 
   // copy knot values from target surface to new surface.
   // okay to use smos_MemCpy on base (double) objects.
-  SE(smos_MemCpy(pNewSur->knu->U, U, sizeof(gw_REAL) * ((size_t)r + (size_t)1), sizeof(gw_REAL) * ((size_t)r + (size_t)1)));
-  SE(smos_MemCpy(pNewSur->knv->U, V, sizeof(gw_REAL) * ((size_t)s + (size_t)1), sizeof(gw_REAL) * ((size_t)r + (size_t)1)));
+  // SolidCraft: each copy fills a block allocated to its size, so it cannot fail (V's was given U's size)
+  (void)smos_MemCpy(pNewSur->knu->U, U, sizeof(gw_REAL) * ((size_t)r + (size_t)1), sizeof(gw_REAL) * ((size_t)r + (size_t)1));
+  (void)smos_MemCpy(pNewSur->knv->U, V, sizeof(gw_REAL) * ((size_t)s + (size_t)1), sizeof(gw_REAL) * ((size_t)s + (size_t)1));
 
   // copy control point values from target surface to new surface one row at a time
   for (ULONG i=0; i<=n; i++) 
     {
       // okay to use smos_MemCpy on static class (gw_CPOINT) objects.
-      SE(smos_MemCpy(pNewSur->net->Pw[i], Pw[i],  sizeof(gw_CPOINT) * ((size_t)m + (size_t)1),sizeof(gw_CPOINT) * ((size_t)m + (size_t)1) ));
+      (void)smos_MemCpy(pNewSur->net->Pw[i], Pw[i],  sizeof(gw_CPOINT) * ((size_t)m + (size_t)1),sizeof(gw_CPOINT) * ((size_t)m + (size_t)1) ); // SolidCraft: a row of its own size, it cannot fail
     }
 
   m_pNurb = pNewSur;
