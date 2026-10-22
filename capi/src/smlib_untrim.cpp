@@ -159,30 +159,6 @@ bool span_of(SmLoop *outer, SmExtent2d &box)
     return true;
 }
 
-// Whether `box` goes all the way round a periodic direction of the surface (its sides would be
-// one seam: such a face has no box boundary).
-bool wraps(const SmSurface *s, const SmExtent2d &box)
-{
-    SmExtent2d natural = s->GetNaturalUVDomain();
-    for (int d = 0; d < 2; ++d)
-    {
-        SmSurfParamType which = d == 0 ? SM_SP_U : SM_SP_V;
-        double nlo = d == 0 ? natural.GetMin().x : natural.GetMin().y;
-        double nhi = d == 0 ? natural.GetMax().x : natural.GetMax().y;
-        double blo = d == 0 ? box.GetMin().x : box.GetMin().y;
-        double bhi = d == 0 ? box.GetMax().x : box.GetMax().y;
-        if (!std::isfinite(nlo) || !std::isfinite(nhi) || s->IsPeriodic(natural, which) != TRUE)
-        {
-            continue;
-        }
-        if (bhi - blo >= (nhi - nlo) * (1.0 - 1e-9))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 // One edge of a hole to rebuild: its edge, how the loop runs along it, and its ends as the loop
 // runs.
 struct Piece
@@ -447,10 +423,6 @@ extern "C" int32_t smlib_untrim_face(const smlib_brep *body, const double *point
             if (analytic(surf) && !span_of(loops[0], box))
             {
                 return SMLIB_ERR_UNSUPPORTED;
-            }
-            if (wraps(surf, box))
-            {
-                return SMLIB_ERR_NOT_EXACT;
             }
             std::vector<std::vector<Piece>> kept;
             for (ULONG i = 1; i < loops.GetSize(); ++i)

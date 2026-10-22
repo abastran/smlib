@@ -888,8 +888,8 @@ int32_t smlib_extend_sheet(const smlib_brep *sheet, const double point[3], doubl
  * within `tol`, else SMLIB_ERR_PICK_NONE), or every inner loop when `n_holes` < 0. With `outer`,
  * the outer boundary goes back to the surface's parameter box (a free-form surface's own; an
  * analytic surface's the box of the face's outer loop in its parameters), bounded by the box's
- * iso-parameter edges, the holes kept rebuilt in it from their own edges; a box that goes all
- * the way round a periodic direction is SMLIB_ERR_NOT_EXACT. The result is the face alone, or
+ * iso-parameter edges (a box all the way round a periodic direction closes on the surface's
+ * seam), the holes kept rebuilt in it from their own edges. The result is the face alone, or
  * with `in_place` the whole body with the face replaced (a hole another face uses is then
  * SMLIB_ERR_UNSUPPORTED). The face keeps its orientation and the attributes of the face and
  * edges it is made from (history tags). Nothing to do (no holes and not `outer`) is
