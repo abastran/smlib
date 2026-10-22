@@ -1166,14 +1166,14 @@ SmStatus SmRotationalSweepGeometry::AnalyticSurface
         { double s = SmVector3d(p - sCenter).Dot(crAxis) / dRadius;
           return SM_RAD2DEG(asin(smos_Max(-1.0, smos_Min(1.0, s)))); };
       double dLat0 = latitude(sStart), dLat1 = latitude(sEnd);
-      SER(sFrame.SetCanonical(crBasePt + axial(sCenter) * crAxis, sX, crAxis * sX));
       SER(sDomain.SetMinMax(0.0, smos_Min(dLat0, dLat1), dAngleDeg, smos_Max(dLat0, dLat1)));
-      SmSphere* pSphere = NULL;
-      SER(SmSphere::CreateCanonical(crContext, sFrame, dRadius, pSphere));
+      // Built on its domain, as SmSphere::CreateCanonical builds the whole sphere: a whole
+      // sphere trimmed to it (AdjustSTEPUVDomain) is reparameterised, and a boolean's trim
+      // curves on that came out with near-cusps SMLib's own check refuses.
+      SmSphere* pSphere = new (crContext) SmSphere(crBasePt + axial(sCenter) * crAxis, sX, crAxis * sX, sDomain, dRadius);
       NER(pSphere);
-      SmStatus eStat = pSphere->AdjustSTEPUVDomain(sDomain);
-      if (eStat != SM_SUCCESS)
-        { delete pSphere; return eStat; }
+      if (pSphere->MakeNurb() != SM_SUCCESS || pSphere->GetGwNurbPointer() == NULL)
+        { delete pSphere; SER(SM_ERR); }
       rpSurface = pSphere;
       return SM_SUCCESS;
     }
