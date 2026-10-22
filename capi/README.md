@@ -895,3 +895,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   NURBS the analytic class named by SMLib's own `IsNurbSurface*` test and refuses the B-rep when
   the analytic surface made has another NURBS. Before, analytic faces lost their trims at the
   boundary and SMLib rebuilt them from the 3D edges.
+- **Circle edges carry their NURBS form** (`SMLIB_FLAT_EDGE_NURBS_FORM`, `..._WIRE_EDGE_...`), the edge
+  mirror of `FACE_NURBS_FORM`. Every SMLib conic is an `SmBSplineCurve` and the trims on an edge are in
+  its parameter, which is not the angle. Export gives a circle edge its NURBS block and native range
+  and keeps the trims on it as they are; import makes the NURBS an `SmCircle` by SMLib's own
+  `IsNurbCurveCircle` and refuses the B-rep when the circle has another NURBS. Before, trims on
+  circle edges were dropped and rebuilt.

@@ -55,6 +55,8 @@
     I(SMLIB_FLAT_FACE_NURBS_V_ORDER, face_nurbs_v_order)                                           \
     I(SMLIB_FLAT_SOURCE, source)                                                                   \
     I(SMLIB_FLAT_FACE_NURBS_FORM, face_nurbs_form)                                                 \
+    I(SMLIB_FLAT_EDGE_NURBS_FORM, edge_nurbs_form)                                                 \
+    I(SMLIB_FLAT_WIRE_EDGE_NURBS_FORM, wire_edge_nurbs_form)                                       \
     F(SMLIB_FLAT_TOLERANCE, tolerance)                                                             \
     F(SMLIB_FLAT_EXTENT, extent)                                                                   \
     F(SMLIB_FLAT_FACE_RANGE, face_range)                                                           \
