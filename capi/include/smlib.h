@@ -169,8 +169,12 @@ int32_t smlib_brep_check(const smlib_brep *brep, int32_t level, char *buf, int64
 /* ---- Mass properties (smlib_measure.cpp) ------------------------------------------------- */
 
 /* Exact mass properties of a body at unit density, integrated by SMLib on the exact
- * surfaces (no tessellation) at `relative_accuracy`, clamped to [1e-8, 1e-1]. At 1e-8 analytic
- * primitives come out within 2e-7 of their closed forms. Into `out`, in mm units:
+ * surfaces (no tessellation) at `relative_accuracy`, clamped to [1e-8, 1e-1]: the envelope
+ * SmApiQueries.h gives SmApiBrepComputeVolume, which runs the same SmBrep::ComputePreciseProperties.
+ * SmApiBrepComputeMassProperties clamps to [1e-4, 1e-1] and takes only an IsManifoldSolid body;
+ * neither is a limit of that routine, and this entry has neither. At 1e-8 analytic primitives
+ * come out within 2e-7 of their closed forms; the cost grows as the accuracy tightens. Into
+ * `out`, in mm units:
  *   [0] area, [1] volume, [2..5) centroid x, y, z,
  *   [5..8)  moments of inertia Ixx, Iyy, Izz about axes through the centroid, parallel to the
  *           world axes: the integrals of (y^2+z^2, z^2+x^2, x^2+y^2) dV,
@@ -180,12 +184,15 @@ int32_t smlib_brep_check(const smlib_brep *brep, int32_t level, char *buf, int64
  * sum over the body's material (non-void) regions, so several lumps, or lumps touching along
  * edges or at points, are measured too; the area is that of the faces between material and void.
  * A body with no material region (a sheet, an open shell) has volume 0 and no inertia: its area
- * is every face's, counted once, and its centroid is the area's. A material region of no
- * positive volume (turned inside out) is SM_ERR_INVALID_INPUT. */
+ * is every face's, counted once, and its centroid is the area's. Material of no positive total
+ * volume (turned inside out), a non-finite result, or an SM_AI_MASS_PROPERTIES attribute on a
+ * face, edge or vertex (it would override the unit density) is SM_ERR_INVALID_INPUT. */
 int32_t smlib_brep_mass_properties(const smlib_brep *brep, double relative_accuracy, double out[11]);
 
-/* Total area of every face, each counted once, so sheets and open shells too, at
- * `relative_accuracy`, clamped to [1e-8, 1e-1]. */
+/* Total area of every face, each counted once, so sheets and open shells too (SmApiBrepComputeArea's
+ * sum), at `relative_accuracy`, clamped to [1e-8, 1e-1] like smlib_brep_mass_properties.
+ * SmApiQueries.h clamps area to [1e-4, 1e-1]; SmFace::ComputePreciseProperties itself takes
+ * any accuracy from SM_EFF_ZERO up. */
 int32_t smlib_brep_area(const smlib_brep *brep, double relative_accuracy, double *out);
 
 /* The exact axis-aligned box of `brep`: the extrema of its vertices, edges and faces on their
