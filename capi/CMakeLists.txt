@@ -63,6 +63,7 @@ endif()
 # SMLib files in which no status is dropped any more: each call's status is passed on or
 # written (void) with its reason. On clang a new dropped status in them fails the build.
 set(SMLIB_STATUS_CLEAN
+  ${SRC}/SMLib/src/SmFilletExecutive.cpp
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")

@@ -888,7 +888,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
           GetFilletErrorInfo()->NoteError( pEdge, SM_FIL_FAILURE, SM_FILERR_INVALID_INPUT, sBuff );
           return SM_ERR_INVALID_INPUT;
         }
-      this->LoadFilletSolver( pFS );
+      SER( this->LoadFilletSolver( pFS ) );
 
       // 3. Fillet Surface Generator: switch on cross-section type.
       pFS->SetFilletSurfaceGenerator( pFSG );
@@ -1089,7 +1089,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
           GetFilletErrorInfo()->NoteError( pEdge, SM_FIL_FAILURE, SM_FILERR_INVALID_INPUT, sBuff );
           return SM_ERR_INVALID_INPUT;
         }
-      this->LoadFilletSolver( pFS );
+      SER( this->LoadFilletSolver( pFS ) );
 
 
       // 3. Fillet Surface Generator: switch on cross-section type.
@@ -1959,7 +1959,7 @@ const
 {
   SmFilletSolver * pFilSolver = NULL;
   SmTArray< SmEdgeuse* > sEUs;
-  pEdge->GetEdgeuses( sEUs );
+  if ( pEdge->GetEdgeuses( sEUs ) != SM_SUCCESS ) { return NULL; }
 
   for ( ULONG ii=0; ii<sEUs.GetSize(); ii++ )
   {
@@ -2288,7 +2288,7 @@ SmStatus SmFilletExecutive::CreateFilletBrep
 
   // Process smooth sequences of filleted Edges.
   // If this fails, the fillet can still continue.
-  this->ProcessSmoothEdgeSequences();
+  (void)this->ProcessSmoothEdgeSequences(); // SolidCraft: deliberate, upstream's own choice (above); the edges are filleted one by one
 
   // Process corners by calculating the vertices first.
   // Those vertices will determine the connectivity between
@@ -3112,7 +3112,7 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
                     // relate FilletSurf to OrigSurf and add SM_AI_FILLET_EDGEMAP Attribute to FilletSurf
                   SmLongAttribute *pAtt = new (*cpContext) SmLongAttribute(SM_AI_FILLET_EDGEMAP,bInsideFillet,SM_AB_REFERENCE);
                   pFilletSurf->AddAttribute(pAtt);
-                  sNoSSI.RelatePair(pFilletSurf,pOrigSurf);
+                  (void)sNoSSI.RelatePair(pFilletSurf,pOrigSurf); // SolidCraft: a pair left out of this speed-up is intersected, as any other
                 }
             }
         } // end iter every FilletSolver - relating Edge->FilletSurf/OrigSurf across each rail and add SM_AI_FILLET_EDGEMAP attribute to FilletSurf
@@ -3141,7 +3141,7 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
                   for (kk=0; kk<pFilletCorner->m_vSurfaces.GetSize(); kk++)
                     {
                       SmSurface *pFBSurface = pFilletCorner->m_vSurfaces[kk];
-                      sNoSSI.RelatePair(pFBSurface,pOrigSurf);
+                      (void)sNoSSI.RelatePair(pFBSurface,pOrigSurf); // SolidCraft: a pair left out of this speed-up is intersected, as any other
                       SmLongAttribute *pAtt = new (*cpContext) SmLongAttribute(SM_AI_FILLET_VERTMAP,0,SM_AB_REFERENCE);
                       pFBSurface->AddAttribute(pAtt);
                     }
@@ -3160,7 +3160,7 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
               for (kk=0; kk<pFilletCorner->m_vSurfaces.GetSize(); kk++)
                 {
                   SmSurface *pFBSurface = pFilletCorner->m_vSurfaces[kk];
-                  sNoSSI.RelatePair(pFBSurface,pOrigSurf);
+                  (void)sNoSSI.RelatePair(pFBSurface,pOrigSurf); // SolidCraft: a pair left out of this speed-up is intersected, as any other
                 }
             }
         }
@@ -3419,7 +3419,7 @@ SmBoolean bDebugMe = FALSE ;
           SmFace       * pFace          = SM_CAST_PTR( SmFace, pOwner );
           if ( pFace != NULL )
             {
-              pFace->ShrinkGeometry();  // in m_pFilletBrep
+              (void)pFace->ShrinkGeometry(); // SolidCraft: shrinking the surface to its face is a speed-up; the face is the same either way  // in m_pFilletBrep
             }
         } // end FilletSolver->FilletGeom[0] existence check
     } // end iter every FilletSolver, shrinking new fillet Surfaces
@@ -4112,7 +4112,7 @@ SmBoolean bDebugMe = FALSE ;
         } // end stitch up all fillets
 
         SmBoolean bMaybeNotSolid = false;
-        m_pTargetBrep->OrientTrimmedSurfaces(true, bMaybeNotSolid, false);
+        SER( m_pTargetBrep->OrientTrimmedSurfaces(true, bMaybeNotSolid, false) );
 
     } // end m_bDoTrimming check
 
@@ -4673,10 +4673,11 @@ SmStatus SmFilletExecutive::SetFilletBrepEdgeMap()
 
 } // end SmFilletExecutive::SetFilletBrepEdgeMap
 
+// SolidCraft change: both steps' statuses are passed on (the macro's users return SmStatus).
 #define  SM_REVERSE_FILLET_EDGE(e) \
   { SmFilletEdgeuse * pPrimEU = (SmFilletEdgeuse*)(e)->GetPrimaryEdgeuse(); \
-    e->Remove(pPrimEU); \
-    e->PostInsert(pPrimEU); \
+    SER( (e)->Remove(pPrimEU) ); \
+    SER( (e)->PostInsert(pPrimEU) ); \
   }
 
 #define SM_MODIFY_CORNEREDGE_FILLET_RELATION(e,fg) \
@@ -4792,8 +4793,8 @@ SmBoolean bDebugMe = FALSE;
     pEndV[lRailToSqeeze]->GetVertexuses(sVUs);
     for (ULONG j=0; j<sVUs.GetSize(); j++) {
         SmVertexuse * pVU = sVUs[j];
-        pEndV[lRailToSqeeze]->Remove(pVU);
-        pStartV[lRailToSqeeze]->PostInsert(pVU);
+        SER( pEndV[lRailToSqeeze]->Remove(pVU) );
+        SER( pStartV[lRailToSqeeze]->PostInsert(pVU) );
     }
 
     SM_ASSERT(pEndV[lRailToSqeeze] != NULL) ; delete pEndV[lRailToSqeeze] ; pEndV[lRailToSqeeze] = NULL ;
@@ -4813,7 +4814,7 @@ SmBoolean bDebugMe = FALSE;
     pStartV[lRailToSqeeze]->SetMate(1,NULL);
     pStartV[lRailToSqeeze]->SetStatus(SM_FIL_UNPROCESSED);
     // Compute vertex geometry
-    pStartV[lRailToSqeeze]->CalcRailIntRail();
+    SER( pStartV[lRailToSqeeze]->CalcRailIntRail() );
 
     // Make rail an edge for the new corner
     SmFilletEdge * pRail = pFG->GetRail(1-lRailToSqeeze);
@@ -4949,7 +4950,7 @@ SmStatus SmFilletExecutive::UpdateTopologyChanges(
           for ( ULONG kk=0; kk < sFaces.GetSize(); kk++ )
           {
               SmFace *pNewFace = sFaces[kk];
-              pFilGeom->UpdateSplitFace( pOrigFace, pNewFace );
+              SER( pFilGeom->UpdateSplitFace( pOrigFace, pNewFace ) );
           }
 
       } // end for every FilletGeom in this FilletSolver
@@ -4962,7 +4963,7 @@ SmStatus SmFilletExecutive::UpdateTopologyChanges(
       for ( ULONG kk=0; kk < sFaces.GetSize(); kk++ )
       {
           SmFace *pNewFace = sFaces[kk];
-          rCorners[ii]->UpdateSplitFace( pOrigFace, pNewFace );
+          SER( rCorners[ii]->UpdateSplitFace( pOrigFace, pNewFace ) );
       }
   } // end for every FilletCorner
 
@@ -5170,7 +5171,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
 
   // Make sure that the edges are all oriented in the direction of the sequence.
   // This calls ReverseOrientation() as necessary.
-  SmEdge::OrientEdgeSequence( sEdges );
+  SER( SmEdge::OrientEdgeSequence( sEdges ) );
 
   SmExtent1d sEdgeIvl, sPrevIvl;
   SmTArray< SmBSplineCurve* > sBSCurves;
@@ -5187,7 +5188,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
       // cbi todo: don't trim beginning of 1st or end of last, unless it's closed.
       // We don't want curves extending into adjacent Edges.
       // They will be Joined at the Edge boundaries.
-      pCrv->Trim( sEdgeIvl );
+      SER( pCrv->Trim( sEdgeIvl ) );
 
       if ( ii > 0 )
       {
@@ -5199,8 +5200,8 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
           double dPrevParam1 = sPrevIvl.GetMax();
           double dCurrParam0 = sEdgeIvl.GetMin();
           SmVector3d sPtDerPrev[2], sPtDerCurr[2];
-          pPrevCrv->Evaluate( dPrevParam1, 1, FALSE, sPtDerPrev );
-          pCurrCrv->Evaluate( dCurrParam0, 1, FALSE, sPtDerCurr );
+          SER( pPrevCrv->Evaluate( dPrevParam1, 1, FALSE, sPtDerPrev ) );
+          SER( pCurrCrv->Evaluate( dCurrParam0, 1, FALSE, sPtDerCurr ) );
           SM_ASSERT( sPtDerPrev[1].IsParallelTo( sPtDerCurr[1],
               SM_RAD2DEG( rSmoothSequence[ii]->GetTangencyTolerance()) ));
           double dPrevLen = sPtDerPrev[1].Length();
@@ -5210,7 +5211,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
           double dScale = dCurrLen / dPrevLen;
           double dScaledEnd = sEdgeIvl.GetMin() + dScale * sEdgeIvl.GetLength();
 
-          sEdgeIvl.SetMinMax( sEdgeIvl.GetMin(), dScaledEnd );
+          SER( sEdgeIvl.SetMinMax( sEdgeIvl.GetMin(), dScaledEnd ) );
 
           // Domains are the right lengths, make sure they're consecutive.
           if ( ! SM_ARE_SAME( sEdgeIvl.GetMin(), sPrevIvl.GetMax() ) )
@@ -5218,7 +5219,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
               sEdgeIvl.Translate( sPrevIvl.GetMax() - sEdgeIvl.GetMin() );
           }
 
-          pCrv->EditParameterization( sEdgeIvl );
+          SER( pCrv->EditParameterization( sEdgeIvl ) );
           pEdge->SetInterval( sEdgeIvl );
       }
 
@@ -5231,7 +5232,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
 
   // Join all of the curves, in order.
   SmBSplineCurve *pCompCurve = NULL;
-  SmBSplineCurve::CreateByJoining( m_crContext, sBSCurves, NULL, pCompCurve );
+  SER( SmBSplineCurve::CreateByJoining( m_crContext, sBSCurves, NULL, pCompCurve ) );
   NER( pCompCurve );
 
   // Set the Joined curve as each Edge's curve.
@@ -5243,7 +5244,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
       if ( ii == 0 )
         { pNewCurve = pCompCurve; }
       else
-        { pCompCurve->Copy( m_crContext, pNewCurve ); }
+        { SER( pCompCurve->Copy( m_crContext, pNewCurve ) ); }
 
       // We're going to delete the Edges' curves.  Those are probably the same curve
       // that is stored in a CurveBasedFilletSolver's m_pOriginal slot.
@@ -5481,11 +5482,11 @@ SmStatus SmTemporaryRadiusChange::SetUp()
       SmPoint3d sPt1( dEndRad, 1, 0 );
       SmPoint3d sPt2( dEndRad, 2, 0 );
       SmBSplineCurve *pConstBSp = NULL;
-      SmBSplineCurve::CreateLineSegment( *( pBSpLaw->GetContext() ), 3, sPt1, sPt2, pConstBSp );
+      SER( SmBSplineCurve::CreateLineSegment( *( pBSpLaw->GetContext() ), 3, sPt1, sPt2, pConstBSp ) );
       NER( pConstBSp );
 
       // The rad function should always be parameterized on [0-1].
-      pConstBSp->EditParameterization( sUnitIvl );
+      SER( pConstBSp->EditParameterization( sUnitIvl ) );
 
       // Swap the new radius function info in.
       m_pSavedBSp = pBSpLaw->GetLawCurve();
@@ -5663,7 +5664,7 @@ SmStatus SmFilletLaw::CreateLawSequence(
 
   // Make sure that the edges are all oriented in the direction of the sequence.
   // This calls ReverseOrientation() as necessary.
-  SmEdge::OrientEdgeSequence( rEdges );
+  SER( SmEdge::OrientEdgeSequence( rEdges ) );
 
   // Calculate and accumulate the edge lengths.
   SmTArray< double > sLengths;
@@ -5690,7 +5691,7 @@ SmStatus SmFilletLaw::CreateLawSequence(
       if ( ii == 0 )
         { pNewLaw = pLaw; }
       else
-        { pLaw->Copy(crContext, pNewLaw); }
+        { SER( pLaw->Copy(crContext, pNewLaw) ); }
 
       double dFraction = sLengths[ii] / dTotalLength;
       double dEndParam = dStartParam + dFraction;
@@ -5773,7 +5774,7 @@ SmLinearFilletLaw::SmLinearFilletLaw
       m_vEdgeMap = *pOptEdgeMap;
   }
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
 } // end SmLinearFilletLaw::SmLinearFilletLaw constructor
@@ -5927,7 +5928,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       m_vEdgeMap = *pOptEdgeMap;
   }
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
   ULONG lDeg = 3;
@@ -5956,7 +5957,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       sPt.Set(dEndValue, 3, 0);
       aCPts.Add(sPt);
       // SmBSplineCurve * pNewBSplineCurve = NULL;
-      SmBSplineCurve::CreateCanonical(crContext,
+      (void)SmBSplineCurve::CreateCanonical(crContext, // SolidCraft: a constructor cannot report; on failure the law has no curve (pLawCurve NULL)
                         3, 3,
                         aCPts, SM_CF_UNSPECIFIED,
                         aMults, aKnots, SM_KT_UNSPECIFIED,
@@ -5999,7 +6000,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       for (ii = 0; ii <= 100; ii++) {
           double dT = sIvl.Evaluate( ii / 100.0 );
           SmPoint3d sPnt;
-          sHerm.EvaluatePoint(dT, sPnt);
+          (void)sHerm.EvaluatePoint(dT, sPnt); // SolidCraft: a constructor cannot report; a Hermite cubic evaluates everywhere
           double dRad = sPnt.y;
           sPoints.Add(SmPoint3d(dRad, sPnt.x, 0.0));
           sParams.Add(sPnt.x);
@@ -6051,7 +6052,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       m_vEdgeMap = *pOptEdgeMap;
   }
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
   SmTArray<SmPoint3d> sPoints;
@@ -6119,7 +6120,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw( SmBSplineCurve * pCurve,           // in
 {
   m_vEdgeMap = crEdgeMap;
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
 } // end SmBSplineFilletLaw::SmBSplineFilletLaw constructor
@@ -6166,7 +6167,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw (const SmContext & crContext,            
   // save map interval
   m_vEdgeMap = crEdgeMap;
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
   // Locals, so that we can add to them.
@@ -6417,7 +6418,7 @@ SmBSplineFilletLaw & SmBSplineFilletLaw::operator=(const SmBSplineFilletLaw & cr
   SmCurve *pCurve = NULL;
   if (crOther.m_pLawCurve != NULL)
   {
-      crOther.m_pLawCurve->Copy(*(this->GetContext()), pCurve);
+      (void)crOther.m_pLawCurve->Copy(*(this->GetContext()), pCurve); // SolidCraft: an assignment cannot report; on failure the law has no curve
   }
   m_pLawCurve = SM_CAST_PTR(SmBSplineCurve, pCurve);
 
