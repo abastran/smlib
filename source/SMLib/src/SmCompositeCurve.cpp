@@ -2609,6 +2609,11 @@ SmStatus SmCompositeCurve::CreateOffsetsOfManyCurves
   rTrimmedOffsets.ReSet();
   if(pOptMaxGaps3d) { pOptMaxGaps3d->ReSet() ; }
 
+  // SolidCraft change: corners that keep the curves' curvature are made by CreateTaperExtrude
+  // only so far; here they would get no corner curves at all.
+  if(eOffsetCornerType == SM_OC_CURVE_EXTENSION)
+    { return SM_ERR_INVALID_INPUT; }
+
   // Offset distance must be positive.
   SmBoolean bFlip = FALSE;
   if(dOffsetDistance < 0.0)

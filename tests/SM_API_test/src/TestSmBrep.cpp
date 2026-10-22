@@ -1840,10 +1840,10 @@ SmStatus TestSmTaperExtrude()
     SmTArray<SmCurve*> sWithNull(sCurves);
     sWithNull.Add(NULL);
     SmBrep* pResult = NULL;
-    if (SmApiCreateTaperExtrude(sWithNull, 10.0, 5.0, 3, FALSE, pResult) != SM_ERR_INVALID_INPUT || pResult != NULL)
+    if (SmApiCreateTaperExtrude(sWithNull, 10.0, 5.0, 3, SM_OC_LINEAR_EXTENSION, pResult) != SM_ERR_INVALID_INPUT || pResult != NULL)
         return SM_ERR;
 
-    SmStatus stat = SmApiCreateTaperExtrude(sCurves, 10.0, 5.0, 3, FALSE, pResult);
+    SmStatus stat = SmApiCreateTaperExtrude(sCurves, 10.0, 5.0, 3, SM_OC_LINEAR_EXTENSION, pResult);
 
 
     return(stat);

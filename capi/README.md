@@ -720,6 +720,23 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   (`SMLIB_ERR_NOT_SOLID` from the shim). Of the joints, the one nearest the corner's offset curve is
   now its pivot: a half disc r20 drafted 3° outward over 10 is a valid solid of 6555.914 mm³
   (6555.908 by quadrature; the same loop with its diameter split in two gave that already).
+- **Draft corners that keep the curves' curvature** (`SmCurveTypes.h`, `SM_OC_CURVE_EXTENSION`,
+  `SmTaperCornerRefusal`; `SmPrimitiveCreation.cpp`, `SmPrimitiveCreation::CreateTaperExtrude`;
+  `SmApiCreateTaperExtrude`, which now takes the corner type and reports a refused corner):
+  upstream closes the gap a draft opens at a sharp corner with tangent lines or an arc about the
+  corner, each a face of its own. The new corner type continues each wall as itself, a line's
+  plane and an arc's cone, until it meets its neighbour, so the section at every height is the
+  profile's curves offset and continued as themselves to where they cross; where the offsets
+  overlap, the same walls are trimmed where they cross. Two such walls meet along a conic in a
+  plane (the difference of their equations is linear): the seam is the rational quadratic through
+  the corner and the far crossing with the walls' common tangents there, through the crossing
+  halfway up, and its UV curves are exact (affine on a plane, a rational quartic within one span
+  of a cone, whose spans are laid out so each seam lies in one). Every seam and UV curve is checked
+  on its walls. A corner whose curves do not meet, a wall that closes before the far end, or a
+  corner of a curve that is neither a line nor an arc is refused with its point
+  (`SM_TCR_APART`, `SM_TCR_WALL_CLOSES`, `SM_TCR_NOT_EXACT`). Composite offsets
+  (`CreateOffsetsOfManyCurves`) refuse the new type. `smlib_extrude` takes the rule
+  (`SMLIB_DRAFT_CORNER_*`) and writes a refused corner's point.
 - **A loop closed through its vertex** (`SmTrimmingTools.cpp`, `SmTrimmingTools::CheckLoop`,
   SmLoop test 0 "Edge/Edge Gap"): where two edges of a loop meet, it measured the gap between
   their lifted UV ends against the two edges' tolerances. SMLib's tolerance model (`SmTol.h`,

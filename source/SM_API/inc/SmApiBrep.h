@@ -320,8 +320,12 @@ SMAPI_EXPORT SmApiStatus SmApiCreateTaperExtrude(
     double dHeight,                       ///< [in ]: Extrusion height (+/- for direction)                     <br>
     double dDraftAngleDeg,                ///< [in ]: Draft angle: 0-90 inner, 90-180 outer                    <br>
     int iEndCaps,                         ///< [in ]: 0=none, 1=at curves, 2=at offset, 3=both ends            <br>
-    SmBoolean bFilletCorner,              ///< [in ]: TRUE = fillet corners, FALSE = linear extension           <br>
-    SmBrep*& rpResult                    ///< [out]: Resulting SmBrep                                          <br>
+    SmOffsetCornerType eCorner,           ///< [in ]: how a gap at a corner closes: SM_OC_LINEAR_EXTENSION (tangent lines), <br>
+                                          ///<        SM_OC_FILLET_CORNER (an arc about the corner) or SM_OC_CURVE_EXTENSION <br>
+                                          ///<        (each wall continues as itself to meet its neighbour)             <br>
+    SmBrep*& rpResult,                    ///< [out]: Resulting SmBrep                                          <br>
+    SmTaperCornerRefusal* pOptRefusal = NULL, ///< [out]: SM_OC_CURVE_EXTENSION: why a corner could not be closed <br>
+    SmPoint3d* pOptRefusedCorner = NULL   ///< [out]: and that corner's point                                   <br>
 );
 
 SMAPI_EXPORT SmApiStatus SmApiCreateLinearSweepWithRepetitions(

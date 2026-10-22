@@ -3396,6 +3396,789 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
   
 } // end SmPrimitiveCreation::sm_CreateRuledSurfaceFromOffsetCurve
 
+/*****************************************************************
+SolidCraft change: the walls of a draft extrusion that keep their
+curvature at the profile's corners (SM_OC_CURVE_EXTENSION).
+
+Each profile curve's wall is the surface its draft sweeps: a line's
+plane, an arc's cone, ruled from the curve to its offset at the far
+end. At a sharp corner the two walls continue as themselves until they
+meet, and the seam is their intersection: at a fraction f of the
+height it is where the two curves offset by f times the draft's offset
+cross. For lines and arcs, whose walls are planes and cones about axes
+along the extrusion with the same slope, that seam lies in a plane (the
+difference of the two walls' equations is linear), so it is a conic: the
+rational quadratic through the corner (f = 0) and the far crossing
+(f = 1) with the walls' common tangents there, through the crossing at
+f = 1/2. On a plane wall its pcurve is its affine image; on a cone wall,
+within one span of the cone's rational circle, the span parameter is a
+Moebius map of the tangent of the half angle, itself a ratio of
+quadratics along the conic, so the pcurve is a rational quartic. Every
+seam is checked on both walls. At a smooth joint (the curves tangent)
+the walls meet along their common ruling.
+
+The routine builds the side faces only; CreateTaperExtrude adds the caps.
+*****************************************************************/
+
+// One profile curve, as its wall reads it.
+struct sm_DraftWall
+{
+  SmBoolean  bArc;      // TRUE = an arc of a circle, FALSE = a line
+  SmPoint3d  sStart;    // where the profile runs along it from
+  SmPoint3d  sEnd;      // and to
+  // line
+  SmVector3d sDir;      // unit direction of travel
+  SmVector3d sOffset;   // the offset at the far end, in the profile's plane
+  // arc
+  SmPoint3d  sCenter;
+  SmVector3d sAxis;     // the profile runs counterclockwise about it
+  SmVector3d sX, sY;    // sY = sAxis x sX
+  double     dRadius;
+  double     dShrink;   // the radius at a fraction f of the height is dRadius - f * dShrink
+  double     dStartAng; // angles about sAxis from sX, dEndAng > dStartAng
+  double     dEndAng;
+  // the wall
+  double     dLo, dHi;  // the parameter range its surface covers
+  SmTArray<double> sBreaks; // arc: the span ends, dLo to dHi
+};
+
+// A corner (or smooth joint) between the curve before and the curve after it.
+struct sm_DraftSeam
+{
+  SmBoolean  bSharp;
+  SmPoint3d  sP, sS, sX; // the seam's control points: the corner, its shoulder, the far end
+  double     dWeight;    // the shoulder's weight
+};
+
+// The section of wall rW at fraction f of the height, in the profile's plane: a line (point, unit
+// direction) or a circle (centre, radius).
+static void sm_DraftSection(const sm_DraftWall & rW, double f, SmPoint3d & rPoint, SmVector3d & rDir, double & rRadius)
+{
+  if (rW.bArc)
+    {
+      rPoint  = rW.sCenter;
+      rDir    = rW.sAxis;
+      rRadius = rW.dRadius - f * rW.dShrink;
+    }
+  else
+    {
+      rPoint  = rW.sStart + f * rW.sOffset;
+      rDir    = rW.sDir;
+      rRadius = 0.0;
+    }
+}
+
+// Where the sections of rA and rB at fraction f cross, nearest sNear (all in the profile's plane,
+// whose unit normal is crN). FALSE when they do not cross.
+static SmBoolean sm_DraftCrossing(const sm_DraftWall & rA, const sm_DraftWall & rB, double f, const SmVector3d & crN,
+                                  const SmPoint3d & sNear, SmPoint3d & rX)
+{
+  SmPoint3d  sPa, sPb;
+  SmVector3d sDa, sDb;
+  double     dRa, dRb;
+  sm_DraftSection(rA, f, sPa, sDa, dRa);
+  sm_DraftSection(rB, f, sPb, sDb, dRb);
+  SmPoint3d  sCand[2];
+  int        nCand = 0;
+  if (!rA.bArc && !rB.bArc)
+    {
+      double dDen = (sDa * sDb).Dot(crN);
+      if (fabs(dDen) < SM_EFF_ZERO)
+        { return FALSE; }
+      double dS = ((sPb - sPa) * sDb).Dot(crN) / dDen;
+      sCand[nCand++] = sPa + dS * sDa;
+    }
+  else if (rA.bArc != rB.bArc)
+    {
+      const SmPoint3d  & sL = rA.bArc ? sPb : sPa;
+      const SmVector3d & sD = rA.bArc ? sDb : sDa;
+      const SmPoint3d  & sC = rA.bArc ? sPa : sPb;
+      double dR = rA.bArc ? dRa : dRb;
+      if (dR <= 0.0)
+        { return FALSE; }
+      SmVector3d sW = sL - sC;
+      double dB = sD.Dot(sW);
+      double dDisc = dB * dB - (sW.Dot(sW) - dR * dR);
+      if (dDisc < 0.0)
+        { return FALSE; }
+      double dRoot = sqrt(dDisc);
+      sCand[nCand++] = sL + (-dB - dRoot) * sD;
+      sCand[nCand++] = sL + (-dB + dRoot) * sD;
+    }
+  else
+    {
+      if (dRa <= 0.0 || dRb <= 0.0)
+        { return FALSE; }
+      SmVector3d sE = sPb - sPa;
+      double dD = sE.Length();
+      if (dD < SM_EFF_ZERO)
+        { return FALSE; }
+      sE = sE / dD;
+      double dAlong = (dRa * dRa - dRb * dRb + dD * dD) / (2.0 * dD);
+      double dH2 = dRa * dRa - dAlong * dAlong;
+      if (dH2 < 0.0)
+        { return FALSE; }
+      double     dH = sqrt(dH2);
+      SmVector3d sQ = crN * sE;
+      sCand[nCand++] = sPa + dAlong * sE + dH * sQ;
+      sCand[nCand++] = sPa + dAlong * sE - dH * sQ;
+    }
+  rX = sCand[0];
+  for (int i = 1; i < nCand; i++)
+    {
+      if (sCand[i].DistanceBetweenSquared(sNear) < rX.DistanceBetweenSquared(sNear))
+        { rX = sCand[i]; }
+    }
+  return TRUE;
+}
+
+// The distance from q (in the profile's plane) to the section of rW at fraction f.
+static double sm_DraftOffSection(const sm_DraftWall & rW, double f, const SmPoint3d & q)
+{
+  SmPoint3d  sP;
+  SmVector3d sD;
+  double     dR;
+  sm_DraftSection(rW, f, sP, sD, dR);
+  SmVector3d sW = q - sP;
+  if (rW.bArc)
+    { return fabs(sW.Length() - dR); }
+  return (sW - sW.Dot(sD) * sD).Length();
+}
+
+// The wall's normal (unnormalised) at q, a point of its section (in the profile's plane), for the
+// height crH: the curve's tangent across the ruling there.
+static SmVector3d sm_DraftNormal(const sm_DraftWall & rW, const SmPoint3d & q, const SmVector3d & crH)
+{
+  if (!rW.bArc)
+    { return rW.sDir * (rW.sOffset + crH); }
+  SmVector3d sR = q - rW.sCenter;
+  sR.Unitize(FALSE);
+  SmVector3d sT = rW.sAxis * sR;
+  return sT * (crH - rW.dShrink * sR);
+}
+
+// The angle of q about the arc's axis, unwrapped to within half a turn of dNear.
+static double sm_DraftAngle(const sm_DraftWall & rW, const SmPoint3d & q, double dNear)
+{
+  SmVector3d sR = q - rW.sCenter;
+  double dA = atan2(sR.Dot(rW.sY), sR.Dot(rW.sX));
+  while (dA < dNear - SM_PI) { dA += 2.0 * SM_PI; }
+  while (dA > dNear + SM_PI) { dA -= 2.0 * SM_PI; }
+  return dA;
+}
+
+// The wall's parameter of q (in the profile's plane, on its section at fraction f).
+static double sm_DraftParam(const sm_DraftWall & rW, const SmPoint3d & q, double f, double dNear)
+{
+  if (!rW.bArc)
+    { return (q - rW.sStart - f * rW.sOffset).Dot(rW.sDir); }
+  // the span holding the angle, then its parameter: tan((a - mid)/2) = tan(half/2) (2 tau - 1)
+  double dA = sm_DraftAngle(rW, q, dNear);
+  ULONG  n  = rW.sBreaks.GetSize();
+  ULONG  j  = 0;
+  while (j + 2 < n && dA > rW.sBreaks[j + 1]) { j++; }
+  double dT0 = rW.sBreaks[j], dT1 = rW.sBreaks[j + 1];
+  double dHalf = 0.5 * (dT1 - dT0);
+  double dTau = 0.5 * (tan(0.5 * (dA - 0.5 * (dT0 + dT1))) / tan(0.5 * dHalf) + 1.0);
+  return dT0 + (dT1 - dT0) * dTau;
+}
+
+// The point of the seam at s in [0,1].
+static SmPoint3d sm_DraftSeamPoint(const sm_DraftSeam & rS, double s)
+{
+  double b0 = (1.0 - s) * (1.0 - s), b1 = 2.0 * s * (1.0 - s) * rS.dWeight, b2 = s * s;
+  return (b0 * rS.sP + b1 * rS.sS + b2 * rS.sX) / (b0 + b1 + b2);
+}
+
+// The wall's curve at fraction f (0 the profile's curve, 1 the far end's), over dLo..dHi.
+static SmStatus sm_DraftWallCurve(const SmContext & crContext, const sm_DraftWall & rW, double f, const SmVector3d & crH,
+                                  SmBSplineCurve *& rpCurve)
+{
+  rpCurve = NULL;
+  SmTArray<SmPoint3d> sPoints;
+  SmTArray<double>    sWeights;
+  SmTArray<ULONG>     sMults;
+  SmTArray<double>    sKnots;
+  if (!rW.bArc)
+    {
+      SmPoint3d sBase = rW.sStart + f * (rW.sOffset + crH);
+      sPoints.Add(sBase + rW.dLo * rW.sDir);
+      sPoints.Add(sBase + rW.dHi * rW.sDir);
+      sMults.Add(2); sMults.Add(2);
+      sKnots.Add(rW.dLo); sKnots.Add(rW.dHi);
+      SER( SmBSplineCurve::CreateCanonical(crContext, 3, 1, sPoints, SM_CF_POLYLINE_FORM, sMults, sKnots,
+                                           SM_KT_PIECEWISE_BEZIER_KNOTS, NULL, NULL, rpCurve) );
+      return SM_SUCCESS;
+    }
+  double    dR = rW.dRadius - f * rW.dShrink;
+  SmPoint3d sC = rW.sCenter + f * crH;
+  ULONG     n  = rW.sBreaks.GetSize();
+  for (ULONG j = 0; j + 1 < n; j++)
+    {
+      double dT0 = rW.sBreaks[j], dT1 = rW.sBreaks[j + 1];
+      double dHalf = 0.5 * (dT1 - dT0), dMid = 0.5 * (dT0 + dT1);
+      if (j == 0)
+        {
+          sPoints.Add(sC + dR * (cos(dT0) * rW.sX + sin(dT0) * rW.sY));
+          sWeights.Add(1.0);
+        }
+      sPoints.Add(sC + (dR / cos(dHalf)) * (cos(dMid) * rW.sX + sin(dMid) * rW.sY));
+      sWeights.Add(cos(dHalf));
+      sPoints.Add(sC + dR * (cos(dT1) * rW.sX + sin(dT1) * rW.sY));
+      sWeights.Add(1.0);
+      sKnots.Add(dT0);
+      sMults.Add(j == 0 ? 3 : 2);
+    }
+  sKnots.Add(rW.sBreaks[n - 1]);
+  sMults.Add(3);
+  SER( SmBSplineCurve::CreateCanonical(crContext, 3, 2, sPoints, SM_CF_CIRCULAR_ARC, sMults, sKnots,
+                                       SM_KT_PIECEWISE_BEZIER_KNOTS, &sWeights, NULL, rpCurve) );
+  return SM_SUCCESS;
+}
+
+// Bernstein coefficients of the product of two quadratics.
+static void sm_Quartic(const double a[3], const double b[3], double c[5])
+{
+  static const double sBinom2[3] = { 1.0, 2.0, 1.0 };
+  static const double sBinom4[5] = { 1.0, 4.0, 6.0, 4.0, 1.0 };
+  for (int k = 0; k < 5; k++)
+    {
+      c[k] = 0.0;
+      for (int i = 0; i < 3; i++)
+        {
+          int j = k - i;
+          if (j < 0 || j > 2) { continue; }
+          c[k] += sBinom2[i] * sBinom2[j] * a[i] * b[j];
+        }
+      c[k] /= sBinom4[k];
+    }
+}
+
+// The seam's pcurve on wall rW, whose surface parameters are (u0 + f (u1 - u0), map(t)) for the
+// wall's fraction f and curve parameter t; map is t -> dV0 + (t - dT0) * dVScale.
+static SmStatus sm_DraftSeamPcurve(const SmContext & crContext, const sm_DraftWall & rW, const sm_DraftSeam & rS,
+                                   const SmVector3d & crN, const SmVector3d & crH, double u0, double u1,
+                                   double dT0, double dV0, double dVScale, SmBSplineCurve *& rpPcurve)
+{
+  rpPcurve = NULL;
+  const SmPoint3d sCP[3] = { rS.sP, rS.sS, rS.sX };
+  const double    sW[3]  = { 1.0, rS.dWeight, 1.0 };
+  double dHeight = crH.Dot(crN);
+  // f of each control point (the height fraction is affine in space)
+  double sF[3];
+  for (int k = 0; k < 3; k++)
+    { sF[k] = (sCP[k] - rS.sP).Dot(crN) / dHeight; }
+  SmTArray<SmPoint3d> sPoints;
+  SmTArray<double>    sWeights;
+  SmTArray<ULONG>     sMults;
+  SmTArray<double>    sKnots;
+  sKnots.Add(0.0); sKnots.Add(1.0);
+  if (!rW.bArc)
+    {
+      // a plane: (f, t) affine in space
+      for (int k = 0; k < 3; k++)
+        {
+          SmPoint3d q = sCP[k] - sF[k] * crH;
+          double t = (q - rW.sStart - sF[k] * rW.sOffset).Dot(rW.sDir);
+          sPoints.Add(SmPoint3d(u0 + sF[k] * (u1 - u0), dV0 + (t - dT0) * dVScale, 0.0));
+          sWeights.Add(sW[k]);
+        }
+      sMults.Add(3); sMults.Add(3);
+      SER( SmBSplineCurve::CreateCanonical(crContext, 2, 2, sPoints, SM_CF_UNSPECIFIED, sMults, sKnots,
+                                           SM_KT_PIECEWISE_BEZIER_KNOTS, &sWeights, NULL, rpPcurve) );
+      return SM_SUCCESS;
+    }
+  // a cone: the span holding the seam (its angles at both ends and halfway lie in it)
+  double dA0 = sm_DraftAngle(rW, rS.sP, 0.5 * (rW.dLo + rW.dHi));
+  double dAm = sm_DraftAngle(rW, sm_DraftSeamPoint(rS, 0.5) - 0.5 * crH, dA0);
+  double dA1 = sm_DraftAngle(rW, rS.sX - crH, dA0);
+  ULONG  n = rW.sBreaks.GetSize();
+  ULONG  j = 0;
+  double dLo = smos_Min(dA0, smos_Min(dAm, dA1)), dHi = smos_Max(dA0, smos_Max(dAm, dA1));
+  while (j + 2 < n && dLo >= rW.sBreaks[j + 1]) { j++; }
+  double dS0 = rW.sBreaks[j], dS1 = rW.sBreaks[j + 1];
+  if (dLo < dS0 - SM_EFF_ZERO_SQRT || dHi > dS1 + SM_EFF_ZERO_SQRT)
+    { return SM_ERR; }
+  double     dMid = 0.5 * (dS0 + dS1), dTanQ = tan(0.25 * (dS1 - dS0));
+  SmVector3d sXm  = cos(dMid) * rW.sX + sin(dMid) * rW.sY;
+  SmVector3d sYm  = rW.sAxis * sXm;
+  // tau = (dy + tanq (rho + dx)) / (2 tanq (rho + dx)), each term affine in space
+  double sNum[3], sDen[3], sU[3], sWt[3];
+  for (int k = 0; k < 3; k++)
+    {
+      SmVector3d sR  = sCP[k] - sF[k] * crH - rW.sCenter;
+      double     dRho = rW.dRadius - sF[k] * rW.dShrink;
+      double     dX = sR.Dot(sXm), dY = sR.Dot(sYm);
+      sNum[k] = sW[k] * (dY + dTanQ * (dRho + dX));
+      sDen[k] = sW[k] * 2.0 * dTanQ * (dRho + dX);
+      sU[k]   = sW[k] * (u0 + sF[k] * (u1 - u0));
+      sWt[k]  = sW[k];
+    }
+  double sD4[5], sU4[5], sT4[5];
+  sm_Quartic(sWt, sDen, sD4);
+  sm_Quartic(sU, sDen, sU4);
+  sm_Quartic(sNum, sWt, sT4);
+  for (int k = 0; k < 5; k++)
+    {
+      if (!(sD4[k] > 0.0))
+        { return SM_ERR; }
+      double dTau = sT4[k] / sD4[k];
+      double t    = dS0 + (dS1 - dS0) * dTau;
+      sPoints.Add(SmPoint3d(sU4[k] / sD4[k], dV0 + (t - dT0) * dVScale, 0.0));
+      sWeights.Add(sD4[k]);
+    }
+  sMults.Add(5); sMults.Add(5);
+  SER( SmBSplineCurve::CreateCanonical(crContext, 2, 4, sPoints, SM_CF_UNSPECIFIED, sMults, sKnots,
+                                       SM_KT_PIECEWISE_BEZIER_KNOTS, &sWeights, NULL, rpPcurve) );
+  return SM_SUCCESS;
+}
+
+// A 2D line from (u, v0) to (u', v1) over [t0, t1].
+static SmStatus sm_DraftIsoPcurve(const SmContext & crContext, double ua, double va, double ub, double vb,
+                                  double t0, double t1, SmBSplineCurve *& rpPcurve)
+{
+  SmTArray<SmPoint3d> sPoints;
+  SmTArray<ULONG>     sMults;
+  SmTArray<double>    sKnots;
+  sPoints.Add(SmPoint3d(ua, va, 0.0));
+  sPoints.Add(SmPoint3d(ub, vb, 0.0));
+  sMults.Add(2); sMults.Add(2);
+  sKnots.Add(t0); sKnots.Add(t1);
+  SER( SmBSplineCurve::CreateCanonical(crContext, 2, 1, sPoints, SM_CF_POLYLINE_FORM, sMults, sKnots,
+                                       SM_KT_PIECEWISE_BEZIER_KNOTS, NULL, NULL, rpPcurve) );
+  return SM_SUCCESS;
+}
+
+// The seam as a curve: the rational quadratic on [0,1].
+static SmStatus sm_DraftSeamCurve(const SmContext & crContext, const sm_DraftSeam & rS, SmBSplineCurve *& rpCurve)
+{
+  SmTArray<SmPoint3d> sPoints;
+  SmTArray<double>    sWeights;
+  SmTArray<ULONG>     sMults;
+  SmTArray<double>    sKnots;
+  sPoints.Add(rS.sP); sPoints.Add(rS.sS); sPoints.Add(rS.sX);
+  sWeights.Add(1.0); sWeights.Add(rS.dWeight); sWeights.Add(1.0);
+  sMults.Add(3); sMults.Add(3);
+  sKnots.Add(0.0); sKnots.Add(1.0);
+  SER( SmBSplineCurve::CreateCanonical(crContext, 3, 2, sPoints, SM_CF_UNSPECIFIED, sMults, sKnots,
+                                       SM_KT_PIECEWISE_BEZIER_KNOTS, &sWeights, NULL, rpCurve) );
+  return SM_SUCCESS;
+}
+
+// Whether the profile, its segments in pComposite, has a sharp corner.
+static SmBoolean sm_DraftHasCorner(SmCompositeCurve * pComposite, const SmVector3d & crN)
+{
+  ULONG lDim;
+  SmTArray<SmCurve*>  sCurves;
+  SmBoolean           bClosed;
+  SmTArray<SmBoolean> sSenses;
+  if (pComposite->GetCanonical(lDim, sCurves, bClosed, &sSenses) != SM_SUCCESS)
+    { return FALSE; }
+  ULONG n = sCurves.GetSize();
+  for (ULONG i = 0; i < n; i++)
+    {
+      const SmCurve * pA = sCurves[(i + n - 1) % n];
+      const SmCurve * pB = sCurves[i];
+      SmExtent1d sIa = pA->GetNaturalInterval(), sIb = pB->GetNaturalInterval();
+      SmVector3d sVa[2], sVb[2];
+      if (   pA->Evaluate(sSenses[(i + n - 1) % n] ? sIa.GetMax() : sIa.GetMin(), 1, TRUE, sVa) != SM_SUCCESS
+          || pB->Evaluate(sSenses[i] ? sIb.GetMin() : sIb.GetMax(), 1, TRUE, sVb) != SM_SUCCESS)
+        { return FALSE; }
+      if (!sSenses[(i + n - 1) % n]) { sVa[1] = -sVa[1]; }
+      if (!sSenses[i])               { sVb[1] = -sVb[1]; }
+      double dAngle = 0.0;
+      if (crN.CCWAngleBetween(sVa[1], sVb[1], dAngle) != SM_SUCCESS)
+        { return FALSE; }
+      if (fabs(dAngle) > SM_EFF_ZERO_SQRT)
+        { return TRUE; }
+    }
+  return FALSE;
+}
+
+// The side faces of a draft extrusion of the closed profile pComposite whose walls keep their
+// curvature at its corners, into pBrep, and the far end's curves (in order, owned by the caller)
+// into rFarCurves. A corner that cannot be closed is SM_ERR_INVALID_INPUT, with why in rRefusal and
+// where in rCorner.
+static SmStatus sm_CreateCurvatureKeepingWalls
+ (const SmContext       & crContext,   // in : context for new object construction
+  SmCompositeCurve      * pComposite,  // in : the profile, one closed chain
+  const SmTArray<SmCurve*>& crInputs,  // in : the curves it was made from (its lines and circles as SMLib holds them)
+  const SmVector3d      & crN,         // in : unit normal of the profile's plane
+  double                  dHeight,     // in : + = along crN, - = opposite
+  double                  dOffset,     // in : how far the far end's section is offset (> 0)
+  SmOffsetDirectionType   eSide,       // in : the side it is offset to
+  double                  dTol,        // in : the brep's tolerance
+  SmBrep                * pBrep,       // i/o: receives the side faces
+  SmTArray<SmCurve*>    & rFarCurves,  // out: the far end's curves
+  SmTaperCornerRefusal  & rRefusal,    // out: why a corner could not be closed
+  SmPoint3d             & rCorner)     // out: and where
+{
+  rRefusal = SM_TCR_NONE;
+  rFarCurves.ReSet();
+  ULONG lDim;
+  SmTArray<SmCurve*>  sCurves;
+  SmBoolean           bClosed;
+  SmTArray<SmBoolean> sSenses;
+  SER( pComposite->GetCanonical(lDim, sCurves, bClosed, &sSenses) );
+  ULONG n = sCurves.GetSize();
+  if (n < 1)
+    { return SM_ERR_INVALID_INPUT; }
+  SmVector3d sH = dHeight * crN;
+  double     dSide = (eSide == SM_OD_LEFT_HAND_SIDE) ? 1.0 : -1.0;
+
+  // the walls
+  std::vector<sm_DraftWall> sWalls(n);
+  for (ULONG i = 0; i < n; i++)
+    {
+      SmCurve      * pC = sCurves[i];
+      sm_DraftWall & rW = sWalls[i];
+      SmExtent1d     sI = pC->GetNaturalInterval();
+      SmVector3d     sV[2];
+      SER( pC->EvaluatePoint(sSenses[i] ? sI.GetMin() : sI.GetMax(), rW.sStart) );
+      SER( pC->EvaluatePoint(sSenses[i] ? sI.GetMax() : sI.GetMin(), rW.sEnd) );
+      SER( pC->Evaluate(sSenses[i] ? sI.GetMin() : sI.GetMax(), 1, TRUE, sV) );
+      SmVector3d sT = sSenses[i] ? sV[1] : -sV[1];
+      // the input curve it is (its copy, split at tangent breaks, is a plain B-spline): a line or a
+      // circle has none, so it is the one with the same ends and middle
+      const SmCurve * pInput = NULL;
+      {
+        SmPoint3d sMid;
+        SER( pC->EvaluatePoint(sI.GetMid(), sMid) );
+        for (ULONG k = 0; k < crInputs.GetSize() && pInput == NULL; k++)
+          {
+            const SmCurve * pIn = crInputs[k];
+            if (pIn == NULL || !(pIn->IsKindOf(SmCircle_TYPE) || pIn->IsKindOf(SmLine_TYPE)))
+              { continue; }
+            SmPoint3d sA, sB, sM;
+            SmExtent1d sJ = pIn->GetNaturalInterval();
+            pIn->GetEnds(sA, sB);
+            SER( pIn->EvaluatePoint(sJ.GetMid(), sM) );
+            SmBoolean bEnds =    (sA.DistanceBetween(rW.sStart) <= dTol && sB.DistanceBetween(rW.sEnd) <= dTol)
+                              || (sB.DistanceBetween(rW.sStart) <= dTol && sA.DistanceBetween(rW.sEnd) <= dTol);
+            if (bEnds && sM.DistanceBetween(sMid) <= dTol)
+              { pInput = pIn; }
+          }
+      }
+      if (pInput != NULL && pInput->IsKindOf(SmCircle_TYPE))
+        {
+          const SmCircle * pCircle = (const SmCircle *)pInput;
+          const SmAxis2Placement & rFrame = pCircle->GetPosition();
+          rW.bArc    = TRUE;
+          rW.sCenter = rFrame.GetOriginRef();
+          rW.dRadius = pCircle->GetRadius();
+          rW.sX      = rFrame.GetXAxisRef();
+          SER( rW.sX.Unitize() );
+          SmVector3d sK = rW.sX * rFrame.GetYAxisRef();
+          SER( sK.Unitize() );
+          // counterclockwise about the axis it is run along
+          rW.sAxis   = ((sK * (rW.sStart - rW.sCenter)).Dot(sT) >= 0.0) ? sK : -sK;
+          rW.sY      = rW.sAxis * rW.sX;
+          rW.dShrink = dSide * crN.Dot(rW.sAxis) * dOffset;
+          rW.dStartAng = sm_DraftAngle(rW, rW.sStart, 0.0);
+          rW.dEndAng   = sm_DraftAngle(rW, rW.sEnd, rW.dStartAng);
+          if (rW.dEndAng <= rW.dStartAng + SM_EFF_ZERO_SQRT) { rW.dEndAng += 2.0 * SM_PI; }
+          if (rW.dRadius - rW.dShrink <= dTol)
+            {
+              rRefusal = SM_TCR_WALL_CLOSES;
+              SER( pC->EvaluatePoint(sI.GetMid(), rCorner) );
+              return SM_ERR_INVALID_INPUT;
+            }
+        }
+      else if (pInput != NULL)
+        {
+          rW.bArc    = FALSE;
+          rW.sDir    = rW.sEnd - rW.sStart;
+          SER( rW.sDir.Unitize() );
+          rW.sOffset = dSide * dOffset * (crN * rW.sDir);
+        }
+      else
+        {
+          rRefusal = SM_TCR_NOT_EXACT;
+          rCorner  = rW.sStart;
+          return SM_ERR_INVALID_INPUT;
+        }
+    }
+
+  // the seams: seam i is the corner where wall i-1 ends and wall i starts
+  std::vector<sm_DraftSeam> sSeams(n);
+  for (ULONG i = 0; i < n; i++)
+    {
+      const sm_DraftWall & rA = sWalls[(i + n - 1) % n];
+      const sm_DraftWall & rB = sWalls[i];
+      sm_DraftSeam       & rS = sSeams[i];
+      rS.sP = rB.sStart;
+      // the walls' normals at the corner
+      SmVector3d sNa = sm_DraftNormal(rA, rS.sP, sH);
+      SmVector3d sNb = sm_DraftNormal(rB, rS.sP, sH);
+      SmVector3d sTa = rA.bArc ? rA.sAxis * (rS.sP - rA.sCenter) : rA.sDir;
+      SmVector3d sTb = rB.bArc ? rB.sAxis * (rS.sP - rB.sCenter) : rB.sDir;
+      double dTurn = 0.0;
+      SER( crN.CCWAngleBetween(sTa, sTb, dTurn) );
+      rS.bSharp = (fabs(dTurn) > SM_EFF_ZERO_SQRT) ? TRUE : FALSE;
+      if (!rS.bSharp)
+        {
+          // a smooth joint: the common ruling
+          if (rB.bArc)
+            {
+              SmVector3d sR = rS.sP - rB.sCenter;
+              SER( sR.Unitize() );
+              rS.sX = rS.sP - rB.dShrink * sR + sH;
+            }
+          else
+            { rS.sX = rS.sP + rB.sOffset + sH; }
+          rS.sS = 0.5 * (rS.sP + rS.sX);
+          rS.dWeight = 1.0;
+          continue;
+        }
+      SmPoint3d sMid, sFar;
+      if (   !sm_DraftCrossing(rA, rB, 0.5, crN, rS.sP, sMid)
+          || !sm_DraftCrossing(rA, rB, 1.0, crN, rS.sP, sFar))
+        {
+          rRefusal = SM_TCR_APART;
+          rCorner  = rS.sP;
+          return SM_ERR_INVALID_INPUT;
+        }
+      SmVector3d sNa1 = sm_DraftNormal(rA, sFar, sH);
+      SmVector3d sNb1 = sm_DraftNormal(rB, sFar, sH);
+      sMid = sMid + 0.5 * sH;
+      rS.sX = sFar + sH;
+      SmVector3d sT0 = sNa * sNb, sT1 = sNa1 * sNb1;
+      if (sT0.Dot(sH) < 0.0) { sT0 = -sT0; }
+      if (sT1.Dot(sH) < 0.0) { sT1 = -sT1; }
+      SmVector3d sChord = rS.sX - rS.sP;
+      double dScale = sChord.Length();
+      SER( sT0.Unitize() );
+      SER( sT1.Unitize() );
+      SmVector3d sOffMid = (sMid - rS.sP) - ((sMid - rS.sP).Dot(sChord) / sChord.Dot(sChord)) * sChord;
+      if (sOffMid.Length() <= SM_EFF_ZERO_SQRT * dScale)
+        {
+          // a straight seam (two planes)
+          rS.sS = 0.5 * (rS.sP + rS.sX);
+          rS.dWeight = 1.0;
+        }
+      else
+        {
+          // the shoulder where the end tangents cross, the weight from the halfway point
+          double dT0 = 0.0, dT1 = 0.0;
+          SER( smgu_LineLineClosestPoint(rS.sP, sT0, rS.sX, sT1, dT0, dT1) );
+          SmPoint3d sS0 = rS.sP + dT0 * sT0, sS1 = rS.sX + dT1 * sT1;
+          if (sS0.DistanceBetween(sS1) > SM_EFF_ZERO_SQRT * dScale || !(dT0 > 0.0) || !(dT1 < 0.0))
+            {
+              rRefusal = SM_TCR_NOT_EXACT;
+              rCorner  = rS.sP;
+              return SM_ERR_INVALID_INPUT;
+            }
+          rS.sS = 0.5 * (sS0 + sS1);
+          // M - P = b1 (S - P) + b2 (X - P)
+          SmVector3d sE1 = rS.sS - rS.sP, sE2 = rS.sX - rS.sP, sM = sMid - rS.sP;
+          double a11 = sE1.Dot(sE1), a12 = sE1.Dot(sE2), a22 = sE2.Dot(sE2);
+          double r1 = sM.Dot(sE1), r2 = sM.Dot(sE2), dDet = a11 * a22 - a12 * a12;
+          double b1 = (r1 * a22 - r2 * a12) / dDet, b2 = (a11 * r2 - a12 * r1) / dDet, b0 = 1.0 - b1 - b2;
+          if (!(fabs(dDet) > 0.0) || !(b0 > 0.0) || !(b1 > 0.0) || !(b2 > 0.0))
+            {
+              rRefusal = SM_TCR_NOT_EXACT;
+              rCorner  = rS.sP;
+              return SM_ERR_INVALID_INPUT;
+            }
+          rS.dWeight = b1 / (2.0 * sqrt(b0 * b2));
+        }
+      // the seam must lie on both walls
+      for (int k = 1; k < 8; k++)
+        {
+          SmPoint3d q = sm_DraftSeamPoint(rS, k / 8.0);
+          double    f = (q - rS.sP).Dot(crN) / sH.Dot(crN);
+          SmPoint3d qp = q - f * sH;
+          if (sm_DraftOffSection(rA, f, qp) > dTol || sm_DraftOffSection(rB, f, qp) > dTol)
+            {
+              rRefusal = SM_TCR_NOT_EXACT;
+              rCorner  = rS.sP;
+              return SM_ERR_INVALID_INPUT;
+            }
+        }
+    }
+
+  // each wall's extent: from its first seam's reach to its last's, in spans that each hold a seam
+  for (ULONG i = 0; i < n; i++)
+    {
+      sm_DraftWall       & rW  = sWalls[i];
+      const sm_DraftSeam & rS0 = sSeams[i];
+      const sm_DraftSeam & rS1 = sSeams[(i + 1) % n];
+      double dLo0 = 0.0, dHi0 = 0.0, dLo1 = 0.0, dHi1 = 0.0;
+      double dRef0 = rW.bArc ? rW.dStartAng : 0.0;
+      double dRef1 = rW.bArc ? rW.dEndAng : (rW.sEnd - rW.sStart).Dot(rW.sDir);
+      for (int pass = 0; pass < 2; pass++)
+        {
+          const sm_DraftSeam & rS = pass == 0 ? rS0 : rS1;
+          double dRef = pass == 0 ? dRef0 : dRef1;
+          double dLo = dRef, dHi = dRef;
+          for (int k = 0; k <= 8; k++)
+            {
+              SmPoint3d q = sm_DraftSeamPoint(rS, k / 8.0);
+              double    f = (q - rS.sP).Dot(crN) / sH.Dot(crN);
+              SmPoint3d qp = q - f * sH;
+              double    t = rW.bArc ? sm_DraftAngle(rW, qp, dRef) : (qp - rW.sStart - f * rW.sOffset).Dot(rW.sDir);
+              dLo = smos_Min(dLo, t);
+              dHi = smos_Max(dHi, t);
+            }
+          double dPad = 0.05 * (dHi - dLo) + (rW.bArc ? 1e-3 : 1e-3 * dOffset);
+          if (pass == 0) { dLo0 = dLo - dPad; dHi0 = dHi + dPad; }
+          else           { dLo1 = dLo - dPad; dHi1 = dHi + dPad; }
+        }
+      // the far end must stay longer than nothing
+      double dFar0, dFar1;
+      {
+        SmPoint3d q0 = rS0.sX - sH, q1 = rS1.sX - sH;
+        dFar0 = rW.bArc ? sm_DraftAngle(rW, q0, dRef0) : (q0 - rW.sStart - rW.sOffset).Dot(rW.sDir);
+        dFar1 = rW.bArc ? sm_DraftAngle(rW, q1, dRef1) : (q1 - rW.sStart - rW.sOffset).Dot(rW.sDir);
+      }
+      if (!(dFar1 > dFar0 + dTol / (rW.bArc ? rW.dRadius : 1.0)))
+        {
+          rRefusal = SM_TCR_WALL_CLOSES;
+          rCorner  = rS0.sP;
+          return SM_ERR_INVALID_INPUT;
+        }
+      rW.dLo = dLo0;
+      rW.dHi = dHi1;
+      rW.sBreaks.ReSet();
+      if (rW.bArc)
+        {
+          const double dQuarter = 0.5 * SM_PI;
+          rW.sBreaks.Add(dLo0);
+          if (dHi0 >= dLo1)
+            {
+              // one span holds both seams
+              if (dHi1 - dLo0 >= SM_PI - SM_EFF_ZERO_SQRT)
+                {
+                  rRefusal = SM_TCR_WALL_CLOSES;
+                  rCorner  = rS0.sP;
+                  return SM_ERR_INVALID_INPUT;
+                }
+            }
+          else
+            {
+              rW.sBreaks.Add(dHi0);
+              ULONG lSpans = (ULONG)ceil((dLo1 - dHi0) / dQuarter);
+              for (ULONG k = 1; k < lSpans; k++)
+                { rW.sBreaks.Add(dHi0 + (dLo1 - dHi0) * k / lSpans); }
+              rW.sBreaks.Add(dLo1);
+              if (dHi0 - dLo0 >= SM_PI - SM_EFF_ZERO_SQRT || dHi1 - dLo1 >= SM_PI - SM_EFF_ZERO_SQRT)
+                {
+                  rRefusal = SM_TCR_NOT_EXACT;
+                  rCorner  = (dHi0 - dLo0 >= dHi1 - dLo1) ? rS0.sP : rS1.sP;
+                  return SM_ERR_INVALID_INPUT;
+                }
+            }
+          rW.sBreaks.Add(dHi1);
+        }
+    }
+
+  // the faces
+  for (ULONG i = 0; i < n; i++)
+    {
+      const sm_DraftWall & rW  = sWalls[i];
+      const sm_DraftSeam & rS0 = sSeams[i];
+      const sm_DraftSeam & rS1 = sSeams[(i + 1) % n];
+      SmBSplineCurve *pLow = NULL, *pHigh = NULL;
+      SER( sm_DraftWallCurve(crContext, rW, 0.0, sH, pLow) );
+      SmObjDelete sCleanLow(pLow);
+      SER( sm_DraftWallCurve(crContext, rW, 1.0, sH, pHigh) );
+      SmObjDelete sCleanHigh(pHigh);
+      SmBSplineSurface *pSurface = NULL;
+      SER( SmBSplineSurface::CreateRuledSurface(crContext, *pLow, *pHigh, SM_SP_U, pSurface) );
+      SmObjDelete sCleanSurface(pSurface);
+      SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
+      double u0 = sDomain.GetUMin(), u1 = sDomain.GetUMax();
+      double dVScale = (sDomain.GetVMax() - sDomain.GetVMin()) / (rW.dHi - rW.dLo);
+      double dV0 = sDomain.GetVMin();
+      // the corners' parameters on the wall: at the profile and at the far end
+      double dMid = rW.bArc ? 0.5 * (rW.dStartAng + rW.dEndAng) : 0.0;
+      double tP0 = sm_DraftParam(rW, rS0.sP, 0.0, rW.bArc ? rW.dStartAng : dMid);
+      double tP1 = sm_DraftParam(rW, rS1.sP, 0.0, rW.bArc ? rW.dEndAng : dMid);
+      double tX0 = sm_DraftParam(rW, rS0.sX - sH, 1.0, rW.bArc ? rW.dStartAng : dMid);
+      double tX1 = sm_DraftParam(rW, rS1.sX - sH, 1.0, rW.bArc ? rW.dEndAng : dMid);
+      // the loop: the profile's curve, the end seam, the far end's curve back, the start seam back
+      SmCurve *pBottom = NULL, *pTop = NULL;
+      SER( pLow->Copy(crContext, pBottom) );
+      SmObjDelete sCleanBottom(pBottom);
+      SmExtent1d sBottomIvl(tP0, tP1);
+      SER( pBottom->Trim(sBottomIvl) );
+      SER( pHigh->Copy(crContext, pTop) );
+      SmObjDelete sCleanTop(pTop);
+      SmExtent1d sTopIvl(tX0, tX1);
+      SER( pTop->Trim(sTopIvl) );
+      SmBSplineCurve *pSeam0 = NULL, *pSeam1 = NULL;
+      SER( sm_DraftSeamCurve(crContext, rS0, pSeam0) );
+      SmObjDelete sCleanSeam0(pSeam0);
+      SER( sm_DraftSeamCurve(crContext, rS1, pSeam1) );
+      SmObjDelete sCleanSeam1(pSeam1);
+      SmBSplineCurve *pcBottom = NULL, *pcTop = NULL, *pcSeam0 = NULL, *pcSeam1 = NULL;
+      SmExtent1d sBottomNow = pBottom->GetNaturalInterval(), sTopNow = pTop->GetNaturalInterval();
+      SER( sm_DraftIsoPcurve(crContext, u0, dV0 + (sBottomNow.GetMin() - rW.dLo) * dVScale, u0, dV0 + (sBottomNow.GetMax() - rW.dLo) * dVScale,
+                             sBottomNow.GetMin(), sBottomNow.GetMax(), pcBottom) );
+      SmObjDelete sCleanPcBottom(pcBottom);
+      SER( sm_DraftIsoPcurve(crContext, u1, dV0 + (sTopNow.GetMin() - rW.dLo) * dVScale, u1, dV0 + (sTopNow.GetMax() - rW.dLo) * dVScale,
+                             sTopNow.GetMin(), sTopNow.GetMax(), pcTop) );
+      SmObjDelete sCleanPcTop(pcTop);
+      if (   sm_DraftSeamPcurve(crContext, rW, rS1, crN, sH, u0, u1, rW.dLo, dV0, dVScale, pcSeam1) != SM_SUCCESS
+          || sm_DraftSeamPcurve(crContext, rW, rS0, crN, sH, u0, u1, rW.dLo, dV0, dVScale, pcSeam0) != SM_SUCCESS)
+        {
+          delete pcSeam0;
+          delete pcSeam1;
+          rRefusal = SM_TCR_NOT_EXACT;
+          rCorner  = (pcSeam1 == NULL) ? rS1.sP : rS0.sP;
+          return SM_ERR_INVALID_INPUT;
+        }
+      SmObjDelete sCleanPcSeam0(pcSeam0);
+      SmObjDelete sCleanPcSeam1(pcSeam1);
+      // every pcurve must lift onto its curve
+      {
+        const SmCurve        * aC[4]  = { pBottom, pSeam1, pTop, pSeam0 };
+        const SmBSplineCurve * aPc[4] = { pcBottom, pcSeam1, pcTop, pcSeam0 };
+        for (int e = 0; e < 4; e++)
+          {
+            SmExtent1d sIvl = aC[e]->GetNaturalInterval();
+            for (int k = 0; k <= 8; k++)
+              {
+                double    t = sIvl.Evaluate(k / 8.0);
+                SmPoint3d sUV, sOn, sAt;
+                SER( aPc[e]->EvaluatePoint(t, sUV) );
+                SER( pSurface->EvaluatePoint(SmPoint2d(sUV.x, sUV.y), sOn) );
+                SER( aC[e]->EvaluatePoint(t, sAt) );
+                if (sOn.DistanceBetween(sAt) > dTol)
+                  {
+                    rRefusal = SM_TCR_NOT_EXACT;
+                    rCorner  = (e == 3) ? rS0.sP : rS1.sP;
+                    return SM_ERR_INVALID_INPUT;
+                  }
+              }
+          }
+      }
+      SmTArray<ULONG> sLoops;
+      sLoops.Add(4);
+      SmTArray<SmCurve*> s3D;
+      s3D.Add(pBottom); s3D.Add(pSeam1); s3D.Add(pTop); s3D.Add(pSeam0);
+      SmTArray<SmBSplineCurve*> sUV;
+      sUV.Add(pcBottom); sUV.Add(pcSeam1); sUV.Add(pcTop); sUV.Add(pcSeam0);
+      SmTArray<SmOrientType> sOrient;
+      sOrient.Add(SM_OT_SAME); sOrient.Add(SM_OT_SAME); sOrient.Add(SM_OT_OPPOSITE); sOrient.Add(SM_OT_OPPOSITE);
+      SmTArray<SmPoint3d> sNoPoints;
+      SmRegion *pNewRegion = NULL;
+      SmShell  *pNewShell  = NULL;
+      SmFace   *pNewFace   = NULL;
+      // the loop runs clockwise in (u, v): opposite to the surface's normal
+      SER( pBrep->MakeFaceWithCurves(NULL, sLoops, &s3D, &sUV, sOrient, sNoPoints, pSurface, sDomain, SM_OT_OPPOSITE,
+                                     pNewRegion, pNewShell, pNewFace) );
+      // the face owns them now
+      sCleanSurface.Clear(); sCleanBottom.Clear(); sCleanTop.Clear(); sCleanSeam0.Clear(); sCleanSeam1.Clear();
+      sCleanPcBottom.Clear(); sCleanPcTop.Clear(); sCleanPcSeam0.Clear(); sCleanPcSeam1.Clear();
+      // the far end's curve, for its cap
+      SmCurve *pFar = NULL;
+      SER( pTop->Copy(crContext, pFar) );
+      rFarCurves.Add(pFar);
+    }
+  return SM_SUCCESS;
+}
+
 /*******************************************************************//**
 PURPOSE: Make a brep of Tapered surfaces from an array of 3D curves
             If endcaps are requested, will return a solid.
@@ -3455,9 +4238,12 @@ SmStatus SmPrimitiveCreation::CreateTaperExtrude
   int                   iEndCaps,         // in : 0=none, 1=at curves end, 2=at offset end, 3=both   
   SmVector3d          & rCrvsNormal,      // in : specified normal to plane of curves                 
                                           //    :  or enter [0,0,0] for us to compute it for you.    
-  SmOffsetCornerType    eOffsetCorner)    // in : oneof SM_OC_LINEAR_EXTENSION = fill gaps made by offseting curves lines
+  SmOffsetCornerType    eOffsetCorner,    // in : oneof SM_OC_LINEAR_EXTENSION = fill gaps made by offseting curves lines
                                           //            SM_OC_FILLET_CORNER    = fill gaps made by offseting curves with G1 fillet
+                                          //            SM_OC_CURVE_EXTENSION  = each wall continues as itself to meet its neighbour
                                           //    : default:[SM_OC_LINEAR_EXTENSION]                   
+  SmTaperCornerRefusal* pOptRefusal,      // out: SM_OC_CURVE_EXTENSION only: why a corner could not be closed, NULL to ignore
+  SmPoint3d           * pOptRefusedCorner)// out: SM_OC_CURVE_EXTENSION only: that corner's point, NULL to ignore
 {
   // init SmPrimitiveCreation memory
   InitEntityMaps();
@@ -3635,6 +4421,39 @@ SmBoolean bDebugMe = FALSE ;
     }
 #endif // SM_DEBUG_CODE
 
+  // SolidCraft change: walls that keep their curvature at the corners. Without a sharp corner the
+  // three corner rules give the same walls, which the offset method builds.
+  if (pOptRefusal != NULL) { *pOptRefusal = SM_TCR_NONE; }
+  SmBoolean bKeepCurvature = (eOffsetCorner == SM_OC_CURVE_EXTENSION && sm_DraftHasCorner(pComposite, rCrvsNormal)) ? TRUE : FALSE;
+  if (eOffsetCorner == SM_OC_CURVE_EXTENSION)
+    { eOffsetCorner = SM_OC_LINEAR_EXTENSION; }
+
+  SmBoolean bMissingFaces = FALSE;
+  SmBoolean bEmptyOffsets = FALSE;
+  SmTArray<SmCurve *> sTrimCrvs;  // pass bsplines as curves (sTrimCrvs == sTrimmedOffsets)
+
+  if (bKeepCurvature)
+    {
+      SmTaperCornerRefusal eRefusal = SM_TCR_NONE;
+      SmPoint3d            sCorner(0.0, 0.0, 0.0);
+      SmStatus eKeep = sm_CreateCurvatureKeepingWalls(*pContext, pComposite, r3DCurves, rCrvsNormal, dHeight, dOffset,
+                                                      eOffsetDir, dBrepTol, pBrep, sTrimCrvs, eRefusal, sCorner);
+      if (eKeep != SM_SUCCESS)
+        {
+          SmObjsDelete< SmCurve* > sCleanFar( &sTrimCrvs );
+          if (pOptRefusal != NULL)       { *pOptRefusal = eRefusal; }
+          if (pOptRefusedCorner != NULL) { *pOptRefusedCorner = sCorner; }
+          return eKeep;
+        }
+      ULONG  lStitched = 0, lLamina = 0;
+      double dVGap = 0.0, dEGap = 0.0;
+      SER( pBrep->StitchFaces(dBrepTol, lStitched, lLamina, dVGap, dEGap) );
+      SmTArray<SmFace*> sWallFaces;
+      pBrep->GetFaces(sWallFaces);
+      SER( pBrep->CopyFaces(sWallFaces, pResultBrep, NULL, FALSE) );
+    }
+  else
+  {
   // offset the composite curve - extend convex joints and intersect concave ones.
   //   output curves will have attributes (SmOffsetMapAttribute) that describe
   //   where the output curve came from and how it was generated.    
@@ -3667,9 +4486,9 @@ SmBoolean bDebugMe = FALSE ;
   //              Curves are referenced unowned in sComposites. sComposites may own additional gap filling lines.
   //   sTrimmedOffsets - offsets of sCurves (not yet moved to final positions)
   
-  SmBoolean bMissingFaces = FALSE;
-  SmBoolean bEmptyOffsets = FALSE;
-  SmTArray<SmCurve *> sTrimCrvs;  // pass bsplines as curves (sTrimCrvs == sTrimmedOffsets)
+
+
+
 
   // expect some TrimmedOffset curves as output
   if(sTrimmedOffsets.GetSize() < 1) 
@@ -4146,6 +4965,7 @@ SmBoolean bDebugMe = FALSE ;
       SER( sResultMergeExec.ManifoldBoolean(SM_BO_UNION, pResultBrep) );
 
     } // end if bMissingFaces
+  } // end the offset method
 
     
 
