@@ -780,6 +780,26 @@ int32_t smlib_loft(const int64_t *kinds, int64_t n_kinds, const double *reals, i
 int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
                           const double direction[3], double pitch, double turns, double tolerance, smlib_brep **out);
 
+/* The ends of smlib_sweep_stations: left open (the swept sheet), capped by the first and last
+ * sections (a closed manifold solid), or joined, the last section lying on the first (a sweep
+ * round a closed path: the walls' ends are glued to their starts into a closed manifold solid). */
+#define SMLIB_ENDS_OPEN 0
+#define SMLIB_ENDS_CAPPED 1
+#define SMLIB_ENDS_JOINED 2
+#define SMLIB_SWEEP_MAX_STATIONS 4096
+#define SMLIB_SWEEP_MAX_STATION_CURVES 400000.0
+/* The planar profile carried through `n_stations` (2 to SMLIB_SWEEP_MAX_STATIONS) stations, each
+ * an affine map of 12 numbers in `maps`: a 3 x 3 matrix by columns, then a translation (a point x
+ * goes to M x + t). Each section is the profile moved by its map, exactly (its curves' control
+ * points mapped); the walls are skinned through the sections in order, cubic across them (a lower
+ * degree with fewer than four), one wall per profile curve. A sweep whose profile twists, scales
+ * or follows guide rails along its path is the profile placed at stations along it. Every map
+ * must be finite, its matrix far from singular and its columns shorter than 1e6, its translation
+ * within 1e9 mm; profile curves times stations at most SMLIB_SWEEP_MAX_STATION_CURVES; `ends` one
+ * of SMLIB_ENDS_*. Otherwise SMLIB_ERR_ARG. */
+int32_t smlib_sweep_stations(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double *maps,
+                             int64_t n_stations, int32_t ends, smlib_brep **out);
+
 /* ---- Imprint (src/smlib_imprint.cpp) ------------------------------------------------------ */
 
 /* The tool cut nothing: no face of the body meets it. */

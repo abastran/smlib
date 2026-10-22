@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The sweeps (src/smlib_sweeps.cpp) against closed-form volumes: extrusions straight and drafted,
-// revolutions whole, partial and touching the axis, sweeps along lines and arcs, lofts and screw
-// sweeps (Pappus), each checked as a valid closed solid; then hostile curve lists.
+// revolutions whole, partial and touching the axis, sweeps along lines and arcs, lofts, screw
+// sweeps (Pappus) and sweeps through stations (twisted, scaled, round a closed path), each checked
+// as a valid closed solid; then hostile curve lists and station maps.
 
 #include "smlib.h"
 
@@ -409,6 +410,87 @@ int main()
         expect(name, cut, &b, material - t.length / p * per_turn, 1e-4);
         smlib_brep_free(tool);
         smlib_brep_free(body);
+    }
+
+    // Sweeps through stations: the profile placed by affine maps along its path.
+    {
+        // A 10 x 10 square up 40 along z, turning 90 degrees about it: the section area stays, so
+        // V = 100 * 40. The skin interpolates the stations with free ends, its error falling as
+        // the square of the step: 2e-7 of the volume at these 1.4 degree steps. The bound is the
+        // volume's own: measured at 1e-6 accuracy, even the exact frustum below comes out 1.1e-6
+        // off (3.6e-8 at 1e-8).
+        const int n = 65;
+        List square;
+        square.polygon({-5, -5, 0, 5, -5, 0, 5, 5, 0, -5, 5, 0});
+        std::vector<double> twist;
+        for (int i = 0; i < n; ++i)
+        {
+            double f = static_cast<double>(i) / (n - 1);
+            double a = 0.5 * PI * f;
+            twist.insert(twist.end(), {std::cos(a), std::sin(a), 0, -std::sin(a), std::cos(a), 0, 0, 0, 1, 0, 0, 40.0 * f});
+        }
+        b = nullptr;
+        expect("stations: twisted square", smlib_sweep_stations(square.kinds.data(), square.nk(), square.reals.data(), square.nr(), twist.data(), n,
+                                                                 SMLIB_ENDS_CAPPED, &b),
+               &b, 4000.0, 1e-5);
+        // A circle of radius 5 grown to 10 over 30: a cone frustum, h/3 (A1 + A2 + sqrt(A1 A2)).
+        List disc = circle(0, 0, 0, 0, 0, 1, 1, 0, 0, 5.0);
+        std::vector<double> grow;
+        for (int i = 0; i < n; ++i)
+        {
+            double f = static_cast<double>(i) / (n - 1);
+            double k = 1.0 + f;
+            grow.insert(grow.end(), {k, 0, 0, 0, k, 0, 0, 0, 1, 0, 0, 30.0 * f});
+        }
+        b = nullptr;
+        expect("stations: cone frustum", smlib_sweep_stations(disc.kinds.data(), disc.nk(), disc.reals.data(), disc.nr(), grow.data(), n, SMLIB_ENDS_CAPPED, &b),
+               &b, 10.0 * PI * (25.0 + 100.0 + 50.0), 1e-5);
+        // An 8 x 8 square (x 26..34, z -4..4) carried round the circle of radius 30 about z,
+        // turning 90 degrees about the path on the way: it ends on itself, a quarter turn on, and
+        // the ends are joined. Pappus: V = 64 * 2 pi 30.
+        const int m = 97;
+        List ring;
+        ring.polygon({26, 0, -4, 34, 0, -4, 34, 0, 4, 26, 0, 4});
+        std::vector<double> round;
+        for (int i = 0; i < m; ++i)
+        {
+            double f = static_cast<double>(i) / (m - 1);
+            double phi = 2.0 * PI * f, psi = 0.5 * PI * f;
+            double cp = std::cos(phi), sp = std::sin(phi), cs = std::cos(psi), ss = std::sin(psi);
+            // M = Rz(phi) Ry(psi); t = Rz(phi) (c - Ry(psi) c), c = (30, 0, 0).
+            double col0[3] = {cp * cs, sp * cs, -ss};
+            double col1[3] = {-sp, cp, 0};
+            double col2[3] = {cp * ss, sp * ss, cs};
+            double d[3] = {30.0 - 30.0 * cs, 0.0, 30.0 * ss};
+            double t[3] = {cp * d[0] - sp * d[1], sp * d[0] + cp * d[1], d[2]};
+            round.insert(round.end(), {col0[0], col0[1], col0[2], col1[0], col1[1], col1[2], col2[0], col2[1], col2[2], t[0], t[1], t[2]});
+        }
+        b = nullptr;
+        expect("stations: twisted ring, joined",
+               smlib_sweep_stations(ring.kinds.data(), ring.nk(), ring.reals.data(), ring.nr(), round.data(), m, SMLIB_ENDS_JOINED, &b), &b,
+               64.0 * 2.0 * PI * 30.0, 1e-5);
+        // Hostile maps: a singular matrix, a NaN, one station, unknown ends.
+        std::vector<double> flat = twist;
+        flat[12 * 5 + 0] = 0.0;
+        flat[12 * 5 + 1] = 0.0;
+        flat[12 * 5 + 2] = 0.0;
+        b = nullptr;
+        CHECK(smlib_sweep_stations(square.kinds.data(), square.nk(), square.reals.data(), square.nr(), flat.data(), n, SMLIB_ENDS_CAPPED, &b) ==
+                  SMLIB_ERR_ARG &&
+              b == nullptr);
+        std::vector<double> nan_map = twist;
+        nan_map[7] = NAN;
+        CHECK(smlib_sweep_stations(square.kinds.data(), square.nk(), square.reals.data(), square.nr(), nan_map.data(), n, SMLIB_ENDS_CAPPED, &b) ==
+                  SMLIB_ERR_ARG &&
+              b == nullptr);
+        CHECK(smlib_sweep_stations(square.kinds.data(), square.nk(), square.reals.data(), square.nr(), twist.data(), 1, SMLIB_ENDS_CAPPED, &b) ==
+                  SMLIB_ERR_ARG &&
+              b == nullptr);
+        CHECK(smlib_sweep_stations(square.kinds.data(), square.nk(), square.reals.data(), square.nr(), twist.data(), n, 7, &b) == SMLIB_ERR_ARG &&
+              b == nullptr);
+        CHECK(smlib_sweep_stations(square.kinds.data(), square.nk(), square.reals.data(), square.nr(), nullptr, n, SMLIB_ENDS_CAPPED, &b) ==
+                  SMLIB_ERR_ARG &&
+              b == nullptr);
     }
 
     // Hostile lists: nothing is built, nothing crashes.
