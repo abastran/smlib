@@ -1279,9 +1279,9 @@ TCHAR sBuff[SM_TBLOCK_SIZE];
   if ( m_bHaveLowerBracket && m_bHaveUpperBracket )
     {
       // solve with bisection
-      SolveByBisection( 20, m_dLowerBracketT, m_dUpperBracketT,
+      (void)SolveByBisection( 20, m_dLowerBracketT, m_dUpperBracketT,
           m_dLowerBracketF, m_dUpperBracketF,
-          m_vCurr.m_dT, m_vCurr.m_dFOfT );
+          m_vCurr.m_dT, m_vCurr.m_dFOfT ); // SolidCraft: a failed bisection writes nothing, m_vCurr keeps the last evaluated iterate judged next
     }
 
   if ( smos_Fabs( m_vCurr.m_dFOfT ) < m_dAcceptableAccuracy )

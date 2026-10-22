@@ -776,3 +776,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   report. Every spindle torus with a whole turn of U failed silently, even its outer sheet alone.
   An apex may now bound the V domain but not lie inside it (as a sphere's poles, SmSphere tests 4
   and 5), and test 5 reports how far inside it lies.
+- **The solvers' last dropped statuses** (`SmGlobalSolver.cpp`, `BranchMayContainAnswers`;
+  `SmLocalSolve1d.cpp`, `SolveIt`; all three solver files now build with `-Werror=unused-value`):
+  the branch culling for perspective projections went on with directions it could not unitize,
+  and the surface-projected test with offset-box samples it could not evaluate, both giving a
+  bound too small to cull by; a branch that cannot be bounded is now kept. The bisection at the
+  end of a 1D solve writes nothing when it fails, so its status is discarded with that reason.
