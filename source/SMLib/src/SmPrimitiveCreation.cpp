@@ -26,6 +26,7 @@
 #include <SmLine.h>
 #include <SmAssertArray.h>
 #include <SmMerge.h>
+#include <vector>
 
 #ifdef SM_DEBUG_CODE
 #include <SmCrvOnSurf.h>
@@ -2602,6 +2603,112 @@ SmBoolean bDebugMe = FALSE ;
 } // end sm_CreateAnalyticRotationalSweep
 
 /*******************************************************************//**
+PURPOSE: Nest the closed shells a full-turn revolution leaves side by side.
+
+NOTES: The full turn builds a face per profile curve and lets StitchAndOrient orient them,
+  which puts each closed shell in the infinite region as a solid of its own. A profile whose
+  boundary meets the axis more than twice (a half annulus with both arcs ending on the axis)
+  or holds a hole revolves into shells inside one another: the inner one bounds a void in the
+  outer one's material, not a second solid (a hollow ball came out as two balls, its volume the
+  sum of both). Each shell found inside another one's material is moved into the region of the
+  shell directly around it, turned round where it bounds a void, and the regions' void flags
+  are set from the nesting.
+***********************************************************************/
+static SmStatus sm_NestRevolvedShells(SmBrep *pBrep)
+{
+  SmRegion *pInfinite = pBrep->GetInfiniteRegion();
+  if (pInfinite == NULL)
+    { return SM_SUCCESS; }
+  SmTArray<SmShell*> sOuter;
+  pInfinite->GetShells(sOuter);
+  const ULONG n = sOuter.GetSize();
+  if (n < 2)
+    { return SM_SUCCESS; }
+
+  // Each shell of the infinite region is closed, its mate the boundary of the region inside it.
+  SmTArray<SmShell*> sMates;
+  SmTArray<SmPoint3d> sOnShell;
+  for (ULONG i=0; i<n; i++)
+    {
+      SmShell *pS = sOuter[i];
+      SmTArray<SmShell*> sMated;
+      if (!pS->IsFaceuseShell() || !pS->IsClosed())
+        { return SM_SUCCESS; }
+      SER(pS->GetMatedShells(sMated));
+      if (sMated.GetSize() != 1)
+        { return SM_SUCCESS; }
+      sMates.Add(sMated[0]);
+      SmTArray<SmFaceuse*> sFUs;
+      pS->GetFaceuses(sFUs);
+      SmTArray<SmVertex*> sVertices;
+      if (sFUs.GetSize() > 0)
+        { sFUs[0]->GetFace()->GetVertices(sVertices); }
+      if (sVertices.GetSize() == 0)
+        { return SM_SUCCESS; }
+      sOnShell.Add(sVertices[0]->GetPoint());
+    }
+
+  // inside[i*n+j]: shell i lies in the region inside shell j.
+  SmZoneTol3d dTol = SmTol::GetZoneTol3d(pBrep);
+  SmVector3d sRay(1.23456, 2.34567, 3.45678);
+  SER(sRay.Unitize());
+  SmTArray<ULONG> sDepth;
+  std::vector<bool> inside(n * n, false);
+  for (ULONG i=0; i<n; i++)
+    {
+      ULONG lDepth = 0;
+      for (ULONG j=0; j<n; j++)
+        {
+          if (i == j)
+            { continue; }
+          SmRegion *pRegion = NULL;
+          // The region on the point's side of the first face of shell j the ray meets (none:
+          // the ray misses it, the point is outside).
+          SmPointClassification sClass;
+          SER(sMates[j]->RayFire(sOnShell[i], sRay, dTol, pRegion, sClass));
+          if (pRegion != NULL && pRegion == sMates[j]->GetRegion())
+            {
+              inside[i * n + j] = true;
+              lDepth++;
+            }
+        }
+      sDepth.Add(lDepth);
+    }
+
+  SmBoolean bMoved = FALSE;
+  for (ULONG i=0; i<n; i++)
+    {
+      if (sDepth[i] == 0)
+        { continue; }
+      // The shell directly around shell i: one it lies in, one level up.
+      SmShell *pParent = NULL;
+      for (ULONG j=0; j<n && pParent==NULL; j++)
+        {
+          if (inside[i * n + j] && sDepth[j] + 1 == sDepth[i])
+            { pParent = sMates[j]; }
+        }
+      if (pParent == NULL)
+        { SER(SM_ERR); }
+      SmShell *pS = sOuter[i];
+      SER(pInfinite->Remove(pS));
+      SER(pParent->GetRegion()->PostInsert(pS));
+      bMoved = TRUE;
+      if (sDepth[i] % 2 == 1)
+        {
+          // A void: its faces point into it, away from the material around it.
+          SmTArray<SmFaceuse*> sFUs;
+          pS->GetFaceuses(sFUs);
+          for (ULONG k=0; k<sFUs.GetSize(); k++)
+            { SER(sFUs[k]->GetFace()->SwapUV()); }
+        }
+    }
+  if (bMoved)
+    { SER(pBrep->SetRegionIsVoidFlagsForNestedSolids()); }
+  return SM_SUCCESS;
+
+} // end sm_NestRevolvedShells
+
+/*******************************************************************//**
 PURPOSE: Creates a planar face from the given curves, and sweeps them,
          possibly into a solid.
 
@@ -2821,6 +2928,7 @@ if(bDebugMe)
   } // end for each curve.
 
   pBrep->StitchAndOrient();
+  SER(sm_NestRevolvedShells(pBrep));
 
   pBrep->m_bEditingEnabled = FALSE;
 
