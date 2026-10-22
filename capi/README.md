@@ -32,7 +32,8 @@ links it) on Windows.
 
 So far the API covers what's needed to prove the build (init, copy, free, box, volume, counts,
 manifold check and native file read/write), SMLib's own validity check (`smlib_brep_check`),
-exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history and the flat
+exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), the exact box
+(`smlib_brep_bounds`), history and the flat
 arrays below. SolidCraft's kernel adapter adds the rest, one shim at a time, each with a case in
 a fuzz target.
 history, the flat arrays below and the operations. SolidCraft's kernel adapter adds the rest,
@@ -82,7 +83,8 @@ zero inside the edge (the round would pinch to a point) is `SMLIB_ERR_UNSUPPORTE
 `tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
 regression cases, both against analytic volumes and `smlib_brep_check` level 2.
 
-exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), history, the flat
+exact mass properties (`smlib_brep_mass_properties`, `smlib_brep_area`), the exact box
+(`smlib_brep_bounds`), history, the flat
 arrays and surface/surface intersection below. SolidCraft's kernel adapter adds the rest, one
 shim at a time, each with a case in a fuzz target.
 

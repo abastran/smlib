@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // smlib_brep_mass_properties and smlib_brep_area: SMLib's exact (integrated, not tessellated)
-// area, volume, centroid and inertia.
+// area, volume, centroid and inertia; smlib_brep_bounds: the exact box.
 
 #include "smlib_shim.h"
 
@@ -140,6 +140,37 @@ extern "C" int32_t smlib_brep_area(const smlib_brep *brep, double relative_accur
                 return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
             }
             *out = total;
+            return SMLIB_OK;
+        }
+    );
+}
+
+extern "C" int32_t smlib_brep_bounds(const smlib_brep *brep, double lo[3], double hi[3])
+{
+    if (!valid(brep) || lo == nullptr || hi == nullptr)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_brep_bounds", handle(brep));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            // The tight box: the extrema of every vertex, edge and face on their exact geometry,
+            // not the control hulls or tolerance-grown boxes CalculateBoundingBox unions.
+            SmExtent3d box;
+            int32_t s = status(brep->p->CalculateTightBoundingBox(box));
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            const double r[6] = {box.GetUMin(), box.GetVMin(), box.GetWMin(), box.GetUMax(), box.GetVMax(), box.GetWMax()};
+            if (!finite(r, 6) || r[0] > r[3] || r[1] > r[4] || r[2] > r[5])
+            {
+                return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
+            }
+            std::memcpy(lo, r, 3 * sizeof(double));
+            std::memcpy(hi, r + 3, 3 * sizeof(double));
             return SMLIB_OK;
         }
     );
