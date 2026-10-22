@@ -8066,20 +8066,23 @@ static       ULONG lFoundItem ;
       pCopyCurve->GlobalPropertyAnalysis( sDomain, SM_CP_MINIMIZE_RADIUS_OF_CURVATURE,
                                           NULL, NULL, dMinSep, rSolutionArray );
 
+      // The minimum radius is the smallest solution value. Unlike
+      // MINIMIZE_FIRST_DERIVATIVE, the function minimized here is the radius
+      // of curvature itself, F = |C'|^3 / |C' x C"| (SmCurvePropertyEFO::Evaluate),
+      // and LocalPropertyAnalysis returns F at each solution in
+      // m_vStart.m_dSolutionValue.
+      ULONG lSol ;
+      for(lSol=0;lSol<rSolutionArray.GetSize();lSol++)
+        {
+          if(rSolutionArray[lSol].m_vStart.m_dSolutionValue < dMinRadius)
+            {
+              dMinRadius      = rSolutionArray[lSol].m_vStart.m_dSolutionValue ;
+              dMinRadiusParam = rSolutionArray[lSol].m_vStart[0] ;
+            }
+        }
+
       if(dMinRadius < dTol)
         {
-          // Note, the same comment as for MINIMIZE_FIRST_DERIVATIVE could
-          // apply here, but in this case the function value used is indeed
-          // the actual radius of curvature.
-
-          // save values for debugging convenience
-          dMinRadius      =   rSolutionArray.GetSize() > 0
-                            ? rSolutionArray[0].m_vStart.m_dSolutionValue 
-                            : SM_BIG_DOUBLE ;
-          dMinRadiusParam =   rSolutionArray.GetSize() > 0
-                            ? rSolutionArray[0].m_vStart.m_adParameters[0]
-                            : 0.0 ;
-
           if(GetDim() == 2)
             { 
               /* 13 */
