@@ -241,9 +241,9 @@ int main()
                                 ring_path.nk(), ring_path.reals.data(), ring_path.nr(), SMLIB_SWEEP_FOLLOW, 1, &b);
         int64_t counts[3] = {0, 0, 0};
         CHECK(s == SMLIB_OK && b != nullptr && smlib_brep_counts(b, counts) == SMLIB_OK);
-        // Round arcs about one axis the walls are SM_API's surfaces of revolution: the disc's a
-        // torus; the square's two planes and two rational NURBS (its revolved lines), which SMLib
-        // measures within 1e-4, as its other revolutions.
+        // Round arcs about one axis the walls are SM_API's surfaces of revolution, analytic for
+        // each profile curve: the disc's a torus; the square's two planes and two cylinders (its
+        // lines parallel to the axis).
         smlib_flat *f = nullptr;
         const int64_t *types = nullptr;
         int64_t n = 0;
@@ -257,9 +257,8 @@ int main()
         smlib_flat_free(f);
         std::printf("%-34s faces %lld, nurbs %lld\n", round ? "sweep disc round a circle" : "sweep square round a circle",
                     static_cast<long long>(counts[0]), static_cast<long long>(nurbs));
-        CHECK(counts[0] == (round ? 1 : 4) && nurbs == (round ? 0 : 2));
-        expect(round ? "sweep disc round a circle" : "sweep square round a circle", s, &b, (round ? PI * 9.0 : 25.0) * 2 * PI * 30.0,
-               round ? 1e-6 : 1e-4);
+        CHECK(counts[0] == (round ? 1 : 4) && nurbs == 0);
+        expect(round ? "sweep disc round a circle" : "sweep square round a circle", s, &b, (round ? PI * 9.0 : 25.0) * 2 * PI * 30.0, 1e-6);
     }
     // Round a closed path of lines and arcs (a stadium: 20 straight, a half turn of radius 10,
     // back, and round) the ends meet the same way: one wall per path piece, no caps, A L.

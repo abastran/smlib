@@ -2250,325 +2250,6 @@ SmBoolean bDebugMe = FALSE ;
 
 } // end SmPrimitiveCreation::CreateLinearSweep( Faces with nRepetitions given)
 
-/*******************************************************************//**
-PURPOSE: Creates an analytic solid by revolving the given curve about an axis
-
-NOTES:   Revolving a line 
-             SmCylinder: If the line is parallel to the axis
-             SmCone    : If the interior of the line does not intersect the axis
-         Revolving an arc
-             SmSphere  : If the arc is 180 deg and the endpoints rest on the axis
-             SmTorus   : If the arc is 360 deg and the arc does not intersect the axis
-***********************************************************************/
-SmStatus sm_CreateAnalyticRotationalSweep
- (SmCurve*           & r3DCurve,        // in : Curve to revolve. Must be coplanar. Not consumed.
-  const SmPoint3d    & crRotAxisBasePt, // in : Position of axis of revolution
-  const SmVector3d   & crRotAxisDir,    // in : Direction of axis of revolution
-  SmBrep*              pBrep )          // i/o:
-{
-
-#ifdef SM_DEBUG_CODE
-SmBoolean bDebugMe = FALSE ;
-    if(bDebugMe)
-    {
-        smgfx_Erase() ;
-        smgfx_SetLook(1,2, 0,0,1) ; r3DCurve->Draw() ; sm_GraphicsLoop() ;
-        smgfx_SetLook(1,2, 0,1,0) ; crRotAxisDir.Draw(&crRotAxisBasePt) ; sm_GraphicsLoop() ;
-    }
-#endif // SM_DEBUG_CODE
-    
-    const SmContext* pContext = pBrep->GetContext();
-    double dBrepTol = pBrep->GetTolerance();
-
-    SmSurface* pAnalSrf = NULL;
-
-    SmAxis2Placement sFrame;
-    double   dRadius = 0.0;
-    double   dStartAngleDeg = 0;
-    double   dEndAngleDeg = 0;
-    double   dStartDist, dEndDist;
-    SmFace*  pFace = NULL;
-    SmStatus eStat = SM_ERR;
-
-    SmPoint3d sStartPt, sEndPt;
-    r3DCurve->GetEnds( sStartPt, sEndPt );
-
-    SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dStartDist, NULL ) );
-    SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt,   dEndDist,   NULL ) );
-
-    // Revolving a line can be a cylinder or a cone
-    if( r3DCurve->IsLinear( )  )
-    {
-        SmVector3d sLineVector = sEndPt - sStartPt;
-        double dLineLength = sStartPt.DistanceBetween( sEndPt );
-        if ( dLineLength < dBrepTol )
-          { SER( SM_ERR_INVALID_INPUT ); }
-        sLineVector /= dLineLength;
-
-        // Get an appropriate angle tolerance.  Both ends of line should be
-        // within 3d tol of parallel or perpendicular.
-        double dLength = smos_4Max( dStartDist, dEndDist, dLineLength, SM_EFF_ZERO_SQRT );
-        double dAngleTolDeg = SM_RAD2DEG( dBrepTol / dLength );
-
-        // SmCylinder: Line must parallel to axis
-        //             Line must not be coincident with axis
-        if ( sLineVector.IsParallelTo( crRotAxisDir, dAngleTolDeg ) )
-        {
-            if ( dStartDist <= dBrepTol )
-              { return SM_ERR; } // line on axis
-
-            // Given curve is a line parallel to the axis and not coincident with it.
-
-            // X axis: from the axis towards the line
-            // Y axis: for right-handed rotation
-            // Note these vectors can't be zero because sStartPt is off the axis.
-            SmVector3d sDiffVec( sStartPt - crRotAxisBasePt );
-            SmVector3d sYAxis  ( sLineVector * sDiffVec );
-            SER( sYAxis.Unitize() );
-            SmVector3d sXAxis  ( sYAxis * sLineVector );
-
-            // Find the base point for the cylinder.
-            // Drop the Start point to the axis.
-            double dT;
-            SER( smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dT ) );
-            SmPoint3d sBasePoint = crRotAxisBasePt + dT * crRotAxisDir;
-
-            SER( sFrame.SetCanonical( sBasePoint, sXAxis, sYAxis ) );
-
-            SmCylinder* pCylinder = NULL;
-            eStat = SmCylinder::CreateCanonical( *pContext, sFrame, dStartDist, pCylinder ); 
-
-            if( eStat == SM_SUCCESS ) 
-            {
-                double dHeight = sStartPt.DistanceBetween( sEndPt );
-                SmExtent2d sExtent;
-                SER( sExtent.SetMinMax( 0, 0, 360.0, dHeight ) );  
-                SER( pCylinder->AdjustSTEPUVDomain( sExtent ) );
-
-                pAnalSrf = pCylinder;
-            }
-        } // end if we can create a cylinder
-
-        // SmPlane: To avoid revolving a disk we will create a circular plane in this case
-        else if( sLineVector.IsPerpendicularTo( crRotAxisDir, dAngleTolDeg )  )
-        {
-            // Build circle(s).
-            SmCircle* pCircle = NULL;
-            SmTArray <SmCurve*> sCurves;
-
-            // Find the center point for circles.
-            // Both Start and End points should drop to the same point.
-            double dT;
-            SER( smgu_LineClosestPoint( crRotAxisBasePt, crRotAxisDir, sStartPt, dT ) );
-            SmPoint3d sBasePoint = crRotAxisBasePt + dT * crRotAxisDir;
-
-            double dEndDistance   = 0.0;
-            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dEndDistance ) );
-
-            // Reference frame: Make the vector point away from the axis,
-            // and make the rotation CCW (right-hand rule).
-            // (Just for consistency; probably doesn't actually make a difference.)
-            // sLineVector is the x-axis.
-            if ( dStartDist > dEndDistance)
-              { sLineVector *= -1.0; }
-            SmVector3d sYAxis = crRotAxisDir * sLineVector;
-            SER( sFrame.SetCanonical( sBasePoint, sLineVector, sYAxis ) );
-
-            SmScaledZero dScaledZero = SmTol::GetScaledZero(sStartPt, sEndPt) ;
-
-            if ( dStartDist > dScaledZero )
-              {
-                SER( SmCircle::CreateCanonical( *pContext, sFrame, dStartDist, pCircle ) );
-                sCurves.Add( pCircle );
-              }
-            if (dEndDistance > dScaledZero )
-              {
-                SER( SmCircle::CreateCanonical( *pContext, sFrame, dEndDistance, pCircle ) );
-                sCurves.Add( pCircle );
-              }
-
-            // create circular plane
-            double dTol = pBrep->GetTolerance(); // Can't be too loose.  [B447]
-            eStat = pBrep->CreatePlanarFaceWith3DCurves( pBrep->GetInfiniteRegion(), // in : region to contain newFace - not checked
-                                                                                     //      NULL for infinite region.
-                                                         sCurves,                    // in : array of planar curves to bound newFace - curves used by NewEdges
-                                                         dTol,                       // in : 3d Distance for planarity checks
-                                                         pFace );                    // out: new face
-
-            // Since we have already added the face to the brep 
-            pAnalSrf = NULL;
-
-        } // end if we can create a plane.
-
-        // SmCone: Line must not intersect axis at any points other than the endpoints
-        else 
-        {
-            // Determine radius by dropping start pt onto axis 
-            double dBottomRadius = 0.0;
-            double dBottomParam = 0.0;
-            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dBottomRadius, &dBottomParam ) );
-
-            double dTopRadius = 0.0;
-            double dTopParam = 0.0;
-            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dTopRadius, &dTopParam ) );
-
-            SmLine sAxisLine( crRotAxisBasePt, crRotAxisDir, 3, TRUE, pContext, FALSE );
-
-            SmSolutionArray sSolutions;
-            SER( sAxisLine.GlobalCurveIntersect( sAxisLine.GetNaturalInterval(),
-                                            *r3DCurve, r3DCurve->GetNaturalInterval(), dBrepTol,
-                                            sSolutions ) );
-
-            if( sSolutions.GetSize() > 0 ) 
-            {
-                SmExtent1d sExtent = r3DCurve->GetNaturalInterval();
-                double dParamTol   = SM_EFF_ZERO_SQRT/100.0 * (1.0 + sExtent.GetLength()) ;
-
-                // Two lines can only have one solution (one point or all points)
-                if (sSolutions[0].m_eSolutionType == SM_ST_SINGLE_VALUE) 
-                {
-                    // Get parameter of intersection on second curve
-                    double dT = sSolutions[0].m_vStart[1];
-
-                    if( !( fabs( sExtent.GetMin() - dT ) < dParamTol || fabs( sExtent.GetMax() - dT ) < dParamTol  ) )
-                        return( SM_ERR );
-                }
-                else if (sSolutions[0].m_eSolutionType == SM_ST_RANGE_OF_VALUES)
-                  { return( SM_ERR ); } // input line on axis.
-            }
-
-            SmPoint3d sBottomPt;
-            SER( sAxisLine.EvaluatePoint( dBottomParam, sBottomPt ) );
-
-            SmPoint3d sTopPt;
-            SER( sAxisLine.EvaluatePoint( dTopParam, sTopPt ) );
-
-            // The height is the distance between drop points.
-            double dHeight = sBottomPt.DistanceBetween( sTopPt );
-
-            // X axis: from the axis towards the line
-            // Y axis: for right-handed rotation
-            // Note these vectors can't be zero because sStartPt is off the axis.
-            double dDot = crRotAxisDir.Dot( sLineVector );
-            SmVector3d sTmpVector = dDot < 0.0 ? crRotAxisDir * -1 : crRotAxisDir;
-
-            SmVector3d sDiffVec( sStartPt - crRotAxisBasePt );
-            SmVector3d sYAxis  ( sTmpVector * sDiffVec );
-            SER( sYAxis.Unitize() );
-            SmVector3d sXAxis  ( sYAxis * sTmpVector );
-
-            SER( sFrame.SetCanonical( sBottomPt, sXAxis, sYAxis ) );
-
-            SmCone* pCone = NULL;
-            eStat = SmCone::CreateCanonical( *pContext, sFrame, dBottomRadius, dTopRadius, dHeight, pCone ); 
-            if( eStat == SM_SUCCESS )
-            {
-                pAnalSrf = pCone;
-            }
-        } // end else creating a cone
-
-    } // end if curve is linear
-
-    // Revolving an arc can be a sphere or a torus
-    // Tol should be a function of size
-    else if( ((SmBSplineCurve*)r3DCurve)->IsArc( 8, dBrepTol, sFrame, dRadius, dStartAngleDeg, dEndAngleDeg ) )
-    {
-        double dSweepAngleDeg = dEndAngleDeg - dStartAngleDeg;
-
-        // SmSphere: Curve must be a half circle
-        //           Curve endpoints must be on axis
-        if( dSweepAngleDeg < 180.0 + dBrepTol && dSweepAngleDeg > 180.0 - dBrepTol )
-        {
-            double dDist = 0.0;
-            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sStartPt, dDist, NULL ) );
-            if( dDist > dBrepTol )
-                return( SM_ERR );
-
-            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sEndPt, dDist, NULL ) );
-            if( dDist > dBrepTol )
-                return( SM_ERR );
-               
-            SmSphere* pSphere = NULL;
-            eStat = SmSphere::CreateCanonical( *pContext, sFrame, dRadius, pSphere );
-            if( eStat == SM_SUCCESS ) 
-            {
-                pAnalSrf = pSphere;
-            }
-        }
-        // SmTorus: curve must be a full circle
-        //          curve must not intersect axis
-        else if( dSweepAngleDeg < 360.0 + dBrepTol && dSweepAngleDeg > 360.0 - dBrepTol )
-        {
-            SmLine sAxisLine( crRotAxisBasePt, crRotAxisDir, 3, TRUE, pContext, FALSE );
-
-            SmSolutionArray sSolutions;
-            SER( sAxisLine.GlobalCurveIntersect( sAxisLine.GetNaturalInterval(), *r3DCurve, r3DCurve->GetNaturalInterval(), dBrepTol, sSolutions ) );
-            if( sSolutions.GetSize() > 0 ) 
-                return( SM_ERR );
-
-            // The Minor radius is the radius of the circle
-            // The major radius is the distance from the center of the circle to the perpedicular to the axis
-            double dMajorRadius = 0.0;
-            double dParamOnAxis = 0.0;
-            SER( smgu_LinePointDistance( crRotAxisBasePt, crRotAxisDir, sFrame.GetOriginRef(), dMajorRadius, &dParamOnAxis ) );
-
-            // sPntOnAxis is the point where the center of the circle drops to the axis
-            SmPoint3d sPntOnAxis = crRotAxisBasePt + dParamOnAxis * crRotAxisDir;
-
-            SmTArray<SmCurve*> sInputCurves;
-            sInputCurves.Add( r3DCurve );
-
-            SmVector3d sCrvNormal;
-            SER( SmCurve::ComputeCrvsNormal( sInputCurves, sCrvNormal ) );
-
-            // The frame for the torus must be based at the base of the axis
-            // And oriented 
-            SmVector3d xAxis = sCrvNormal;
-            //if( crRotAxisDir.IsParallelTo( xAxis ) )
-            //    xAxis.Set( 0,1,0 );
-
-            SmVector3d yAxis = xAxis * crRotAxisDir;
-            SER( sFrame.SetCanonical( sPntOnAxis, xAxis, yAxis ) );
-
-#ifdef SM_DEBUG_CODE
-    if(bDebugMe)
-    {
-        smgfx_SetLook( 4,4, 1,0,0 ); xAxis.Draw( &sPntOnAxis ); sm_GraphicsLoop();
-        smgfx_SetLook( 4,4, 1,1,0 ); yAxis.Draw( &sPntOnAxis ); sm_GraphicsLoop();
-    }
-#endif // SM_DEBUG_CODE
-
-            SmTorus* pTorus = NULL;
-            eStat = SmTorus::CreateCanonical( *pContext, sFrame, dMajorRadius, dRadius, pTorus );
-            if( eStat == SM_SUCCESS )
-            {
-                pAnalSrf = pTorus;
-            }
-        }
-    } // end else if curve is a circle
-
-    if( eStat == SM_SUCCESS && pAnalSrf != NULL )
-    {
-        eStat = pBrep->CreateFaceFromSurface( pAnalSrf, pAnalSrf->GetNaturalUVDomain(), pFace );
-    }
-
-    if( eStat != SM_SUCCESS || pFace == NULL )
-      { return SM_ERR; }
-
-#ifdef SM_DEBUG_CODE
-    if(bDebugMe)
-    {
-        if ( FALSE ) {
-            smgfx_Erase() ;
-            smgfx_SetLook(1,2, 0,0,1) ; if(pBrep) pBrep->Draw(TRUE) ; sm_GraphicsLoop() ;
-        }
-        smgfx_SetLook(1,2, 0,0,0); pFace->Draw( SM_DM_CROSSHATCH,2,2 ); sm_GraphicsLoop() ;
-    }
-#endif // SM_DEBUG_CODE
-
-    return SM_SUCCESS;
-
-} // end sm_CreateAnalyticRotationalSweep
 
 /*******************************************************************//**
 PURPOSE: Nest the closed shells a full-turn revolution leaves side by side.
@@ -2740,18 +2421,6 @@ if(bDebugMe)
   }
 #endif // SM_DEBUG_CODE
 
-  // If only one curve is input, we will try to catch cases where analytic surfaces can be built
-  // If this fails then we have another chance below
-  if( r3DCurves.GetSize() == 1 )
-    {
-      if( sm_CreateAnalyticRotationalSweep( r3DCurves[0], crRotAxisBasePt, crRotAxisDir, pBrep ) == SM_SUCCESS )
-        {
-          // This does not consume the curve.
-          delete r3DCurves[0]; r3DCurves[0] = NULL;
-
-          return( SM_SUCCESS );
-        }
-    }
 
   // for every curve
   for(ii=0;ii<r3DCurves.GetSize();ii++) 
@@ -2852,6 +2521,26 @@ if(bDebugMe)
           }
 
         } // end if we can create a plane.
+
+      // SolidCraft: otherwise the analytic surface the curve sweeps, where it is one
+      // (SmRotationalSweepGeometry::AnalyticSurface: a cylinder, cone, sphere or torus bounded
+      // to the curve and the whole turn). Upstream made one only for a profile of a single
+      // curve, a whole circle or a half circle on the axis, and swept every curve of any other
+      // profile as an SmSurfOfRevolution.
+      if ( pFace == NULL && pCrvToRevolve != NULL )
+        {
+          SmBSplineSurface * pAnalytic = NULL;
+          SER( SmRotationalSweepGeometry::AnalyticSurface( *pContext, pCrvToRevolve, crRotAxisBasePt, crRotAxisDir,
+                                                           360.0, pBrep->GetTolerance(), pAnalytic ) );
+          if ( pAnalytic != NULL )
+            {
+              // The face takes the surface over.
+              SER( pBrep->CreateFaceFromSurface( (SmSurface*)pAnalytic, pAnalytic->GetNaturalUVDomain(), pFace ) );
+              NER( pFace );
+              delete pCrvToRevolve;  pCrvToRevolve = NULL;
+              r3DCurves[ii] = NULL ;
+            }
+        }
 
       // If we didn't successfully create a Plane face, create a Rev Surf.
       if ( pFace == NULL && pCrvToRevolve != NULL )
