@@ -787,3 +787,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   and the surface-projected test with offset-box samples it could not evaluate, both giving a
   bound too small to cull by; a branch that cannot be bounded is now kept. The bisection at the
   end of a 1D solve writes nothing when it fails, so its status is discarded with that reason.
+- **Curves and surfaces drop no status** (`SmCurve.cpp`, `SmBSplineCurve.cpp`, `SmSurface.cpp`,
+  `SmBSplineSurface.cpp`, all in `SMLIB_STATUS_CLEAN`): about 950 calls dropped their status and
+  read what the failed call left unset. Functions that return a status pass it on; predicates
+  return what they can show without the value (FALSE, or TRUE for a cull that can rule nothing
+  out); optional point outputs are left uninitialised; drawing discards with that reason. A
+  disjoint `Intersect` is an answer: a solver branch outside the interval of interest has no
+  work. The B-spline curve check reports a test it can't run (tests 5/6, 11-14) instead of
+  sizing it from an unset box.
