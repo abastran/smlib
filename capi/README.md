@@ -674,3 +674,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   a turn passed it. The U and V tests, and the surface of revolution's U test, also reported
   under the ids of other tests (2 and 3, "Same Parameterization" / "Parameterization"). The V test
   now reads the V interval, and each test reports under its own id.
+- **Two curves that change sides cross; they don't coincide** (`SmCurve.cpp`,
+  `SmCurve::SimpleCoincidenceChecker`, which `SmCCIGlobalSolver` runs on each pair of spans): a
+  pair of spans whose end points lie within tolerance of the other curve, the curves staying within
+  tolerance between, was a coincidence range between those ends. Two equal circles a little apart
+  (r 5, centres 1e-4 mm apart, the walls of a prism on a ring) graze within tolerance over a
+  stretch; their spans end at the circles' tops, so the range ran from one top to the other, an
+  interval set by the subdivision, while the faces' own classification found the one crossing
+  between them. The union then shared a 5e-5 mm edge among four faces (solidcore#480). A range is
+  now a coincidence only where the separation keeps one side; where it points to opposite sides at
+  the range's ends, the answer is the crossing a curve/curve intersection finds there. Curves
+  that coincide (equal circles, the separation numeric zero) still give their range.
