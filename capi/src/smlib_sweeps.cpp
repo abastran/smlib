@@ -581,9 +581,44 @@ extern "C" int32_t smlib_revolve(const int64_t *kinds, int64_t n_kinds, const do
     );
 }
 
+namespace
+{
+
+// Writes the motion `k` (0 first, 1 middle, 2 last) of smlib_sweep_placed: the columns, then the
+// translation.
+void put_motion(double *placed, int k, const SmVector3d &x, const SmVector3d &y, const SmVector3d &z, const SmPoint3d &t)
+{
+    double *m = placed + 12 * k;
+    const SmVector3d c[3] = {x, y, z};
+    for (int i = 0; i < 3; ++i)
+    {
+        m[3 * i] = c[i].x;
+        m[3 * i + 1] = c[i].y;
+        m[3 * i + 2] = c[i].z;
+    }
+    m[9] = t.x;
+    m[10] = t.y;
+    m[11] = t.z;
+}
+
+// `v` turned `angle` right-handed about the unit `k` (Rodrigues).
+SmVector3d turned(const SmVector3d &v, const SmVector3d &k, double angle)
+{
+    return v * std::cos(angle) + (k * v) * std::sin(angle) + k * (k.Dot(v) * (1.0 - std::cos(angle)));
+}
+
+} // namespace
+
 extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *path_kinds,
                                int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals, int32_t frame, int32_t cap,
                                smlib_brep **out)
+{
+    return smlib_sweep_placed(kinds, n_kinds, reals, n_reals, path_kinds, n_path_kinds, path_reals, n_path_reals, frame, cap, out, nullptr);
+}
+
+extern "C" int32_t smlib_sweep_placed(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals,
+                                      const int64_t *path_kinds, int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals,
+                                      int32_t frame, int32_t cap, smlib_brep **out, double *placed)
 {
     if (out == nullptr || (frame != SMLIB_SWEEP_FOLLOW && frame != SMLIB_SWEEP_TRANSLATE) || (cap != 0 && cap != 1))
     {
@@ -620,6 +655,14 @@ extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const doub
                     delete r;
                     return s;
                 }
+                if (placed != nullptr)
+                {
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const SmVector3d t = dir * (distance * 0.5 * k);
+                        put_motion(placed, k, SmVector3d(1, 0, 0), SmVector3d(0, 1, 0), SmVector3d(0, 0, 1), SmPoint3d(t.x, t.y, t.z));
+                    }
+                }
                 return finish(r, cap != 0, out);
             }
             // Turning with a path of arcs about one axis, the profile turns about it: SM_API's
@@ -636,6 +679,24 @@ extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const doub
                 {
                     delete r;
                     return s;
+                }
+                if (placed != nullptr)
+                {
+                    SmVector3d k = axis;
+                    if (k.Unitize() != SM_SUCCESS)
+                    {
+                        delete r;
+                        return SMLIB_ERR_ARG;
+                    }
+                    const double turn = degrees * SM_PI / 180.0;
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        const double a = turn * 0.5 * j;
+                        const SmVector3d c(centre.x, centre.y, centre.z);
+                        const SmVector3d t = c - turned(c, k, a);
+                        put_motion(placed, j, turned(SmVector3d(1, 0, 0), k, a), turned(SmVector3d(0, 1, 0), k, a), turned(SmVector3d(0, 0, 1), k, a),
+                                   SmPoint3d(t.x, t.y, t.z));
+                    }
                 }
                 return finish(r, cap != 0, out);
             }
@@ -657,7 +718,15 @@ extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const doub
             options.bProfileAtPathStart = TRUE;
             SmTArray<SmCurve *> a = profile.array();
             SmBrep *r = nullptr;
-            s = status(SmApiCreateCurveSweep(a, along.get(), nullptr, nullptr, &options, r, nullptr, nullptr, nullptr));
+            SmAxis2Placement motions[3];
+            s = status(SmApiCreateCurveSweep(a, along.get(), nullptr, nullptr, &options, r, nullptr, nullptr, nullptr, placed != nullptr ? motions : nullptr));
+            if (s == SMLIB_OK && placed != nullptr)
+            {
+                for (int k = 0; k < 3; ++k)
+                {
+                    put_motion(placed, k, motions[k].GetXAxis(), motions[k].GetYAxis(), motions[k].GetZAxis(), motions[k].GetOriginRef());
+                }
+            }
             if (s == SMLIB_OK && closed)
             {
                 ULONG stitched = 0, lamina = 0;

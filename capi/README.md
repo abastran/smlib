@@ -93,7 +93,8 @@ shim at a time, each with a case in a fuzz target.
 `src/smlib_sweeps.cpp`: `smlib_extrude` (straight through `SmApiCreateLinearSweep`, drafted
 through `SmApiCreateTaperExtrude`), `smlib_revolve` (`SmApiCreateRotationalSweep`), `smlib_sweep`
 (`SmApiCreateCurveSweep`, the path's curves joined into one B-spline, the profile carried as it
-lies relative to the path; round a closed path the walls are sewn to each other where the ends
+lies relative to the path; `smlib_sweep_placed` also says where it placed the profile at its
+first, middle and last sections; round a closed path the walls are sewn to each other where the ends
 meet, with no caps; along a straight path `SmApiCreateLinearSweep` and, turning with arcs about
 one axis, `SmApiCreateRotationalSweep`, whose walls are exact
 surfaces where the curve sweep fits B-splines), `smlib_loft`
@@ -460,6 +461,16 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   where the law must be extended past the edge's ends and its curve can't be (a constant law
   curve of zero speed), and set the offset surfaces to an uninitialised radius. They now return
   the failure (`SetUp` changing nothing), and the stepping checks `SetupOffsetValues`.
+- **Where a curve sweep places the profile** (`NL_SrfAdv.cpp`, `N_CreateSweepScale`;
+  `SmBSplineSurfaceNLib.cpp`, `SmBSplineSurface::CreateSweepSurface`; `SmPrimitiveCreation.cpp`,
+  `SmPrimitiveCreation::CreateCurveSweep`; `SmApiBrep.cpp`, `SmApiCreateCurveSweep`): the sweep
+  carries the section on local systems it computes from point to point along the path (each
+  z the last one taken square to the next tangent), so along a path in space nobody else can say
+  where the profile ends up, and a caller sweeping a path with corners piece by piece could not
+  start the next piece where the last one left the profile. Each now takes an optional output
+  (default none): the systems of the first, middle and last sections it places, and, from
+  `CreateCurveSweep` up, the rigid motions carrying the profile as given onto them.
+  `smlib_sweep_placed` hands them on.
 - **A planar path's sweep frame** (`SmPrimitiveCreation.cpp`, `SmPrimitiveCreation::CreateCurveSweep`):
   the sweep carries the profile on a frame that starts as the one `MakeUnitOrthoVectors` builds on
   the path's start tangent. For a start tangent along +y its z lies in a planar path's plane, and a

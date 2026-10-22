@@ -771,6 +771,19 @@ int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, 
                     int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals, int32_t frame, int32_t cap,
                     smlib_brep **out);
 
+/* smlib_sweep, also saying where it placed the profile: `placed` (36 numbers, or NULL for none)
+ * gets three rigid motions, 12 numbers each as smlib_sweep_stations takes its maps (a 3 x 3
+ * matrix by columns, then a translation), carrying the profile as given onto the sweep's first
+ * section, a section about half way along (the middle one of those the sweep places) and its last
+ * section. The curve sweep turns the profile on its own frame, computed from point to point along
+ * the path, so only the sweep can say where it leaves the profile; a caller that carries on from
+ * there (a path with corners swept piece by piece) takes the last motion. Along a straight path
+ * the motions are the translations to the start, middle and end; turning with arcs about one
+ * axis, the turns by none, half and all of the angle. Meaningful only on success. */
+int32_t smlib_sweep_placed(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *path_kinds,
+                           int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals, int32_t frame, int32_t cap,
+                           smlib_brep **out, double *placed);
+
 /* A loft (skin) through `n_sections` (>= 2) sections, each a closed loop of curves: the curve
  * list holds the sections' curves one section after the other, `section_sizes[i]` curves for
  * section i. A section with holes holds its loops one after the other, its outline first; each loop
