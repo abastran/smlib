@@ -8467,7 +8467,8 @@ static double sm_GetProjSignedAngle   // rtn: angle from -PI to +PI
 
   // get and return  CCW angle in radians
   double dTheta;
-  SE(sPlaneNormal.CCWAngleBetween(sVec1,sVec2,dTheta));
+  if (sPlaneNormal.CCWAngleBetween(sVec1,sVec2,dTheta) != SM_SUCCESS)
+    { return SM_BIG_DOUBLE; } // SolidCraft: the documented error value
   return dTheta;
 
 } // end sm_GetProjSignedAngle
@@ -22417,7 +22418,7 @@ SmDisplayList * SmCurve::DrawWDeriv
   smgfx_Open(smgfx_GetRuleColor(this), NULL, NULL, FALSE, pOptGfxSet);
 
   // Add Curve Graphics using this object's color
-  SE(OutputGraphics(crIntervalToDraw, sDisp, NULL, pOptOutPlane, pOptGfxSet));
+  (void)OutputGraphics(crIntervalToDraw, sDisp, NULL, pOptOutPlane, pOptGfxSet); // SolidCraft: drawing only
 
   // end display list
   smgfx_OutputColor(sColor) ;

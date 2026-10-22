@@ -12114,8 +12114,10 @@ SmExtent2d SmSurface::GetDomainWithContinuity // rtn: domain surrounding crUV po
  const
 {
 
+    // SolidCraft: without the cache (or its knots) the continuities are unknown and no domain
+    // can be shown continuous: an uninitialised (empty) domain, not a NULL dereference
     SmSurfaceCache * pSurfaceCache = smsurf_GetSurfaceCache(this);
-    if (pSurfaceCache == NULL) SE(SM_ERR);
+    if (pSurfaceCache == NULL) { return SmExtent2d(); }
 
     // Start out with natural domain and then shrink it if needed
     SmExtent2d sRetDomain = GetNaturalUVDomain();
@@ -12131,7 +12133,7 @@ SmExtent2d SmSurface::GetDomainWithContinuity // rtn: domain surrounding crUV po
 
     // For each dimension
     {
-        SE(GetKnots(SM_SP_U,dKnots));
+        if (GetKnots(SM_SP_U,dKnots) != SM_SUCCESS) { return SmExtent2d(); }
         const SmTArray<SmContinuityType> & rUConts = pSurfaceCache->GetUContinuitiesArray();
         for (ULONG i=0; i<rUConts.GetSize(); i++) {
             if (rUConts[i] < eMinContinuity) {
@@ -12167,7 +12169,7 @@ SmExtent2d SmSurface::GetDomainWithContinuity // rtn: domain surrounding crUV po
     }
 
     {
-        SE(GetKnots(SM_SP_V,dKnots));
+        if (GetKnots(SM_SP_V,dKnots) != SM_SUCCESS) { return SmExtent2d(); }
         const SmTArray<SmContinuityType> & rVConts = pSurfaceCache->GetVContinuitiesArray();
         for (ULONG j=0; j<rVConts.GetSize(); j++) {
             if (rVConts[j] < eMinContinuity) {
@@ -14367,7 +14369,8 @@ SmBoolean bDebugMe = FALSE ;
               double dNewTGuess;
               SmBoolean bFoundGuess ;
               SmTsectCurveType  ePointType ;
-              SE(sm_ClassifyCurveSurfaceXSectPoint((*pSrfEval),  // was SER [090811]
+              // SolidCraft: a point that can't be classified adds no guess
+              SmStatus eClassified = sm_ClassifyCurveSurfaceXSectPoint((*pSrfEval),  // was SER [090811]
                                                     sSurfUVDomain,
                                                     *pCurve,
                                                     sCurveIvl,
@@ -14376,8 +14379,8 @@ SmBoolean bDebugMe = FALSE ;
                                                     bFoundGuess,
                                                     sNewUVGuess,
                                                     dNewTGuess,
-                                                    ePointType));
-              if (bFoundGuess)
+                                                    ePointType);
+              if (eClassified == SM_SUCCESS && bFoundGuess)
                 {
                   sUVGuesses[lNumGuesses]   = sNewUVGuess;
                   sTGuesses[lNumGuesses++] = dNewTGuess;
@@ -18537,7 +18540,8 @@ SmBoolean bDebugMe = FALSE;
               double dNewTGuess;
               SmBoolean bFoundGuess ;
               SmTsectCurveType ePointType ;
-              SE(sm_ClassifyCurveSurfaceXSectPoint(*pSrfEval, // was SER [090811]
+              // SolidCraft: a point that can't be classified adds no guess
+              SmStatus eClassified = sm_ClassifyCurveSurfaceXSectPoint(*pSrfEval, // was SER [090811]
                                                     sUVDomain,
                                                     sTmpLine,
                                                     sTmpIvl,
@@ -18546,8 +18550,8 @@ SmBoolean bDebugMe = FALSE;
                                                     bFoundGuess,
                                                     sNewUVGuess,
                                                     dNewTGuess,
-                                                    ePointType));
-              if (bFoundGuess)
+                                                    ePointType);
+              if (eClassified == SM_SUCCESS && bFoundGuess)
                 {
                   sUVGuesses[lNumGuesses]  = sNewUVGuess;
                   sTGuesses[lNumGuesses++] = dNewTGuess;
@@ -24043,17 +24047,18 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // Trim ISO curve Trim it to the length of the input UVTrimCurve line.
-  SE(pIsoCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
+  // SolidCraft: an iso curve that can't be trimmed or reparameterized is no output curve
+  if (pIsoCurve->Trim(sTrimIvl) != SM_SUCCESS) { return FALSE; } // may snap sIvl by tol to existing knots
 
   // when needed -
   if (bReverseCurve)
     {
       // reverese isoParamCurve parameterization to equal input UVTrimcCurve direction
-      SE(pIsoCurve->ReverseParameterization(pIsoCurve->GetNaturalInterval(),sTrimIvl));
+      if (pIsoCurve->ReverseParameterization(pIsoCurve->GetNaturalInterval(),sTrimIvl) != SM_SUCCESS) { return FALSE; }
     }
 
   // Set IsoCurve parameterization to equal input interval
-  SE(pIsoCurve->EditParameterization(crInterval));
+  if (pIsoCurve->EditParameterization(crInterval) != SM_SUCCESS) { return FALSE; }
 
   // all done - make isoCurve permanent, set output, and return
   sCleanup.Clear();
@@ -31671,13 +31676,13 @@ SmStatus SmSurface::OutputGraphics
       // get surface->MidPoint position and normal
       SmPoint2d sUVMid = pTgtSurface->GetNaturalUVDomain().Evaluate(0.5,0.5);
       SmExtent3d sBBox;
-      SE(pTgtSurface->CalculateBoundingBox(GetNaturalUVDomain(),&sBBox));
+      (void)pTgtSurface->CalculateBoundingBox(GetNaturalUVDomain(),&sBBox) ; // SolidCraft: drawing only
       double dDist = sBBox.GetMin().DistanceBetween(sBBox.GetMax());
       dDist = dDist/4.0;
       SmPoint3d sPnt;
       SmVector3d sNorm;
-      SE( pTgtSurface->EvaluatePoint(sUVMid,sPnt));
-      SE( pTgtSurface->EvaluateNormal(sUVMid,TRUE,TRUE,sNorm));
+      (void)pTgtSurface->EvaluatePoint(sUVMid,sPnt) ; // SolidCraft: drawing only
+      (void)pTgtSurface->EvaluateNormal(sUVMid,TRUE,TRUE,sNorm) ; // SolidCraft: drawing only
       sNorm = sNorm * dDist;
 
       SmPoint3d sPnt2 = sPnt + sNorm;
@@ -32199,11 +32204,11 @@ SmStatus SmSurface::OutputGraphics
                                              sPnt3 = sPnt + sDV;
                                              bPnt3 = TRUE;             break;
                   case SM_DM_UNIT_NORMAL   : sPnt2 = sPnt + sNorm;     break;
-                  case SM_DM_U_SCALED      : SE(sDU.Unitize()); sPnt2 = sPnt + sDU * dScale; break;
-                  case SM_DM_V_SCALED      : SE(sDV.Unitize()); sPnt2 = sPnt + sDV * dScale; break;
+                  case SM_DM_U_SCALED      : (void)sDU.Unitize(); /* SolidCraft: drawing only */ sPnt2 = sPnt + sDU * dScale; break;
+                  case SM_DM_V_SCALED      : (void)sDV.Unitize(); /* SolidCraft: drawing only */ sPnt2 = sPnt + sDV * dScale; break;
                   case SM_DM_UVW_SCALED    :
-                  case SM_DM_UV_SCALED     : SE(sDU.Unitize()); sPnt2 = sPnt + sDU * dScale;
-                                             SE(sDV.Unitize()); sPnt3 = sPnt + sDV * dScale;
+                  case SM_DM_UV_SCALED     : (void)sDU.Unitize(); /* SolidCraft: drawing only */ sPnt2 = sPnt + sDU * dScale;
+                                             (void)sDV.Unitize(); sPnt3 = sPnt + sDV * dScale;
                                              bPnt3 = TRUE;                                   break;
                   case SM_DM_SCALED_NORMAL : sPnt2 = sPnt + sNorm * dScale;                  break;
 
@@ -32263,7 +32268,7 @@ SmDisplayList * SmSurface::Draw
   smgfx_Open(smgfx_GetRuleColor(this, rDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
   // Make the graphics calls
-  SE(OutputGraphics(rDisp, NULL, NULL, pOptGfxSet));
+  (void)OutputGraphics(rDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end this DisplayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33531,7 +33536,7 @@ SmDisplayList * SmSurface::DrawUV
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
   // output graphics commands
-  SE(OutputGraphics(sDisp, NULL, pOptUVDomain, pOptGfxSet));
+  (void)OutputGraphics(sDisp, NULL, pOptUVDomain, pOptGfxSet) ; // SolidCraft: drawing only
 
   // close displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33607,7 +33612,7 @@ SmDisplayList * SmSurface::DrawCurvature
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
   // output graphics commands
-  SE(OutputGraphics(sDisp, NULL, pOptUVDomain, pOptGfxSet));
+  (void)OutputGraphics(sDisp, NULL, pOptUVDomain, pOptGfxSet) ; // SolidCraft: drawing only
 
   // close displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
