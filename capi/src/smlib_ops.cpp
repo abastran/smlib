@@ -13,6 +13,7 @@
 
 #include <SmApiBrep.h>
 #include <SmApiQueries.h>
+#include <SmAttribute.h>
 #include <SmBSplineCurve.h>
 #include <SmEdge.h>
 #include <SmEdgeuse.h>
@@ -47,6 +48,118 @@ const double TANGENT_COS = std::cos(SM_CONTINUITY_ANGLE * SM_PI / 180.0);
 
 // Owns an SmBrep until it is handed on.
 using Owned = std::unique_ptr<SmBrep>;
+
+// A mark the shim puts on entities before SMLib runs: on every face of the working body, or on
+// each surface it hands SMLib to move a face onto. SMLib hands an attribute on through every
+// split, merge and copy it makes (SmAObject::Notify, as for the history tags of
+// smlib_history.cpp) and builds new topology without any, so afterwards a face without a mark is
+// new to the operation, and a face whose surface has one lies where the shim asked a face to go.
+// (A shell's wall is no such test: SMLib makes it of copies of the body's faces and surfaces.)
+class Before : public SmAttribute
+{
+public:
+    // Above SMLib's own ids, beside the history tag's (SM_AI_USER_1 + 7).
+    static constexpr ULONG ID = SM_AI_USER_1 + 8;
+    static constexpr SM_TYPE TYPE = APPLICATION_BASE_TYPE + 4712;
+
+    Before() : SmAttribute(ID, SM_AB_COPY)
+    {
+    }
+    SmAttribute *MakeCopy(const SmContext &c) const override
+    {
+        return new (c) Before();
+    }
+    SM_TYPE GetType() const override
+    {
+        return TYPE;
+    }
+    SmBoolean IsKindOf(SM_TYPE t) const override
+    {
+        return t == TYPE ? TRUE : SmAttribute::IsKindOf(t);
+    }
+
+    static bool on(const SmAObject *x)
+    {
+        SmAttribute *a = x == nullptr ? nullptr : x->FindAttribute(ID);
+        return a != nullptr && a->GetType() == TYPE;
+    }
+    static void mark(SmAObject *x)
+    {
+        if (x != nullptr && !on(x))
+        {
+            x->AddAttribute(new (*x->GetContext()) Before());
+        }
+    }
+    static void clear(SmAObject *x)
+    {
+        if (x == nullptr)
+        {
+            return;
+        }
+        if (SmAttribute *a = x->FindAttribute(ID); a != nullptr && a->GetType() == TYPE)
+        {
+            x->RemoveAttribute(a);
+        }
+    }
+};
+
+// Marks every face of `b` as there before the operation.
+void mark_faces(SmBrep *b)
+{
+    SmTArray<SmFace *> faces;
+    b->GetFaces(faces);
+    for (ULONG i = 0; i < faces.GetSize(); ++i)
+    {
+        Before::mark(faces[i]);
+    }
+}
+
+// The faces of `b` an operation made (without a Before mark), and the faces on a marked surface
+// (`on_marked_surface`); every mark on `b`'s faces and surfaces is removed.
+void read_marks(SmBrep *b, size_t &made, size_t &on_marked_surface)
+{
+    made = 0;
+    on_marked_surface = 0;
+    SmTArray<SmFace *> faces;
+    b->GetFaces(faces);
+    for (ULONG i = 0; i < faces.GetSize(); ++i)
+    {
+        if (!Before::on(faces[i]))
+        {
+            ++made;
+        }
+        if (Before::on(faces[i]->GetSurface()))
+        {
+            ++on_marked_surface;
+        }
+    }
+    for (ULONG i = 0; i < faces.GetSize(); ++i)
+    {
+        Before::clear(faces[i]);
+        Before::clear(faces[i]->GetSurface());
+    }
+}
+
+// The status of SMLib's local operation on `b`, which was handed marked surfaces: when it
+// reports success, some face of `b` must lie on one of them, or it moved none
+// (SMLIB_ERR_NO_EFFECT). Removes the marks.
+int32_t moved_faces(SmBrep *b, int32_t s)
+{
+    size_t made = 0;
+    size_t moved = 0;
+    read_marks(b, made, moved);
+    return s != SMLIB_OK || moved > 0 ? s : SMLIB_ERR_NO_EFFECT;
+}
+
+// Faces made by an operation on `b` whose faces were marked by mark_faces: none means SMLib
+// reported success without doing anything (SMLIB_ERR_NO_EFFECT). Removes the marks.
+int32_t made_faces(SmBrep *b)
+{
+    size_t made = 0;
+    size_t still = 0;
+    read_marks(b, made, still);
+    return made > 0 ? SMLIB_OK : SMLIB_ERR_NO_EFFECT;
+}
 
 // A deep copy, or null.
 Owned copy_of(const smlib_brep *b, int32_t &s)
@@ -314,6 +427,7 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
         r0.Add(first[i]);
         r1.Add(second[i]);
     }
+    mark_faces(b);
     SmFilletExecutive exec(*SmApiGetOrCreateContext(), b);
     int32_t s = status(exec.SetFilletParameters(b, es, kinds, solvers, r0, nullptr, -1.0, -1.0, -1.0, -1.0, 1, 1.0, &r1));
     if (s != SMLIB_OK)
@@ -340,7 +454,10 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
         note_blend_failure(exec, s);
         return s;
     }
-    return status(b->StitchAndOrient());
+    s = status(b->StitchAndOrient());
+    // A chamfer that made no face did nothing, whatever SMLib's status said.
+    int32_t made = made_faces(b);
+    return s != SMLIB_OK ? s : made;
 }
 
 // Chamfers `edges` of `b` in place, edge i `distances[i]` back along each face.
@@ -516,6 +633,7 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
     {
         return SMLIB_ERR_ARG;
     }
+    mark_faces(b);
     SmFilletExecutive exec(*SmApiGetOrCreateContext(), b);
     // The curvature-continuous section is the quintic whose inner control points lie a third
     // and two thirds of the way from each contact to the corner its tangents make.
@@ -535,7 +653,10 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
         note_blend_failure(exec, s);
         return s;
     }
-    return status(b->StitchAndOrient());
+    s = status(b->StitchAndOrient());
+    // A round that made no face did nothing, whatever SMLib's status said.
+    int32_t made = made_faces(b);
+    return s != SMLIB_OK ? s : made;
 }
 
 // Hands a finished operation's body to the caller: it must have faces, and a solid input must
@@ -787,7 +908,11 @@ int32_t move_faces(SmBrep *b, const std::vector<SmFace *> &picked, double distan
         faces.Add(f);
         surfaces.Add(s);
     }
-    return status(b->LocalOperation(faces, surfaces));
+    for (ULONG k = 0; k < surfaces.GetSize(); ++k)
+    {
+        Before::mark(surfaces[k]);
+    }
+    return moved_faces(b, status(b->LocalOperation(faces, surfaces)));
 }
 
 // Tilts each face of `picked` (planes only) by `angle` radians about its line on the neutral
@@ -866,7 +991,11 @@ int32_t draft_faces(SmBrep *b, const std::vector<SmFace *> &picked, const SmPoin
         faces.Add(f);
         surfaces.Add(tilted);
     }
-    return status(b->LocalOperation(faces, surfaces));
+    for (ULONG k = 0; k < surfaces.GetSize(); ++k)
+    {
+        Before::mark(surfaces[k]);
+    }
+    return moved_faces(b, status(b->LocalOperation(faces, surfaces)));
 }
 
 } // namespace
