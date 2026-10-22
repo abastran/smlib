@@ -808,3 +808,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   U, V)` constructor): the V knots were copied into a destination given U's size, which
   `smos_MemCpy` refuses when V has more knots; the refusal was dropped and the knots stayed as
   allocated. The destination has V's size.
+- **Solver answers taken for failures** (`SmCurve.cpp`, `sm_RefineCCSolutions`; `SmLocalSolveNd.cpp`,
+  `SolveIt`; `SmSurface.cpp`, `sm_GetOriginalSurface`): refining a curve/curve range solution
+  passed on `SmExtent1d::Inversion`'s SM_ERR for a parameter just outside the range, aborting the
+  intersection; the fraction is the answer and the shift limit judges it. An N-D solve whose guess
+  couldn't be evaluated said it had found a solution; it finds none. A tree node with no surface
+  cache returned the owner cast to one; it returns NULL, which the solvers check. (The spindle
+  torus entry above is tangency-labs/solidcore#524.)
