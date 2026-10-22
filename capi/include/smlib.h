@@ -894,13 +894,17 @@ int32_t smlib_split_faces(const smlib_brep *body, const int64_t *faces, int64_t 
  * empty is SMLIB_ERR_NO_CUT; a body that is no manifold solid SMLIB_ERR_NOT_SOLID. */
 int32_t smlib_split_body(const smlib_brep *body, const smlib_surface *tool, smlib_brep **back, smlib_brep **front);
 
+/* A point inside each face of `body`, in its face order, into `out` (3 * `n_faces` numbers):
+ * on the face's surface and inside its trims (SmFace::CalculateAnInternalPoint). `n_faces` must
+ * be the body's face count, else SMLIB_ERR_ARG. */
+int32_t smlib_face_points(const smlib_brep *body, double *out, int64_t n_faces);
+
 /* ---- Extend (src/smlib_extend.cpp) -------------------------------------------------------- */
 
 /* The input is a shape the call does not take (here: a sheet that is not one face bounded by
  * its surface's parameter lines, or an edge that is not a whole side of it). */
 #define SMLIB_ERR_UNSUPPORTED (-1105)
-/* The answer is not exact in the input's geometry (here: an analytic surface whose speed across
- * the side varies along it, or a box that would run past a pole or wrap round). */
+/* The answer is not exact in the input's geometry. */
 #define SMLIB_ERR_NOT_EXACT (-1106)
 
 /* How a surface continues past its side: its own geometry (a B-spline's end spans continued), a
@@ -909,12 +913,12 @@ int32_t smlib_split_body(const smlib_brep *body, const smlib_surface *tool, smli
 #define SMLIB_EXTEND_TANGENT 1
 #define SMLIB_EXTEND_CURVATURE 2
 
-/* A new body: the one-face sheet `sheet`, whose face is the whole parameter box of its surface
- * (for a B-spline, all of the surface), continued `distance` (> 0) past the side its edge
- * nearest `point` (within `tol`) runs along, as `mode` says. An analytic surface keeps its
- * geometry and its box grows by the parameter step that crosses `distance` (the same all along
- * the side, else SMLIB_ERR_NOT_EXACT); only a plane takes the G1 and G2 modes (as itself). A
- * B-spline surface is SMLib's extended surface. The face keeps its orientation. */
+/* A new body: the one-face sheet `sheet`, whose face is the whole parameter box of its surface,
+ * continued `distance` (> 0) past the side its edge nearest `point` (within `tol`) runs along, as
+ * `mode` says: SMLib's extension of the surface (CreateExtendedSurface; analytic surfaces are
+ * B-splines in SMLib, extended the same way and given back their analytic kind where the result
+ * is one). The face keeps its orientation; it and its sides keep the attributes of those they
+ * continue. A face that is not its surface's whole box is SMLIB_ERR_UNSUPPORTED. */
 int32_t smlib_extend_sheet(const smlib_brep *sheet, const double point[3], double tol, double distance, int32_t mode, smlib_brep **out);
 
 /* ---- Untrim (src/smlib_untrim.cpp) -------------------------------------------------------- */

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // smlib_extend_sheet: a one-face sheet bounded by its surface's parameter lines, continued past
-// one of those sides. A B-spline surface is extended by SMLib (SmBSplineSurface::
-// CreateExtendedSurface: its end spans continued, or a G1 or G2 run-off); an analytic surface
-// keeps its own geometry and the face's parameter box grows on that side, where the distance
-// is the same parameter step all along it (a plane, a cylinder or cone along its rulings or
-// round its axis, a sphere or torus across a circle of constant speed). A plane continued at
-// G1 or G2 is the plane itself. The new face, and each of its sides, takes the attributes of the
-// face and side it continues (history tags).
+// one of those sides by SMLib's extension of the surface (SmBSplineSurface::CreateExtendedSurface:
+// its end spans continued, or a G1 or G2 run-off). SMLib holds every surface, its analytic ones
+// included, as a B-spline (SmPlane, SmCylinder, SmCone, SmSphere and SmTorus derive from
+// SmBSplineSurface), so one path serves all: the extended B-spline continues a plane, a circle or
+// any conic section on itself, and CopyAndAddAnalytics gives it back its analytic kind where it
+// is one. The new face, and each of its sides, takes the attributes of the face and side it
+// continues (history tags).
 
 #include "smlib_shim.h"
 
@@ -21,7 +21,6 @@
 #include <SmFace.h>
 #include <SmFaceuse.h>
 #include <SmLoop.h>
-#include <SmPlane.h>
 
 #include <cmath>
 #include <memory>
@@ -141,38 +140,6 @@ bool is_boundary(const SmSurface *surf, const SmExtent2d &dom, const Side &s, co
     return true;
 }
 
-// The parameter step that moves `distance` across side `s` (outward), the same all along it;
-// false where the speed across it varies along the side.
-bool analytic_step(const SmSurface *surf, const SmExtent2d &dom, const Side &s, double distance, double &step)
-{
-    double first = 0.0;
-    for (int i = 0; i <= SAMPLES; ++i)
-    {
-        SmVector3d p;
-        SmVector3d du;
-        SmVector3d dv;
-        if (!eval(surf, on_side(dom, s, double(i) / SAMPLES), p, &du, &dv))
-        {
-            return false;
-        }
-        double speed = (s.u ? du : dv).Length();
-        if (!(speed > 0.0) || !std::isfinite(speed))
-        {
-            return false;
-        }
-        if (i == 0)
-        {
-            first = speed;
-        }
-        else if (std::fabs(speed - first) > 1e-9 * first)
-        {
-            return false;
-        }
-    }
-    step = distance / first;
-    return std::isfinite(step) && step > 0.0;
-}
-
 // The edge of `edges` that side `s` of `dom` runs along (nearest the side's middle), or null for
 // a side collapsed to a point.
 SmEdge *side_edge(const SmSurface *surf, const SmExtent2d &dom, const Side &s, const SmTArray<SmEdge *> &edges, double on)
@@ -274,75 +241,34 @@ extern "C" int32_t smlib_extend_sheet(const smlib_brep *sheet, const double *poi
                 return SMLIB_ERR_UNSUPPORTED;
             }
             const SmContext &ctx = *SmApiGetOrCreateContext();
+            // SMLib extends the whole surface; the face must be all of it.
+            SmExtent2d natural = surf->GetNaturalUVDomain();
+            double ptol = 1e-9 * std::max(1.0, std::max(natural.GetMax().x - natural.GetMin().x, natural.GetMax().y - natural.GetMin().y));
+            if (std::fabs(natural.GetMin().x - dom.GetMin().x) > ptol || std::fabs(natural.GetMin().y - dom.GetMin().y) > ptol ||
+                std::fabs(natural.GetMax().x - dom.GetMax().x) > ptol || std::fabs(natural.GetMax().y - dom.GetMax().y) > ptol)
+            {
+                return SMLIB_ERR_UNSUPPORTED;
+            }
+            SmContinuityType ct = mode == SMLIB_EXTEND_TANGENT ? SM_CT_G1 : mode == SMLIB_EXTEND_CURVATURE ? SM_CT_G1_G2 : SM_CT_CINFINITY;
+            SmSurface *extended = nullptr;
+            int32_t s = status(static_cast<SmBSplineSurface *>(surf)->CreateExtendedSurface(ctx, grow->which, distance, ct, extended));
+            std::unique_ptr<SmSurface> clean(extended);
+            if (s != SMLIB_OK || extended == nullptr)
+            {
+                return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;
+            }
             SmSurface *grown = nullptr;
-            SmExtent2d box = dom;
-            bool plane = surf->IsKindOf(SmPlane_TYPE);
-            if (surf->IsKindOf(SmBSplineSurface_TYPE))
+            s = status(extended->CopyAndAddAnalytics(ctx, grown));
+            if (s != SMLIB_OK || grown == nullptr)
             {
-                // SMLib extends the whole surface; the face must be all of it.
-                SmExtent2d natural = surf->GetNaturalUVDomain();
-                double ptol = 1e-9 * std::max(1.0, std::max(natural.GetMax().x - natural.GetMin().x, natural.GetMax().y - natural.GetMin().y));
-                if (std::fabs(natural.GetMin().x - dom.GetMin().x) > ptol || std::fabs(natural.GetMin().y - dom.GetMin().y) > ptol ||
-                    std::fabs(natural.GetMax().x - dom.GetMax().x) > ptol || std::fabs(natural.GetMax().y - dom.GetMax().y) > ptol)
-                {
-                    return SMLIB_ERR_UNSUPPORTED;
-                }
-                SmContinuityType ct = mode == SMLIB_EXTEND_TANGENT ? SM_CT_G1 : mode == SMLIB_EXTEND_CURVATURE ? SM_CT_G1_G2 : SM_CT_CINFINITY;
-                int32_t s = status(static_cast<SmBSplineSurface *>(surf)->CreateExtendedSurface(ctx, grow->which, distance, ct, grown));
-                if (s != SMLIB_OK || grown == nullptr)
-                {
-                    delete grown;
-                    return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;
-                }
-                box = grown->GetNaturalUVDomain();
+                delete grown;
+                return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;
             }
-            else
-            {
-                if (mode != SMLIB_EXTEND_NATURAL && !plane)
-                {
-                    return SMLIB_ERR_UNSUPPORTED;
-                }
-                double step = 0.0;
-                if (!analytic_step(surf, dom, *grow, distance, step))
-                {
-                    return SMLIB_ERR_NOT_EXACT;
-                }
-                SmPoint2d lo = dom.GetMin();
-                SmPoint2d hi = dom.GetMax();
-                double &edge = grow->u ? (grow->high ? hi.x : lo.x) : (grow->high ? hi.y : lo.y);
-                edge += grow->high ? step : -step;
-                // A box turned inside out (a side trimmed back past the opposite one) is no surface.
-                if (box.SetMinMax(lo, hi) != SM_SUCCESS)
-                {
-                    return SMLIB_ERR_ARG;
-                }
-                // A parameter box may not run past the surface's own (a sphere's poles) nor wrap
-                // round it (more than a full turn of a periodic direction).
-                SmExtent2d natural = surf->GetNaturalUVDomain();
-                double span = grow->u ? hi.x - lo.x : hi.y - lo.y;
-                double nlo = grow->u ? natural.GetMin().x : natural.GetMin().y;
-                double nhi = grow->u ? natural.GetMax().x : natural.GetMax().y;
-                if (std::isfinite(nlo) && std::isfinite(nhi) && nhi - nlo < 1e12)
-                {
-                    bool periodic = surf->IsPeriodic(natural, grow->u ? SM_SP_U : SM_SP_V) == TRUE;
-                    double ptol = 1e-12 * std::max(1.0, nhi - nlo);
-                    double a = grow->u ? lo.x : lo.y;
-                    double z = grow->u ? hi.x : hi.y;
-                    if (periodic ? span > nhi - nlo + ptol : (a < nlo - ptol || z > nhi + ptol))
-                    {
-                        return SMLIB_ERR_NOT_EXACT;
-                    }
-                }
-                if (surf->Copy(ctx, grown) != SM_SUCCESS || grown == nullptr)
-                {
-                    delete grown;
-                    return SMLIB_ERR_EMPTY;
-                }
-            }
+            SmExtent2d box = grown->GetNaturalUVDomain();
             std::unique_ptr<SmBrep> r(new (ctx) SmBrep());
             r->SetTolerance(b->GetTolerance());
             SmFace *nf = nullptr;
-            int32_t s = status(r->CreateFaceFromSurface(grown, box, nf));
+            s = status(r->CreateFaceFromSurface(grown, box, nf));
             if (s != SMLIB_OK || nf == nullptr)
             {
                 return s != SMLIB_OK ? s : SMLIB_ERR_EMPTY;

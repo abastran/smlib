@@ -244,16 +244,18 @@ the tool surface (`SM_BO_SLICE`), once as it is and once turned over (`SwapUV`; 
 the side from the surface's normal, not from the face's use), giving the part behind the surface
 and the part in front of it. A tool that misses leaves both parts the whole body.
 
+`smlib_face_points(body, out, n_faces)` gives a point inside each face
+(`SmFace::CalculateAnInternalPoint`), so a trim can tell which side of its tool each piece lies on.
+
 ## Extend
 
 `smlib_extend_sheet(sheet, point, tol, distance, mode, &out)` continues a one-face sheet past the
-side its edge nearest `point` runs along. The face must be its surface's whole parameter box
-(for a B-spline, the whole surface); anything else is `SMLIB_ERR_UNSUPPORTED`. A B-spline surface
-is SMLib's extended surface (`SMLIB_EXTEND_NATURAL` continues its end spans, `_TANGENT` and
-`_CURVATURE` add a G1 or G2 run-off). An analytic surface keeps its geometry: its box grows by
-the parameter step that crosses `distance`, which must be the same all along the side
-(`SMLIB_ERR_NOT_EXACT` otherwise, or where the box would pass a pole or wrap round); only a plane
-takes the G1 and G2 modes, as itself.
+side its edge nearest `point` runs along. The face must be its surface's whole parameter box;
+anything else is `SMLIB_ERR_UNSUPPORTED`. The surface is SMLib's extended surface
+(`SmBSplineSurface::CreateExtendedSurface`: `SMLIB_EXTEND_NATURAL` continues its end spans,
+`_TANGENT` and `_CURVATURE` add a G1 or G2 run-off). SMLib's analytic surfaces are B-splines too
+(subclasses of `SmBSplineSurface`), so they take the same path; `CopyAndAddAnalytics` gives the
+result back its analytic kind where it is one.
 
 ## Untrim
 
