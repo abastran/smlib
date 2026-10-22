@@ -211,7 +211,7 @@ static int sm_ClassifyParamOnFaces    // rtn: Pt Classify value: 1 = On pFace1, 
 
   // classify sFaceUVParam against pFace1
   SmPointClassification ePC1(sSrcZoneTol3d, pFace1->GetContext()) ;
-  pFace1->PointClassify(sFaceUVParam,  // in : UVPoint to Classify 
+  (void)pFace1->PointClassify(sFaceUVParam,  // in : UVPoint to Classify // SolidCraft: on failure the classification stays SM_PC_UNKNOWN, out of the face
                         sSrcZoneTol3d, // NotUsed: in : Obj ZoneTol3d assoc with UVPoint, not this face  
                                        //               (if none, use: SmTol::GetZoneTol3d(Brep_Context_Or_NULL))
                         TRUE,          // NotUsed: in : TRUE = return point face->Vertex/Edge intersections when found 
@@ -229,7 +229,7 @@ static int sm_ClassifyParamOnFaces    // rtn: Pt Classify value: 1 = On pFace1, 
 
   // classify sFaceUVParam against pFace2
   SmPointClassification ePC2( sSrcZoneTol3d, pFace2->GetContext()) ;
-  pFace2->PointClassify(sFaceUVParam,  // in : UVPoint to Classify 
+  (void)pFace2->PointClassify(sFaceUVParam,  // in : UVPoint to Classify // SolidCraft: on failure the classification stays SM_PC_UNKNOWN, out of the face
                         sSrcZoneTol3d, // NotUsed: in : Obj ZoneTol3d assoc with UVPoint, not this face  
                                        //               (if none, use: SmTol::GetZoneTol3d(Brep_Context_Or_NULL))
                         TRUE,          // NotUsed: in : TRUE = return point face->Vertex/Edge intersections when found 
@@ -302,10 +302,11 @@ static SmBoolean sm_AreSameCurve
   SmBoolean bSuccess = FALSE;
 
   // Crv1 mid point
-  pCrv1->EvaluatePoint( dParam1, sMidPt1) ;
+  if (pCrv1->EvaluatePoint( dParam1, sMidPt1) != SM_SUCCESS) // SolidCraft change: no value, no evidence
+    { return FALSE ; }
 
   // Drop Crv1 mid point to Crv2 - get drop distance
-  pCrv2->DropPoint(crIvl2,            // in : target curve allowed domain
+  SmStatus eDropStat = pCrv2->DropPoint(crIvl2,            // in : target curve allowed domain
                    sMidPt1,           // in : Point to drop to curve
                    NULL,              // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                       //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -324,7 +325,7 @@ static SmBoolean sm_AreSameCurve
                                       //      default:[SM_SO_MINIMIZE] to preserve original behavior
 
   // return TRUE when DropPoint() succeeded and DropDist < dTol                                       
-  return ( bSuccess && dDist < dTol) ;
+  return ( eDropStat == SM_SUCCESS && bSuccess && dDist < dTol) ; // SolidCraft change: its status too
 
 } // end sm_AreSameCurve
 
@@ -363,7 +364,7 @@ USAGE NOTES----  gwc note: why not use the SmEdge::IsConnectTo() method?
 static SmBoolean sm_AreConnected( const SmEdge *pEdge, const SmFace *pFace )
 {
   SmTArray< SmEdgeuse* > sEUs;
-  pEdge->GetEdgeuses( sEUs) ;
+  (void)pEdge->GetEdgeuses( sEUs) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   SmEdgeuse *pEU;
   ULONG ii, lNumEUs = sEUs.GetSize();
   for(ii=0;ii<lNumEUs;ii++)
@@ -490,7 +491,8 @@ static SmProtoVertex* sm_WhichPVToCombine
   SmProtoVertex * sEndPV   = pOrigPE->GetEndProtoVertex() ;
 
   // Eval PE at SplitParam
-  pOrigPE->Evaluate( dSplitParam, &sSplitPt) ;
+  if (pOrigPE->Evaluate( dSplitParam, &sSplitPt) != SM_SUCCESS) // SolidCraft change: no value, no evidence
+    { return NULL ; }
 
   // return matching End PV or NULL for none
   if     (sStartPV->ContainsPoint(sSplitPt)) { return sStartPV ; }
@@ -593,15 +595,15 @@ SmVertexDefinition::SmVertexDefinition
   m_sPC2 = *cpPC2;
 
   if(! m_sPC1.AreParametersSet() )
-    { m_sPC1.ComputePointParameters( rPosition) ; }
+    { (void)m_sPC1.ComputePointParameters( rPosition) ; } // SolidCraft: a constructor cannot report
   if(! m_sPC2.AreParametersSet() )
-    { m_sPC2.ComputePointParameters( rPosition) ; }
+    { (void)m_sPC2.ComputePointParameters( rPosition) ; } // SolidCraft: a constructor cannot report
 
   if(dGap <= 0.0 )
     {
       SmPoint3d sPt1, sPt2;
-      m_sPC1.FindObjPoint3d( sPt1) ;
-      m_sPC2.FindObjPoint3d( sPt2) ;
+      (void)m_sPC1.FindObjPoint3d( sPt1) ; // SolidCraft: a constructor cannot report
+      (void)m_sPC2.FindObjPoint3d( sPt2) ; // SolidCraft: a constructor cannot report
       m_dGap = sPt1.DistanceBetween( sPt2) ;
       m_dGap = smos_Max( m_dGap, cpPC1->GetGap3d()) ;
       m_dGap = smos_Max( m_dGap, cpPC2->GetGap3d()) ;
@@ -674,8 +676,8 @@ USAGE NOTES----
 ***********************************************************************/
 SmStatus SmVertexDefinition::SetPointParameters()
 {
-  m_sPC1.ComputePointParameters( m_sPosition) ;
-  m_sPC2.ComputePointParameters( m_sPosition) ;
+  SER( m_sPC1.ComputePointParameters( m_sPosition)  );
+  SER( m_sPC2.ComputePointParameters( m_sPosition)  );
   return SM_SUCCESS;
 
 } // end SmVertexDefinition::SetPointParameters
@@ -719,8 +721,8 @@ SmStatus SmVertexDefinition::Resolve( int & riStatus ) // out: Unused; see Usage
   double dDist2 = m_sPC2.GetGap3d();
 
   SmPoint3d sPt1, sPt2;
-  m_sPC1.FindObjPoint3d( sPt1) ;
-  m_sPC2.FindObjPoint3d( sPt2) ;
+  SER( m_sPC1.FindObjPoint3d( sPt1)  );
+  SER( m_sPC2.FindObjPoint3d( sPt2)  );
 
   double dDist = sPt1.DistanceBetween( sPt2) ;
 
@@ -756,7 +758,7 @@ SmStatus SmVertexDefinition::Resolve( int & riStatus ) // out: Unused; see Usage
           if(dFracMax < dFracMin )
           { SM_ASSERT_MSG( dFracMin < dFracMax, _T( "VertexDefinition objects don't intersect." )) ; }
           else
-          { sFracIvl.SetMinMax( dFracMin, dFracMax) ; }
+          { SER( sFracIvl.SetMinMax( dFracMin, dFracMax)  ); }
 
           dFrac = dDist1 / ( dDist1 + dDist2) ;
           dFrac = sFracIvl.ClampValue( dFrac) ;
@@ -822,9 +824,9 @@ SmBrep                 * pBrep2        = pProtoTopoMgr ? pProtoTopoMgr->GetWhich
   SER( m_sPC1.MergeIntoObject( m_sPosition, /* m_dTol, */ &sNewEdges1, &sNewVerts1 ));
 
   if(sNewVerts1.GetSize() == 1 )
-  { SetFinalVertex( 1, sNewVerts1[0]) ; } 
+  { SER( SetFinalVertex( 1, sNewVerts1[0])  ); } 
   else if(this->GetSrcTopo_TYPE( 1 ) == SM_PC_VERTEX )
-  { SetFinalVertex( 1, m_sPC1.GetVertexObject()) ; } 
+  { SER( SetFinalVertex( 1, m_sPC1.GetVertexObject())  ); } 
   else
     { SER( SM_ERR) ; }
 
@@ -884,9 +886,9 @@ SmBrep                 * pBrep2        = pProtoTopoMgr ? pProtoTopoMgr->GetWhich
   SER( m_sPC2.MergeIntoObject( m_sPosition, /* m_dTol, */ &sNewEdges2, &sNewVerts2 ));
 
   if(sNewVerts2.GetSize() == 1 )
-  { SetFinalVertex( 2, sNewVerts2[0]) ; }
+  { SER( SetFinalVertex( 2, sNewVerts2[0])  ); }
   else if(this->GetSrcTopo_TYPE( 2 ) == SM_PC_VERTEX )
-  { SetFinalVertex( 2, m_sPC2.GetVertexObject()) ; } 
+  { SER( SetFinalVertex( 2, m_sPC2.GetVertexObject())  ); } 
   else
     { SER( SM_ERR) ; }
 
@@ -1024,15 +1026,16 @@ PURPOSE: Set the Curve Domain of this EdgeDefinition.
 
 USAGE NOTES---- Accounts for reversal: if dMin > dMax, reverses orientation.
 ***********************************************************************/
-void SmEdgeDefinition::SetXSectInterval( double dMin, double dMax )
+SmStatus SmEdgeDefinition::SetXSectInterval( double dMin, double dMax ) // SolidCraft change: returns the reversal's status
 {
   if(dMin <= dMax )
-    { m_pXSectInterval.SetMinMax( dMin, dMax) ; }
+    { SER( m_pXSectInterval.SetMinMax( dMin, dMax) ) ; }
   else
   {
-    this->ReverseOrientation();
-    m_pXSectInterval.SetMinMax( dMax, dMin) ;
+    SER( this->ReverseOrientation() );
+    SER( m_pXSectInterval.SetMinMax( dMax, dMin) ) ;
   }
+  return SM_SUCCESS;
 } // end SmEdgeDefinition::SetXSectInterval
 
 /*******************************************************************//**
@@ -1062,7 +1065,7 @@ SmStatus SmEdgeDefinition::GetEndPosition
   else                          { return SM_ERR; }
 
   // evaluate XSectCurve3d(dT) Pos3d 
-  m_pXSectCurve3d->EvaluatePoint( dT, rPosition) ;
+  SER( m_pXSectCurve3d->EvaluatePoint( dT, rPosition)  );
 
   // all done
   return SM_SUCCESS;
@@ -1093,7 +1096,7 @@ SmStatus SmEdgeDefinition::GetEndPosition
                            : m_pXSectInterval.GetMax() ;
 
   // evaluate Pos3d
-  m_pXSectCurve3d->EvaluatePoint( dParam, rPosition) ;
+  SER( m_pXSectCurve3d->EvaluatePoint( dParam, rPosition)  );
 
   // all done
   return SM_SUCCESS;
@@ -1212,7 +1215,7 @@ SmStatus SmEdgeDefinition::Reparameterize( const SmExtent1d & rNewDomain, // in
                                                  SmBoolean    bReverse )  // in, opt. Default: FALSE
 {
   if(bReverse )
-    { this->ReverseOrientation(); }
+    { SER( this->ReverseOrientation() ); }
 
   if(rNewDomain == m_pXSectInterval )
     { return SM_SUCCESS; }
@@ -1329,7 +1332,8 @@ SmBoolean SmEdgeDefinition::IsInteriorPoint(
   rdParam = dGuessParam;
 
   SmPoint3d sEndPos;
-  this->GetEndPosition( bAtStart, sEndPos) ;
+  if (this->GetEndPosition( bAtStart, sEndPos) != SM_SUCCESS) // SolidCraft change: no value, no evidence
+    { return FALSE ; }
 
   double dDist = crPosition.DistanceBetween( sEndPos) ;
 
@@ -1353,7 +1357,8 @@ SmBoolean SmEdgeDefinition::IsInteriorPoint(
 
   // See whether the split point is interior to this EdgeDef (in 3d).
   SmPoint3d sEdgePt;
-  this->Evaluate( rdParam, &sEdgePt) ;
+  if (this->Evaluate( rdParam, &sEdgePt) != SM_SUCCESS) // SolidCraft change: no value, no evidence
+    { return FALSE ; }
 
   dDist = sEdgePt.DistanceBetween( sEndPos) ;
 
@@ -1575,8 +1580,8 @@ SmBoolean SmEdgeDefinition::ExtendEndToProtoVertex
       delete m_pXSectCurve3d; m_pXSectCurve3d = pNew3d; pNew3d = NULL;
       if(apNewUV[0] != NULL ) { delete m_pXSectUVCurve1; m_pXSectUVCurve1 = apNewUV[0]; apNewUV[0] = NULL; }
       if(apNewUV[1] != NULL ) { delete m_pXSectUVCurve2; m_pXSectUVCurve2 = apNewUV[1]; apNewUV[1] = NULL; }
-      if(bAtEnd ) { m_pXSectInterval.SetMax( dNew) ; }
-      else        { m_pXSectInterval.SetMin( dNew) ; }
+      if(bAtEnd ) { (void)m_pXSectInterval.SetMax( dNew) ; } // SolidCraft: an end extended outward keeps min <= max
+      else        { (void)m_pXSectInterval.SetMin( dNew) ; } // SolidCraft: an end extended outward keeps min <= max
       bRet = TRUE;
     }
   delete pNew3d;
@@ -1701,8 +1706,8 @@ static int iDebugMe=0;
              || !m_pXSectInterval.ContainsValue(dParam, -SM_EFF_ZERO))
             { continue; }
           SmExtent1d sTrimmed = m_pXSectInterval;
-          if(iEnd == 0) { sTrimmed.SetMin(dParam); }
-          else          { sTrimmed.SetMax(dParam); }
+          if(iEnd == 0) { SER( sTrimmed.SetMin(dParam) ); }
+          else          { SER( sTrimmed.SetMax(dParam) ); }
           if(!(sTrimmed.GetLength() > SM_EFF_ZERO * (1.0 + smos_Fabs(dParam))))
             { continue; }
           // The UV curves are trimmed as SmEdgeDefinition::Split trims its pieces' curves, on
@@ -1778,7 +1783,7 @@ static int iDebugMe2=0;
           // MakeEdgeInFace can fail after it has implanted the curves in a new Edge of Brep1
           // (it sets each implanted curve's owner). Those belong to Brep1 now; Destruct()
           // deletes only the others.
-          this->Destruct(); // Get rid of our curves, which were not consumed.
+          SER( this->Destruct() ); // Get rid of our curves, which were not consumed.
           SER( eStat) ;
       }
 
@@ -1962,7 +1967,7 @@ SmStatus SmEdgeDefinition::Split
     { return SM_SUCCESS; }   //cbiTol breakpoint: how does this happen?
 
   SmPoint3d sCrvPt, sPt;
-  this->Evaluate( dParamPE, &sCrvPt) ;  // Takes reversal into account.
+  SER( this->Evaluate( dParamPE, &sCrvPt)  );  // Takes reversal into account.
 
 static constexpr double cbiFudge = 10.0;  //cbiTol: this is not working right.  Tol is too small.
 
@@ -1985,12 +1990,12 @@ static constexpr double cbiFudge = 10.0;  //cbiTol: this is not working right.  
   SmBrep *pBrep1 = this->GetProtoTopologyManager()->GetWhichBrep( 1) ;
   SmBrep *pBrep2 = this->GetProtoTopologyManager()->GetWhichBrep( 2) ;
   SmPointClassification sPC1( m_dTol, pBrep1->GetContext()) , sPC2( m_dTol, pBrep2->GetContext());
-  pBrep1->Point3DClassify( sCrvPt, m_dTol, TRUE, sPC1) ;
-  pBrep2->Point3DClassify( sCrvPt, m_dTol, TRUE, sPC2) ;
+  SER( pBrep1->Point3DClassify( sCrvPt, m_dTol, TRUE, sPC1)  );
+  SER( pBrep2->Point3DClassify( sCrvPt, m_dTol, TRUE, sPC2)  );
   
   SmVertexDefinition *pNewVD = NULL;
   SmBoolean bCreatedNew = FALSE;
-  pMidPV->AddVertexDefinition( sPC1, sPC2, pNewVD, &bCreatedNew) ;
+  SER( pMidPV->AddVertexDefinition( sPC1, sPC2, pNewVD, &bCreatedNew)  );
 
   NER( pNewVD) ;
 
@@ -2008,10 +2013,10 @@ static constexpr double cbiFudge = 10.0;  //cbiTol: this is not working right.  
 
   // Get the parameterizations set correctly before calling AddEdgeDefinition().
 
-  this  ->m_pXSectInterval.SetMax( dParamPE) ;
-  pNewED->m_pXSectInterval.SetMin( dParamPE) ;
+  SER( this  ->m_pXSectInterval.SetMax( dParamPE)  );
+  SER( pNewED->m_pXSectInterval.SetMin( dParamPE)  );
 
-  pTopPE->AddEdgeDefinition( pNewED) ;
+  SER( pTopPE->AddEdgeDefinition( pNewED)  );
 
 
   // Here we have to:
@@ -2024,24 +2029,24 @@ static constexpr double cbiFudge = 10.0;  //cbiTol: this is not working right.  
   SmCurve *pNewCrv3d = NULL;
   SER( this->m_pXSectCurve3d->Copy( *m_cpContext, pNewCrv3d ));  NER( pNewCrv3d) ;
   pNewED->SetXSectCurve3d( pNewCrv3d) ;
-  this  ->m_pXSectCurve3d->Trim( this  ->m_pXSectInterval) ;  // may snap sIvl by tol to existing knots
-  pNewED->m_pXSectCurve3d->Trim( pNewED->m_pXSectInterval) ;  // may snap sIvl by tol to existing knots
+  SER( this  ->m_pXSectCurve3d->Trim( this  ->m_pXSectInterval)  );  // may snap sIvl by tol to existing knots
+  SER( pNewED->m_pXSectCurve3d->Trim( pNewED->m_pXSectInterval)  );  // may snap sIvl by tol to existing knots
 
   if(m_pXSectUVCurve1 != NULL )
   {
       SmCurve *pNewCrvUV1 = NULL;
       SER( m_pXSectUVCurve1->Copy( *m_cpContext, pNewCrvUV1 ));  NER( pNewCrvUV1) ;
       pNewED->SetXSectCurveUV( 1, pNewCrvUV1) ;
-      pNewED->m_pXSectUVCurve1->Trim( pNewED->m_pXSectInterval) ; // may snap sIvl by tol to existing knots
-      this  ->m_pXSectUVCurve1->Trim( this  ->m_pXSectInterval) ; // may snap sIvl by tol to existing knots
+      SER( pNewED->m_pXSectUVCurve1->Trim( pNewED->m_pXSectInterval)  ); // may snap sIvl by tol to existing knots
+      SER( this  ->m_pXSectUVCurve1->Trim( this  ->m_pXSectInterval)  ); // may snap sIvl by tol to existing knots
   }
   if(m_pXSectUVCurve2 != NULL )
   {
       SmCurve *pNewCrvUV2 = NULL;
       SER( m_pXSectUVCurve2->Copy( *m_cpContext, pNewCrvUV2 ));  NER( pNewCrvUV2) ;
       pNewED->SetXSectCurveUV( 2, pNewCrvUV2) ;
-      pNewED->m_pXSectUVCurve2->Trim( pNewED->m_pXSectInterval) ; // may snap sIvl by tol to existing knots
-      this  ->m_pXSectUVCurve2->Trim( this  ->m_pXSectInterval) ; // may snap sIvl by tol to existing knots
+      SER( pNewED->m_pXSectUVCurve2->Trim( pNewED->m_pXSectInterval)  ); // may snap sIvl by tol to existing knots
+      SER( this  ->m_pXSectUVCurve2->Trim( this  ->m_pXSectInterval)  ); // may snap sIvl by tol to existing knots
   }
 
   rpNewVD = pNewVD;
@@ -2211,7 +2216,7 @@ SmProtoVertex::~SmProtoVertex()
   ULONG lNumPEs = m_sProtoEdges.GetSize();
   for(ii=0;ii<lNumPEs;ii++)
   {
-      m_sProtoEdges[ii]->RemoveProtoVertex( this) ;
+      (void)m_sProtoEdges[ii]->RemoveProtoVertex( this) ; // SolidCraft: a destructor cannot report
   }
 } // end SmProtoVertex destructor
 
@@ -2627,7 +2632,7 @@ SmStatus SmProtoVertex::Resolve()
   for(ii=0;ii<lNumVDs;ii++)
   {
       pVD1 = m_sVertexDefinitions[ii];
-      pVD1->Resolve( iRetStatus) ;
+      SER( pVD1->Resolve( iRetStatus)  );
       if(iRetStatus == 1 )
       {
           // Don't use RemoveVertexDefinition(), that removes it from the array.
@@ -2656,7 +2661,7 @@ SmStatus SmProtoVertex::Resolve()
           pVD2 = m_sVertexDefinitions[jj];
           if(pVD2 == NULL ) { continue; }
 
-          m_pProtoTopoMgr->CanCombineVertexDefinitions( pVD1, pVD2, lDeleteWhich) ;
+          SER( m_pProtoTopoMgr->CanCombineVertexDefinitions( pVD1, pVD2, lDeleteWhich)  );
 
           if(lDeleteWhich == 1 )
           {
@@ -2708,8 +2713,8 @@ SmStatus SmProtoTopologyManager::GlueVertexDefinitions( SmVertexDefinition *pVD1
      && pBrep1Vtx2 != NULL
      && pBrep1Vtx1 != pBrep1Vtx2)
   {
-      GetWhichBrep(1)->GlueVertices( pBrep1Vtx1, pBrep1Vtx2) ;
-      pVD2->SetFinalVertex( 1, NULL) ;
+      SER( GetWhichBrep(1)->GlueVertices( pBrep1Vtx1, pBrep1Vtx2)  );
+      SER( pVD2->SetFinalVertex( 1, NULL)  );
       bDeleted1 = TRUE;
   }
 
@@ -2720,8 +2725,8 @@ SmStatus SmProtoTopologyManager::GlueVertexDefinitions( SmVertexDefinition *pVD1
      && pBrep2Vtx2 != NULL
      && pBrep2Vtx1 != pBrep2Vtx2)
   {
-      GetWhichBrep(2)->GlueVertices( pBrep2Vtx1, pBrep2Vtx2) ;
-      pVD2->SetFinalVertex( 2, NULL) ;
+      SER( GetWhichBrep(2)->GlueVertices( pBrep2Vtx1, pBrep2Vtx2)  );
+      SER( pVD2->SetFinalVertex( 2, NULL)  );
       bDeleted2 = TRUE;
   }
 
@@ -2892,13 +2897,13 @@ PURPOSE: Combine two ProtoVertices: Add in the contents of another ProtoVertex i
 
 USAGE NOTES---- 
 ***********************************************************************/
-void SmProtoVertex::CombineProtoVertex( SmProtoVertex *pOtherPV )
+SmStatus SmProtoVertex::CombineProtoVertex( SmProtoVertex *pOtherPV ) // SolidCraft change: returns the status of its edits
 {
   ULONG ii ;
 
   // If they're the same, do nothing.
   if(pOtherPV == this )
-    { return; }
+    { return SM_SUCCESS; }
 
   m_dTol = smos_Max( m_dTol, pOtherPV->m_dTol) ;
 
@@ -2910,7 +2915,7 @@ void SmProtoVertex::CombineProtoVertex( SmProtoVertex *pOtherPV )
   // Don't worry about combining these here, that will happen in Resolve().
   for(ii=0;ii<pOtherPV->m_sVertexDefinitions.GetSize();ii++)
   {
-      this->AddVertexDefinition( pOtherPV->m_sVertexDefinitions[ii]) ;
+      SER( this->AddVertexDefinition( pOtherPV->m_sVertexDefinitions[ii])  );
       sAvePos += pOtherPV->m_sPosition;
   }
   lNumVDs = this->m_sVertexDefinitions.GetSize();
@@ -2924,6 +2929,7 @@ void SmProtoVertex::CombineProtoVertex( SmProtoVertex *pOtherPV )
 
   m_sProtoEdges.Append( pOtherPV->m_sProtoEdges) ;
 
+  return SM_SUCCESS;
 } // end SmProtoVertex::CombineProtoVertex
 
 
@@ -3323,7 +3329,7 @@ SmStatus SmProtoEdge::Split
   // locals
   ULONG ii ;
   SmPoint3d sCrvPt, sEndPt, sStartPt ;
-  this->Evaluate( dT, &sCrvPt) ;
+  SER( this->Evaluate( dT, &sCrvPt)  );
   SER( this->GetEndPosition(TRUE, sStartPt)) ; // TRUE  = get ProtoEdge->EdgeDefinitions->StartPos3d average
   SER( this->GetEndPosition(FALSE, sEndPt)) ;  // FALSE = get ProtoEdge->EdgeDefinitions->EndPos3d average
 
@@ -3339,9 +3345,9 @@ SmStatus SmProtoEdge::Split
   // locals
   SmProtoVertex * pNewPV         = NULL;
   SmBoolean       bWasCreatedNew = FALSE;
-  m_pProtoTopoMgr->FindOrCreateProtoVertex(sCrvPt,            // in : TgtPosition
+  SER( m_pProtoTopoMgr->FindOrCreateProtoVertex(sCrvPt,            // in : TgtPosition
                                            pNewPV,            // out: either an existing ProtoVertex within Tol of crPos, or a new one created at crPos
-                                           &bWasCreatedNew) ; // out: optional output, TRUE =rpNewPV is a new ProtoVertex
+                                           &bWasCreatedNew)  ); // out: optional output, TRUE =rpNewPV is a new ProtoVertex
                                                               //                       FALSE=rpNewPV is an existing one, 
                                                               //      NULL to ignore, default:[NULL]
   NER( pNewPV) ;
@@ -3358,8 +3364,8 @@ SmStatus SmProtoEdge::Split
   sCleanPV.Clear() ;
 
   // set Split child ProtoEdge intervals
-  this  ->m_pXSectInterval.SetMinMax( m_pXSectInterval.GetMin(), dT) ;
-  pNewPE->m_pXSectInterval.SetMinMax( dT, m_pXSectInterval.GetMax()) ;
+  SER( this  ->m_pXSectInterval.SetMinMax( m_pXSectInterval.GetMin(), dT)  );
+  SER( pNewPE->m_pXSectInterval.SetMinMax( dT, m_pXSectInterval.GetMax())  );
 
   // add split child ProtoEdges to pNewPV connected ProtoEdge list
   pNewPV->AddProtoEdge( this) ;
@@ -3373,7 +3379,7 @@ SmStatus SmProtoEdge::Split
 
   // edit upper split child -> EndProtoVertex -> ProtoEdge list to remove the lowerSplitChild ProtoEdge and to add the upperSplitChildEdge
   pNewPE->m_pEndPV->AddProtoEdge   ( pNewPE) ;
-  pNewPE->m_pEndPV->RemoveProtoEdge( this  ) ;
+  SER( pNewPE->m_pEndPV->RemoveProtoEdge( this  )  );
 
   // Add the new ProtoVertex and ProtoEdge to the ProtoTopoMgr ProtoTopo lists
   // m_pProtoTopoMgr->Add( pNewPV) ; //cbi Already done, in CreateProtoVertex(); cbi clean this up.
@@ -3401,11 +3407,11 @@ SmStatus SmProtoEdge::Split
       pED = m_sEdgeDefs[ii] ;
 
       // split the EdgeDefinition
-      pED->Split(dT,       // in : Split parameter on ProtoEdge to be used to split this EdgeDefinition
+      SER( pED->Split(dT,       // in : Split parameter on ProtoEdge to be used to split this EdgeDefinition
                  pNewPV,   // in : pMidPV = ProtoVertex at ProtoEdge split point
                  pNewPE,   // in : pTopPE = new ProtoEdge for ProtoEdge UpperSplitChild
                  pNewVD,   // out: new VertexDefinition at Split point. Gets added to pMidPV
-                 pNewED) ; // out: new Split UpperChild EdgeDefinition. Gets added to pTopPE
+                 pNewED)  ); // out: new Split UpperChild EdgeDefinition. Gets added to pTopPE
                            // note: this EdgeDefinition gets reused as Split LowerChild EdgeDefinition
     } // iter every Original ProtoEdge->EdgeDefinition, splitting
 
@@ -3510,8 +3516,8 @@ SmStatus SmProtoEdge::AddEdgeDefinition
   else // add additional EdgeDefinitions branch
     {
       SmVector3d sProtoEdgeTan, sEdgeDefTan;
-      this     ->EvaluateMid( NULL, &sProtoEdgeTan) ;
-      pEdgeDef ->EvaluateMid( NULL, &sEdgeDefTan) ;
+      SER( this     ->EvaluateMid( NULL, &sProtoEdgeTan)  );
+      SER( pEdgeDef ->EvaluateMid( NULL, &sEdgeDefTan)  );
 
       // remember when ProtoEdge->Tan is opposite to EdgeDef->Tan 
       SmBoolean bReverse = ( sProtoEdgeTan.Dot( sEdgeDefTan ) < 0.0) ;
@@ -3519,7 +3525,7 @@ SmStatus SmProtoEdge::AddEdgeDefinition
       // when EdgeDef parameter opposes ProtoEdges or Ivls don't match - reparameterize EdgeDef
       if(bReverse  ||  ! ( sIvl == m_pXSectInterval ) )
         {
-          pEdgeDef->Reparameterize( this->m_pXSectInterval, bReverse) ;
+          SER( pEdgeDef->Reparameterize( this->m_pXSectInterval, bReverse)  );
         } // end need to reparameterize EdgeDef Check
     } // end add additional EdgeDef to ProtoEdge Branch
 
@@ -3528,7 +3534,7 @@ SmStatus SmProtoEdge::AddEdgeDefinition
      && pOwningPE != this)
     {
       // remove EdgeDef from its previous owner
-      pOwningPE->RemoveEdgeDefinition( pEdgeDef) ;
+      SER( pOwningPE->RemoveEdgeDefinition( pEdgeDef)  );
     }
 
   // add EdgeDef to this ProtoEdge
@@ -3591,7 +3597,7 @@ SmStatus SmProtoEdge::AddEdgeDefinition
   // copy and trim the XSectCurve3d to place in new EdgeDefinition
   SER(crCI1.GetCurve()->Copy( *( m_pProtoTopoMgr->GetContext() ), pXSectCurve)) ;
   NER(pXSectCurve) ;
-  pXSectCurve->Trim( sIvl) ; // may snap sIvl by tol to existing knots  // Things can get confusing if the curve is longer than the domain.
+  SER( pXSectCurve->Trim( sIvl)  ); // may snap sIvl by tol to existing knots  // Things can get confusing if the curve is longer than the domain.
 
 //cbi just out of curiosity:  Not Hit in prog_test!
 //double cbiTol = smos_Max( SmTol::GetObjZoneTol3d( &crCI1 ), SmTol::GetObjZoneTol3d( &crCI2 )) ;
@@ -3605,7 +3611,7 @@ SmStatus SmProtoEdge::AddEdgeDefinition
                                                                      NULL,        // in : associated UVTrimCurve on a SmFace in pBrep1, or NULL  //cbi double-check these.
                                                                      NULL,        // in : associated UVTrimCurve on a SmFace in pBrep2, or NULL  //cbi double-check these.
                                                                      this) ;      // in : Back pointer to the SmProtoEdge that owns this SmEdgeDefinition
-  this->AddEdgeDefinition( pNewED) ;
+  SER( this->AddEdgeDefinition( pNewED)  );
 
   return SM_SUCCESS;
 
@@ -3617,13 +3623,13 @@ PURPOSE: Combine two ProtoEdges: Add in the contents of another ProtoEdge into t
 USAGE NOTES---- 
    Moves the EdgeDefinitions from pOtherPE into this PE.
 ***********************************************************************/
-void SmProtoEdge::CombineProtoEdge( SmProtoEdge *pOtherPE )
+SmStatus SmProtoEdge::CombineProtoEdge( SmProtoEdge *pOtherPE ) // SolidCraft change: returns the status of its edits
 {
   ULONG ii ;
 
   // If they're the same, do nothing.
   if(pOtherPE == this )
-    { return; }
+    { return SM_SUCCESS; }
 
   m_dTol = smos_Max( m_dTol, pOtherPE->m_dTol) ;
 
@@ -3637,7 +3643,7 @@ void SmProtoEdge::CombineProtoEdge( SmProtoEdge *pOtherPE )
   {
       pOtherPE->SetStartProtoVertex( pThisStartPV) ;
 
-      pOtherStartPV->RemoveProtoEdge( pOtherPE) ;
+      SER( pOtherStartPV->RemoveProtoEdge( pOtherPE)  );
       pThisStartPV->AddProtoEdge( this) ;
   }
 
@@ -3647,7 +3653,7 @@ void SmProtoEdge::CombineProtoEdge( SmProtoEdge *pOtherPE )
   {
       pOtherPE->SetEndProtoVertex( pThisEndPV) ;
 
-      pOtherEndPV->RemoveProtoEdge( pOtherPE) ;
+      SER( pOtherEndPV->RemoveProtoEdge( pOtherPE)  );
       pThisEndPV->AddProtoEdge( this) ;
   }
 
@@ -3656,10 +3662,11 @@ void SmProtoEdge::CombineProtoEdge( SmProtoEdge *pOtherPE )
   for(ii=0;ii<pOtherPE->m_sEdgeDefs.GetSize();ii++)
   {
       SmEdgeDefinition *pED = pOtherPE->m_sEdgeDefs[ii];
-      this->AddEdgeDefinition( pED) ;
-      pOtherPE->RemoveEdgeDefinition( pED) ;
+      SER( this->AddEdgeDefinition( pED)  );
+      SER( pOtherPE->RemoveEdgeDefinition( pED)  );
   }
 
+  return SM_SUCCESS;
 } // end SmProtoEdge::CombineProtoEdge
 
 /*******************************************************************//**
@@ -3740,7 +3747,7 @@ SmStatus SmProtoEdge::Resolve()
           for(ii=0;ii<lNumEDs;ii++)
             {
               pED1 = m_sEdgeDefs[ii];
-              pED1->Destruct(); // Its destructor does not clear out geometry because that normally is consumed.
+              SER( pED1->Destruct() ); // Its destructor does not clear out geometry because that normally is consumed.
               delete( pED1) ;  pED1 = NULL;
               m_sEdgeDefs[ii] = NULL;
             }
@@ -3780,11 +3787,11 @@ SmStatus SmProtoEdge::Resolve()
                   NER( pNewVD) ;
 
                   pVD0  ->SetPosition( sPt0) ;
-                  pVD0  ->SetPointParameters();
+                  SER( pVD0  ->SetPointParameters() );
                   pNewVD->SetPosition( sPt1) ;
-                  pNewVD->SetPointParameters();
+                  SER( pNewVD->SetPointParameters() );
 
-                  m_pStartPV->AddVertexDefinition( pNewVD) ;
+                  SER( m_pStartPV->AddVertexDefinition( pNewVD)  );
                 }
             } // end if our IntCurve is long enough to be its own Edge, with distinct Vertices.
         } // end else, our Intcurve is not shorter than tolerance
@@ -3808,13 +3815,13 @@ SmStatus SmProtoEdge::Resolve()
           pED2 = m_sEdgeDefs[jj];
             if(pED2 == NULL ) { continue; }
 
-            m_pProtoTopoMgr->CanCombineEdgeDefinitions( pED1, pED2, lDeleteWhich) ;
+            SER( m_pProtoTopoMgr->CanCombineEdgeDefinitions( pED1, pED2, lDeleteWhich)  );
 
             if(lDeleteWhich == 1 )
              {
                 //m_pProtoTopoMgr->CombineEdgeDefinitions( pED2, pED1) ;
-                this->RemoveEdgeDefinition( pED1) ;
-                pED1->Destruct();
+                SER( this->RemoveEdgeDefinition( pED1)  );
+                SER( pED1->Destruct() );
                 delete pED1;  pED1 = NULL;
                 ii--;
                 break;
@@ -3823,8 +3830,8 @@ SmStatus SmProtoEdge::Resolve()
             else if(lDeleteWhich == 2 )
             {
                 //m_pProtoTopoMgr->CombineEdgeDefinitions( pED1, pED2) ;
-                this->RemoveEdgeDefinition( pED2) ;
-                pED2->Destruct();
+                SER( this->RemoveEdgeDefinition( pED2)  );
+                SER( pED2->Destruct() );
                 delete pED2;  pED2 = NULL;
                 jj--;
               }
@@ -4075,7 +4082,7 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmPointClass        & r
   SmPoint3d sPt;
   double dGap;
 
-  sm_FindPositionFromPCs( rPC1, rPC2, sPt, dGap) ;
+  SER( sm_FindPositionFromPCs( rPC1, rPC2, sPt, dGap)  );
 
   double dTol = smos_Max( rPC1.GetTolerance(), rPC2.GetTolerance()) ;
   dTol = smos_Max( dTol, this->m_dTol) ;
@@ -4122,8 +4129,8 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmTopology         *  p
   if(pBrep1Face != NULL )
   {
       sPC1.SetClassObject( SM_PC_FACE, pBrep1Face) ;
-      pBrep1Face->GetSurface()->DropPoint(crPos, pBrep1Face->GetUVDomain(), NULL,
-                                          bSuccess, sUV, dGap1, bIsMulti) ;
+      SER( pBrep1Face->GetSurface()->DropPoint(crPos, pBrep1Face->GetUVDomain(), NULL,
+                                          bSuccess, sUV, dGap1, bIsMulti)  );
       if(bSuccess )
         { sPC1.SetUVParam( sUV) ; }
   }
@@ -4131,7 +4138,7 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmTopology         *  p
   {
       sPC1.SetClassObject( SM_PC_EDGE, pBrep1Edge) ;
       SmExtent1d sDomain = pBrep1Edge->GetCurve()->GetNaturalInterval();
-      pBrep1Edge->GetCurve()->DropPoint( sDomain, // in : target curve allowed domain
+      SER( pBrep1Edge->GetCurve()->DropPoint( sDomain, // in : target curve allowed domain
                                          crPos,   // in : Point to drop to curve
                                          NULL,    // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                   //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -4143,7 +4150,7 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmTopology         *  p
                                         NULL,     // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()
                                         bSuccess, // out: TRUE = found a drop point
                                         dT,       // out: found drop curve param
-                                        dGap1) ;  // out: found drop distance
+                                        dGap1)  );  // out: found drop distance
                                                   // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                   //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                   //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
@@ -4174,8 +4181,8 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmTopology         *  p
   if(pBrep2Face != NULL )
   {
       sPC2.SetClassObject( SM_PC_FACE, pBrep2Face) ;
-      pBrep2Face->GetSurface()->DropPoint(crPos, pBrep2Face->GetUVDomain(), NULL,
-                                          bSuccess, sUV, dGap2, bIsMulti) ;
+      SER( pBrep2Face->GetSurface()->DropPoint(crPos, pBrep2Face->GetUVDomain(), NULL,
+                                          bSuccess, sUV, dGap2, bIsMulti)  );
       if(bSuccess )
         { sPC2.SetUVParam( sUV) ; }
   }
@@ -4183,7 +4190,7 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmTopology         *  p
   {
       sPC2.SetClassObject( SM_PC_EDGE, pBrep2Edge) ;
       SmExtent1d sDomain = pBrep2Edge->GetCurve()->GetNaturalInterval();
-      pBrep2Edge->GetCurve()->DropPoint
+      SER( pBrep2Edge->GetCurve()->DropPoint
                   (sDomain,  // in : target curve allowed domain
                    crPos,    // in : Point to drop to curve
                    NULL,     // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
@@ -4196,7 +4203,7 @@ SmStatus SmProtoTopologyManager::CreateVertexDefinition( SmTopology         *  p
                    NULL,     // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()
                    bSuccess, // out: TRUE = found a drop point
                    dT,       // out: found drop curve param
-                   dGap2) ;  // out: found drop distance
+                   dGap2)  );  // out: found drop distance
                              // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                              //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                              //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
@@ -4282,10 +4289,10 @@ SmStatus SmProtoTopologyManager::CreateProtoVertex
   double dDev;
 
   // Get SmPointClassifications AvgPosition and Deviation
-  sm_FindPositionFromPCs(rPC1,   // in : Point Classification 1
+  SER( sm_FindPositionFromPCs(rPC1,   // in : Point Classification 1
                          rPC2,   // in : Point Classification 2
                          sPt,    // out: Avg of Surf1(UV1) and Surf2(UV2)
-                         dDev) ; // out: Dist between Surf1(UV1) and Surf2(UV2)
+                         dDev)  ); // out: Dist between Surf1(UV1) and Surf2(UV2)
 
   // let ZoneTol3d = Max(PtClass and PtClass->Object ZoneTol3ds)
   SmZoneTol3d sPC1ObjTol = SmTol::GetZoneTol3d( rPC1.GetObject()) ;
@@ -4406,10 +4413,10 @@ SmStatus SmProtoTopologyManager::FindOrCreateProtoVertex
   // Locals
   SmPoint3d sPt;
   double    dDev;
-  sm_FindPositionFromPCs(rPC1,    // in : Brep1 PointClassification
+  SER( sm_FindPositionFromPCs(rPC1,    // in : Brep1 PointClassification
                          rPC2,    // in : Brep2 PointClassification
                          sPt,     // out: Avg of Surf1(UV1) and Surf2(UV2) 
-                         dDev) ;  // out: Dist between Surf1(UV1) and Surf2(UV2) 
+                         dDev)  );  // out: Dist between Surf1(UV1) and Surf2(UV2) 
 
   // find closest ProtoVertex within m_dTol to sPt
   rpNewPV = this->FindProtoVertex(sPt) ;
@@ -4419,9 +4426,9 @@ SmStatus SmProtoTopologyManager::FindOrCreateProtoVertex
     {
       // make sure ProtoVertex contains a VertexDef for input PointClassifications
       SmVertexDefinition *pNewVD = NULL;
-      rpNewPV->AddVertexDefinition(rPC1,     // in : Brep1 PointClassification for Brep1/Brep2 XSectPt3d
+      SER( rpNewPV->AddVertexDefinition(rPC1,     // in : Brep1 PointClassification for Brep1/Brep2 XSectPt3d
                                    rPC2,     // in : Brep2 PointClassification for Brep1/Brep2 XSectPt3d
-                                   pNewVD) ; // out: default [NULL]
+                                   pNewVD)  ); // out: default [NULL]
                                              // out: optional flag: TRUE = rpNewVD was created, NULL to ignore, default:[NULL]
                                              //                     FALSE= rpNewVD was found
       return SM_SUCCESS;
@@ -4537,7 +4544,7 @@ SmStatus SmProtoTopologyManager::CreateProtoEdge
   {
       eStat = pCCUVCurve->Copy( *m_cpContext, pUVCurve1) ;  //cbi <- delete in d'tor?
       if(pUVCurve1 != NULL )
-        { pUVCurve1->Trim( sCurveDomain) ; }  // may snap sIvl by tol to existing knots
+        { SER( pUVCurve1->Trim( sCurveDomain)  ); }  // may snap sIvl by tol to existing knots
   }
 
   SmCurve *pUVCurve2 = NULL;
@@ -4546,7 +4553,7 @@ SmStatus SmProtoTopologyManager::CreateProtoEdge
   {
       eStat = pCCUVCurve->Copy( *m_cpContext, pUVCurve2) ;  //cbi <- delete in d'tor?
       if(pUVCurve2 != NULL )
-        { pUVCurve2->Trim( sCurveDomain) ; }  // may snap sIvl by tol to existing knots
+        { SER( pUVCurve2->Trim( sCurveDomain)  ); }  // may snap sIvl by tol to existing knots
   }
 
   // Create it.
@@ -4563,7 +4570,7 @@ SmStatus SmProtoTopologyManager::CreateProtoEdge
                                                           pUVCurve1, pUVCurve2, rpNewPE) ;
 
   // Hook up pointers.
-  rpNewPE->AddEdgeDefinition( pNewED) ;
+  SER( rpNewPE->AddEdgeDefinition( pNewED)  );
 
   this->AddProtoEdge( rpNewPE) ;
 
@@ -4590,13 +4597,13 @@ SmStatus SmProtoTopologyManager::RemoveVertexDefinition
   SmProtoVertex * pOwner = pVD->GetProtoVertex() ;
 
   // remove input VertexDef from ownerPV->m_sVertexDefs list
-  pOwner->RemoveVertexDefinition(pVD) ;
+  SER( pOwner->RemoveVertexDefinition(pVD)  );
 
   // when asked - remove and delete ownerPVs with no other VertexDefs
   if(   bRemoveOwnerIfEmpty
      && pOwner->GetNumVertexDefinitions() < 1)
     { 
-      this->RemoveProtoVertex(pOwner) ;
+      SER( this->RemoveProtoVertex(pOwner)  );
       delete pOwner ; pOwner = NULL ;
     }
 
@@ -4646,13 +4653,13 @@ SmStatus SmProtoTopologyManager::RemoveEdgeDefinition
   SmProtoEdge * pOwner = pED->GetProtoEdge() ;
 
   // remove input EdgeDef from ownerPE->m_sEdgeDefs list
-  pOwner->RemoveEdgeDefinition(pED) ;
+  SER( pOwner->RemoveEdgeDefinition(pED)  );
 
   // when asked - remove and delete ownerPEs with no other EdgeDefs
   if(   bRemoveOwnerIfEmpty
      && pOwner->GetNumEdgeDefinitions() < 1)
     { 
-      this->RemoveProtoEdge(pOwner) ;
+      SER( this->RemoveProtoEdge(pOwner)  );
       delete pOwner; pOwner = NULL;
     }
 
@@ -4694,8 +4701,8 @@ SmStatus SmProtoTopologyManager::RemoveProtoEdge( SmProtoEdge * pPE )
   SmProtoVertex * pStartPV = pPE->GetStartProtoVertex() ;
   SmProtoVertex * pEndPV   = pPE->GetEndProtoVertex() ;
 
-  if(pStartPV) pStartPV->RemoveProtoEdge(pPE) ;
-  if(pEndPV)   pEndPV->RemoveProtoEdge(pPE) ;
+  if(pStartPV) SER( pStartPV->RemoveProtoEdge(pPE)  );
+  if(pEndPV)   SER( pEndPV->RemoveProtoEdge(pPE)  );
 
   // all done
   return SM_SUCCESS;
@@ -4791,9 +4798,11 @@ static SmBoolean sm_IsInterior
   // next: Check 3d Pts. if this param's Pt3d is within ZoneTol3d dist of a crv endpoint it on the boundary not the interior
 
   // locals
-  cpCurve->EvaluatePoint( dParam, sCrvPt) ;
-  cpCurve->EvaluatePoint( crDomain.GetMin(), sStartPt) ;
-  cpCurve->EvaluatePoint( crDomain.GetMax(), sEndPt) ;
+  // SolidCraft change: points that cannot be evaluated show no interior
+  if(   cpCurve->EvaluatePoint( dParam, sCrvPt) != SM_SUCCESS
+     || cpCurve->EvaluatePoint( crDomain.GetMin(), sStartPt) != SM_SUCCESS
+     || cpCurve->EvaluatePoint( crDomain.GetMax(), sEndPt) != SM_SUCCESS )
+    { return FALSE ; }
 
   // param is Boundary not Interior when ParamPt3d is on the start boundary of the curve
   if(sCrvPt.CloserThan(sZoneTol3d, sStartPt) )
@@ -4855,7 +4864,8 @@ static SmBoolean sm_AreOverlapping
       //SmZoneTol3d   sParamTol = sScaleZero.val;
 
       // EdgeDefinition->Curve->StartPt
-      cpEDCurve->EvaluatePoint( sEDDomain.GetMin(), sStartPt) ;
+      if (cpEDCurve->EvaluatePoint( sEDDomain.GetMin(), sStartPt) != SM_SUCCESS) // SolidCraft change: no point, no overlap shown
+        { return FALSE ; }
 
       // Drop EdgeDefinition>XSectCurve MinPt to CurveClassification Curve
       SmStatus eStat = cpCICurve->DropPoint( sCIDomain,         // in : target curve allowed domain
@@ -4887,7 +4897,8 @@ static SmBoolean sm_AreOverlapping
         }
 
       // EdgeDefinition->Curve->EndPt
-      cpEDCurve->EvaluatePoint( sEDDomain.GetMax(), sEndPt) ;
+      if (cpEDCurve->EvaluatePoint( sEDDomain.GetMax(), sEndPt) != SM_SUCCESS) // SolidCraft change: no point, no overlap shown
+        { return FALSE ; }
       dGuess = sCIDomain.Evaluate( 0.9) ;
 
       // Drop EdgeDefinition>XSectCurve EndPt to CurveClassification Curve
@@ -4935,7 +4946,8 @@ static SmBoolean sm_AreOverlapping
       SmBoolean     bOk;
 
       // CurveClassification Curve StartPt
-      cpCICurve->EvaluatePoint( sCIDomain.GetMin(), sStartPt) ;
+      if (cpCICurve->EvaluatePoint( sCIDomain.GetMin(), sStartPt) != SM_SUCCESS) // SolidCraft change: no point, no overlap shown
+        { return FALSE ; }
 
       // Drop CurveClassification Curve StartPt to EdgeDefinition>Curve
       SmStatus eStat = cpEDCurve->DropPoint(sEDDomain, 
@@ -4957,7 +4969,8 @@ static SmBoolean sm_AreOverlapping
         }
 
       // CurveClassification Curve EndPt
-      cpCICurve->EvaluatePoint( sCIDomain.GetMax(), sEndPt) ;
+      if (cpCICurve->EvaluatePoint( sCIDomain.GetMax(), sEndPt) != SM_SUCCESS) // SolidCraft change: no point, no overlap shown
+        { return FALSE ; }
       dGuess = sEDDomain.Evaluate( 0.9) ;
 
       // Drop CurveClassification Curve EndPt to EdgeDefinition>Curve
@@ -5085,7 +5098,7 @@ SmStatus SmProtoTopologyManager::FindOrCreateProtoEdge
 
   // DD3: Check for overlapping PEs.
   // For now, just find overlapping PEs. Will be handled during Resolve()
-  CheckOverlappingProtoEdges( rCI1, rCI2, sOverlappingPEs) ;
+  SER( CheckOverlappingProtoEdges( rCI1, rCI2, sOverlappingPEs)  );
 
   // when CrvInterval is degenerate - find or create a ProtoVertex for Interval
   if(pCC3dCurve->IsDegenerate( dTol ) )    // in : min distance between unique points, 0 = use dScaledZero
@@ -5220,8 +5233,8 @@ SmStatus SmProtoTopologyManager::FindOrCreateProtoEdge
       else if(bIsIdentical == FALSE)
         {
           // Create new EdgeDef and add it to NewPE's EdgeDef list
-          pNewPE->AddEdgeDefinition(rCI1, 
-                                    rCI2) ;
+          SER( pNewPE->AddEdgeDefinition(rCI1, 
+                                    rCI2)  );
         } // end when a NonIdentical ProtoEdge exists in this location branch
     
       // else an identical ProtoEdge already exists branch
@@ -5393,7 +5406,7 @@ SmStatus SmProtoTopologyManager::UpdateEdges
       // when pVD is only on the new Edge - change its srcTopo to the new Edge
       if(bOnNewEdge && ! bOnOldEdge )
         {
-          pVD->SetSrcTopo( iWhichBrep, SM_PC_EDGE, pNewEdge) ;
+          SER( pVD->SetSrcTopo( iWhichBrep, SM_PC_EDGE, pNewEdge)  );
         }
     } // end iter every VertexDef chaning the SrcTopo for those only on NewEdge 
 
@@ -5407,7 +5420,7 @@ SmStatus SmProtoTopologyManager::UpdateEdges
   double    dEndParam =   (sOldIvl.GetMid() < sNewIvl.GetMid() )  //cbi always TRUE I think
                         ? sOldIvl.GetMax()
                         : sOldIvl.GetMin();
-  pOldEdge->GetCurve()->EvaluatePoint( dEndParam, sSplitPt) ;
+  SER( pOldEdge->GetCurve()->EvaluatePoint( dEndParam, sSplitPt)  );
 
   // locals
   SmProtoVertex * pCallingPV = pCallingVD->GetProtoVertex();
@@ -5454,24 +5467,24 @@ static constexpr SmBoolean cbiDoSplit = FALSE;
                     { //cbi split instead of trim.
                       SmProtoVertex *pNewPV;
                       SmProtoEdge   *pNewPE;
-                      pThisPE->Split( dSplitParam, pNewPV, pNewPE) ;
+                      SER( pThisPE->Split( dSplitParam, pNewPV, pNewPE)  );
                     } 
                   else //cbi trim instead of split.
                     {
                       SmExtent1d sDomain( pED->GetXSectInterval()) ;
-                      pED->SetXSectInterval( dSplitParam, sDomain.GetMax()) ;
+                      SER( pED->SetXSectInterval( dSplitParam, sDomain.GetMax()) );
                       
                       // Also have to trim the curves: we want these to be in sync.
                       sDomain = pED->GetXSectInterval();  // Just updated.
-                      pED->GetXSectCurve3d()->Trim( sDomain) ;
+                      SER( pED->GetXSectCurve3d()->Trim( sDomain)  );
                       
                       SmCurve * pIntCurveUV = pED->GetXSectUVCurve( 1) ;
                       if(pIntCurveUV != NULL )
-                        { pIntCurveUV->Trim( sDomain) ; }
+                        { SER( pIntCurveUV->Trim( sDomain)  ); }
 
                       pIntCurveUV = pED->GetXSectUVCurve( 2) ;
                       if(pIntCurveUV != NULL )
-                        { pIntCurveUV->Trim( sDomain) ; }
+                        { SER( pIntCurveUV->Trim( sDomain)  ); }
 
                       //cbi: what about our PE and its other EDs?
 
@@ -5505,23 +5518,23 @@ static constexpr SmBoolean cbiDoSplit = FALSE;
                     { //cbi split instead of trim.
                       SmProtoVertex *pNewPV;
                       SmProtoEdge   *pNewPE;
-                      pThisPE->Split( dSplitParam, pNewPV, pNewPE) ;
+                      SER( pThisPE->Split( dSplitParam, pNewPV, pNewPE)  );
                     } 
                   else //cbi trim instead of split
                     {
                       SmExtent1d sDomain( pED->GetXSectInterval()) ;
-                      pED->SetXSectInterval( sDomain.GetMin(), dSplitParam) ;
+                      SER( pED->SetXSectInterval( sDomain.GetMin(), dSplitParam) );
                       
                       // Also have to trim the curves: we want these to be in sync.
                       sDomain = pED->GetXSectInterval();  // Just updated.
-                      pED->GetXSectCurve3d()->Trim( sDomain) ;
+                      SER( pED->GetXSectCurve3d()->Trim( sDomain)  );
                       
                       SmCurve *pIntCurveUV = pED->GetXSectUVCurve( 1) ;
                       if(pIntCurveUV != NULL )
-                        { pIntCurveUV->Trim( sDomain) ; }
+                        { SER( pIntCurveUV->Trim( sDomain)  ); }
                       pIntCurveUV = pED->GetXSectUVCurve( 2) ;
                       if(pIntCurveUV != NULL )
-                        { pIntCurveUV->Trim( sDomain) ; }
+                        { SER( pIntCurveUV->Trim( sDomain)  ); }
                       
                       //cbi: what about our PE and its other EDs?
                     } //cbi.              
@@ -5558,7 +5571,7 @@ static constexpr SmBoolean cbiDoSplit = FALSE;
       SmSolutionArray sSolsOld, sSolsNew;
 
       SmPoint3d sMidPt;
-      pED->EvaluateMid( &sMidPt) ;
+      SER( pED->EvaluateMid( &sMidPt)  );
 
       // Drop to pOldEdge and pNewEdge using sOldIvl and sNewIvl.
       // Use GlobalPointSolve (we don't have guesses),
@@ -5710,7 +5723,7 @@ SmStatus SmProtoTopologyManager::UpdateFaces
       else if (iWhich == 2)  // UVParam classified to just Child2 Face
         {
           // move the VertexDefinition
-          pVD->SetSrcTopo( iWhichBrep, SM_PC_FACE, pNewFace) ;
+          SER( pVD->SetSrcTopo( iWhichBrep, SM_PC_FACE, pNewFace)  );
           continue ;
         }
 
@@ -5780,7 +5793,7 @@ SmStatus SmProtoTopologyManager::UpdateFaces
           SmSolverOperationType eOpType        = SM_SO_NORMALIZE; // Don't want off-boundary drops.
 
           // mid Point3d
-          pED->EvaluateMid( &sMidPt) ;
+          SER( pED->EvaluateMid( &sMidPt)  );
 
           // Drop MidPt3d to Surface
           eStat = pSrf->DropPoint(sMidPt,         // in : target point to drop
@@ -5903,14 +5916,14 @@ SmStatus SmProtoTopologyManager::UpdateFaces
                 {
                   // Evaluate ThisBrep->Split_Child1 EU->MidPoint Binormal
                   dMidParam = pSplittingEdge->GetInterval().GetMid();
-                  pThisEU->EvaluateBinormal( dMidParam, FALSE, sBinormPt, sBinormOld) ;
+                  SER( pThisEU->EvaluateBinormal( dMidParam, FALSE, sBinormPt, sBinormOld)  );
 
                   // ThisBrep->Split_Child2 EU
                   pThisEU = pSplittingEdge->GetEdgeuseOfFace( pNewFace) ;
                   if(pThisEU)
                     {
                       // Evaluate ThisBrep->Split_Child2 EU->MidPoint Binormal
-                      pThisEU->EvaluateBinormal( dMidParam, FALSE, sBinormPt, sBinormNew) ;
+                      SER( pThisEU->EvaluateBinormal( dMidParam, FALSE, sBinormPt, sBinormNew)  );
                       bGotBinormals = TRUE;
 
                     } // end ThisBrep->Split_Child2->EU existence check
@@ -5919,7 +5932,7 @@ SmStatus SmProtoTopologyManager::UpdateFaces
 
           // OtherBrep->SplitEdge->EU MidPt
           dMidParam = pOtherEdge->GetInterval().GetMid();
-          pEU->EvaluateBinormal( dMidParam, FALSE, sBinormPt, sBinormOther) ;
+          SER( pEU->EvaluateBinormal( dMidParam, FALSE, sBinormPt, sBinormOther)  );
 
           // test OtherBrep->SplitEdge->EU Binorm against ThisBrep->SplitEdge->EU to classify OtherBrep->SplitEdge->EU ChildFace containment
           double dDotOld = sBinormOld.Dot( sBinormOther) ;
@@ -5974,7 +5987,7 @@ SmStatus SmProtoTopologyManager::UpdateFaces
               SmProtoEdge *pCoincPE = sCoincPEs[jj];
 
               // Get this PE's midpoint.
-              pCoincPE->EvaluateMid( &sMidPt) ;
+              SER( pCoincPE->EvaluateMid( &sMidPt)  );
 
               // Drop that 3d point to the surface of the split face.
               SmSurface           * pSrf           = pOldFace->GetSurface();
@@ -6153,8 +6166,8 @@ SmStatus SmProtoTopologyManager::UpdateFaces
           if(sCoincPEs.GetSize() > 0)
             {
               // Make a new ProtoFace
-              if(iWhichBrep == 1) { this->CreateProtoFace( pThatFace, pOtherFace, sPEsToMove, pNewPF) ; }
-              else                { this->CreateProtoFace( pOtherFace, pThatFace, sPEsToMove, pNewPF) ; }
+              if(iWhichBrep == 1) { SER( this->CreateProtoFace( pThatFace, pOtherFace, sPEsToMove, pNewPF)  ); }
+              else                { SER( this->CreateProtoFace( pOtherFace, pThatFace, sPEsToMove, pNewPF)  ); }
             }
           else // all PEs have moved to child2 face branch
             {
@@ -6283,7 +6296,7 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
           ULONG lIdx;
           if(sDeletedVertices1.FindElement(pBrep1Vtx2, lIdx) )
           { 
-              pVD2->SetFinalVertex( 1, NULL) ;
+              SER( pVD2->SetFinalVertex( 1, NULL)  );
               bDeleted1 = TRUE;
           }
           else
@@ -6294,7 +6307,7 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
 
           if(sDeletedVertices2.FindElement( pBrep2Vtx2, lIdx) )
           { 
-              pVD2->SetFinalVertex( 2, NULL) ;
+              SER( pVD2->SetFinalVertex( 2, NULL)  );
               bDeleted2 = TRUE; 
           }
           else
@@ -6327,9 +6340,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
           {
               if(pBrep1Vtx1 != pBrep1Vtx2 )
               {
-                  GetWhichBrep(1)->GlueVertices( pBrep1Vtx1, pBrep1Vtx2) ;
+                  SER( GetWhichBrep(1)->GlueVertices( pBrep1Vtx1, pBrep1Vtx2)  );
                   sDeletedVertices1[jj] = pBrep1Vtx2;
-                  pVD2->SetFinalVertex( 1, NULL) ;
+                  SER( pVD2->SetFinalVertex( 1, NULL)  );
                   bDeleted1 = TRUE;
               }
           }
@@ -6369,9 +6382,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                           bDeleted1 = TRUE;
 
                           if(pEdgeMate != NULL )
-                            { m_pTI->RemoveRelationship( pE1, pEdgeMate) ; }
+                            { SER( m_pTI->RemoveRelationship( pE1, pEdgeMate)  ); }
                           if(pOtherVtxMate != NULL )
-                            { m_pTI->RemoveRelationship( pBrep2Vtx2, pOtherVtxMate) ; }
+                            { SER( m_pTI->RemoveRelationship( pBrep2Vtx2, pOtherVtxMate)  ); }
 
 
                           //cbi Update this ProtoTopoMgr: need to find the EdgeDefs for pE1, pE2.
@@ -6390,8 +6403,8 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
 
                               // Don't remove the PE if empty.  Else would have to keep track,
                               // and remove them from the PFs.  And, empty PEs don't hurt anything.
-                              this->RemoveEdgeDefinition( pEDToDelete, FALSE) ;
-                              pEDToDelete->Destruct();
+                              SER( this->RemoveEdgeDefinition( pEDToDelete, FALSE)  );
+                              SER( pEDToDelete->Destruct() );
                               delete pEDToDelete; pEDToDelete = NULL;
                           }
                       }
@@ -6405,9 +6418,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                       // We should Glue these.
                       if(pBrep1Vtx1 != pBrep1Vtx2 )
                       {
-                          GetWhichBrep(1)->GlueVertices( pBrep1Vtx1, pBrep1Vtx2) ;
+                          SER( GetWhichBrep(1)->GlueVertices( pBrep1Vtx1, pBrep1Vtx2)  );
                           sDeletedVertices1[jj] = pBrep1Vtx2;
-                          pVD2->SetFinalVertex( 1, NULL) ;
+                          SER( pVD2->SetFinalVertex( 1, NULL)  );
                           bDeleted1 = TRUE;
                       }
                   }
@@ -6424,9 +6437,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
           {
               if(pBrep2Vtx1 != pBrep2Vtx2 )
               {
-                  GetWhichBrep(2)->GlueVertices( pBrep2Vtx1, pBrep2Vtx2) ;
+                  SER( GetWhichBrep(2)->GlueVertices( pBrep2Vtx1, pBrep2Vtx2)  );
                   sDeletedVertices2[jj] = pBrep2Vtx2;
-                  pVD2->SetFinalVertex( 2, NULL) ;
+                  SER( pVD2->SetFinalVertex( 2, NULL)  );
                   bDeleted2 = TRUE;
               }
           }
@@ -6465,9 +6478,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                           bDeleted2 = TRUE;
 
                           if(pEdgeMate != NULL )
-                            { m_pTI->RemoveRelationship( pE2, pEdgeMate) ; }
+                            { SER( m_pTI->RemoveRelationship( pE2, pEdgeMate)  ); }
                           if(pOtherVtxMate != NULL )
-                            { m_pTI->RemoveRelationship( pBrep2Vtx2, pOtherVtxMate) ; }
+                            { SER( m_pTI->RemoveRelationship( pBrep2Vtx2, pOtherVtxMate)  ); }
 
                           // Note, the EdgeDef for the Brep1 Edge would presumably be the same
                           // as that for the Brep2 Edge, so deleting the first one will probably
@@ -6487,8 +6500,8 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
 
                               // Don't remove the PE if empty.  Else would have to keep track,
                               // and remove them from the PFs.  And, empty PEs don't hurt anything.
-                              this->RemoveEdgeDefinition( pEDToDelete, FALSE) ;
-                              pEDToDelete->Destruct();
+                              SER( this->RemoveEdgeDefinition( pEDToDelete, FALSE)  );
+                              SER( pEDToDelete->Destruct() );
                               delete pEDToDelete; pEDToDelete = NULL;
                           }
                       }
@@ -6502,9 +6515,9 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                       // We should Glue these.
                       if(pBrep2Vtx1 != pBrep2Vtx2 )
                       {
-                          GetWhichBrep(2)->GlueVertices( pBrep2Vtx1, pBrep2Vtx2) ;
+                          SER( GetWhichBrep(2)->GlueVertices( pBrep2Vtx1, pBrep2Vtx2)  );
                           sDeletedVertices2[jj] = pBrep2Vtx2;
-                          pVD2->SetFinalVertex( 2, NULL) ;
+                          SER( pVD2->SetFinalVertex( 2, NULL)  );
                           bDeleted2 = TRUE;
                       }
                   }
@@ -6516,7 +6529,7 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
 
           if(bDeleted1 || bDeleted2 )
           {
-              pPV->RemoveVertexDefinition( pVD2) ;
+              SER( pPV->RemoveVertexDefinition( pVD2)  );
               sVDs[jj] = NULL;
               delete pVD2; pVD2 = NULL;
           }
@@ -6576,8 +6589,8 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                   if(sDeletedEdges1.IsIn( pThisED->GetFinalEdge( 1 ) )
                     || sDeletedEdges2.IsIn( pThisED->GetFinalEdge( 2 ) ) )
                   {
-                      pThisPE->RemoveEdgeDefinition( pThisED) ;
-                      pThisED->Destruct();
+                      SER( pThisPE->RemoveEdgeDefinition( pThisED)  );
+                      SER( pThisED->Destruct() );
                       delete pThisED; pThisED = NULL;
                   }
               }
@@ -6606,7 +6619,7 @@ SmStatus SmProtoTopologyManager::GlueCoincidentBrepVertices()
                       if(sDeletedEdges1.IsIn( pThisED->GetFinalEdge( 1 ) )
                         || sDeletedEdges2.IsIn( pThisED->GetFinalEdge( 2 ) ) )
                       {
-                          this->RemoveEdgeDefinition( pThisED, FALSE) ;
+                          SER( this->RemoveEdgeDefinition( pThisED, FALSE)  );
 
                           // This EdgeDef would have to be in one of the ProtoEdges,
                           // and so would have been destroyed in the previous loop.
@@ -6822,7 +6835,7 @@ SmStatus sm_FindEDOnDegenFace
  
           // False: Do not delete Edges that become Wires:
           // those Edges might still exist in EdgeDefinitions, and will be dereferenced.
-          pBrep1->DeleteFace( pFace, FALSE, TRUE, &sTopos) ;
+          SER( pBrep1->DeleteFace( pFace, FALSE, TRUE, &sTopos)  );
  
           if(sTopos.FindElement( pED1E, nFound ) )
             {
@@ -6959,7 +6972,7 @@ SmBoolean bDebugMe = FALSE;
          && pED1E2 == pED2E2)
         {
           ULONG lCanDelete = 0 ;
-          sm_FindEDOnDegenFace(pED1E1, pED2E1, lCanDelete) ;
+          SER( sm_FindEDOnDegenFace(pED1E1, pED2E1, lCanDelete)  );
           if(lCanDelete != 0)
             {
               rlCanDelete = lCanDelete;
@@ -6970,7 +6983,7 @@ SmBoolean bDebugMe = FALSE;
               && pED1E2 != pED2E2)
         {
           ULONG lCanDelete = 0 ;
-          sm_FindEDOnDegenFace(pED1E2, pED2E2, lCanDelete) ;
+          SER( sm_FindEDOnDegenFace(pED1E2, pED2E2, lCanDelete)  );
           if(lCanDelete != 0)
             {
               rlCanDelete = lCanDelete;
@@ -7080,18 +7093,18 @@ SmBoolean bDebugMe3=FALSE;
           // when Pt solution is in PE1 interior
           if(pPE1->GetXSectInterval().ContainsValue(dT1, -SM_EFF_ZERO))
             {
-              pPE1->Split( dT1,      // in : Tgt Split param, checked to be interior value
+              SER( pPE1->Split( dT1,      // in : Tgt Split param, checked to be interior value
                            pNewPV,   // out:  When dT is interior, new ProtoVertex at Split point
-                           pNewPE) ; // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
+                           pNewPE)  ); // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
                                      // note: When dT is interior, this PE reused for Lower Child split ProtoEdge:[IvlMin, dT]
             }
 
           // when Pt solution is in PE2 interior
           if(pPE2->GetXSectInterval().ContainsValue(dT2, -SM_EFF_ZERO))
             {
-              pPE2->Split( dT2,      // in : Tgt Split param, checked to be interior value
+              SER( pPE2->Split( dT2,      // in : Tgt Split param, checked to be interior value
                            pNewPV,   // out:  When dT is interior, new ProtoVertex at Split point
-                           pNewPE) ; // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
+                           pNewPE)  ); // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
                                      // note: When dT is interior, this PE reused for Lower Child split ProtoEdge:[IvlMin, dT]
             }
         } // end point XSect branch
@@ -7111,15 +7124,15 @@ SmBoolean bDebugMe3=FALSE;
 
           // T1:
           double dT11 = rSol.m_vStart[0];
-          pPE1->Split( dT11,       // in : Tgt Split param, checked to be interior value
+          SER( pPE1->Split( dT11,       // in : Tgt Split param, checked to be interior value
                        pNewPV11,   // out:  When dT is interior, new ProtoVertex at Split point
-                       pNewPE11) ; // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
+                       pNewPE11)  ); // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
                                    // note: When dT is interior, this PE reused for Lower Child split ProtoEdge:[IvlMin, dT]
 
           double dT21 = rSol.m_vStart[1];
-          pPE2->Split( dT21,       // in : Tgt Split param, checked to be interior value
+          SER( pPE2->Split( dT21,       // in : Tgt Split param, checked to be interior value
                        pNewPV21,   // out:  When dT is interior, new ProtoVertex at Split point
-                       pNewPE21) ; // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
+                       pNewPE21)  ); // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
                                    // note: When dT is interior, this PE reused for Lower Child split ProtoEdge:[IvlMin, dT]
 
           // Combine PVs:
@@ -7130,10 +7143,10 @@ SmBoolean bDebugMe3=FALSE;
              && pPV2ToCombine != NULL
              && pPV1ToCombine != pPV2ToCombine)
             {
-              pPV1ToCombine->CombineProtoVertex( pPV2ToCombine) ;
+              SER( pPV1ToCombine->CombineProtoVertex( pPV2ToCombine) );
 
               pPV2ToCombine->ClearVertexDefinitions();
-              this->RemoveProtoVertex( pPV2ToCombine) ;
+              SER( this->RemoveProtoVertex( pPV2ToCombine)  );
               delete pPV2ToCombine; pPV2ToCombine=NULL;
             }
 
@@ -7148,15 +7161,15 @@ SmBoolean bDebugMe3=FALSE;
             { pPE2ToSplit = pNewPE21; }
 
           double dT12 = rSol.m_vEnd[0];
-          pPE1ToSplit->Split( dT12,       // in : Tgt Split param, checked to be interior value
+          SER( pPE1ToSplit->Split( dT12,       // in : Tgt Split param, checked to be interior value
                               pNewPV12,   // out:  When dT is interior, new ProtoVertex at Split point
-                              pNewPE12) ; // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
+                              pNewPE12)  ); // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
                                           // note: When dT is interior, this PE reused for Lower Child split ProtoEdge:[IvlMin, dT]
 
           double dT22 = rSol.m_vEnd[1];
-          pPE2ToSplit->Split( dT22,       // in : Tgt Split param, checked to be interior value
+          SER( pPE2ToSplit->Split( dT22,       // in : Tgt Split param, checked to be interior value
                               pNewPV22,   // out:  When dT is interior, new ProtoVertex at Split point
-                              pNewPE22) ; // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
+                              pNewPE22)  ); // out:  When dT is interior, new Upper Child Split ProtoEdge:[dT, IvlMax]
                                           // note: When dT is interior, this PE reused for Lower Child split ProtoEdge:[IvlMin, dT]
 
           // Combine PVs:
@@ -7167,10 +7180,10 @@ SmBoolean bDebugMe3=FALSE;
              && pPV2ToCombine != NULL
              && pPV1ToCombine != pPV2ToCombine)
             {
-              pPV1ToCombine->CombineProtoVertex( pPV2ToCombine) ;
+              SER( pPV1ToCombine->CombineProtoVertex( pPV2ToCombine) );
 
               pPV2ToCombine->ClearVertexDefinitions();
-              this->RemoveProtoVertex( pPV2ToCombine) ;
+              SER( this->RemoveProtoVertex( pPV2ToCombine)  );
               delete pPV2ToCombine; pPV2ToCombine=NULL;
             }
 
@@ -7179,7 +7192,7 @@ SmBoolean bDebugMe3=FALSE;
           SmProtoEdge * pPE2ToCombine = (bSameDir) ? ((pNewPE21 != NULL) ? pNewPE21 : pPE2 )  
                                                    : ((pNewPE22 != NULL) ? pNewPE22 : pPE2 ) ;
 
-          pPE1ToCombine->CombineProtoEdge( pPE2ToCombine) ;
+          SER( pPE1ToCombine->CombineProtoEdge( pPE2ToCombine) );
 
           // ProtoFaces bounded by the combined-away PE are bounded by the survivor now.
           for(ULONG pf=0; pf<m_sPFs.GetSize(); pf++)
@@ -7192,7 +7205,7 @@ SmBoolean bDebugMe3=FALSE;
                 { pCoincPEs->Add( pPE1ToCombine) ; }
             }
 
-          this->RemoveProtoEdge( pPE2ToCombine) ;
+          SER( this->RemoveProtoEdge( pPE2ToCombine)  );
           delete pPE2ToCombine; pPE2ToCombine=NULL;
 
         } // end Range solution branch.
@@ -7316,7 +7329,9 @@ SmBoolean bDebugMe3=FALSE;
      && sSols.GetSize() > 0)
     {
       // the ProtoVertex is a redundant critical point coincident with an existing ProtoEdge - remove it
-      RemoveProtoVertex(pPV) ; // does not delete pPV
+      // SolidCraft change: a vertex it could not remove was not removed
+      if (RemoveProtoVertex(pPV) != SM_SUCCESS) // does not delete pPV
+        { return FALSE ; }
 
       // all done
       return TRUE ;
@@ -7514,13 +7529,13 @@ SmBoolean bDebugMe=FALSE;
             { 
               SmEdgeDefinition * pOverlapED = sOverlapEDs[kk] ;
 
-              RemoveEdgeDefinition( pOverlapED, FALSE) ; // FALSE =  Don't remove the PE if empty, otherwise keep track and remove from PF.  note: empty PEs don't hurt anything
-              pOverlapED->Destruct() ; delete pOverlapED ; pOverlapED = NULL ;
+              SER( RemoveEdgeDefinition( pOverlapED, FALSE)  ); // FALSE =  Don't remove the PE if empty, otherwise keep track and remove from PF.  note: empty PEs don't hurt anything
+              SER( pOverlapED->Destruct()  ); delete pOverlapED ; pOverlapED = NULL ;
             }
 
           // remove PE from End and Start ProtoVertex->PE list 
-          pOverlapPE->GetStartProtoVertex()->RemoveProtoEdge(pOverlapPE) ; 
-          pOverlapPE->GetEndProtoVertex()->RemoveProtoEdge(pOverlapPE) ; 
+          SER( pOverlapPE->GetStartProtoVertex()->RemoveProtoEdge(pOverlapPE)  ); 
+          SER( pOverlapPE->GetEndProtoVertex()->RemoveProtoEdge(pOverlapPE)  ); 
 
           // remove the OverlappingPEs from this PE (don't need to do back pointers because all back pointers belong to PEs in this sOverlappingGroup and they'll be cleaned in subsequent iters)
           pOverlapPE->GetOverlappingPEs().ReSet() ; 
@@ -7530,7 +7545,7 @@ SmBoolean bDebugMe=FALSE;
           pOverlapPE->SetEndProtoVertex  (NULL) ;
 
           // remove OverlapPE from ProtoTopoMgr
-          RemoveProtoEdge(pOverlapPE) ; 
+          SER( RemoveProtoEdge(pOverlapPE)  ); 
 
           // all done with this pOverlap PE
           if(pOverlapPE) { delete pOverlapPE ; pOverlapPE = NULL ; }
@@ -7549,7 +7564,7 @@ SmBoolean bDebugMe=FALSE;
               for(kk=0;kk<sOverlapVDs.GetSize();kk++)
                 { 
                   SmVertexDefinition *pVD = sOverlapVDs[kk];
-                  RemoveVertexDefinition( sOverlapVDs[kk], TRUE) ; // TRUE = delete ProtoVertexOwner when PVOwner->VertexDefCnt goes to zero
+                  SER( RemoveVertexDefinition( sOverlapVDs[kk], TRUE)  ); // TRUE = delete ProtoVertexOwner when PVOwner->VertexDefCnt goes to zero
                   delete pVD;  pVD = NULL;
                 } // end iter kk, every 
             } // end zombie PV check
@@ -7619,7 +7634,7 @@ SmBoolean bDebugMe=FALSE;
           pF2 = sFaces2[0] ;
   
           // Find the Edge->Curve coincidences
-          pC1->GlobalCoincidenceChecker( pE1->GetInterval(),    // in : 'this' curve interval to examine
+          SER( pC1->GlobalCoincidenceChecker( pE1->GetInterval(),    // in : 'this' curve interval to examine
                                         *pC2,                   // in : other curve
                                          pE2->GetInterval(),    // in : other-curve interval to examine
                                          m_dTol,                // in : max separation distances
@@ -7628,7 +7643,7 @@ SmBoolean bDebugMe=FALSE;
                                                                 //      FALSE= all of one of the curves has been used in the
                                                                 //             coincidence and no more solutions can exist unless
                                                                 //             there is something strange like a self intersection.
-                                         sSols) ;               // out: array of coincident segments 
+                                         sSols)  );               // out: array of coincident segments 
                                                                 // in : TRUE = snap to ends within tolerance 
                                                                 //      FALSE= don't snap near end solutions to endPoints 
                                                                 //      default:[TRUE] for compatibility with original behavior
@@ -7646,8 +7661,8 @@ SmBoolean bDebugMe=FALSE;
                   SmCurveClassification * pCrvClass2 = new ( GetContext() ) SmCurveClassification(pC1, sIvl1, NULL, m_dTol) ;
 
                   // Classify the coincident curves against their faces
-                  pF1->CurveOnClassify(TRUE, *pCrvClass1) ;
-                  pF2->CurveOnClassify(TRUE, *pCrvClass2) ;
+                  SER( pF1->CurveOnClassify(TRUE, *pCrvClass1)  );
+                  SER( pF2->CurveOnClassify(TRUE, *pCrvClass2)  );
   
                   // ExtractGeometry locals
                   SmCurve               * aCData1[16];
@@ -7660,8 +7675,8 @@ SmBoolean bDebugMe=FALSE;
                                                    s3DCurves2)) ; // out: a curve for every common interval classified to topology in both input CrvClassifications
   
                   // Make sure that (one of) m_vTParam, m_vUVParam, or m_vUVWParam is set in each PointClass object.
-                  pCrvClass1->SetPointClassParameters() ;
-                  pCrvClass2->SetPointClassParameters() ;
+                  SER( pCrvClass1->SetPointClassParameters()  );
+                  SER( pCrvClass2->SetPointClassParameters()  );
   
                   // accumulate the curve classifications
                   sCC1s.Add( pCrvClass1) ;
@@ -7754,8 +7769,8 @@ SmBoolean bDebugMe=FALSE;
           else          { pF2 = sFaces[0] ; }
 
           // Classify Edge->Curve against both SrcFaces
-          pF1->CurveOnClassify(TRUE, *pCrvClass1) ;
-          pF2->CurveOnClassify(TRUE, *pCrvClass2) ;
+          SER( pF1->CurveOnClassify(TRUE, *pCrvClass1)  );
+          SER( pF2->CurveOnClassify(TRUE, *pCrvClass2)  );
 
           // ExtractGeometry locals
           SmCurve               * aCData1[16];
@@ -7768,8 +7783,8 @@ SmBoolean bDebugMe=FALSE;
                                            s3DCurves2 )) ; // out: a curve for every common interval classified to topology in both input CrvClassifications
 
           // Make sure that (one of) m_vTParam, m_vUVParam, or m_vUVWParam is set in each PointClass object.
-          pCrvClass1->SetPointClassParameters() ;
-          pCrvClass2->SetPointClassParameters() ;
+          SER( pCrvClass1->SetPointClassParameters()  );
+          SER( pCrvClass2->SetPointClassParameters()  );
 
           // accumulate the curve classifications
           sCC1s.Add( pCrvClass1) ;
@@ -7801,9 +7816,9 @@ SmBoolean bDebugMe=FALSE;
               SmProtoEdge * pNewPE = NULL ;
 
               // Find or create a ProtoEdge from two SmCurveIntervals.
-              FindOrCreateProtoEdge((*pCrvClass1)[kk], // in : Face1 CrvInterval classification from a face pair XSection
+              SER( FindOrCreateProtoEdge((*pCrvClass1)[kk], // in : Face1 CrvInterval classification from a face pair XSection
                                     (*pCrvClass2)[kk], // in : Face2 CrvInterval classification from a face pair XSection
-                                    pNewPE) ;          // out: new or found ProtoEdge
+                                    pNewPE)  );          // out: new or found ProtoEdge
                                                        // out: optional, TRUE  = rpNewPE was created, NULL to ignore, default:[NULL]
                                                        //                FALSE = rpNewPE was found
                                                        // 
