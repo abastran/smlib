@@ -89,6 +89,9 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmLoopuse.cpp
   ${SRC}/SMLib/src/SmFaceuse.cpp
   ${SRC}/SMLib/src/SmTopologyTraverser.cpp
+  ${SRC}/SMLib/src/SmTrimmingTools.cpp
+  ${SRC}/SMLib/src/SmCrvOnSurf.cpp
+  ${SRC}/SMLib/src/SmCurveClass.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp
