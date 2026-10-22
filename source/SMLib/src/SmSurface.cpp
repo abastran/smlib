@@ -116,8 +116,9 @@ SmDropCurveFail::SmDropCurveFail (const SmDropCurveFail & crOther)
                 { SmCurve *pCopy = NULL ;
                   SmBSplineCurve *pBSplineCurve = crOther.m_sUVCurves.GetAt(ii) ;
                   if(pBSplineCurve && crOther.m_cpContext) 
-                    { pBSplineCurve->Copy(*crOther.m_cpContext, pCopy) ; 
-                      m_sUVCurves.Add((SmBSplineCurve*)pCopy) ; 
+                    { // SolidCraft: a curve that can't be copied isn't recorded
+                      if ( pBSplineCurve->Copy(*crOther.m_cpContext, pCopy) == SM_SUCCESS && pCopy != NULL )
+                        { m_sUVCurves.Add((SmBSplineCurve*)pCopy) ; }
                     }
                 }
                    
@@ -179,8 +180,9 @@ SmDropCurveFail &SmDropCurveFail::operator= (const SmDropCurveFail & crOther)
                 { SmCurve *pCopy = NULL ;
                   SmBSplineCurve *pBSplineCurve = crOther.m_sUVCurves.GetAt(ii) ;
                   if(pBSplineCurve && crOther.m_cpContext) 
-                    { pBSplineCurve->Copy(*crOther.m_cpContext, pCopy) ; 
-                      m_sUVCurves.Add((SmBSplineCurve*)pCopy) ; 
+                    { // SolidCraft: a curve that can't be copied isn't recorded
+                      if ( pBSplineCurve->Copy(*crOther.m_cpContext, pCopy) == SM_SUCCESS && pCopy != NULL )
+                        { m_sUVCurves.Add((SmBSplineCurve*)pCopy) ; }
                     }
                 }
                    
@@ -386,8 +388,9 @@ void SmDropCurveFail::Set
                     { SmCurve *pCopy = NULL ;
                       SmBSplineCurve *pBSplineCurve = pUVCurves->GetAt(ii) ;
                       if(pBSplineCurve && cpContext) 
-                        { pBSplineCurve->Copy(*cpContext, pCopy) ; 
-                          m_sUVCurves.Add((SmBSplineCurve*)pCopy) ; 
+                        { // SolidCraft: a curve that can't be copied isn't recorded
+                          if ( pBSplineCurve->Copy(*cpContext, pCopy) == SM_SUCCESS && pCopy != NULL )
+                            { m_sUVCurves.Add((SmBSplineCurve*)pCopy) ; }
                         }
                     }
             }
@@ -679,7 +682,7 @@ SmDisplayList * SmDropCurveFail::Draw
     {
       SmVector2d sUV(((SmSolutionArray)m_sSolutions)[ii].m_vStart[0], ((SmSolutionArray)m_sSolutions)[ii].m_vStart[1]) ;
       SmVector3d sXYZ ;
-      m_cp3dSurface->EvaluatePoint(sUV, sXYZ) ; 
+      (void)m_cp3dSurface->EvaluatePoint(sUV, sXYZ) ;  // SolidCraft: drawing only
       smgfx_SetLook(5,6, 1,0,0) ; sXYZ.Draw() ;
     }
 
@@ -688,7 +691,7 @@ SmDisplayList * SmDropCurveFail::Draw
     {
       SmVector2d sUV(m_sCtrlPoly[ii].x, m_sCtrlPoly[ii].y) ;
       SmVector3d sXYZ ;
-      m_cp3dSurface->EvaluatePoint(sUV, sXYZ) ; 
+      (void)m_cp3dSurface->EvaluatePoint(sUV, sXYZ) ;  // SolidCraft: drawing only
       smgfx_SetLook(6,7, 1,1,0) ; sXYZ.Draw() ;
     }
 
@@ -908,7 +911,7 @@ if ( bDebugMeDump )
   if(bJustCopyBSplines && this->IsKindOf(SmBSplineSurface_TYPE))
     {
       SmSurface *pSurface = NULL ;
-      this->Copy(crContext, pSurface) ;
+      SER( this->Copy(crContext, pSurface)  );
       rpNewBSplineSurface = (SmBSplineSurface *)pSurface ;
       dAchievedTol        = 0.0 ;
 
@@ -954,7 +957,7 @@ if ( bDebugMeDump )
       sVStarterKnots[0] = sUVDomain.GetVMin() ;
       sVStarterKnots[1] = sUVDomain.GetVMax() ;
 
-      SmBSplineSurface::CreateCanonical(crContext,
+      SER( SmBSplineSurface::CreateCanonical(crContext,
                                         lUDegree,
                                         lVDegree,
                                         sControlPoints,
@@ -966,7 +969,7 @@ if ( bDebugMeDump )
                                         SM_KT_UNIFORM_KNOTS,
                                         NULL,
                                         NULL,
-                                        pApproxSurf) ;
+                                        pApproxSurf)  );
 
     } // end not a BSplineSurface branch
 
@@ -1006,8 +1009,8 @@ if ( bDebugMeDump )
         }
 
       // elevate surface degrees to 3
-      if (lUDeg < 3) { pApproxSurf->DegreeElevate(SM_SP_U,3); }
-      if (lVDeg < 3) { pApproxSurf->DegreeElevate(SM_SP_V,3); }
+      if (lUDeg < 3) { SER( pApproxSurf->DegreeElevate(SM_SP_U,3) ); }
+      if (lVDeg < 3) { SER( pApproxSurf->DegreeElevate(SM_SP_V,3) ); }
 
       lUDeg = pApproxSurf->GetDegree(SM_SP_U);
       lVDeg = pApproxSurf->GetDegree(SM_SP_V);
@@ -1015,8 +1018,8 @@ if ( bDebugMeDump )
       // Update pApproxSurf using cubic Bezier approximations to each patch.
 
       // get knots of the subdivided surface
-      pApproxSurf->GetKnots( SM_SP_U, sUKnots, &sUMult );
-      pApproxSurf->GetKnots( SM_SP_V, sVKnots, &sVMult );
+      SER( pApproxSurf->GetKnots( SM_SP_U, sUKnots, &sUMult ) );
+      SER( pApproxSurf->GetKnots( SM_SP_V, sVKnots, &sVMult ) );
 
       // local single span approximation surface
       SmCubicBezierSurface sCB;
@@ -1054,9 +1057,9 @@ if ( bDebugMeDump )
                           SE(SM_ERR); // Some problem here with knots
                           return SM_SUCCESS;
                         }
-                      pApproxSurf->GetControlPoint( eForm, lUMin+iub, lVMin+ivb, sPnt, dWeight );
+                      SER( pApproxSurf->GetControlPoint( eForm, lUMin+iub, lVMin+ivb, sPnt, dWeight ) );
                       dWeight = 1.0;
-                      pApproxSurf->SetControlPoint( eForm, lUMin+iub, lVMin+ivb, sCB.m_vP[ivb][iub], dWeight );
+                      SER( pApproxSurf->SetControlPoint( eForm, lUMin+iub, lVMin+ivb, sCB.m_vP[ivb][iub], dWeight ) );
                     }
                 }
             } // end iter every V patch
@@ -1093,8 +1096,8 @@ if ( bDebugMeDump )
       double    dFraction   = lNumBetween + 1;
       SmBoolean bFailed     = FALSE;
 
-      pApproxSurf->GetKnots( SM_SP_U, sUKnots );
-      pApproxSurf->GetKnots( SM_SP_V, sVKnots );
+      SER( pApproxSurf->GetKnots( SM_SP_U, sUKnots ) );
+      SER( pApproxSurf->GetKnots( SM_SP_V, sVKnots ) );
 
       // Locals
       double dDist;
@@ -1114,9 +1117,9 @@ if ( bDebugMeDump )
           bFailed = FALSE; // Starting over on a new row.
 
           if ( bTestingUdir )
-            { sIvlOuter.SetMinMax( sUKnots[iOuter-1], sUKnots[iOuter] ); }
+            { SER( sIvlOuter.SetMinMax( sUKnots[iOuter-1], sUKnots[iOuter] ) ); }
           else
-            { sIvlOuter.SetMinMax( sVKnots[iOuter-1], sVKnots[iOuter] ); }
+            { SER( sIvlOuter.SetMinMax( sVKnots[iOuter-1], sVKnots[iOuter] ) ); }
 
           // for every U dir sample point
           for ( jj=1; jj<=lNumBetween; jj++ )
@@ -1128,9 +1131,9 @@ if ( bDebugMeDump )
               for ( iInner=1; iInner<lNumInner; iInner++ )
                 {
                   if ( bTestingUdir )
-                    { sIvlInner.SetMinMax( sVKnots[iInner-1], sVKnots[iInner] ); }
+                    { SER( sIvlInner.SetMinMax( sVKnots[iInner-1], sVKnots[iInner] ) ); }
                   else
-                    { sIvlInner.SetMinMax( sUKnots[iInner-1], sUKnots[iInner] ); }
+                    { SER( sIvlInner.SetMinMax( sUKnots[iInner-1], sUKnots[iInner] ) ); }
 
                   // for every V dir sample point
                   for ( kk=1; kk<=lNumBetween; kk++ )
@@ -1194,7 +1197,7 @@ if ( bDebugMeDump )
           sClean.Clear();
 
           // Remove excess knots: the result does not have to be piecewise Bezier.
-          pApproxSurf->RemoveKnots( sApproxTol3d, TRUE, TRUE );
+          SER( pApproxSurf->RemoveKnots( sApproxTol3d, TRUE, TRUE ) );
 
           // set output
           rpNewBSplineSurface = pApproxSurf ;
@@ -1306,7 +1309,7 @@ SmStatus SmSurface::ApproximateConstrainedSurface
   // low work - able to make an exact BSplineSurface
   if( !IsKindOf(SmBSplineSurface_TYPE)) // If this is a BSplineSurface assume approx is being called to change rep on purpose
     {
-      MakeExactBSplineIfPossible(rpNewBSplineSurface) ; 
+      SER( MakeExactBSplineIfPossible(rpNewBSplineSurface)  ); 
       
       // when exact BSplineSurface was created
       if(rpNewBSplineSurface != NULL)
@@ -1459,7 +1462,7 @@ SmStatus SmSurface::ApproximateConstrainedSurface
       sUVPoint = pOptUVTrimPoints->GetAt(ii) ;
 
       // Evalute Surface for current U and V tangents
-      pSurface->Evaluate1stDerivatives(sUVPoint, TRUE, TRUE, sPoint, sDU, sDV) ;
+      SER( pSurface->Evaluate1stDerivatives(sUVPoint, TRUE, TRUE, sPoint, sDU, sDV)  );
 
       // load arrays for upcoming NLib call
       sP.SetAt   (ip, s3DPoint) ;            // in : sample points, sized:[np+1]
@@ -1502,21 +1505,21 @@ SmStatus SmSurface::ApproximateConstrainedSurface
           double dParam = sIvl.Evaluate((double)(jj+1)/(double)(lThisCurveCnt+1)) ; 
 
           // Curve 3d sample
-          pCurve->EvaluatePoint(dParam, sPoint) ;
+          SER( pCurve->EvaluatePoint(dParam, sPoint)  );
 
           // Curve UVGuess
-          pUVTrimCurve->EvaluatePoint(dParam, sGuessPoint) ;
+          SER( pUVTrimCurve->EvaluatePoint(dParam, sGuessPoint)  );
           sUVGuessPoint.Set(sGuessPoint.x, sGuessPoint.y) ;
 
           // Drop to Surface
-          pSurface->DropPoint(sPoint, sUVDomain, &sUVGuessPoint, bSuccess, sUVPoint, dGap, bIsMulti) ; 
+          SER( pSurface->DropPoint(sPoint, sUVDomain, &sUVGuessPoint, bSuccess, sUVPoint, dGap, bIsMulti)  ); 
 
           // skip bad points
           if(!bSuccess)
             { continue ; }
 
           // Evaluate Surface for current U and V tangents
-          pSurface->Evaluate1stDerivatives(sUVPoint, TRUE, TRUE, sPoint, sDU, sDV) ;
+          SER( pSurface->Evaluate1stDerivatives(sUVPoint, TRUE, TRUE, sPoint, sDU, sDV)  );
 
           // load arrays for upcoming NLib call
           sP.SetAt   (ip, sPoint) ;              // in : sample points, sized:[np+1]
@@ -1558,7 +1561,7 @@ SmStatus SmSurface::ApproximateConstrainedSurface
           
           // Evalute Surface for current U and V tangents
           sUVPoint.Set(dU, dV) ;
-          pSurface->Evaluate1stDerivatives(sUVPoint, TRUE, TRUE, sPoint, sDU, sDV) ;
+          SER( pSurface->Evaluate1stDerivatives(sUVPoint, TRUE, TRUE, sPoint, sDU, sDV)  );
 
           // load arrays for upcoming NLib call
           sP.SetAt   (ip, sPoint) ;              // in : sample points, sized:[np+1]
@@ -1674,7 +1677,7 @@ SmBoolean bDebugMe = FALSE ;
           sUVPoint.Set(sPU[jj], sPV[jj]) ;
 
           // eval surface
-          rpNewBSplineSurface->EvaluatePoint(sUVPoint, sPoint) ;
+          SER_DELETE( rpNewBSplineSurface->EvaluatePoint(sUVPoint, sPoint), rpNewBSplineSurface ) ; // SolidCraft: no surface is output unless it is successful
 
           // get the gap size - save the max
           double dThisGapSquared = sPoint.DistanceBetweenSquared(sP[jj]) ;
@@ -1831,7 +1834,7 @@ SmStatus SmSurface::ApproximateSurfaceLeastSqs
           sUV.Set(dU,dV) ;
 
           // Get the Surface sample Normal
-          pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv) ;
+          SER( pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv)  );
 
           // increment the sample point for next iteration
           dU += dDU ;
@@ -1839,7 +1842,7 @@ SmStatus SmSurface::ApproximateSurfaceLeastSqs
 
           // simple norm and angle between
           SmVector3d sNorm = sDu * sDv ;
-          sDu.AngleBetween(sDv, dAngRad) ;
+          SER( sDu.AngleBetween(sDv, dAngRad)  );
 
           // skip dependent samples (sDu is zero, sDV is zero, or sNorm is Zero)
           if(   sNorm.LengthSquared() <= SmTol::GetScaledZeroSq(sNorm)
@@ -1864,11 +1867,11 @@ SmStatus SmSurface::ApproximateSurfaceLeastSqs
           sUV.Set( dParamU, sUVDomain.EvaluateV( (double)jj / (double)(lSmpCnt_V) )) ;
 
           // Surface 1st derivatives
-          pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv) ;
+          SER( pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv)  );
 
           // simple norm
           SmVector3d sNorm = sDu * sDv ;
-          sDu.AngleBetween(sDv, dAngRad) ;
+          SER( sDu.AngleBetween(sDv, dAngRad)  );
 
           // skip dependent samples (sDu is zero, sDV is zero, or sNorm is Zero)
           if(   sNorm.LengthSquared() <= SmTol::GetScaledZeroSq(sNorm)
@@ -1887,7 +1890,7 @@ SmStatus SmSurface::ApproximateSurfaceLeastSqs
   // Arrive here after gathering Sample points and normals - next: use NLib to build a surface
 
   // Build a new surface
-  SmBSplineSurface::ApproximateRandomPointsNormals(*cpContext,           // in : new object context
+  SER( SmBSplineSurface::ApproximateRandomPointsNormals(*cpContext,           // in : new object context
                                                     sPoints,             // in : sample points
                                                     sNormals,            // in : associated surface normals
                                                     lMaxUCtrlPnts,       // in : output control point count U
@@ -1897,7 +1900,7 @@ SmStatus SmSurface::ApproximateSurfaceLeastSqs
                                                     pNewSurf,            // out: approximating surface
                                                     pOptProjectionPlane, // in : Opt projection plane, NULL to ignore
                                                                          //      default:[NULL]
-                                                    sApproxTol3d) ;      // in : Max distance allowed between approx and points,
+                                                    sApproxTol3d)  );      // in : Max distance allowed between approx and points,
                                                                          //      0.0 to ignore, default:[0.0]
   // Check the Surface quality
   SmBoolean bRtn = pNewSurf ? pNewSurf->AssertValid() : FALSE ;
@@ -1967,12 +1970,12 @@ SmStatus SmSurfaceEval::EvalNormal()
   if ( m_bNormalSet )
     { return SM_SUCCESS; }
 
-  Eval();
+  SER( Eval() );
   m_sPVV[2][2] = m_sPVV[1][0] * m_sPVV[0][1];
 
   if ( m_sPVV[2][2].LengthSquared() >= SM_EFF_ZERO_SQ )
   {
-      m_sPVV[2][2].Unitize();
+      SER( m_sPVV[2][2].Unitize() );
       m_bNormalSet = TRUE ;
       return SM_SUCCESS;
   }
@@ -2011,7 +2014,7 @@ SmStatus SmSurfaceEval::EvalNormal()
 
   if ( m_sPVV[2][2].LengthSquared() >= SM_EFF_ZERO_SQ )
   {
-      m_sPVV[2][2].Unitize();
+      SER( m_sPVV[2][2].Unitize() );
       m_bNormalSet = TRUE ;
       return SM_SUCCESS;
   }
@@ -2047,8 +2050,8 @@ SmStatus SmSurfaceEval::EvalNormalSection()
   if ( m_bSectDirSet )
     { return SM_SUCCESS; }
 
-  Eval();
-  EvalNormal() ;
+  SER( Eval() );
+  SER( EvalNormal()  );
 
   SmStatus sRtn = smsurf_EvaluateNormalSection
        (m_sPVV,                    // in : Surface Point, its 1st and 2nd Derivatives, and SurfNorm
@@ -2670,7 +2673,7 @@ SmStatus SmDerivSurfDefinition::GetSampleValues  // from base curve
 
           case SM_TT_PERPENDICULAR_TO_VECTOR:    // Cross-tangent direction = component of curvature vec perpendicular to given vector
                                                  // Cross-curvature         = cross(cross-tangent, Curve Tangent Vector)
-                                                 smgu_VectorProjectToPlane(sGVecs[2],m_vVector,sCrossTangent);
+                                                 SER( smgu_VectorProjectToPlane(sGVecs[2],m_vVector,sCrossTangent) );
                                                  sCrossCurvature = sCrossTangent * sGVecs[1];
                                                  break;
 
@@ -2713,7 +2716,7 @@ SmStatus SmDerivSurfDefinition::GetSampleValues  // from base curve
       SmAxis2Placement sRot;
       double           dRotAngle = m_dStartAngleDeg + dParam * (m_dEndAngleDeg - m_dStartAngleDeg);
       SmVector3d       sAxis     = sGVecs[1];
-      sAxis.Unitize();
+      SER( sAxis.Unitize() );
       sRot.RotateAboutAxis(dRotAngle*SM_PI/180.0,sAxis);
       sRot.TransformPoint(sCrossTangent,sCrossTangent);
 
@@ -3052,7 +3055,7 @@ SmBoolean bDebugMe = FALSE ;
               _T("Failed to evaluate a Surface Normal at a Surface point")) ;
       SER_MSG(sSurfaceNormal.LengthSquared() > SM_EFF_ZERO ? SM_SUCCESS : SM_ERR,
               _T("DerivSurface not defined for degenerate Surfaces")) ;
-      sSurfaceNormal.Unitize() ;
+      SER( sSurfaceNormal.Unitize()  );
 
       // Surface Boundary Binormal
       SmVector3d sBoundaryBinormal =   bOffToTheRight
@@ -3088,8 +3091,8 @@ SmBoolean bDebugMe = FALSE ;
               sSurfacePV[1] = sBoundaryBinormal ;
 
               // 2d dir = projection of 3d binormal into surface UV space
-              rSurface.ComputeParamDirection(sSurfaceUV[0], sBoundaryBinormal, sSurfaceUV[1]) ;
-              sSurfaceUV[1].Unitize() ;
+              SER( rSurface.ComputeParamDirection(sSurfaceUV[0], sBoundaryBinormal, sSurfaceUV[1])  );
+              SER( sSurfaceUV[1].Unitize()  );
             }
           break ;
 
@@ -3106,7 +3109,7 @@ SmBoolean bDebugMe = FALSE ;
                                                         sBoundaryBinormal,
                                                         sBoundaryUVBinormal),
                                                         _T("Curve Tangent Failed to Drop to Surface UVTangent")) ;
-              sBoundaryUVBinormal.Unitize() ;
+              SER( sBoundaryUVBinormal.Unitize()  );
 
               // linearly interp the dir rotation angle
               double dAngRad = SM_DEG2RAD(  (1.0 - dParam) * m_dStartDerivDirAngleDeg
@@ -3172,8 +3175,8 @@ SmBoolean bDebugMe = FALSE ;
                 } // end starting at ref curve branch
 
               // Project sGap into Surface UV plane
-              rSurface.ComputeParamDirection(sSurfaceUV[0], sReferenceGap, sSurfaceUV[1]) ;
-              sSurfaceUV[1].Unitize() ;
+              SER( rSurface.ComputeParamDirection(sSurfaceUV[0], sReferenceGap, sSurfaceUV[1])  );
+              SER( sSurfaceUV[1].Unitize()  );
 #ifdef SM_DEBUG_CODE
               // draw
               if(bDebugMe)
@@ -3209,7 +3212,7 @@ SmBoolean bDebugMe = FALSE ;
       sTgtValues[1].Set(0,0,0) ;
       sTgtValues[2].Set(0,0,0) ;
       sTgtValues[3].Set(0,0,0) ;
-      rSurface.EvaluateDirectionalDerivs(sSurfaceUV[0], sSurfaceUV[1], lNumDerivatives, sTgtValues) ;
+      SER( rSurface.EvaluateDirectionalDerivs(sSurfaceUV[0], sSurfaceUV[1], lNumDerivatives, sTgtValues)  );
 
       // Do not support degenerate surfaces
       double dTgt1stDerivLength = sTgtValues[1].Length() ;
@@ -4156,7 +4159,7 @@ static SmStatus sm_LoadGuesses
   SmStatus sRtn = pSurface->Evaluate1stDerivatives(sClosePtUV, TRUE, TRUE, sPt, sSu, sSv) ;
   if(sRtn != SM_SUCCESS)
     {
-      pSurface->EvaluatePoint( sClosePtUV, sPt );
+      SER( pSurface->EvaluatePoint( sClosePtUV, sPt ) );
     }
 
   // get current distance and upcoming NewtonRaphson values
@@ -4254,7 +4257,7 @@ static SmStatus sm_LoadGuesses
           // evaluate and judge the New Point
           sRtn = pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sSu, sSv) ;
           if(sRtn != SM_SUCCESS)
-            { pSurface->EvaluatePoint( sUV, sPt ); }
+            { SER( pSurface->EvaluatePoint( sUV, sPt ) ); }
 
           sSurfToPt = sPt - crTestPnt;
           dF        = sSurfToPt.Dot(sSu);
@@ -4369,7 +4372,7 @@ SmStatus smsurf_IsPointOnNormal
     }
   else
     {
-      sNorm.Unitize() ;
+      SER( sNorm.Unitize()  );
     }
 
   // TestPoint to SurfNorm Line distance
@@ -4434,7 +4437,7 @@ SmBoolean bDebugMe=FALSE;
           SmVector3d sSrfPD[2] ;
           // Get Surface 3d outside pointing vector
           sBiNorm2d = -sBiNorm2d ;
-          crSurface.EvaluateDirectionalDerivs( crUVToTest, sBiNorm2d, 1, sSrfPD) ;
+          SER( crSurface.EvaluateDirectionalDerivs( crUVToTest, sBiNorm2d, 1, sSrfPD)  );
 
           // get the drop vector from SrfPoint3d to 3dTestPoint
           SmVector3d sDropVec = cr3DPointToTest - sSrfPD[0] ;
@@ -4756,12 +4759,12 @@ static SmBoolean sm_PassSCConvergenceTest
   // surface eval
   SmPoint3d sPnt;
   SmVector3d sDU, sDV;
-  crSurface.Evaluate1stDerivatives(crUV,TRUE,TRUE,sPnt,sDU,sDV);  // nonZeroTangents
+  if ( crSurface.Evaluate1stDerivatives(crUV,TRUE,TRUE,sPnt,sDU,sDV) != SM_SUCCESS ) { return FALSE ; } // nonZeroTangents; SolidCraft: not shown converged
 
   // curve eval
   SmVector3d sPV[2]; // sPV[0] = crCurve 3dPoint    for param = dParameter
                      // sPV[1] = crCurve 3dTangent  for param = dParameter
-  crCurve.Evaluate(dParameter,1,TRUE,sPV, TRUE);  // NonZeroTangents
+  if ( crCurve.Evaluate(dParameter,1,TRUE,sPV, TRUE) != SM_SUCCESS ) { return FALSE ; } // NonZeroTangents; SolidCraft: not shown converged
 
   // curve surface displacement
   SmVector3d sDiff = sPnt - sPV[0];
@@ -4774,10 +4777,10 @@ static SmBoolean sm_PassSCConvergenceTest
      || smos_Fabs(sDV.Dot(sDiff))    > SM_EFF_ZERO * dScale
      || smos_Fabs(sPV[1].Dot(sDiff)) > SM_EFF_ZERO * dScale)
        {
-      sDiff.Unitize();
+      (void)sDiff.Unitize(); // SolidCraft: nonzero by the tests above
       if (sDU.LengthSquared() > SM_EFF_ZERO_SQ)
         {
-          sDU.Unitize();
+          (void)sDU.Unitize(); // SolidCraft: nonzero by the tests above
           if (smos_Fabs(sDU.Dot(sDiff)) > SM_EFF_ZERO)
             {
               return FALSE;
@@ -4785,7 +4788,7 @@ static SmBoolean sm_PassSCConvergenceTest
         }
       if (sDV.LengthSquared() > SM_EFF_ZERO_SQ)
         {
-          sDV.Unitize();
+          (void)sDV.Unitize(); // SolidCraft: nonzero by the tests above
           if (smos_Fabs(sDV.Dot(sDiff)) > SM_EFF_ZERO)
             {
               return FALSE;
@@ -4793,7 +4796,7 @@ static SmBoolean sm_PassSCConvergenceTest
         }
       if (sPV[1].LengthSquared() > SM_EFF_ZERO_SQ)
         {
-          sPV[1].Unitize();
+          (void)sPV[1].Unitize(); // SolidCraft: nonzero by the tests above
           if (smos_Fabs(sPV[1].Dot(sDiff)) > SM_EFF_ZERO)
             {
               return FALSE;
@@ -5456,7 +5459,7 @@ SmStatus SmSurface::CalculateBoundingBox
           const SmPoint3d rMinPoint = pNode->m_sBBox.GetMin() ;
           const SmPoint3d rMaxPoint = pNode->m_sBBox.GetMax() ;
 
-          pPseudoBox->SetBasis(SmVector3d(1,0,0), SmVector3d(0,1,0), SmVector3d(0,0,1)) ;
+          SER( pPseudoBox->SetBasis(SmVector3d(1,0,0), SmVector3d(0,1,0), SmVector3d(0,0,1))  );
           pPseudoBox->SetIntervals(SmExtent1d(rMinPoint.x, rMaxPoint.x),
                                    SmExtent1d(rMinPoint.y, rMaxPoint.y),
                                    SmExtent1d(rMinPoint.z, rMaxPoint.z)) ;
@@ -5530,16 +5533,16 @@ SmStatus SmSurface::CalculateTightBoundingBox
           // This works even if crUVDomain is different from the natural domain:
           SmPoint3d sPt;
           SmPoint2d sUV( crUVDomain.GetMin().x, crUVDomain.GetMin().y );
-          EvaluatePoint( sUV, sPt );
+          SER( EvaluatePoint( sUV, sPt ) );
           sTightBox.AddPoint3d( sPt );
           sUV.Set( crUVDomain.GetMax().x, crUVDomain.GetMin().y );
-          EvaluatePoint( sUV, sPt );
+          SER( EvaluatePoint( sUV, sPt ) );
           sTightBox.AddPoint3d( sPt );
           sUV.Set( crUVDomain.GetMin().x, crUVDomain.GetMax().y );
-          EvaluatePoint( sUV, sPt );
+          SER( EvaluatePoint( sUV, sPt ) );
           sTightBox.AddPoint3d( sPt );
           sUV.Set( crUVDomain.GetMax().x, crUVDomain.GetMax().y );
-          EvaluatePoint( sUV, sPt );
+          SER( EvaluatePoint( sUV, sPt ) );
           sTightBox.AddPoint3d( sPt );
 
           *pNormalBox = sTightBox;
@@ -5561,17 +5564,17 @@ SmStatus SmSurface::CalculateTightBoundingBox
       if ( idx == 2 ) sDirVec.Set( 0, 0, 1 );  // +/- z
 
       // Positive direction:
-      GlobalPointSolve(crUVDomain, 
+      SER( GlobalPointSolve(crUVDomain, 
                        SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE,
                        sDirVec,
                        SM_EFF_ZERO_SQRT, //cbi: does this matter?
                        NULL,
                        SM_SR_ALL,
-                       sSolutions) ;
+                       sSolutions)  );
 
       for(jj=0;jj<sSolutions.GetSize();jj++)
         {
-          sEval.SetUV( sSolutions[jj].m_vStart[0], sSolutions[jj].m_vStart[1] );
+          SER( sEval.SetUV( sSolutions[jj].m_vStart[0], sSolutions[jj].m_vStart[1] ) );
           sTightBox.AddPoint3d( sEval.Pos() );
 
 #ifdef SM_DEBUG_CODE
@@ -5587,17 +5590,17 @@ SmBoolean bDebugMe = FALSE;
       // Negative direction:
       sDirVec = -sDirVec;
 
-      GlobalPointSolve(crUVDomain, 
+      SER( GlobalPointSolve(crUVDomain, 
                        SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE,
                        sDirVec,
                        SM_EFF_ZERO_SQRT, //cbi: does this matter?
                        NULL,
                        SM_SR_ALL,
-                       sSolutions );
+                       sSolutions ) );
 
       for(jj=0;jj<sSolutions.GetSize();jj++)
         {
-          sEval.SetUV( sSolutions[jj].m_vStart[0], sSolutions[jj].m_vStart[1] );
+          SER( sEval.SetUV( sSolutions[jj].m_vStart[0], sSolutions[jj].m_vStart[1] ) );
           sTightBox.AddPoint3d( sEval.Pos() );
 
 #ifdef SM_DEBUG_CODE
@@ -5735,7 +5738,7 @@ const
   const ULONG lNumSamples = 4;
   double dSamples[lNumSamples] = { 0.15, 0.35, 0.65, 0.85 };
   double dMagU = 0, dMagV = 0;
-  ULONG i, j;
+  ULONG i, j, lNumEvaluated = 0;
 
   SmPoint2d sUV;
   SmPoint3d sPt;
@@ -5746,14 +5749,20 @@ const
       for ( j = 0; j < lNumSamples; j++ )
         {
           sUV = crUVDomain.Evaluate( dSamples[i], dSamples[j] );
-          Evaluate1stDerivatives( sUV, TRUE, TRUE, sPt, sDu, sDv );  // nonZeroTangent lengths
+          // SolidCraft: a sample that can't be evaluated is left out of the average
+          if ( Evaluate1stDerivatives( sUV, TRUE, TRUE, sPt, sDu, sDv ) != SM_SUCCESS )  // nonZeroTangent lengths
+            { continue ; }
           dMagU += sDu.Length();
           dMagV += sDv.Length();
+          lNumEvaluated++ ;
         }
     }
 
-  dMagU /= ( lNumSamples * lNumSamples );
-  dMagV /= ( lNumSamples * lNumSamples );
+  // SolidCraft: no sample evaluated, no length
+  if ( lNumEvaluated == 0 )
+    { return SmVector2d( SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE ); }
+  dMagU /= lNumEvaluated;
+  dMagV /= lNumEvaluated;
 
   return SmVector2d( dMagU, dMagV );
 
@@ -6263,7 +6272,7 @@ SmBoolean bDebugMe = FALSE ;
                                     dParameter,
                                     0.0,
                                     pIsoCrv));
-      pIsoCrv->GetKnots(sIsoKnots) ;
+      SER( pIsoCrv->GetKnots(sIsoKnots)  );
       SmObjDelete sCleanup(pIsoCrv);
 
 #ifdef SM_DEBUG_CODE
@@ -6457,8 +6466,8 @@ SmStatus SmSurface::CalculateFilletRadius(
 
   SmPoint3d sPt1, sPt2;
   SmVector3d sSu1, sSv1, sSu2, sSv2;
-  Evaluate1stDerivatives( sUV1, FALSE, FALSE, sPt1, sSu1, sSv1 ); // nonZeroTangent evals
-  Evaluate1stDerivatives( sUV2, FALSE, FALSE, sPt2, sSu2, sSv2 ); // nonZeroTangent evals
+  SER( Evaluate1stDerivatives( sUV1, FALSE, FALSE, sPt1, sSu1, sSv1 ) ); // nonZeroTangent evals
+  SER( Evaluate1stDerivatives( sUV2, FALSE, FALSE, sPt2, sSu2, sSv2 ) ); // nonZeroTangent evals
 
   double dDistSq = sPt1.DistanceBetweenSquared( sPt2 );
   if ( dDistSq < SM_EFF_ZERO_SQ )
@@ -6686,7 +6695,7 @@ SmStatus SmFindSingularParamWithGivenTangentDirEFO::Evaluate
 
   // compute Unitized derivitaves of w (using w' and w")
   SmVector3d sUnitVec_t, sUnitVec_tt ;
-  pW->UnitizedDerivative2(*pWs, *pWss, sUnitVec_t, sUnitVec_tt) ;
+  SER( pW->UnitizedDerivative2(*pWs, *pWss, sUnitVec_t, sUnitVec_tt)  );
 
   // compute F(s)  = Dot((w/|w|)', rDir)
   rdFOfT = sUnitVec_t.Dot(m_rDir) ;
@@ -6806,14 +6815,14 @@ SmBoolean bDebugMe = FALSE ;
   SmVector3d *pW ;
   if(eSingularDirection == SM_SP_U) { dS = rUV.x ;
                                       dT = rUV.y ;
-                                      sSIvl.SetMinMax( sUVMin.x, sUVMax.x) ;
-                                      sTIvl.SetMinMax( sUVMin.y, sUVMax.y) ;
+                                      SER( sSIvl.SetMinMax( sUVMin.x, sUVMax.x)  );
+                                      SER( sTIvl.SetMinMax( sUVMin.y, sUVMax.y)  );
                                       pW = &sMat2[0][1] ;
                                     }
   else                              { dS = rUV.y ;
                                       dT = rUV.x ;
-                                      sSIvl.SetMinMax( sUVMin.y, sUVMax.y) ;
-                                      sTIvl.SetMinMax( sUVMin.x, sUVMax.x) ;
+                                      SER( sSIvl.SetMinMax( sUVMin.y, sUVMax.y)  );
+                                      SER( sTIvl.SetMinMax( sUVMin.x, sUVMax.x)  );
                                       pW = &sMat2[1][0] ;
                                     }
 
@@ -6904,12 +6913,12 @@ SmBoolean bDebugMe = FALSE ;
 
       // save the nonSingular Unitized tangent
       sSurf_dt = *pW ;   // pW = ( eSingularDirection == SM_SP_U ) ? &sMat2[0][1] : &sMat2[1][0]
-      sSurf_dt.Unitize() ;
+      SER( sSurf_dt.Unitize()  );
 
       // measure how closely test point dir is to target dir
       double dAngRad ;
       dThisFVal = sSurf_dt.Dot( sDir ) ;
-      sSurf_dt.AngleBetween(sDir,dAngRad) ;
+      SER( sSurf_dt.AngleBetween(sDir,dAngRad)  );
 
 #ifdef SM_DEBUG_CODE
       if(bDebugMe)
@@ -7003,10 +7012,10 @@ SmBoolean bDebugMe = FALSE ;
   if(bFoundSolution == FALSE)
     {
       // solve with NewtonRaphson iteration
-      sLS.SolveIt(sSIvl.Evaluate(dBestParam),
+      SER( sLS.SolveIt(sSIvl.Evaluate(dBestParam),
                                    dTol,                        // in : acceptable Accuruacy
                                    bFoundSolution,
-                                   dFoundT) ;
+                                   dFoundT)  );
       dFoundParam = dBestParam ;
    }
 
@@ -7167,10 +7176,10 @@ SmStatus SmSurface::FindFilletMinMaxRadii
   double dRadius = 0;
   double dParam = sDomain.GetMin();
   SmBoolean bFoundSolution = FALSE;
-  this->CalculateFilletRadius( eRailDir, dParam, dRadius );
+  SER( this->CalculateFilletRadius( eRailDir, dParam, dRadius ) );
   sRadii.AddValue( dRadius );
   dParam = sDomain.GetMax();
-  this->CalculateFilletRadius( eRailDir, dParam, dRadius );
+  SER( this->CalculateFilletRadius( eRailDir, dParam, dRadius ) );
   sRadii.AddValue( dRadius );
 
   SmFindCurveDistanceExtremaEFO sEFO( pRail1, pRail2, sDomain, dTol );
@@ -7187,7 +7196,7 @@ SmStatus SmSurface::FindFilletMinMaxRadii
   // Get function value at start of curve.
   double dPrevF = 0;
   double dPrevT = sDomain.GetMin();
-  sEFO.Evaluate( dPrevT, dPrevF, dF1, bFoundSolution );
+  SER( sEFO.Evaluate( dPrevT, dPrevF, dF1, bFoundSolution ) );
 
   SmBoolean bIsCircular;
 
@@ -7196,10 +7205,10 @@ SmStatus SmSurface::FindFilletMinMaxRadii
       dFrac  = (double)i / dDenom;
       dParam = sDomain.Evaluate( dFrac );
 
-      sEFO.Evaluate( dParam, dF, dF1, bFoundSolution );
+      SER( sEFO.Evaluate( dParam, dF, dF1, bFoundSolution ) );
       if ( bFoundSolution )
         {
-          this->CalculateFilletRadius( eRailDir, dParam, dRadius, &bIsCircular );
+          SER( this->CalculateFilletRadius( eRailDir, dParam, dRadius, &bIsCircular ) );
           sRadii.AddValue( dRadius );
         }
       else if ( dF * dPrevF < -SM_EFF_ZERO )
@@ -7208,7 +7217,7 @@ SmStatus SmSurface::FindFilletMinMaxRadii
           double dGuessParam = dPrevT - dPrevF * ( dParam - dPrevT ) / ( dF - dPrevF );
           if ( sLS.SolveIt( dGuessParam, dTol, bFoundSolution, dFoundT) == SM_SUCCESS )
             {
-              this->CalculateFilletRadius( eRailDir, dFoundT, dRadius, &bIsCircular );
+              SER( this->CalculateFilletRadius( eRailDir, dFoundT, dRadius, &bIsCircular ) );
               sRadii.AddValue( dRadius );
 
 #ifdef SM_DEBUG_CODE
@@ -7324,8 +7333,8 @@ SmBoolean bDebugMe = FALSE;
 
   // Check bounding boxes
   SmExtent3d sBBox0, sBBox1;
-  this -> CalculateBoundingBox( sDomain0, &sBBox0 );
-  crOther.CalculateBoundingBox( sDomain1, &sBBox1 );
+  SER( this -> CalculateBoundingBox( sDomain0, &sBBox0 ) );
+  SER( crOther.CalculateBoundingBox( sDomain1, &sBBox1 ) );
 
   // expand one of the BoundingBoxes by XSectTol3d to guarantee no missing cases
 #ifdef SM_USE_NEWTOL
@@ -7364,11 +7373,11 @@ SmBoolean bDebugMe = FALSE;
             {
               // surface1 corners
               sUV1 = sDomain0.Evaluate( ii, jj );
-              this->EvaluatePoint( sUV1, sPts1[ii][jj] );
+              SER( this->EvaluatePoint( sUV1, sPts1[ii][jj] ) );
 
               // surface2 corners
               sUV2 = sDomain1.Evaluate( ii, jj );
-              crOther.EvaluatePoint( sUV2, sPts2[ii][jj] );
+              SER( crOther.EvaluatePoint( sUV2, sPts2[ii][jj] ) );
             }
         } // end iter natural domain corners
 
@@ -7451,10 +7460,10 @@ SmBoolean bDebugMe = FALSE;
         {
           // Closed in u (on surf 1).
           sUV1 = sDomain0.Evaluate( 0, 0 );
-          this->Evaluate1stDerivatives( sUV1, TRUE, TRUE, sPt0, sSu0, sSv0 );  // nonZeroTangents
+          SER( this->Evaluate1stDerivatives( sUV1, TRUE, TRUE, sPt0, sSu0, sSv0 ) );  // nonZeroTangents
 
           sUV2 = sDomain1.Evaluate( idx00, jdx00 );
-          crOther.Evaluate1stDerivatives( sUV2, TRUE, TRUE, sPt1, sSu1, sSv1 );  // nonZeroTangents
+          SER( crOther.Evaluate1stDerivatives( sUV2, TRUE, TRUE, sPt1, sSu1, sSv1 ) );  // nonZeroTangents
           SmVector3d sOtherDir = ( eOrient == SM_OT_SAME ) ? sSu1 : sSv1;
           if ( sSu0.Dot( sOtherDir ) < 0 )
             { dDirU = -1.0; }
@@ -7465,10 +7474,10 @@ SmBoolean bDebugMe = FALSE;
         {
           // Closed in v (on surf 1).
           sUV1 = sDomain0.Evaluate( 0, 0 );
-          this->Evaluate1stDerivatives( sUV1, TRUE, TRUE, sPt0, sSu0, sSv0 );  // nonZeroTangents
+          SER( this->Evaluate1stDerivatives( sUV1, TRUE, TRUE, sPt0, sSu0, sSv0 ) );  // nonZeroTangents
 
           sUV2 = sDomain1.Evaluate( idx00, jdx00 );
-          crOther.Evaluate1stDerivatives( sUV2, TRUE, TRUE, sPt1, sSu1, sSv1 ); // nonZeroTangents
+          SER( crOther.Evaluate1stDerivatives( sUV2, TRUE, TRUE, sPt1, sSu1, sSv1 ) ); // nonZeroTangents
           SmVector3d sOtherDir = ( eOrient == SM_OT_SAME ) ? sSv1 : sSu1;
           if ( sSv0.Dot( sOtherDir ) < 0 )
             { dDirV = -1.0; }
@@ -7508,7 +7517,7 @@ SmBoolean bDebugMe = FALSE;
 
               // this surface(dU,dV) point
               sUV1 = sDomain0.Evaluate( dU, dV );
-              this->EvaluatePoint( sUV1, sPt1 );
+              SER( this->EvaluatePoint( sUV1, sPt1 ) );
 
               // sUV1 =map=> sUV2
               sNormalizedUV2 = s_MapUV( dU, dV, eOrient, dDirU, dDirV );
@@ -7560,22 +7569,22 @@ SmBoolean bDebugMe = FALSE;
   SmObjsDelete<SmBSplineCurve*> sCleanUV0( &sBdrysUV0 );
   SmObjsDelete<SmBSplineCurve*> sCleanUV1( &sBdrysUV1 );
 
-  this->CreateNaturalUVTrimCurves( *(this->GetContext()),
+  SER( this->CreateNaturalUVTrimCurves( *(this->GetContext()),
                                    sDomain0,
                                    SM_SP_V,
                                    FALSE,
                                    sBdrys3D0,
                                    sBdrysUV0,
-                                   sOrients0 );
+                                   sOrients0 ) );
   ULONG lNumBdrys0 = sBdrys3D0.GetSize(); // Presumably 4.
 
-  crOther.CreateNaturalUVTrimCurves( *(crOther.GetContext()),
+  SER( crOther.CreateNaturalUVTrimCurves( *(crOther.GetContext()),
                                      sDomain1,
                                      SM_SP_V,
                                      FALSE,
                                      sBdrys3D1,
                                      sBdrysUV1,
-                                     sOrients1 );
+                                     sOrients1 ) );
   ULONG lNumBdrys1 = sBdrys3D1.GetSize();
 
   double dT0, dT1;
@@ -7674,8 +7683,8 @@ SmBoolean bDebugMe = FALSE;
               // Now check the surfaces for coincidence at this point.
               // The normal will take care of most non-coincidence cases,
               // although we will have to check 2nd order shape as well.
-              this->Evaluate  ( sUV0, 2, 2, TRUE, TRUE, TRUE, &sPVV0[0][0] );
-              crOther.Evaluate( sUV1, 2, 2, TRUE, TRUE, TRUE, &sPVV1[0][0] );
+              SER( this->Evaluate  ( sUV0, 2, 2, TRUE, TRUE, TRUE, &sPVV0[0][0] ) );
+              SER( crOther.Evaluate( sUV1, 2, 2, TRUE, TRUE, TRUE, &sPVV1[0][0] ) );
 
               // Now check 2nd order terms.
               eStat = smsurf_CheckShapeMatch( sPVV0, sPVV1, dThisXSectTol3d, dAngTolRad, bSuccess );
@@ -7723,7 +7732,7 @@ SmBoolean bDebugMe2 = FALSE;
   // If there is coincidence, then one surface completely contains the other.
   // Drop any point from each to the other.
   sUV1 = sDomain1.GetMid();
-  crOther.EvaluatePoint( sUV1, sPt1 );
+  SER( crOther.EvaluatePoint( sUV1, sPt1 ) );
 
   SmBoolean bInBox = sBBox0.ContainsPoint3d( sPt1 );
   if ( bInBox )
@@ -7734,8 +7743,8 @@ SmBoolean bDebugMe2 = FALSE;
   if ( eStat == SM_SUCCESS && bSuccess && dDist <= dThisXSectTol3d )
     {
       // Point coincidence, check normals and curvature.
-      this->Evaluate  ( sUV0, 2, 2, TRUE, TRUE, TRUE, &sPVV0[0][0] );
-      crOther.Evaluate( sUV1, 2, 2, TRUE, TRUE, TRUE, &sPVV1[0][0] );
+      SER( this->Evaluate  ( sUV0, 2, 2, TRUE, TRUE, TRUE, &sPVV0[0][0] ) );
+      SER( crOther.Evaluate( sUV1, 2, 2, TRUE, TRUE, TRUE, &sPVV1[0][0] ) );
 
       eStat = smsurf_CheckShapeMatch( sPVV0, sPVV1, dThisXSectTol3d, dAngTolRad, bSuccess );
       if ( eStat == SM_SUCCESS && bSuccess )
@@ -7744,7 +7753,7 @@ SmBoolean bDebugMe2 = FALSE;
 
   // Repeat the other way around.
   sUV0 = sDomain0.GetMid();
-  this->EvaluatePoint( sUV0, sPt0 );
+  SER( this->EvaluatePoint( sUV0, sPt0 ) );
 
   bInBox = sBBox1.ContainsPoint3d( sPt0 );
 
@@ -7756,8 +7765,8 @@ SmBoolean bDebugMe2 = FALSE;
   if ( eStat == SM_SUCCESS && bSuccess && dDist <= dThisXSectTol3d )
     {
       // Point coincidence, check normals and curvature.
-      this->Evaluate  ( sUV0, 2, 2, TRUE, TRUE, TRUE, &sPVV0[0][0] );
-      crOther.Evaluate( sUV1, 2, 2, TRUE, TRUE, TRUE, &sPVV1[0][0] );
+      SER( this->Evaluate  ( sUV0, 2, 2, TRUE, TRUE, TRUE, &sPVV0[0][0] ) );
+      SER( crOther.Evaluate( sUV1, 2, 2, TRUE, TRUE, TRUE, &sPVV1[0][0] ) );
 
       eStat = smsurf_CheckShapeMatch( sPVV0, sPVV1, dThisXSectTol3d, dAngTolRad, bSuccess );
       if ( eStat == SM_SUCCESS && bSuccess )
@@ -7855,13 +7864,13 @@ static SmStatus sm_CheckSeamDrop(
   // pOther is evauated in Nurbs parameterization, pThis is STEP.
 
   SmVector3d sPtDer[4];
-  pThisSurf->EvaluateSTEP( sThisUV, 1, 1, TRUE, TRUE, TRUE, sPtDer );
+  SER( pThisSurf->EvaluateSTEP( sThisUV, 1, 1, TRUE, TRUE, TRUE, sPtDer ) );
 
   SmVector3d sPt, sThisDeriv, sOtherU, sOtherV, sOtherDeriv;
 
   double dDotU, dDotV;
 
-  pOtherSurf->Evaluate1stDerivatives( sOtherUV, TRUE, TRUE, sPt, sOtherU, sOtherV );
+  SER( pOtherSurf->Evaluate1stDerivatives( sOtherUV, TRUE, TRUE, sPt, sOtherU, sOtherV ) );
 
   // Unitize them, so that dot-product comparisons mean direction only.
   if ( sOtherU.Unitize() != SM_SUCCESS )
@@ -8019,7 +8028,7 @@ SmBoolean bDebugMe = FALSE;
   // This can rule out most, and save lots of drops on corners and edges.
   // (Picture two fillet surfaces end to end that form a closed loop.)
   sUVOther = sOtherDomain.Evaluate( 0.5, 0.5 );
-  pOther->EvaluatePoint( sUVOther, sPt );
+  SER( pOther->EvaluatePoint( sUVOther, sPt ) );
 
   eStat = this->STEPInversion( sBigDomain, sPt, dTol, sUVThis, eLocation );
   if ( eStat != SM_SUCCESS )
@@ -8033,7 +8042,7 @@ SmBoolean bDebugMe = FALSE;
       for ( jj=0; jj<2; jj++ )
         {
           sUVOther = sOtherDomain.Evaluate( ii, jj );
-          pOther->EvaluatePoint( sUVOther, sPt );
+          SER( pOther->EvaluatePoint( sUVOther, sPt ) );
 
           eStat = this->STEPInversion( sBigDomain, sPt, dTol, sUVThis, eLocation );
           if ( eStat != SM_SUCCESS )
@@ -8050,7 +8059,7 @@ SmBoolean bDebugMe = FALSE;
           sNewDomain.AddPoint2d( sUVThis );
 
           // Check max distance.
-          this->EvaluateSTEPPoint( sUVThis, sPt2 );
+          SER( this->EvaluateSTEPPoint( sUVThis, sPt2 ) );
           dDist = sPt.DistanceBetween( sPt2 );
           dMaxDist = smos_Max( dDist, dMaxDist );
 
@@ -8070,12 +8079,12 @@ SmBoolean bDebugMe = FALSE;
       SmExtent2d sUpdateDomain( sNewDomain );
       SmExtent2d sOrigDomain = this->GetSTEPUVDomain();
       sOrigDomain.Union( sNewDomain, sUpdateDomain );
-      this->AdjustSTEPUVDomain( sUpdateDomain );
+      SER( this->AdjustSTEPUVDomain( sUpdateDomain ) );
 
       // Have to do this after AdjustSTEPUVDomain call:
       SmFace *pFace = SM_CAST_PTR( SmFace, this->GetOwner() );
       if ( pFace != NULL )
-        { pFace->RemoveUVTrimCurves(); }
+        { SER( pFace->RemoveUVTrimCurves() ); }
 
       rbSuccess = TRUE;
       rdMaxDist = dMaxDist;
@@ -8120,7 +8129,7 @@ SmBoolean bDebugMe = FALSE;
           dV = kk / dDenom;
 
           sUVOther = sOtherDomain.Evaluate( dU, dV );
-          pOther->EvaluatePoint( sUVOther, sPt );
+          SER( pOther->EvaluatePoint( sUVOther, sPt ) );
 
           eStat = this->STEPInversion( sBigDomain, sPt, dTol, sUVThis, eLocation, &sGuessUV );
 
@@ -8134,7 +8143,7 @@ SmBoolean bDebugMe = FALSE;
             { return SM_SUCCESS; }
 
           // Check max distance.
-          this->EvaluateSTEPPoint( sUVThis, sPt2 );
+          SER( this->EvaluateSTEPPoint( sUVThis, sPt2 ) );
           dDist = sPt.DistanceBetween( sPt2 );
           dMaxDist = smos_Max( dDist, dMaxDist );
 
@@ -8211,7 +8220,7 @@ SmBoolean bDebugMe = FALSE;
 
 
           // Do the drop.
-          pOther->EvaluatePoint( sUVOther, sPt );
+          SER( pOther->EvaluatePoint( sUVOther, sPt ) );
 
           eStat = this->STEPInversion( sBigDomain, sPt, dTol, sDropUV, eLocation, &sGuessUV );
 
@@ -8229,7 +8238,7 @@ SmBoolean bDebugMe = FALSE;
             { return SM_SUCCESS; }
 
           // Check max distance.
-          this->EvaluateSTEPPoint( sDropUV, sPt2 );
+          SER( this->EvaluateSTEPPoint( sDropUV, sPt2 ) );
           dDist = sPt.DistanceBetween( sPt2 );
           dMaxDist = smos_Max( dDist, dMaxDist );
 
@@ -8256,7 +8265,7 @@ SmBoolean bDebugMe = FALSE;
   // This would happen if the domain is against the seam of a surface
   // of revolution, for example.
   SmExtent2d sUpdateDomain( sNewDomain );
-  sUpdateDomain.Intersect( sBigDomain, sNewDomain );
+  SER( sUpdateDomain.Intersect( sBigDomain, sNewDomain ) );
 
   // Now union the projection of Other surface on our domain
   // with our original domain, and update our domain to it.
@@ -8305,12 +8314,12 @@ SmBoolean bDebugMe = FALSE;
         }
     }
 
-  this->AdjustSTEPUVDomain( sUpdateDomain );
+  SER( this->AdjustSTEPUVDomain( sUpdateDomain ) );
 
   // Have to do this after AdjustSTEPUVDomain call:
   SmFace *pFace = SM_CAST_PTR( SmFace, this->GetOwner() );
   if ( pFace != NULL )
-    { pFace->RemoveUVTrimCurves(); }
+    { SER( pFace->RemoveUVTrimCurves() ); }
 
 
 #ifdef SM_DEBUG_CODE
@@ -8808,7 +8817,7 @@ SmStatus SmSurface::ComputeParamDirection
 
   // surface eval
   SmVector3d aDerivs[2][2] ;
-  Evaluate(crUV, 1, 1, TRUE, TRUE, TRUE, aDerivs[0], FALSE) ;  // exact tangent values
+  SER( Evaluate(crUV, 1, 1, TRUE, TRUE, TRUE, aDerivs[0], FALSE)  );  // exact tangent values
 
   // decompose the projection of crVec onto the tangent plane into Du and Dv components
   // SER(smgu_DecomposePlanarVecs(crVec, aDerivs[1][0], aDerivs[0][1], rUVDir)) ;
@@ -8983,7 +8992,7 @@ SmStatus SmSurface::ComputeInwardVector
   // towards midPoint UV vec
   SmPoint2d  sMidUV = GetNaturalUVDomain().Evaluate(.5,.5) ;
   SmVector2d sDirUV = sMidUV - crUV ;
-  sDirUV.Unitize() ;
+  SER( sDirUV.Unitize()  );
 
   // directional derivative
   rInwardVector = sDirUV.x * sDU + sDirUV.y * sDV ;
@@ -9018,7 +9027,7 @@ SmStatus SmSurface::ComputeLocalCurveFrame
   // UVCurve 1st derivative evaluate
   SmPoint3d sPVUV[2]; // sPVUV[0] = crUVCurve 3dPoint    (z =0.0)
                       // sPVUV[1] = crUVCurve 3dTangent  (dz=0.0)
-  crUVCurve.Evaluate(dParam,1,TRUE,sPVUV);     // nonZeroTangent values
+  SER( crUVCurve.Evaluate(dParam,1,TRUE,sPVUV) );     // nonZeroTangent values
 
   // Surface 1st deriviative evaluate
   SmPoint2d sUV(sPVUV[0].x,sPVUV[0].y);
@@ -9029,7 +9038,7 @@ SmStatus SmSurface::ComputeLocalCurveFrame
   SmVector3d sXVec;
   if (sPVUV[1].LengthSquared() > SM_EFF_ZERO_SQ)
     {
-      sPVUV[1].Unitize() ;
+      SER( sPVUV[1].Unitize()  );
       sXVec = sDU * sPVUV[1].x + sDV * sPVUV[1].y;
     }
   else
@@ -9431,7 +9440,7 @@ SmStatus SmSurface::CreateBoundaryCrvOnSurf
     } // end // switch to the requested UVDomain side
 
   // copy this surface
-  this->Copy(crContext, pSurface) ;
+  SER( this->Copy(crContext, pSurface)  );
 
   // set output
   pCrvOnSurf = new (crContext) SmCrvOnSurf(*pUVLine,            // in : Parameter space curve            
@@ -9714,18 +9723,28 @@ SmBoolean bDebugMe = FALSE;
                 SmBSplineCurve *pNewBSC = new(crContext) SmBSplineCurve(*pCurve);
                 SmExtent1d sTrim1( dParam, sIvl.GetMax() );
                 SmExtent1d sTrim2( sIvl.GetMin(), dParam );
-                pNewBSC->Trim( sTrim2 );   // may snap sIvl by tol to existing knots
-
                 sNewCurves.Add( (SmCurve*)pNewBSC );
-                pCurve->Trim( sTrim1 );  // may snap sIvl by tol to existing knots
+                SmStatus eStat = pNewBSC->Trim( sTrim2 );   // may snap sIvl by tol to existing knots
+                if ( eStat == SM_SUCCESS )
+                  { eStat = pCurve->Trim( sTrim1 ); }       // may snap sIvl by tol to existing knots
 
-                if ( pOptUVSilhouetteCurves != NULL )
+                if ( eStat == SM_SUCCESS && pOptUVSilhouetteCurves != NULL )
                   {
                     SmBSplineCurve *pUVCurve = SM_CAST_PTR(SmBSplineCurve,(*pOptUVSilhouetteCurves)[ii]);
                     SmBSplineCurve *pNewUVBSC = new(crContext) SmBSplineCurve(*pUVCurve);
-                    pNewUVBSC->Trim( sTrim2 );    // may snap sIvl by tol to existing knots
                     sNewUVCurves.Add( (SmCurve*)pNewUVBSC );
-                    pUVCurve->Trim( sTrim1 );     // may snap sIvl by tol to existing knots
+                    eStat = pNewUVBSC->Trim( sTrim2 );      // may snap sIvl by tol to existing knots
+                    if ( eStat == SM_SUCCESS )
+                      { eStat = pUVCurve->Trim( sTrim1 ); } // may snap sIvl by tol to existing knots
+                  }
+
+                // SolidCraft: a split that can't be trimmed fails, and the pieces made so far are freed
+                if ( eStat != SM_SUCCESS )
+                  {
+                    ULONG kk ;
+                    for ( kk = 0; kk < sNewCurves.GetSize();   kk++ ) { delete sNewCurves[kk] ; }
+                    for ( kk = 0; kk < sNewUVCurves.GetSize(); kk++ ) { delete sNewUVCurves[kk] ; }
+                    return eStat ;
                   }
                 sIvl = sTrim1;
               }
@@ -10331,9 +10350,9 @@ static SmBoolean sm_GoodDropResult(
   // then it should be good.
   SmPoint3d sSrfPoint;
   SmVector3d Su, Sv;
-  pSurface->Evaluate1stDerivatives( sResultUV, TRUE, TRUE, sSrfPoint, Su, Sv );
-  Su.Unitize();
-  Sv.Unitize();
+  if ( pSurface->Evaluate1stDerivatives( sResultUV, TRUE, TRUE, sSrfPoint, Su, Sv ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a drop that can't be evaluated isn't shown good
+  (void)Su.Unitize(); // SolidCraft: a zero derivative stays zero
+  (void)Sv.Unitize(); // SolidCraft: a zero derivative stays zero
   SmVector3d sGap( crPtToDrop - sSrfPoint );
   double Fu = sGap.Dot( Su );
   double Fv = sGap.Dot( Sv );
@@ -10387,7 +10406,7 @@ static SmBoolean sm_GoodDropResult(
   // One more: if the solution 3d point is farther than the guess.
   // (Remember, this routine uses MINIMIZE.)
   SmPoint3d sGuess3dPt;
-  pSurface->EvaluatePoint( crGuessUV, sGuess3dPt );
+  if ( pSurface->EvaluatePoint( crGuessUV, sGuess3dPt ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a drop that can't be evaluated isn't shown good
   double dDsqGuess  = crPtToDrop.DistanceBetweenSquared( sSrfPoint );
   double dDsqResult = crPtToDrop.DistanceBetweenSquared( sGuess3dPt );
   if ( dDsqResult > dDsqGuess )
@@ -10614,10 +10633,10 @@ SmBoolean bDebugMe = FALSE ;
                       SmVector3d sSurfPt, sSurfDU, sSurfDV ;
 
                       // evaluate Surf(sThisUV) - eval with NonZero tangents
-                      Evaluate1stDerivatives(sThisUV, TRUE, TRUE, sSurfPt, sSurfDU, sSurfDV) ;
+                      SER( Evaluate1stDerivatives(sThisUV, TRUE, TRUE, sSurfPt, sSurfDU, sSurfDV)  );
 
-                      sSurfDU.Unitize() ;
-                      sSurfDV.Unitize() ;
+                      (void)sSurfDU.Unitize() ; // SolidCraft: a zero derivative at a singularity stays zero
+                      (void)sSurfDV.Unitize() ; // SolidCraft: a zero derivative at a singularity stays zero
 
                       // low U boundary
                       if(sExtentUType == SM_EP_START || sExtentUType == SM_EP_BOTH) { double dDot = sSurfDU.Dot(*pOptTgtSeamSide) ;
@@ -10712,7 +10731,7 @@ SmStatus SmSurface::DropPointsToTangentPlane
     for ( ii = 0; ii < lNumPointsToDrop; ii++ )
     {
         SmVector3d sDiffVec( caPointsToDrop[ii] - sPnt );
-        smsurf_DropVectors( sDU, sDV, 1, &sDiffVec, &sUVStep );
+        SER( smsurf_DropVectors( sDU, sDV, 1, &sDiffVec, &sUVStep ) );
         aResultingUVPoints[ii] = crUV + sUVStep;
     }
 
@@ -11242,7 +11261,7 @@ SmBoolean bDebugMe = FALSE ;
                       // They both produced non-zero normals.
                       sNorm2 /= dLen;
                       rSurfaceNormal = 2 * sNorm1 - sNorm2;  // Linear extrapolation.
-                      rSurfaceNormal.Unitize();
+                      SER( rSurfaceNormal.Unitize() );
                     }
                 }
 
@@ -11464,7 +11483,7 @@ static constexpr ULONG lStackSize = 6 ;
           rSurfaceNormal = sSu * sSv;
           if ( rSurfaceNormal.Length() > dNormLim )
             {
-              rSurfaceNormal.Unitize();
+              SER( rSurfaceNormal.Unitize() );
               return SM_SUCCESS;
             }
         } // end iter all step points for current step size
@@ -11705,9 +11724,9 @@ SmStatus SmSurface::FindTessellationSplits
   SmTArray<double> sParams(256,sDData3), sParams2(256,sDData4);
 
   SmExtent1d  sIvl ;
-  if(eSurfParam == SM_SP_V) { sIvl.SetMinMax( crUVDomain.GetMin().x, crUVDomain.GetMax().x) ;
+  if(eSurfParam == SM_SP_V) { SER( sIvl.SetMinMax( crUVDomain.GetMin().x, crUVDomain.GetMax().x)  );
                             }
-  else                      { sIvl.SetMinMax( crUVDomain.GetMin().y, crUVDomain.GetMax().y) ;
+  else                      { SER( sIvl.SetMinMax( crUVDomain.GetMin().y, crUVDomain.GetMax().y)  );
                             }
 
   // If a maximum side length is given, figure that tessellation first.
@@ -11809,21 +11828,21 @@ SmBoolean bDebugMe = FALSE ;
       ULONG lNumSplits = rSplits.GetSize();
       for (ULONG ii = 1; ii < lNumSplits; ii++ )  // for each span
         {
-          sIvl.SetMinMax( rSplits[ii-1], rSplits[ii] );
+          SER( sIvl.SetMinMax( rSplits[ii-1], rSplits[ii] ) );
           if ( eSurfParam == SM_SP_V )
             {
-              sSubDomain.SetUInterval( sIvl );
+              SER( sSubDomain.SetUInterval( sIvl ) );
             }
           else
             {
-              sSubDomain.SetVInterval( sIvl );
+              SER( sSubDomain.SetVInterval( sIvl ) );
             }
 
           // Call ourselves recursively, with 0 Max3dEdgeLength.
-          FindTessellationSplits( eSurfParam, sSubDomain,
+          SER( FindTessellationSplits( eSurfParam, sSubDomain,
                                   dChordHeightTolerance, dAngleTolDeg, 0.0,
                                   sParameters,
-                                  bCheckDiagonals );
+                                  bCheckDiagonals ) );
 
           SM_ASSERT( sParameters.GetSize() >= 2 );
 
@@ -11965,41 +11984,41 @@ SmBoolean bDebugMe = FALSE ;
       SmCrvOnSurf sDiag2(sDiagP2, *pSurface, &crUVDomain, 0, pContext) ;
 
       // tessellate the diagonal curve 1
-      sDiag1.TessellateByBisection(sDiagIvl,
+      SER( sDiag1.TessellateByBisection(sDiagIvl,
                                    dChordHeightTolerance,
                                    dAngleTolDeg,
                                    dMaximumSideLength,
                                    &sParams,
-                                   NULL) ;
+                                   NULL)  );
       // project Curve T points into Surface U or V points
       SmPoint3d sUVPoint ;
       for(ULONG ii=0;ii<sParams.GetSize();ii++)
         {
-          sDiagP1.EvaluatePoint(sParams[ii], sUVPoint) ;
+          SER( sDiagP1.EvaluatePoint(sParams[ii], sUVPoint)  );
           sParams[ii] = eSurfParam == SM_SP_V ? sUVPoint.x : sUVPoint.y ;
 
         } // end iter every split param projecting from T to UV space
 
       // tessellate the diagonal curve 2
-      sDiag2.TessellateByBisection(sDiagIvl,
+      SER( sDiag2.TessellateByBisection(sDiagIvl,
                                    dChordHeightTolerance,
                                    dAngleTolDeg,
                                    dMaximumSideLength,
                                    &sParams2,
-                                   NULL) ;
+                                   NULL)  );
 
       // project Curve T points into Surface U or V points
       if(eSurfParam == SM_SP_U) { sParams2.ReverseArray(0,sParams2.GetSize()) ; }
       for(ULONG ii=0;ii<sParams2.GetSize();ii++)
         {
-          sDiagP2.EvaluatePoint(sParams2[ii], sUVPoint) ;
+          SER( sDiagP2.EvaluatePoint(sParams2[ii], sUVPoint)  );
           sParams2[ii] = eSurfParam == SM_SP_V ? sUVPoint.x : sUVPoint.y ;
 
         } // end iter every split param projecting from T to UV space
     } // end need for diagonal curves check
 
   // merge the break points from both tessellated curves
-  sm_MergeDoubleArrays(sParams,sParams2,rSplits);
+  SER( sm_MergeDoubleArrays(sParams,sParams2,rSplits) );
 
   // make sure that the end points are on the list
   if(rSplits.GetSize() == 0)
@@ -12533,7 +12552,7 @@ SmBoolean bDebugMe = FALSE ;
                    : pIvl->Evaluate((double)(jj) / (double)(lSmpCnt-1)) ;
 
            // evaluate this surface point - the 1st derivative needing checking is in p1stDir
-           EvaluateSimple(sUV,1,1,TRUE,TRUE,TRUE,sPV[0]) ;
+           if ( EvaluateSimple(sUV,1,1,TRUE,TRUE,TRUE,sPV[0]) != SM_SUCCESS ) { bSingular = FALSE ; bApproxSingular = FALSE ; break ; } // SolidCraft: a boundary that can't be evaluated is not shown singular
 
            // get 1st derivative speed
            dSpeed = p1stDir->Length() ;
@@ -12637,21 +12656,21 @@ static const SmSurface * aLastSurfaces[lMemCnt] = { NULL, NULL, NULL, NULL} ;
       // init PolePoint output
       pPolePoints->SetSize(4) ;
 
-      // Compute the pole values
+      // Compute the pole values (SolidCraft: one that can't be evaluated is left uninitialised)
       if ( (lSingularities & SM_SS_UMIN) || (plApproxSingularities && (*plApproxSingularities & SM_SS_UMIN)))
-            { EvaluatePoint(sUVDomain.Evaluate(0.0, 0.5), (*pPolePoints)[0]); }
+            { if ( EvaluatePoint(sUVDomain.Evaluate(0.0, 0.5), (*pPolePoints)[0]) != SM_SUCCESS ) { (*pPolePoints)[0].SetUninitialized() ; } }
       else  { (*pPolePoints)[0].SetUninitialized(); }
 
       if ( (lSingularities & SM_SS_VMIN) || (plApproxSingularities && (*plApproxSingularities & SM_SS_VMIN)))
-            { EvaluatePoint(sUVDomain.Evaluate(0.5, 0.0), (*pPolePoints)[1]) ; }
+            { if ( EvaluatePoint(sUVDomain.Evaluate(0.5, 0.0), (*pPolePoints)[1]) != SM_SUCCESS ) { (*pPolePoints)[1].SetUninitialized() ; } }
       else  { (*pPolePoints)[1].SetUninitialized(); }
 
       if ( (lSingularities & SM_SS_UMAX) || (plApproxSingularities && (*plApproxSingularities & SM_SS_UMAX)))
-            { EvaluatePoint(sUVDomain.Evaluate(1.0, 0.5), (*pPolePoints)[2]) ; }
+            { if ( EvaluatePoint(sUVDomain.Evaluate(1.0, 0.5), (*pPolePoints)[2]) != SM_SUCCESS ) { (*pPolePoints)[2].SetUninitialized() ; } }
       else  { (*pPolePoints)[2].SetUninitialized() ; }
 
       if ( (lSingularities & SM_SS_VMAX) || (plApproxSingularities && (*plApproxSingularities & SM_SS_VMAX)))
-            { EvaluatePoint(sUVDomain.Evaluate(0.5, 1.0), (*pPolePoints)[3]) ; }
+            { if ( EvaluatePoint(sUVDomain.Evaluate(0.5, 1.0), (*pPolePoints)[3]) != SM_SUCCESS ) { (*pPolePoints)[3].SetUninitialized() ; } }
       else  { (*pPolePoints)[3].SetUninitialized() ; }
 
     } // end need to compute PolPoints check
@@ -12662,21 +12681,21 @@ static const SmSurface * aLastSurfaces[lMemCnt] = { NULL, NULL, NULL, NULL} ;
       // init PolePoint output
       pPoleNormals->SetSize(4) ;
 
-      // Compute the pole values
+      // Compute the pole values (SolidCraft: one that can't be evaluated is left uninitialised)
       if ( (lSingularities & SM_SS_UMIN) || (plApproxSingularities && (*plApproxSingularities & SM_SS_UMIN)))
-            { EvaluateNormal(sUVDomain.Evaluate(0.0, 0.5), TRUE, TRUE, (*pPoleNormals)[0]); }
+            { if ( EvaluateNormal(sUVDomain.Evaluate(0.0, 0.5), TRUE, TRUE, (*pPoleNormals)[0]) != SM_SUCCESS ) { (*pPoleNormals)[0].SetUninitialized() ; } }
       else  { (*pPoleNormals)[0].SetUninitialized() ; }
 
       if ( (lSingularities & SM_SS_VMIN) || (plApproxSingularities && (*plApproxSingularities & SM_SS_VMIN)))
-            { EvaluateNormal(sUVDomain.Evaluate(0.5, 0.0), TRUE, TRUE, (*pPoleNormals)[1]) ; }
+            { if ( EvaluateNormal(sUVDomain.Evaluate(0.5, 0.0), TRUE, TRUE, (*pPoleNormals)[1]) != SM_SUCCESS ) { (*pPoleNormals)[1].SetUninitialized() ; } }
       else  { (*pPoleNormals)[1].SetUninitialized() ; }
 
       if ( (lSingularities & SM_SS_UMAX) || (plApproxSingularities && (*plApproxSingularities & SM_SS_UMAX)))
-            { EvaluateNormal(sUVDomain.Evaluate(1.0, 0.5), FALSE, TRUE, (*pPoleNormals)[2]) ; }
+            { if ( EvaluateNormal(sUVDomain.Evaluate(1.0, 0.5), FALSE, TRUE, (*pPoleNormals)[2]) != SM_SUCCESS ) { (*pPoleNormals)[2].SetUninitialized() ; } }
       else  { (*pPoleNormals)[2].SetUninitialized() ; }
 
       if ( (lSingularities & SM_SS_VMAX) || (plApproxSingularities && (*plApproxSingularities & SM_SS_VMAX)))
-            { EvaluateNormal(sUVDomain.Evaluate(0.5, 1.0), TRUE, FALSE, (*pPoleNormals)[3]) ; }
+            { if ( EvaluateNormal(sUVDomain.Evaluate(0.5, 1.0), TRUE, FALSE, (*pPoleNormals)[3]) != SM_SUCCESS ) { (*pPoleNormals)[3].SetUninitialized() ; } }
       else  { (*pPoleNormals)[3].SetUninitialized() ; }
 
     } // end need to compute PolPoints check
@@ -12730,10 +12749,11 @@ ULONG SmSurface::GetFlatCorners              // rtn: SM_FC_NONE or orof: SM_FC_U
   if(pFlatCornerPoints)
     {
       pFlatCornerPoints->SetSize(4) ;
-      if(lRtn &= SM_FC_UMIN_VMIN) { EvaluatePoint(sUMinVMin, (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX]) ; }
-      if(lRtn &= SM_FC_UMIN_VMAX) { EvaluatePoint(sUMinVMax, (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX]) ; }
-      if(lRtn &= SM_FC_UMAX_VMIN) { EvaluatePoint(sUMaxVMin, (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX]) ; }
-      if(lRtn &= SM_FC_UMAX_VMAX) { EvaluatePoint(sUMaxVMax, (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX]) ; }
+      // SolidCraft: a corner point that can't be evaluated is left uninitialised
+      if(lRtn &= SM_FC_UMIN_VMIN) { if ( EvaluatePoint(sUMinVMin, (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX].SetUninitialized() ; } }
+      if(lRtn &= SM_FC_UMIN_VMAX) { if ( EvaluatePoint(sUMinVMax, (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX].SetUninitialized() ; } }
+      if(lRtn &= SM_FC_UMAX_VMIN) { if ( EvaluatePoint(sUMaxVMin, (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX].SetUninitialized() ; } }
+      if(lRtn &= SM_FC_UMAX_VMAX) { if ( EvaluatePoint(sUMaxVMax, (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX].SetUninitialized() ; } }
     }
 
   // all done
@@ -12886,16 +12906,16 @@ SmBoolean bDebugMe = FALSE ;
           // get the surface's normal section evaluation
           SmVector3d sTangentPlaneDirection, sSurfaceNormal ;
           double     dSurfaceCurvature ;
-          cpBSS->EvaluateNormalSection(sUV, TRUE, TRUE, sCurvePV[1],
+          SER( cpBSS->EvaluateNormalSection(sUV, TRUE, TRUE, sCurvePV[1],
                                        sTangentPlaneDirection,
                                        dSurfaceCurvature,
-                                       sSurfaceNormal) ;
+                                       sSurfaceNormal)  );
 
           // compute the curve's position, tangent, curvature, and normal values
           SmVector3d aCurveFrenet[3] ;  // aCurveFrenet[0] = position
                                         // aCurveFrenet[1] = Mag = Speed, direction = tangent vector
                                         // aCurveFrenet[2] = Mag = K,     direction = normal vector
-          crCurve.EvaluateGeometric(crSolution.m_vStart[0], 2, TRUE, aCurveFrenet) ;
+          SER( crCurve.EvaluateGeometric(crSolution.m_vStart[0], 2, TRUE, aCurveFrenet)  );
 
           // look for lines
           double dCurveCurvature   = aCurveFrenet[2].Length() ;
@@ -13253,7 +13273,7 @@ SmBoolean bDebugMe = FALSE ;
   // get the cosine of the angle between the surfaceSectionNormal plane and
   // the plane of the curve's osculating circle (needed for Meusnier's Theorem)
   double dAngRad ;
-  sCurveBinormal.AngleBetween(sSurfaceNormal, dAngRad) ;
+  SER( sCurveBinormal.AngleBetween(sSurfaceNormal, dAngRad)  );
   double dCosPhi = smos_Fabs(smos_Cosine(dAngRad - SM_PI/2.0)) ;
 
   // characterize the curve shape as a circle or a line
@@ -13317,8 +13337,8 @@ SmBoolean bDebugMe = FALSE ;
 
                                      sSurfaceVec  = dY * PrincipleCurvatureVector1 + dX * PrincipleCurvatureVector2;
                                      sSurfaceVec2 = dY * PrincipleCurvatureVector1 - dX * PrincipleCurvatureVector2;
-                                     sSurfaceVec.Unitize() ;
-                                     sSurfaceVec2.Unitize() ;
+                                     SER( sSurfaceVec.Unitize()  );
+                                     SER( sSurfaceVec2.Unitize()  );
                                    }
                                    break ;
 
@@ -13354,7 +13374,7 @@ SmBoolean bDebugMe = FALSE ;
       // vector - do this by projecting the surface normal onto the curve plane
       // and unitizing.
       SmVector3d sSurfaceCircleCenterVec = (sCurveBinormal * (smos_Sgn(dSurfaceSectionCurvature) * sSurfaceNormal)) * sCurveBinormal ;
-      sSurfaceCircleCenterVec.Unitize() ;
+      SER( sSurfaceCircleCenterVec.Unitize()  );
 
       // sCircle1Center = lies in direction of the sSurfaceCircleCenterVec not the sSurfaceNormal
       sSurfaceCenter       = sSurfacePoint + sSurfaceCircleCenterVec * dSurfaceRadius ;
@@ -14039,7 +14059,7 @@ SmBoolean bDebugMe = FALSE ;
   if (!sSurfUVDomain.IsContainedBy(m_crUVDomain, SM_EFF_ZERO))
     {
       // trim leafNode domain down to intersection domain
-      sSurfUVDomain.Intersect(m_crUVDomain,sSurfUVDomain);
+      if ( sSurfUVDomain.Intersect(m_crUVDomain,sSurfUVDomain) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
 
       // no work - remaining domain has a zero length dimensions
       if (SM_ARE_SAME(sSurfUVDomain.GetMax().x,sSurfUVDomain.GetMin().x)) { return SM_SUCCESS; }
@@ -14054,7 +14074,7 @@ SmBoolean bDebugMe = FALSE ;
   if (!sCurveIvl.IsContainedBy(m_crInterval, SM_EFF_ZERO))
     {
       // trim leafNode domain down to intersection domain
-      SER(sCurveIvl.Intersect(m_crInterval,sCurveIvl));
+      if ( sCurveIvl.Intersect(m_crInterval,sCurveIvl) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
 
       // no work - remaining interval is zero length
       if (SM_ARE_SAME(sCurveIvl.GetMax(),sCurveIvl.GetMin())) { return SM_SUCCESS; }
@@ -14081,9 +14101,9 @@ SmBoolean bDebugMe = FALSE ;
     {
       // get pCurve's end continuity
       SmContinuityType sContinuityType = SM_CT_DISCONTINUOUS ;
-      pParentCurve->EvaluateContinuity(sParentCurveInterval.GetMin(), FALSE,
+      SER( pParentCurve->EvaluateContinuity(sParentCurveInterval.GetMin(), FALSE,
                                        *pParentCurve, sParentCurveInterval.GetMax(), TRUE,
-                                       sContinuityType) ;
+                                       sContinuityType)  );
       // set span endContinuities as appropriate
       if(SM_IS_ZERO( sCurveIvl.GetMin() - sParentCurveInterval.GetMin()))
         { aeTConts[0] = sContinuityType ;
@@ -14861,8 +14881,8 @@ SmBoolean bDebugMe = FALSE ;
 
           // Check positions.
           SmPoint3d sPt1, sPt2;
-          m_pSurf->EvaluatePoint( sUV1, sPt1 );
-          m_pSurf->EvaluatePoint( sUV2, sPt2 );
+          if ( m_pSurf->EvaluatePoint( sUV1, sPt1 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+          if ( m_pSurf->EvaluatePoint( sUV2, sPt2 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
 
           double dTol = m_d3dTolerance; // untested: see how it works in practice
 
@@ -15009,7 +15029,7 @@ SmStatus SmSurface::CreateIsoParametricCurve
 
   // when asked - build OptUVIsoCurve
   if(pOptUVIsoCurve)
-    { sIso.CreateUVIsoLine(*pOptUVIsoCurve, &crContext) ; } 
+    { SER( sIso.CreateUVIsoLine(*pOptUVIsoCurve, &crContext)  ); } 
 
   // get isoParameter curve mid UVPoint
   SmPoint2d sUV = GetNaturalUVDomain().Evaluate(0.5,0.5);
@@ -15028,11 +15048,11 @@ SmStatus SmSurface::CreateIsoParametricCurve
       // adjust param range to match the surface Natural UVDomain or a given pOptDomain
       SmExtent2d sUVDomain = GetNaturalUVDomain() ;
       if(pOptDomain)
-        { sUVDomain.Intersect(*pOptDomain, sUVDomain) ; }
+        { SER_DELETE( sUVDomain.Intersect(*pOptDomain, sUVDomain), rpNewIsoCurve ); }
       SmExtent1d sIvl = (eSurfParam == SM_SP_U) ? sUVDomain.GetVInterval() : sUVDomain.GetUInterval() ;
 
       if(!sIvl.IsDegenerate())
-        { rpNewIsoCurve->EditParameterization(sIvl, FALSE) ; }
+        { SER( rpNewIsoCurve->EditParameterization(sIvl, FALSE)  ); }
 
       // all done
       SM_ASSERT_MSG(rpNewIsoCurve != NULL, _T("SmSurface::CreateIsoParametricCurve: rpNewIsoCurve == NULL. This is a bug in method CreateIsoParametricCurve()")) ;
@@ -15332,14 +15352,14 @@ SmStatus SmSurface::CreateArcOnSurf
   SmExtent1d sIvlDeg (0.0, dSectorAngDeg) ; 
   SmVector2d sXAxis2d( rBegUVTan.x, rBegUVTan.y) ; 
   SmVector3d sXAxis  ( rBegUVTan.x, rBegUVTan.y, 0.0) ; 
-  sXAxis.Unitize() ;
+  SER( sXAxis.Unitize()  );
   SmVector3d sYAxis (-sXAxis.y, sXAxis.x, 0.0) ;
 
   // state check locals
   SmVector2d sX(1, 0) ; 
   double     dXAxisAngRad ;
   double     dSectorAngRad = SM_DEG2RAD(dSectorAngDeg) ;
-  sX.CCWAngleBetween(sXAxis2d, dXAxisAngRad) ;
+  SER( sX.CCWAngleBetween(sXAxis2d, dXAxisAngRad)  );
   SmExtent1d sIvlRad(dXAxisAngRad, dXAxisAngRad+dSectorAngRad) ; // in UV coordinates
 
   // find the valid local sector for rCenterUV 
@@ -15482,33 +15502,33 @@ SmStatus SmSurface::CreateBlendSurface
 
   // Get Sample Values from Face1/Edge1 using edge2 as tangentReference
   pDSDef->m_pTangentReference = &crCurve2 ;
-  pDSDef->GetSampleValues(*this, crCurve1, rIvl1,
+  SER( pDSDef->GetSampleValues(*this, crCurve1, rIvl1,
                           bOffToTheRight,
                           TRUE,             // TRUE = blend starts at crCurve1 and moves to m_pTangentReference
-                          sParams, sStartPos, sStart1stDerivs, pOptStart2ndDerivs, pOptStart3rdDerivs) ;
+                          sParams, sStartPos, sStart1stDerivs, pOptStart2ndDerivs, pOptStart3rdDerivs)  );
 
   // Get Sample Values from Face2/Edge2 using edge1 as tangentReference
   pDSDef->m_pTangentReference = &crCurve1 ;
-  pDSDef->GetSampleValues(crSurface2, crCurve2, rIvl2,
+  SER( pDSDef->GetSampleValues(crSurface2, crCurve2, rIvl2,
                           bInFromTheLeft,
                           FALSE,           // FALSE = blend stops at crCurve2 starting from m_pTangentReference
-                          sParams, sEndPos, sEnd1stDerivs, pOptEnd2ndDerivs, pOptEnd3rdDerivs) ;
+                          sParams, sEndPos, sEnd1stDerivs, pOptEnd2ndDerivs, pOptEnd3rdDerivs)  );
 
   // use samples to build cross-section curves that capture the G1/G2/G3 shapes
   SmTArray<SmBSplineCurve *> sCrossSections ;
   SmObjsDelete<SmBSplineCurve *> sClean3(&sCrossSections) ;
-  pDSDef->CreateCrossSectionCurves( crContext,
+  SER( pDSDef->CreateCrossSectionCurves( crContext,
                                     sCrossSections,
                                     sStartPos, sStart1stDerivs, pOptStart2ndDerivs, pOptStart3rdDerivs,
-                                    &sEndPos, &sEnd1stDerivs, pOptEnd2ndDerivs, pOptEnd3rdDerivs) ;
+                                    &sEndPos, &sEnd1stDerivs, pOptEnd2ndDerivs, pOptEnd3rdDerivs)  );
 
   // Skin cross sections with blend endCurves as Rail constraints to build the G1/G2/G3 blend
   SmBSplineSurface *pBlendSurface = NULL ;
-  pDSDef->SkinDerivSurface( crContext, pBlendSurface,            // out: new blend surface
+  SER( pDSDef->SkinDerivSurface( crContext, pBlendSurface,            // out: new blend surface
                             sCrossSections, sParams,             // in :
                             (const SmBSplineCurve &) crCurve1,   // in :
                             (const SmBSplineCurve *)&crCurve2,   // in :
-                            dTolerance) ;                        // in :
+                            dTolerance)  );                        // in :
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
   // draw
@@ -15658,11 +15678,11 @@ SmBoolean bDebugMe = FALSE ;
              lLastPointIndex    = 0 ;
              sCurrentUV.Set(rSolutions[0].m_vStart[1], rSolutions[0].m_vStart[2]) ;
              dCurrentT = rSolutions[0].m_vStart[0] ;
-             sm_ClassifyCurveSurfaceXSectPoint( crSurface, crUVDomain,
+             SER( sm_ClassifyCurveSurfaceXSectPoint( crSurface, crUVDomain,
                                                 crCurve, crInterval,
                                                 sCurrentUV, dCurrentT,
                                                 bFoundGuess, sNewUVGuess, dNewTGuess,
-                                                ePointType) ;
+                                                ePointType)  );
              if(    ePointType == SM_TC_COINCIDENT
 //               || ePointType == SM_TC_NEAR_TANGENT ... for tiny two-pt intersections [B124]
                )
@@ -15873,8 +15893,8 @@ SmBoolean bDebugMe = FALSE ;
             {
               // evaluate solution points
               SmPoint3d sPt1, sPt2 ;
-              crCurve.EvaluatePoint(rCurrStart[0],  sPt1) ;
-              crCurve.EvaluatePoint((*pLastEnd)[0], sPt2) ;
+              SER( crCurve.EvaluatePoint(rCurrStart[0],  sPt1) ) ;
+              SER( crCurve.EvaluatePoint((*pLastEnd)[0], sPt2) ) ;
               double dDist2 = sPt1.DistanceBetweenSquared(sPt2) ;
 
               // combine solutions when points are close enough together
@@ -15887,11 +15907,11 @@ SmBoolean bDebugMe = FALSE ;
               //  see if points bound a coincident segment region
               sCurrentUV.Set(rSolutions[0].m_vStart[1], rSolutions[0].m_vStart[2]) ;
               dCurrentT = rSolutions[0].m_vStart[0] ;
-              sm_ClassifyCurveSurfaceXSectPoint( crSurface, crUVDomain,
+              SER( sm_ClassifyCurveSurfaceXSectPoint( crSurface, crUVDomain,
                                                  crCurve, crInterval,
                                                  sCurrentUV, dCurrentT,
                                                  bFoundGuess, sNewUVGuess, dNewTGuess,
-                                                 ePointType) ;
+                                                 ePointType) ) ;
 
               if(    ePointType == SM_TC_COINCIDENT
 //                || ePointType == SM_TC_NEAR_TANGENT ... for tiny two-pt intersections [B124]
@@ -16202,9 +16222,9 @@ CombineDecided:
               SmExtent1d sXSect1 ;
               SmExtent1d sXSect2 ;
               SmExtent1d sXSect3 ;
-              sPtIvl1.Intersect(sInvSpan1, sXSect1) ;
-              sPtIvl2.Intersect(sInvSpan2, sXSect2) ;
-              sPtIvl3.Intersect(sInvSpan3, sXSect3) ;
+              (void)sPtIvl1.Intersect(sInvSpan1, sXSect1) ; // SolidCraft: disjoint spans leave the result uninitialised, which is tested next
+              (void)sPtIvl2.Intersect(sInvSpan2, sXSect2) ; // SolidCraft: disjoint spans leave the result uninitialised, which is tested next
+              (void)sPtIvl3.Intersect(sInvSpan3, sXSect3) ; // SolidCraft: disjoint spans leave the result uninitialised, which is tested next
 
               // when InvSpan is adjacent to or contains solution or its sub-division end-points
               if(   sXSect1.IsInit()
@@ -16680,11 +16700,11 @@ CombineDecided:
               // if GapVector is diverging over length of solution range
               //  change solution to type SM_ST_SINGLE_VALUE for a tangent point intersection
               // note: side effect: rCurrSol.m_vStart is modified when bIsDegenerate == TRUE
-              crSurface.ClassifyIntersectingRangeSolution(crCurve,
+              SER( crSurface.ClassifyIntersectingRangeSolution(crCurve,
                                                           rCurrSol,
                                                           dDistanceTolerance,
                                                           bIsDegenerate,
-                                                          rCurrSol.m_vStart) ;
+                                                          rCurrSol.m_vStart)  );
             }
 
           // keep interval if it is at least 1/10 the length of the shorter curve.
@@ -17044,9 +17064,9 @@ SmBoolean bDebugMe = FALSE;
       SER(crCurve.EvaluatePoint(crInterval.GetMin(), sPnt));
 
       // pass call to global surface/point intersect
-      GlobalPointSolve(crUVDomain, SM_SO_INTERSECT, sPnt,
+      SER( GlobalPointSolve(crUVDomain, SM_SO_INTERSECT, sPnt,
                        dDistanceTolerance, NULL, SM_SR_SINGLE,
-                       rSolutions) ;
+                       rSolutions)  );
       // set output values
       for(ii=0;ii<rSolutions.GetSize();ii++)
         {
@@ -17285,13 +17305,13 @@ SmBoolean bDebugMe = FALSE;
 #endif // SM_DEBUG_CODE
 
   // combine duplicate solutions - find coincident regions
-  sm_GlobalCurveIntersectCombineSolutions
+  SER( sm_GlobalCurveIntersectCombineSolutions
                       (*this,                // in : Surface being intersected
                        crUVDomain,           // in : Domain of the surface to intersect
                        crCurve,              // in : Curve to intersect with surface
                        crInterval,           // in : Domain of curve to intersect
                        dDistanceTolerance,   // in : 3D distance tolerance to use in intersection
-                       rSolutions) ;         // i/o: Contains results of intersection
+                       rSolutions)  );         // i/o: Contains results of intersection
 
 #ifdef SM_DEBUG_CODE
   if (bDebugMe)
@@ -17543,7 +17563,7 @@ SmBoolean bDebugMe = FALSE;
   if (m_crUVDomain.GetMax().y <= sUVDomain.GetMax().y) aeVConts[1] = SM_CT_DISCONTINUOUS;
   if (!sUVDomain.IsContainedBy(m_crUVDomain, SM_EFF_ZERO))
     {
-      sUVDomain.Intersect(m_crUVDomain,sUVDomain);
+      if ( sUVDomain.Intersect(m_crUVDomain,sUVDomain) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // Check for zero in either domain bound
       if (SM_ARE_SAME(sUVDomain.GetMax().x,sUVDomain.GetMin().x)) { return SM_SUCCESS; }
       if (SM_ARE_SAME(sUVDomain.GetMax().y,sUVDomain.GetMin().y)) { return SM_SUCCESS; }
@@ -17553,7 +17573,7 @@ SmBoolean bDebugMe = FALSE;
   if (m_crInterval.GetMax() <= sIvl.GetMax()) aeTConts[1] = SM_CT_DISCONTINUOUS;
   if (!sIvl.IsContainedBy(m_crInterval, SM_EFF_ZERO))
     {
-      SER(sIvl.Intersect(m_crInterval,sIvl));
+      if ( sIvl.Intersect(m_crInterval,sIvl) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // Check for zero length intervals
       if (SM_ARE_SAME(sIvl.GetMax(),sIvl.GetMin()))
         { return SM_SUCCESS; }
@@ -17747,8 +17767,8 @@ SmBoolean bDebugMe = FALSE ;
 
           // Check positions.
           SmPoint3d sPt1, sPt2;
-          m_pSurf->EvaluatePoint( sUV1, sPt1 );
-          m_pSurf->EvaluatePoint( sUV2, sPt2 );
+          if ( m_pSurf->EvaluatePoint( sUV1, sPt1 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+          if ( m_pSurf->EvaluatePoint( sUV2, sPt2 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
 
           double dTol = m_d3dTolerance; // untested: see how it works in practice
 
@@ -18102,7 +18122,7 @@ SmBoolean bDebugMe = FALSE ;
   else // check lineVector for bounding box intersections
     { ULONG lNumFound ;
       double dTEnter, dTExit ;
-      rSurfBox.IntersectLine(sPointOnLine, m_vLineVector, lNumFound, dTEnter, dTExit) ;
+      if ( rSurfBox.IntersectLine(sPointOnLine, m_vLineVector, lNumFound, dTEnter, dTExit) != SM_SUCCESS ) { return TRUE ; } // SolidCraft: a box that can't be intersected rules nothing out
       if( lNumFound > 0) { return TRUE ; }
       else               { return FALSE ; }
     }
@@ -18181,7 +18201,7 @@ SmBoolean bDebugMe = FALSE;
   if (!sUVDomain.IsContainedBy(m_crUVDomain, SM_EFF_ZERO))
     {
       // trim leafNode domain down to intersection domain
-      sUVDomain.Intersect(m_crUVDomain,sUVDomain);
+      if ( sUVDomain.Intersect(m_crUVDomain,sUVDomain) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
 
       // no work - remaining domain has a zero length dimension
       if (SM_ARE_SAME(sUVDomain.GetMax().x,sUVDomain.GetMin().x)) { return SM_SUCCESS; }
@@ -18199,14 +18219,14 @@ SmBoolean bDebugMe = FALSE;
   // BBox/line intersect
   SmExtent3d sTmpBBox( pSurfaceNode->m_sBBox );
   sTmpBBox.ExpandAbsolute( m_d3dTolerance );   //[B161]
-  sTmpBBox.IntersectLine(m_vLinePoint, m_vLineVector, lBBoxNumFound, dBBoxTEnter, dBBoxTExit) ;
+  SER( sTmpBBox.IntersectLine(m_vLinePoint, m_vLineVector, lBBoxNumFound, dBBoxTEnter, dBBoxTExit)  );
 
   // no work - no BBox intersection
   if(lBBoxNumFound == 0)
     { return SM_SUCCESS ; }
 
   // PseudoBox/line intersect
-  sTmpPBox.IntersectLine(m_vLinePoint, m_vLineVector, lPseudoBoxNumFound, dPseudoBoxTEnter, dPseudoBoxTExit) ;
+  SER( sTmpPBox.IntersectLine(m_vLinePoint, m_vLineVector, lPseudoBoxNumFound, dPseudoBoxTEnter, dPseudoBoxTExit)  );
 
   // no work - no Pseudo intersection
   if(lPseudoBoxNumFound  == 0)
@@ -18237,7 +18257,7 @@ SmBoolean bDebugMe = FALSE;
 
   // trim sBoundIvl to m_cpLineInterval (the interval of interest
   if(m_cpLineInterval)
-    { sBoundIvl.Intersect(*m_cpLineInterval, sBoundIvl) ; }
+    { if ( sBoundIvl.Intersect(*m_cpLineInterval, sBoundIvl) != SM_SUCCESS ) { return SM_SUCCESS ; } } // SolidCraft: a branch outside the interval of interest has no answers
 
   // low work - just one point on the line to try
   if(   lPseudoBoxNumFound == 1
@@ -18359,7 +18379,7 @@ SmBoolean bDebugMe = FALSE;
 
   // init a line interval - for a ray or for a given line interval
   SmExtent1d sIvl ;
-  if (m_cpLineInterval) { m_cpLineInterval->Intersect(sBoundIvl, sIvl) ;
+  if (m_cpLineInterval) { SER( m_cpLineInterval->Intersect(sBoundIvl, sIvl)  );
                         }
   else                  { sIvl = sBoundIvl ;
                         }
@@ -18920,8 +18940,8 @@ SmBoolean bDebugMe = FALSE ;
 
           // Check positions.
           SmPoint3d sPt1, sPt2;
-          m_pSurf->EvaluatePoint( sUV1, sPt1 );
-          m_pSurf->EvaluatePoint( sUV2, sPt2 );
+          if ( m_pSurf->EvaluatePoint( sUV1, sPt1 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+          if ( m_pSurf->EvaluatePoint( sUV2, sPt2 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
 
           double dTol = m_d3dTolerance; // untested: see how it works in practice
 
@@ -19161,7 +19181,7 @@ SmBoolean bDebugMe = FALSE ;
   for ( ii=0; ii < lNumSols; ii++ )
     {
       SmSolution & rSol = rSolutions[ii];
-      sSrfEval.SetUV( rSol.m_vStart[1], rSol.m_vStart[2] );
+      SER( sSrfEval.SetUV( rSol.m_vStart[1], rSol.m_vStart[2] ) );
 
       // When line tangent not perp to surfNormal - can't be coincident
       SmBoolean bPerp = crLineVector.IsPerpendicularTo(sSrfEval.Normal(), SM_EFF_ZERO_RAD) ;
@@ -19189,7 +19209,7 @@ SmBoolean bDebugMe = FALSE ;
       // for range solutions - check end points as well
       if ( rSol.m_eSolutionType == SM_ST_RANGE_OF_VALUES )
         {
-          sSrfEval.SetUV( rSol.m_vEnd[1], rSol.m_vEnd[2] ) ;
+          SER( sSrfEval.SetUV( rSol.m_vEnd[1], rSol.m_vEnd[2] )  );
 
           // When line tangent not perp to surfNormal - can't be coincident
           bPerp = crLineVector.IsPerpendicularTo(sSrfEval.Normal(), SM_EFF_ZERO_RAD) ;
@@ -19233,7 +19253,7 @@ SmBoolean bDebugMe = FALSE ;
           return SM_SUCCESS;
         }
       SmObjDelete sCleanLine(pLine);
-      pLine->EditParameterization(sLineInterval);
+      SER( pLine->EditParameterization(sLineInterval) );
 
       // Check Surface/LineSegment Coincidence
       SmBoolean bAllowPartialCoinc = TRUE; // [B122]
@@ -19781,7 +19801,7 @@ SmBoolean bDebugMe = FALSE ;
   if (!sUVDomain.IsContainedBy(m_crUVDomain, SM_EFF_ZERO))
     {
       // Need to adjust continuities
-      sUVDomain.Intersect(m_crUVDomain,sUVDomain);
+      if ( sUVDomain.Intersect(m_crUVDomain,sUVDomain) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // Check for zero in either domain bound
       if (SM_ARE_SAME(sUVDomain.GetMax().x,sUVDomain.GetMin().x))
         { return SM_SUCCESS; }
@@ -19953,8 +19973,8 @@ SmBoolean bDebugMe = FALSE ;
 
       // Check positions.
       SmPoint3d sPt1, sPt2;
-      m_pSurf->EvaluatePoint( sUV1, sPt1 );
-      m_pSurf->EvaluatePoint( sUV2, sPt2 );
+      if ( m_pSurf->EvaluatePoint( sUV1, sPt1 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+      if ( m_pSurf->EvaluatePoint( sUV2, sPt2 ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
 
       double dTol = m_d3dTolerance; // untested: see how it works in practice
 
@@ -20902,38 +20922,38 @@ static SmBoolean sm_PassSSConvergenceTest
 {
     SmPoint3d sPnt;
     SmVector3d sDU, sDV;
-    crSurface.Evaluate1stDerivatives(crUV,TRUE,TRUE,sPnt,sDU,sDV);
+    if ( crSurface.Evaluate1stDerivatives(crUV,TRUE,TRUE,sPnt,sDU,sDV) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: not shown converged
     SmPoint3d sPnt2;
     SmVector3d sDU2, sDV2;
-    crSurface2.Evaluate1stDerivatives(crUV2,TRUE,TRUE,sPnt2,sDU2,sDV2);
+    if ( crSurface2.Evaluate1stDerivatives(crUV2,TRUE,TRUE,sPnt2,sDU2,sDV2) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: not shown converged
     SmVector3d sDiff = sPnt - sPnt2;
     if (smos_Fabs(sDU.Dot(sDiff)) > SM_EFF_ZERO ||
         smos_Fabs(sDV.Dot(sDiff)) > SM_EFF_ZERO ||
         smos_Fabs(sDU2.Dot(sDiff)) > SM_EFF_ZERO ||
         smos_Fabs(sDV2.Dot(sDiff)) > SM_EFF_ZERO) {
         if (sDiff.LengthSquared() > SM_EFF_ZERO_SQ) {
-            sDiff.Unitize();
+            (void)sDiff.Unitize(); // SolidCraft: nonzero by the tests above
         }
         if (sDU.LengthSquared() > SM_EFF_ZERO_SQ) {
-            sDU.Unitize();
+            (void)sDU.Unitize(); // SolidCraft: nonzero by the tests above
             if (smos_Fabs(sDU.Dot(sDiff)) > SM_EFF_ZERO) {
                 return FALSE;
             }
         }
         if (sDV.LengthSquared() > SM_EFF_ZERO_SQ) {
-            sDV.Unitize();
+            (void)sDV.Unitize(); // SolidCraft: nonzero by the tests above
             if (smos_Fabs(sDV.Dot(sDiff)) > SM_EFF_ZERO) {
                 return FALSE;
             }
         }
         if (sDU2.LengthSquared() > SM_EFF_ZERO_SQ) {
-            sDU2.Unitize();
+            (void)sDU2.Unitize(); // SolidCraft: nonzero by the tests above
             if (smos_Fabs(sDU2.Dot(sDiff)) > SM_EFF_ZERO) {
                 return FALSE;
             }
         }
         if (sDV2.LengthSquared() > SM_EFF_ZERO_SQ) {
-            sDV2.Unitize();
+            (void)sDV2.Unitize(); // SolidCraft: nonzero by the tests above
             if (smos_Fabs(sDV2.Dot(sDiff)) > SM_EFF_ZERO) {
                 return FALSE;
             }
@@ -21152,7 +21172,7 @@ SmBoolean bDebugMe = FALSE;
     if (m_crUVDomain1.GetMax().y <= sUVDomain1.GetMax().y) aeVConts[1] = SM_CT_DISCONTINUOUS;
     if (!sUVDomain1.IsContainedBy(m_crUVDomain1, SM_EFF_ZERO))
       {
-        sUVDomain1.Intersect(m_crUVDomain1,sUVDomain1);
+        if ( sUVDomain1.Intersect(m_crUVDomain1,sUVDomain1) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
         // Check for zero in either domain bound
         if (SM_ARE_SAME(sUVDomain1.GetMax().x,sUVDomain1.GetMin().x)) { return SM_SUCCESS; }
         if (SM_ARE_SAME(sUVDomain1.GetMax().y,sUVDomain1.GetMin().y)) { return SM_SUCCESS; }
@@ -21164,7 +21184,7 @@ SmBoolean bDebugMe = FALSE;
     if (m_crUVDomain2.GetMax().y <= sUVDomain2.GetMax().y) aeVConts2[1] = SM_CT_DISCONTINUOUS;
     if (!sUVDomain2.IsContainedBy(m_crUVDomain2, SM_EFF_ZERO))
       {
-        sUVDomain2.Intersect(m_crUVDomain2,sUVDomain2);
+        if ( sUVDomain2.Intersect(m_crUVDomain2,sUVDomain2) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
         // Check for zero in either domain bound
         if (SM_ARE_SAME(sUVDomain2.GetMax().x,sUVDomain2.GetMin().x)) { return SM_SUCCESS; }
         if (SM_ARE_SAME(sUVDomain2.GetMax().y,sUVDomain2.GetMin().y)) { return SM_SUCCESS; }
@@ -21601,10 +21621,10 @@ SmBoolean bDebugMe = FALSE ;
 
           // Check positions.
           SmPoint3d sPt1A, sPt1B, sPt2A, sPt2B;
-          m_pSurf1->EvaluatePoint( sUV1A, sPt1A );
-          m_pSurf1->EvaluatePoint( sUV1B, sPt1B );
-          m_pSurf2->EvaluatePoint( sUV2A, sPt2A );
-          m_pSurf2->EvaluatePoint( sUV2B, sPt2B );
+          if ( m_pSurf1->EvaluatePoint( sUV1A, sPt1A ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+          if ( m_pSurf1->EvaluatePoint( sUV1B, sPt1B ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+          if ( m_pSurf2->EvaluatePoint( sUV2A, sPt2A ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
+          if ( m_pSurf2->EvaluatePoint( sUV2B, sPt2B ) != SM_SUCCESS ) { return SM_SP_DIFFPARAMETERS ; } // SolidCraft: points that can't be evaluated aren't shown the same
 
           double dTol = m_d3dTolerance; // untested: see how it works in practice
 
@@ -21916,7 +21936,7 @@ SmBoolean bDebugMe=FALSE;
             { continue; }
 
           double dCrvT = sIvl.GetMid();
-          pOtherCrv->EvaluatePoint( dCrvT, sCrvPt );
+          SER( pOtherCrv->EvaluatePoint( dCrvT, sCrvPt ) );
 
           eStat = this->DropPoint( sCrvPt, crUVDomain, NULL, bSuccess, sUV, dDropDist, bIsMulti, SM_SO_INTERSECT );
 
@@ -21940,7 +21960,7 @@ SmBoolean bDebugMe=FALSE;
                   continue;
                 }
 
-              pCrvCopy->Trim( sIvl ); // may snap sIvl by tol to existing knots
+              SER( pCrvCopy->Trim( sIvl ) ); // may snap sIvl by tol to existing knots
 
               pOpt3DCurves->Add( pCrvCopy );
 
@@ -22001,7 +22021,7 @@ SmStatus SmSurface::InvertPointNearSingularity
   SmVector3d sSu, sSv;
   SmStatus eStat;
 
-  Evaluate1stDerivatives( rUVGuess, FALSE, FALSE, sSrfPt, sSu, sSv );
+  SER( Evaluate1stDerivatives( rUVGuess, FALSE, FALSE, sSrfPt, sSu, sSv ) );
 
   if ( sSrfPt.CloserThan( dTol, crTestPt ) )
   {
@@ -22084,7 +22104,7 @@ SmStatus SmSurface::InvertPointNearSingularity
   // Find the degenerate param, at the pole, where the non-degenerate
   // tangent points towards the test point.
   SmPoint3d sPolePt;
-  EvaluatePoint( sSingUV, sPolePt );
+  SER( EvaluatePoint( sSingUV, sPolePt ) );
   SmVector3d sDiffVec( crTestPt - sPolePt ); // we know this isn't zero.
 
   eStat = FindDegenParamForDirection( sSingUV,    // i/o: a point on the surface singularity,
@@ -22126,7 +22146,7 @@ SmStatus SmSurface::InvertPointNearSingularity
 
   // Get a guess param.
   // First re-evaluate at the param that's going in the right direction.
-  Evaluate1stDerivatives( sSingUV, FALSE, FALSE, sSrfPt, sSu, sSv );
+  SER( Evaluate1stDerivatives( sSingUV, FALSE, FALSE, sSrfPt, sSu, sSv ) );
 
   if ( eSingDir == SM_SP_U ) {
       sGoodDeriv = sSv;
@@ -22262,15 +22282,15 @@ SmBoolean SmSurface::IsClosed          // rtn: TRUE = Surface is at least C0 in 
           // evaluate isoParameter endPoints
           if ( peOptContinuity != NULL )
             {
-              Evaluate2ndDerivatives( sUVMin, TRUE, TRUE, sPMin, sDUMin, sDVMin,
-                                      sDUVMin, sDUUMin, sDVVMin );
-              Evaluate2ndDerivatives( sUVMax, TRUE, TRUE, sPMax, sDUMax, sDVMax,
-                                      sDUVMax, sDUUMax, sDVVMax );
+              if ( Evaluate2ndDerivatives( sUVMin, TRUE, TRUE, sPMin, sDUMin, sDVMin,
+                                      sDUVMin, sDUUMin, sDVVMin ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
+              if ( Evaluate2ndDerivatives( sUVMax, TRUE, TRUE, sPMax, sDUMax, sDVMax,
+                                      sDUVMax, sDUUMax, sDVVMax ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
             }
           else
             {
-              EvaluatePoint( sUVMin, sPMin );
-              EvaluatePoint( sUVMax, sPMax );
+              if ( EvaluatePoint( sUVMin, sPMin ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
+              if ( EvaluatePoint( sUVMax, sPMax ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
             }
 
 #ifdef SM_GFX_CODE
@@ -22319,13 +22339,13 @@ SmBoolean bDebugMe = FALSE ;
               // Find continuity between two 1-dimensional curve evaluations
               SmContinuityType eCurveContinuity ;
               if ( eThisParam == SM_SP_U )
-                   { smgu_EvaluateCurveContinuity(sPMin,              // in : Eval 1 position 
+                   { if ( smgu_EvaluateCurveContinuity(sPMin,              // in : Eval 1 position 
                                                   sDUMin,             // in : Eval 1 tangent
                                                   sDUUMin,            // in : Eval 1 2nd derivative
                                                   sPMax,              // in : Eval 2 position      
                                                   sDUMax,             // in : Eval 2 tangent       
                                                   sDUUMax,            // in : Eval 2 2nd derivative
-                                                  eCurveContinuity) ; // out: oneof SM_CT_DISCONTINUOUS
+                                                  eCurveContinuity) != SM_SUCCESS ) { return FALSE ; } // out: oneof SM_CT_DISCONTINUOUS
                                                                       //            SM_CT_C0           
                                                                       //            SM_CT_G1           
                                                                       //            SM_CT_G1_G2
@@ -22338,9 +22358,9 @@ SmBoolean bDebugMe = FALSE ;
                                                                       //            SM_CT_C1_C2_C3 only when Opt3rd derivs are supplied 
                                                                       //            SM_CT_CINFINITY
                    }
-              else { smgu_EvaluateCurveContinuity(sPMin, sDVMin, sDVVMin,
+              else { if ( smgu_EvaluateCurveContinuity(sPMin, sDVMin, sDVVMin,
                                                   sPMax, sDVMax, sDVVMax,
-                                                  eCurveContinuity) ;
+                                                  eCurveContinuity) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
                    }
 
               // save lowest found continuity
@@ -22353,7 +22373,7 @@ SmBoolean bDebugMe = FALSE ;
             {
 
               // filter out very short curve passing as closed curves
-              EvaluateDirectionalDerivs( sUVMid, sUVDir, 2, sPMid );
+              if ( EvaluateDirectionalDerivs( sUVMid, sUVDir, 2, sPMid ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
 
               SmVector3d sGapDiff1 = sPMid[0] - sPMin ;
               SmVector3d sGapDiff2 = sPMid[0] - sPMax ;
@@ -22369,7 +22389,7 @@ SmBoolean bDebugMe = FALSE ;
                   // get geometric properties from directional derivatives
                   // changed second parameter from 3 to 2 because we do not use the torsion binormal here.
                   // a value of 3 would cause access to [4] which is beyond the limits of the array
-                  smgu_FrenetFromDerivatives(sPMid, 2, sGMid) ;
+                  if ( smgu_FrenetFromDerivatives(sPMid, 2, sGMid) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be evaluated is not shown closed
 
                   // get curvature and radius of curvature
                   double dMidCurvSq = sGMid[2].LengthSquared() ;
@@ -22410,7 +22430,7 @@ SmBoolean SmSurface::IsPlanar
  const
 { // test for planarity on Surface PseudoBox
   SmPseudoBox sPseudoBox ;
-  CalculateBoundingBox(GetNaturalUVDomain(), NULL, &sPseudoBox, NULL) ;
+  if ( CalculateBoundingBox(GetNaturalUVDomain(), NULL, &sPseudoBox, NULL) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a surface that can't be boxed is not shown planar
   return(sPseudoBox.IsPlanar(dTol3d, pOptPlanePoint,
                              pOptPlaneNormal, pOptActualDeviation)) ;
 
@@ -22442,7 +22462,7 @@ SmBoolean SmSurface::IsPlanarPoint
   SmVector3d PrincipleCurvatureVector2 ;      // out: 3d vector tangent to surface in 2nd principal direction
 
   // make the call
-  EvaluateGeometric(crUV, TRUE, TRUE,
+  if ( EvaluateGeometric(crUV, TRUE, TRUE,
                     dGaussianCurvature,          // out: GaussianCurvature = K1*K2 (principal curvatures)
                     dNormalCurvature,            // out: MeanCurvature = 1/2(K1 + K2)
                     dPrincipleCurvature1,        // out: 1st principal curvature value, K1
@@ -22450,7 +22470,7 @@ SmBoolean SmSurface::IsPlanarPoint
                     sEFGOfFirstFundForm,         // out: 1st fundamental form, [E, F, G]
                     sLMNOfSecondFundForm,        // out: 2nd fundamental form, [L, M, N]
                     PrincipleCurvatureVector1,   // out: 3d vector tangent to surface in 1st principal direction
-                    PrincipleCurvatureVector2) ; // out: 3d vector tangent to surface in 2nd principal direction
+                    PrincipleCurvatureVector2) != SM_SUCCESS ) { return FALSE ; } // out: 3d vector tangent to surface in 2nd principal direction
 
   // surface is planar when principle curvatures are both small
   SmBoolean bRtn = (   dNormalCurvature     < SM_EFF_ZERO_SQRT
@@ -22520,8 +22540,8 @@ SmBoolean bDebugMe = FALSE;
                                   }
 
       // surface evaluations on either side of the possible seam
-      Evaluate( sUVMin, 1, 1, TRUE, TRUE, TRUE, sPMin[0], TRUE );  // NonZeroTangent values
-      Evaluate( sUVMax, 1, 1, TRUE, TRUE, TRUE, sPMax[0], TRUE );  // NonZeroTangent values
+      if ( Evaluate( sUVMin, 1, 1, TRUE, TRUE, TRUE, sPMin[0], TRUE ) != SM_SUCCESS ) { return FALSE ; }  // NonZeroTangent values
+      if ( Evaluate( sUVMax, 1, 1, TRUE, TRUE, TRUE, sPMax[0], TRUE ) != SM_SUCCESS ) { return FALSE ; }  // NonZeroTangent values
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe2 = FALSE;
@@ -22623,10 +22643,10 @@ SmBoolean bDebugMe = FALSE ;
   double sUVSize2 = sUVDomain.GetMaxDimension() * sUVDomain.GetMaxDimension() ;
 
   SmPoint3d sPV0[2][2], sPV1[2][2], sPV2[2][2], sPV3[2][2] ;
-  Evaluate(sUV0,1,1,TRUE,TRUE,TRUE,sPV0[0],FALSE) ;  // exact Tangent values
-  Evaluate(sUV1,1,1,TRUE,TRUE,TRUE,sPV1[0],FALSE) ;  // exact Tangent values
-  Evaluate(sUV2,1,1,TRUE,TRUE,TRUE,sPV2[0],FALSE) ;  // exact Tangent values
-  Evaluate(sUV3,1,1,TRUE,TRUE,TRUE,sPV3[0],FALSE) ;  // exact Tangent values
+  if ( Evaluate(sUV0,1,1,TRUE,TRUE,TRUE,sPV0[0],FALSE) != SM_SUCCESS ) { return FALSE ; }  // exact Tangent values
+  if ( Evaluate(sUV1,1,1,TRUE,TRUE,TRUE,sPV1[0],FALSE) != SM_SUCCESS ) { return FALSE ; }  // exact Tangent values
+  if ( Evaluate(sUV2,1,1,TRUE,TRUE,TRUE,sPV2[0],FALSE) != SM_SUCCESS ) { return FALSE ; }  // exact Tangent values
+  if ( Evaluate(sUV3,1,1,TRUE,TRUE,TRUE,sPV3[0],FALSE) != SM_SUCCESS ) { return FALSE ; }  // exact Tangent values
 
   // select a tolerance - scale it to sP1 location
   double dScaledZero = 1000.0 * SM_EFF_ZERO * (1.0 + sPV0[0][0].GetMaxDimension() + sPV1[0][0].GetMaxDimension());
@@ -22655,10 +22675,10 @@ SmBoolean bDebugMe = FALSE ;
       sUV2 = sUVDomain.Evaluate(.333, .5) ;
       sUV3 = sUVDomain.Evaluate(.666, .5) ;
 
-      Evaluate(sUV0,1,1,TRUE,TRUE,TRUE,sPV0[0],FALSE) ; // exact Tangent values
-      Evaluate(sUV1,1,1,TRUE,TRUE,TRUE,sPV1[0],FALSE) ; // exact Tangent values
-      Evaluate(sUV2,1,1,TRUE,TRUE,TRUE,sPV2[0],FALSE) ; // exact Tangent values
-      Evaluate(sUV3,1,1,TRUE,TRUE,TRUE,sPV3[0],FALSE) ; // exact Tangent values
+      if ( Evaluate(sUV0,1,1,TRUE,TRUE,TRUE,sPV0[0],FALSE) != SM_SUCCESS ) { return FALSE ; } // exact Tangent values
+      if ( Evaluate(sUV1,1,1,TRUE,TRUE,TRUE,sPV1[0],FALSE) != SM_SUCCESS ) { return FALSE ; } // exact Tangent values
+      if ( Evaluate(sUV2,1,1,TRUE,TRUE,TRUE,sPV2[0],FALSE) != SM_SUCCESS ) { return FALSE ; } // exact Tangent values
+      if ( Evaluate(sUV3,1,1,TRUE,TRUE,TRUE,sPV3[0],FALSE) != SM_SUCCESS ) { return FALSE ; } // exact Tangent values
 
       // when all those points are also degenerate
       if(   sPt.DistanceBetweenSquared(sPV0[0][0]) < dTol2
@@ -22675,7 +22695,7 @@ SmBoolean bDebugMe = FALSE ;
          && sPV3[0][1].LengthSquared() * sUVSize2 < dTol2)
         {
           // and the center point is degenerate
-          Evaluate(sUVDomain.Evaluate(.5, .5),1,1,TRUE,TRUE,TRUE,sPV0[0],FALSE) ; // exact Tangent values
+          if ( Evaluate(sUVDomain.Evaluate(.5, .5),1,1,TRUE,TRUE,TRUE,sPV0[0],FALSE) != SM_SUCCESS ) { return FALSE ; } // exact Tangent values
           if(   sPt.DistanceBetweenSquared(sPV0[0][0]) < dTol2
              && sPV0[1][0].LengthSquared() * sUVSize2 < dTol2
              && sPV0[0][1].LengthSquared() * sUVSize2 < dTol2)
@@ -22768,10 +22788,10 @@ SmBoolean bDebugMe = FALSE ;
   SmVector3d aDerivs03[2][2], aDerivs13[2][2], aDerivs23[2][2] ;
 
   // Evaluate 1st derivatives at corner points
-  Evaluate(sUV00, 1, 1, TRUE, TRUE, TRUE, aDerivs00[0], FALSE) ; // exact tangent lengths
-  Evaluate(sUV01, 1, 1, TRUE, TRUE, TRUE, aDerivs01[0], FALSE) ; // exact tangent lengths
-  Evaluate(sUV02, 1, 1, TRUE, TRUE, TRUE, aDerivs02[0], FALSE) ; // exact tangent lengths
-  Evaluate(sUV03, 1, 1, TRUE, TRUE, TRUE, aDerivs03[0], FALSE) ; // exact tangent lengths
+  if ( Evaluate(sUV00, 1, 1, TRUE, TRUE, TRUE, aDerivs00[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+  if ( Evaluate(sUV01, 1, 1, TRUE, TRUE, TRUE, aDerivs01[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+  if ( Evaluate(sUV02, 1, 1, TRUE, TRUE, TRUE, aDerivs02[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+  if ( Evaluate(sUV03, 1, 1, TRUE, TRUE, TRUE, aDerivs03[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
 
   // when the corner points are all dependentTangentPoints
   if(   aDerivs00[1][0].IsParallelTo(aDerivs00[0][1], dAngleTolDeg)  //      IsFlatCornerPoint(sUV0, dAngleTolDeg)
@@ -22781,10 +22801,10 @@ SmBoolean bDebugMe = FALSE ;
     {
       // Evaluate 1st derivatives at sample points
       bEval1 = TRUE ;
-      Evaluate(sUV10, 1, 1, TRUE, TRUE, TRUE, aDerivs10[0], FALSE) ; // exact tangent lengths
-      Evaluate(sUV11, 1, 1, TRUE, TRUE, TRUE, aDerivs11[0], FALSE) ; // exact tangent lengths
-      Evaluate(sUV12, 1, 1, TRUE, TRUE, TRUE, aDerivs12[0], FALSE) ; // exact tangent lengths
-      Evaluate(sUV13, 1, 1, TRUE, TRUE, TRUE, aDerivs13[0], FALSE) ; // exact tangent lengths
+      if ( Evaluate(sUV10, 1, 1, TRUE, TRUE, TRUE, aDerivs10[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+      if ( Evaluate(sUV11, 1, 1, TRUE, TRUE, TRUE, aDerivs11[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+      if ( Evaluate(sUV12, 1, 1, TRUE, TRUE, TRUE, aDerivs12[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+      if ( Evaluate(sUV13, 1, 1, TRUE, TRUE, TRUE, aDerivs13[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
 
       // when they are all tangentDependent points
       if(   aDerivs10[1][0].IsParallelTo(aDerivs10[0][1], dAngleTolDeg)  //      IsFlatCornerPoint(sUV0, dAngleTolDeg)
@@ -22794,10 +22814,10 @@ SmBoolean bDebugMe = FALSE ;
         {
           // Evaluate 1st derivatives at diagonal points
           bEval2 = TRUE ;
-          Evaluate(sUV20, 1, 1, TRUE, TRUE, TRUE, aDerivs20[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV21, 1, 1, TRUE, TRUE, TRUE, aDerivs21[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV22, 1, 1, TRUE, TRUE, TRUE, aDerivs22[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV23, 1, 1, TRUE, TRUE, TRUE, aDerivs23[0], FALSE) ; // exact tangent lengths
+          if ( Evaluate(sUV20, 1, 1, TRUE, TRUE, TRUE, aDerivs20[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV21, 1, 1, TRUE, TRUE, TRUE, aDerivs21[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV22, 1, 1, TRUE, TRUE, TRUE, aDerivs22[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV23, 1, 1, TRUE, TRUE, TRUE, aDerivs23[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
 
           // when they are all tangentDependent points
           if(    aDerivs20[1][0].IsParallelTo(aDerivs20[0][1], dAngleTolDeg)  //      IsFlatCornerPoint(sUV0, dAngleTolDeg)
@@ -22807,7 +22827,7 @@ SmBoolean bDebugMe = FALSE ;
             {
               // Evaluate 1st derivatives at center point
               bEval3 = TRUE ;
-              Evaluate(sUV30, 1, 1, TRUE, TRUE, TRUE, aDerivs30[0], FALSE) ; // exact tangent lengths
+              if ( Evaluate(sUV30, 1, 1, TRUE, TRUE, TRUE, aDerivs30[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
 
               if(aDerivs30[1][0].IsParallelTo(aDerivs30[0][1], dAngleTolDeg))  //      IsFlatCornerPoint(sUV0, dAngleTolDeg))
                 { // the surface has degenerated into a curve
@@ -22841,10 +22861,10 @@ SmBoolean bDebugMe = FALSE ;
       if(bEval1 == FALSE)
         {
           bEval1 = TRUE ;
-          Evaluate(sUV10, 1, 1, TRUE, TRUE, TRUE, aDerivs10[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV11, 1, 1, TRUE, TRUE, TRUE, aDerivs11[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV12, 1, 1, TRUE, TRUE, TRUE, aDerivs12[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV13, 1, 1, TRUE, TRUE, TRUE, aDerivs13[0], FALSE) ; // exact tangent lengths
+          if ( Evaluate(sUV10, 1, 1, TRUE, TRUE, TRUE, aDerivs10[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV11, 1, 1, TRUE, TRUE, TRUE, aDerivs11[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV12, 1, 1, TRUE, TRUE, TRUE, aDerivs12[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV13, 1, 1, TRUE, TRUE, TRUE, aDerivs13[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
         }
 
       // check sample points
@@ -22858,10 +22878,10 @@ SmBoolean bDebugMe = FALSE ;
           if(bEval2 == FALSE)
             {
               bEval2 = TRUE ;
-              Evaluate(sUV20, 1, 1, TRUE, TRUE, TRUE, aDerivs20[0], FALSE) ; // exact tangent lengths
-              Evaluate(sUV21, 1, 1, TRUE, TRUE, TRUE, aDerivs21[0], FALSE) ; // exact tangent lengths
-              Evaluate(sUV22, 1, 1, TRUE, TRUE, TRUE, aDerivs22[0], FALSE) ; // exact tangent lengths
-              Evaluate(sUV23, 1, 1, TRUE, TRUE, TRUE, aDerivs23[0], FALSE) ; // exact tangent lengths
+              if ( Evaluate(sUV20, 1, 1, TRUE, TRUE, TRUE, aDerivs20[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+              if ( Evaluate(sUV21, 1, 1, TRUE, TRUE, TRUE, aDerivs21[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+              if ( Evaluate(sUV22, 1, 1, TRUE, TRUE, TRUE, aDerivs22[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+              if ( Evaluate(sUV23, 1, 1, TRUE, TRUE, TRUE, aDerivs23[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
             }
 
           // check diagonal points
@@ -22874,7 +22894,7 @@ SmBoolean bDebugMe = FALSE ;
               if(bEval3 == FALSE)
                 {
                   bEval3 = TRUE ;
-                  Evaluate(sUV30, 1, 1, TRUE, TRUE, TRUE, aDerivs30[0], FALSE) ; // exact tangent lengths
+                  if ( Evaluate(sUV30, 1, 1, TRUE, TRUE, TRUE, aDerivs30[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
                 }
 
               // check center point
@@ -22896,10 +22916,10 @@ SmBoolean bDebugMe = FALSE ;
       if(bEval1 == FALSE)
         {
           bEval1 = TRUE ;
-          Evaluate(sUV10, 1, 1, TRUE, TRUE, TRUE, aDerivs10[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV11, 1, 1, TRUE, TRUE, TRUE, aDerivs11[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV12, 1, 1, TRUE, TRUE, TRUE, aDerivs12[0], FALSE) ; // exact tangent lengths
-          Evaluate(sUV13, 1, 1, TRUE, TRUE, TRUE, aDerivs13[0], FALSE) ; // exact tangent lengths
+          if ( Evaluate(sUV10, 1, 1, TRUE, TRUE, TRUE, aDerivs10[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV11, 1, 1, TRUE, TRUE, TRUE, aDerivs11[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV12, 1, 1, TRUE, TRUE, TRUE, aDerivs12[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+          if ( Evaluate(sUV13, 1, 1, TRUE, TRUE, TRUE, aDerivs13[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
         }
 
       // check sample points
@@ -22913,10 +22933,10 @@ SmBoolean bDebugMe = FALSE ;
           if(bEval2 == FALSE)
             {
               bEval2 = TRUE ;
-              Evaluate(sUV20, 1, 1, TRUE, TRUE, TRUE, aDerivs20[0], FALSE) ; // exact tangent lengths
-              Evaluate(sUV21, 1, 1, TRUE, TRUE, TRUE, aDerivs21[0], FALSE) ; // exact tangent lengths
-              Evaluate(sUV22, 1, 1, TRUE, TRUE, TRUE, aDerivs22[0], FALSE) ; // exact tangent lengths
-              Evaluate(sUV23, 1, 1, TRUE, TRUE, TRUE, aDerivs23[0], FALSE) ; // exact tangent lengths
+              if ( Evaluate(sUV20, 1, 1, TRUE, TRUE, TRUE, aDerivs20[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+              if ( Evaluate(sUV21, 1, 1, TRUE, TRUE, TRUE, aDerivs21[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+              if ( Evaluate(sUV22, 1, 1, TRUE, TRUE, TRUE, aDerivs22[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
+              if ( Evaluate(sUV23, 1, 1, TRUE, TRUE, TRUE, aDerivs23[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
             }
 
           // check diagonal points
@@ -22929,7 +22949,7 @@ SmBoolean bDebugMe = FALSE ;
               if(bEval3 == FALSE)
                 {
                   bEval3 = TRUE ;
-                  Evaluate(sUV30, 1, 1, TRUE, TRUE, TRUE, aDerivs30[0], FALSE) ; // exact tangent lengths
+                  if ( Evaluate(sUV30, 1, 1, TRUE, TRUE, TRUE, aDerivs30[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // exact tangent lengths
                 }
 
               // check center point
@@ -22999,7 +23019,7 @@ SmBoolean SmSurface::HasPlaneCrossings
   for(ii=0;ii<sPlanes.GetSize();ii++)
     {
       // find all Surface/DiscontinuityPlane intersections 
-      GlobalSurfaceIntersect
+      if ( GlobalSurfaceIntersect
                  (sContext,                           // in : Context for new object construction
                   sSurfaceUVDomain,                   // in : this Surface intersection limits
                  *sPlanes[ii],                        // in : target 2nd intersecting surface
@@ -23022,7 +23042,7 @@ SmBoolean SmSurface::HasPlaneCrossings
                                                       //             SM_TC_COINCIDENT - curve intersection (surf norms parallel & cross-tangents equal)
                                                       //             SM_TC_NEAR_TANGENT    - curve has small angle of intersection
                                                       //             SM_TC_REGION_BOUNDARY - curve bounds region within which the surfs are coincident
-                  &sDeviations) ;                     // out: produced Curve Deviations from each UVCurve to true xSect, NULL to ignore
+                  &sDeviations) != SM_SUCCESS ) { return TRUE ; }                     // out: produced Curve Deviations from each UVCurve to true xSect, NULL to ignore
 
       // intersection curves are temporary
       SmObjsDelete<SmCurve *> sClean1(&s3DCurves) ;
@@ -23175,7 +23195,7 @@ SmBoolean SmSurface::IsSingularity
               SER( Evaluate( crUVToTest, 2, 2, TRUE, TRUE, TRUE, sMat3[0], TRUE ));
 
               SmVector3d sSuUnit = sMat3[1][0];
-              sSuUnit.Unitize();  // Evaluate() guarantees that this is ok.
+              (void)sSuUnit.Unitize();  // Evaluate() guarantees that this is ok. SolidCraft: so it cannot fail
               SmVector3d &rSuv = sMat3[1][1];
               double dMagSu_v = sSuUnit.Dot( rSuv );
 
@@ -23229,7 +23249,7 @@ SmBoolean bDebugMeU = FALSE;
               SER( Evaluate( crUVToTest, 2, 2, TRUE, TRUE, TRUE, sMat3[0], TRUE ));
 
               SmVector3d sSvUnit = sMat3[0][1];
-              sSvUnit.Unitize();  // Evaluate() guarantees that this is ok.
+              (void)sSvUnit.Unitize();  // Evaluate() guarantees that this is ok. SolidCraft: so it cannot fail
               SmVector3d &rSuv = sMat3[1][1];
               double dMagSv_u = sSvUnit.Dot( rSuv );
 
@@ -23279,7 +23299,7 @@ SmBoolean bDebugMeV = FALSE;
       if(lSingularities != SM_SS_NONE)
         {
           SmPoint3d sSrfPoint ;
-          EvaluatePoint(crUVToTest, sSrfPoint) ;
+          if ( EvaluatePoint(crUVToTest, sSrfPoint) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a point that can't be evaluated is not shown at a pole
 
           // UMIN pole close to SrfPoint
           if     ((lSingularities & SM_SS_UMIN) && sSrfPoint.CloserThan(d3dTol, (*sSrfPolePoints)[0]))
@@ -23316,7 +23336,7 @@ SmBoolean SmSurface::IsFlatCorner
    SmVector3d aDerivatives[2][2] ;
 
    // Surface Eval
-   Evaluate(crUV, 1, 1, TRUE, TRUE, TRUE, aDerivatives[0], FALSE) ; // FALSE = Stop NonZeroTangents
+   if ( Evaluate(crUV, 1, 1, TRUE, TRUE, TRUE, aDerivatives[0], FALSE) != SM_SUCCESS ) { return FALSE ; } // FALSE = Stop NonZeroTangents
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -23430,7 +23450,7 @@ SmBoolean SmSurface::IsOnUVBoundary
   // locals
   SmExtent3d sBBox2d;
   SmExtent1d sRange = crUVTrimCurve.GetNaturalInterval();
-  crUVTrimCurve.CalculateBoundingBox( sRange, &sBBox2d );
+  if ( crUVTrimCurve.CalculateBoundingBox( sRange, &sBBox2d ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a trim that can't be evaluated is not shown on the boundary
 
   // pick a tolerance
   SM_NEWTOL_LINE SmTol3d sTol3d = pOptTol3d ? *pOptTol3d : SmTol::GetZoneTol3d(this) ;
@@ -23462,7 +23482,7 @@ SmBoolean SmSurface::IsOnUVBoundary
   SmSurfParamType rParamSide;
   for( ii = 0; ii < nSamplePoints; ii++ ) 
     {
-      crUVTrimCurve.EvaluatePoint( param, pt );
+      if ( crUVTrimCurve.EvaluatePoint( param, pt ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a trim that can't be evaluated is not shown on the boundary
       uv.Set( pt.x, pt.y );
       SM_NEWTOL_LINE if( this->IsOnBoundary( crUVDomain, uv, rParamSide, &sTol3d ) == FALSE ) // GWC TOL: 3d tol being used as param tol, fixed for SM_NEWTOL_LINE
         { return( FALSE ) ; }
@@ -23908,10 +23928,10 @@ static SmBoolean sm_ExtractIsoCurve
       else if(sStartPnt.x > crUVDomain.GetMax().x) { sStartPnt.x = crUVDomain.GetMax().x;
                                                    }
       // get curve trim interval, remember if curve is running reversed
-      if (sStartPnt.y > sEndPnt.y) { sTrimIvl.SetMinMax(sUVEndPnt.y,sUVStartPnt.y);
+      if (sStartPnt.y > sEndPnt.y) { (void)sTrimIvl.SetMinMax(sUVEndPnt.y,sUVStartPnt.y); // SolidCraft: ordered by the test, it cannot fail
                                      bReverseCurve = TRUE;
                                    }
-      else                         { sTrimIvl.SetMinMax(sUVStartPnt.y,sUVEndPnt.y);
+      else                         { (void)sTrimIvl.SetMinMax(sUVStartPnt.y,sUVEndPnt.y); // SolidCraft: ordered by the test, it cannot fail
                                      bReverseCurve = FALSE;
                                    }
       // set up UVSpace min/max points and UVDomain
@@ -23945,11 +23965,11 @@ static SmBoolean sm_ExtractIsoCurve
       else if(sStartPnt.y > crUVDomain.GetMax().y){ sStartPnt.y = crUVDomain.GetMax().y;
                                                   }
       // get UVTrimCurve, remember when curve runs in negative direction
-      if (sStartPnt.x > sEndPnt.x){ sTrimIvl.SetMinMax(sUVEndPnt.x,sUVStartPnt.x);
+      if (sStartPnt.x > sEndPnt.x){ (void)sTrimIvl.SetMinMax(sUVEndPnt.x,sUVStartPnt.x); // SolidCraft: ordered by the test, it cannot fail
                                     bReverseCurve = TRUE;
                                   }
       else
-                                  { sTrimIvl.SetMinMax(sUVStartPnt.x,sUVEndPnt.x);
+                                  { (void)sTrimIvl.SetMinMax(sUVStartPnt.x,sUVEndPnt.x); // SolidCraft: ordered by the test, it cannot fail
                                     bReverseCurve = FALSE;
                                   }
 
@@ -24443,7 +24463,7 @@ SmStatus SmSurface::FindUVCurveIvlInDomain
       if(sSegments[ii - 1] <= dParamInside && dParamInside < sSegments[ii])
         {
           // set output
-          rTrimIvl.SetMinMax(sSegments[ii - 1], sSegments[ii]);
+          SER( rTrimIvl.SetMinMax(sSegments[ii - 1], sSegments[ii]) );
 
           // all done
           return SM_SUCCESS;
@@ -25429,7 +25449,7 @@ SmBoolean bDebugMe = FALSE ;
 
   // Unitize Ct and get its derivative.
   SmVector3d sCt_Unit( sCt );
-  sCt_Unit.Unitize();
+  SER( sCt_Unit.Unitize() );
   SmVector3d sCt_Unit_t = sCt.UnitizedDerivative( sCtt );
 
   // branch on SolverOperation
@@ -25457,7 +25477,7 @@ SmBoolean bDebugMe = FALSE ;
 
       // 'N' will mean 'Unit'.
       SmVector3d sN( sCross );
-      sN.Unitize();
+      SER( sN.Unitize() );
       SmVector3d sNu = sCross.UnitizedDerivative( sCrossu );
       SmVector3d sNv = sCross.UnitizedDerivative( sCrossv );
 
@@ -25509,11 +25529,11 @@ SmBoolean bDebugMe = FALSE ;
 
       // Unitize sSu and sSv and get their derivatives.
       SmVector3d sSu_Unit( sSu );
-      sSu_Unit.Unitize();
+      SER( sSu_Unit.Unitize() );
       SmVector3d sSu_Unit_u = sSu.UnitizedDerivative( sSuu );
       SmVector3d sSu_Unit_v = sSu.UnitizedDerivative( sSuv );
       SmVector3d sSv_Unit( sSv );
-      sSv_Unit.Unitize();
+      SER( sSv_Unit.Unitize() );
       SmVector3d sSv_Unit_u = sSv.UnitizedDerivative( sSuv );  // Note: not the same as sSu_Unit_v.
       SmVector3d sSv_Unit_v = sSv.UnitizedDerivative( sSvv );
 
@@ -26505,7 +26525,7 @@ iIterCount_0 = sLS.m_lCurrentIteration;
           SmStatus  reReasonIsBad;
           double    rdDropToSurf, rdApproxDev;
           SmBoolean bFromLeftU, bFromLeftV ;
-          smsurf_IsPointOnNormal
+          SER( smsurf_IsPointOnNormal
                     (*this,                         // in : target surface
                       NULL,                         // in : clamp domain: if present, clamp crUVToTest to this domain.
                                                     //      NULL to ignore
@@ -26523,11 +26543,11 @@ iIterCount_0 = sLS.m_lCurrentIteration;
                                                     //      SM_ERR_UNKNOWN              = test run - Point is on normal
                       rdDropToSurf,                 // out: when rbGoodPoint == TRUE, set to SurfPt/TestPt distSq
                                                     //           rbGoodPoint == FALSE, set to 0.0
-                      rdApproxDev) ;
+                      rdApproxDev)  );
 
 //cbi start:
           SmVector3d sDu, sDv;
-          Evaluate1stDerivatives( sUV, FALSE, FALSE, sPnt1, sDu, sDv );
+          SER( Evaluate1stDerivatives( sUV, FALSE, FALSE, sPnt1, sDu, sDv ) );
           SmVector3d sGap( sPnt1 - crTestPoint );
           double dLenSq = sGap.LengthSquared();
           if ( dLenSq > SM_EFF_ZERO )  // if same point, we're ok.
@@ -26737,7 +26757,7 @@ SmStatus SmSSPIntersectENFO::Evaluate
       if (sPlaneNorm.LengthSquared() < SM_EFF_ZERO_SQ)
         { return SM_ERR;
         }
-      sPlaneNorm.Unitize();
+      SER( sPlaneNorm.Unitize() );
 
       // instance a temporary plane
       pPlane = new (*m_crSurface.GetContext()) SmPlane(sH,sPlaneNorm);
@@ -27185,7 +27205,7 @@ SmBoolean bDebugMe = FALSE;
           return SM_ERR;
         }
     }
-  sNU.Unitize();
+  SER( sNU.Unitize() );
 
   // unitize surf2 Normal
   SmVector3d sN2U = sN2;
@@ -27197,7 +27217,7 @@ SmBoolean bDebugMe = FALSE;
           return SM_ERR;
         }
     }
-  sN2U.Unitize();
+  SER( sN2U.Unitize() );
 
   // Get two plane vectors equal to surf/plane intersection directions
   SmVector3d sV  = sNU * sPlaneNorm; // Compute vectors in tangent plane and on plane
@@ -27357,7 +27377,7 @@ SmStatus SmSurface::LocalPlaneSurfaceIntersect
   // surface normals being the same.
   bSteepestDescent = FALSE;
   SmVector3d sPlaneNorm = crPlaneNormal;
-  sPlaneNorm.Unitize();
+  SER( sPlaneNorm.Unitize() );
 
   SmPlane sPlaneSurface(crPlaneOrigin,sPlaneNorm);
   sPlaneSurface.SetContext(NULL);
@@ -27705,7 +27725,7 @@ SmStatus SmSurface::LocalSurfaceIntersect
     } // end selecting normal for plance containing answers
 
   // build plane containing answers
-  sPlaneNorm.Unitize();
+  SER( sPlaneNorm.Unitize() );
   SmPlane sPlaneSurface(sPlaneOrig,sPlaneNorm);
   sPlaneSurface.SetContext(NULL);
   //double dPlaneD = - sPlaneOrig.Dot(sPlaneNorm);
@@ -27967,7 +27987,7 @@ SmStatus SmSurface::LocalSurfaceIntersect
                       sPlaneNorm = sNewPlaneNorm;
                     }
                 }
-              sPlaneNorm.Unitize();
+              SER( sPlaneNorm.Unitize() );
               double dPlaneD = - sP1.Dot(sPlaneNorm);
 
               SmExtentNd sIntervals2(4);
@@ -28281,11 +28301,11 @@ SmBoolean bDebugMe = FALSE;
 
   // Unitize sSu1 and sSv1 and get their derivatives.
   SmVector3d sS1u_Unit( sS1u );
-  sS1u_Unit.Unitize();
+  SER( sS1u_Unit.Unitize() );
   SmVector3d sS1u_Unit_u = sS1u.UnitizedDerivative( sS1uu );
   SmVector3d sS1u_Unit_v = sS1u.UnitizedDerivative( sS1uv );
   SmVector3d sS1v_Unit( sS1v );
-  sS1v_Unit.Unitize();
+  SER( sS1v_Unit.Unitize() );
   SmVector3d sS1v_Unit_u = sS1v.UnitizedDerivative( sS1uv );  // Note: not the same as sS1u_Unit_v.
   SmVector3d sS1v_Unit_v = sS1v.UnitizedDerivative( sS1vv );
 
@@ -28316,7 +28336,7 @@ SmBoolean bDebugMe = FALSE;
 
       // 'N' will mean 'Unit'.
       SmVector3d sN2( sCross2 );
-      sN2.Unitize();
+      SER( sN2.Unitize() );
       SmVector3d sN2u = sCross2.UnitizedDerivative( sCross2u );
       SmVector3d sN2v = sCross2.UnitizedDerivative( sCross2v );
 
@@ -28379,11 +28399,11 @@ SmBoolean bDebugMe = FALSE;
 
       // Unitize sDu2 and sDv2 and get their derivatives.
       SmVector3d sS2u_Unit( sS2u );
-      sS2u_Unit.Unitize();
+      SER( sS2u_Unit.Unitize() );
       SmVector3d sS2u_Unit_u = sS2u.UnitizedDerivative( sS2uu );
       SmVector3d sS2u_Unit_v = sS2u.UnitizedDerivative( sS2uv );
       SmVector3d sS2v_Unit( sS2v );
-      sS2v_Unit.Unitize();
+      SER( sS2v_Unit.Unitize() );
       SmVector3d sS2v_Unit_u = sS2v.UnitizedDerivative( sS2uv );  // Note: not the same as sS2u_Unit_v.
       SmVector3d sS2v_Unit_v = sS2v.UnitizedDerivative( sS2vv );
 
@@ -29122,11 +29142,11 @@ SmStatus SmSurface::LocalSurfaceSurfaceIntersect
 
   // get surface1 nearest point
   sPtSolutions.ReSet() ;
-  this->GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, crXYZGuess1,
-                         dNewTol, NULL, SM_SR_SINGLE, sPtSolutions) ;
+  SER( this->GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, crXYZGuess1,
+                         dNewTol, NULL, SM_SR_SINGLE, sPtSolutions)  );
   if(sPtSolutions.GetSize() == 0 && optXYZGuess2)
-    { this->GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, *optXYZGuess2,
-                             dNewTol, NULL, SM_SR_SINGLE, sPtSolutions) ;
+    { SER( this->GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, *optXYZGuess2,
+                             dNewTol, NULL, SM_SR_SINGLE, sPtSolutions)  );
     }
 
   // no work - no surface 1 near point
@@ -29140,11 +29160,11 @@ SmStatus SmSurface::LocalSurfaceSurfaceIntersect
 
   // get surface2 nearest point
   sPtSolutions.ReSet() ;
-  crSurface2.GlobalPointSolve(crUVDomain2, SM_SO_MINIMIZE, crXYZGuess1,
-                              dNewTol, NULL, SM_SR_SINGLE,sPtSolutions) ;
+  SER( crSurface2.GlobalPointSolve(crUVDomain2, SM_SO_MINIMIZE, crXYZGuess1,
+                              dNewTol, NULL, SM_SR_SINGLE,sPtSolutions)  );
   if(sPtSolutions.GetSize() == 0 && optXYZGuess2)
-    { crSurface2.GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, *optXYZGuess2,
-                                  dNewTol, NULL, SM_SR_SINGLE, sPtSolutions) ;
+    { SER( crSurface2.GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, *optXYZGuess2,
+                                  dNewTol, NULL, SM_SR_SINGLE, sPtSolutions)  );
     }
 
   // no work - no surface 2near point
@@ -29158,11 +29178,11 @@ SmStatus SmSurface::LocalSurfaceSurfaceIntersect
 
   // get surface3 nearest point
   sPtSolutions.ReSet() ;
-  crSurface3.GlobalPointSolve(crUVDomain3, SM_SO_MINIMIZE, crXYZGuess1,
-                              dNewTol, NULL, SM_SR_SINGLE,sPtSolutions) ;
+  SER( crSurface3.GlobalPointSolve(crUVDomain3, SM_SO_MINIMIZE, crXYZGuess1,
+                              dNewTol, NULL, SM_SR_SINGLE,sPtSolutions)  );
   if(sPtSolutions.GetSize() == 0 && optXYZGuess2)
-    { crSurface3.GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, *optXYZGuess2,
-                                  dNewTol, NULL, SM_SR_SINGLE, sPtSolutions) ;
+    { SER( crSurface3.GlobalPointSolve(crUVDomain1, SM_SO_MINIMIZE, *optXYZGuess2,
+                                  dNewTol, NULL, SM_SR_SINGLE, sPtSolutions)  );
     }
 
   // no work - no surface3 near point
@@ -29175,11 +29195,11 @@ SmStatus SmSurface::LocalSurfaceSurfaceIntersect
                 sPtSolutions[0].m_vStart[1]) ;
 
   // find surf/surf/surf intersection in this neighborhood
-  this->LocalSurfaceSurfaceIntersect(crUVDomain1,
+  SER( this->LocalSurfaceSurfaceIntersect(crUVDomain1,
                                      crSurface2, crUVDomain2,
                                      crSurface3, crUVDomain3,
                                      sUVPoint1, sUVPoint2, sUVPoint3,
-                                     rbFoundAnswer, rSolution) ;
+                                     rbFoundAnswer, rSolution)  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -29290,8 +29310,8 @@ SmStatus SmSurface::SimpleCoincidenceChecker
 
   // First try boxing.
   SmExtent3d sThisBox, sCurvBox;
-  this->CalculateBoundingBox  ( crUVDomain, &sThisBox );
-  crCurve.CalculateBoundingBox( crInterval, &sCurvBox );
+  SER( this->CalculateBoundingBox  ( crUVDomain, &sThisBox ) );
+  SER( crCurve.CalculateBoundingBox( crInterval, &sCurvBox ) );
   if ( sThisBox.AreDisjoint( sCurvBox, d3dTolerance ) )
     {
       return SM_SUCCESS;
@@ -29338,7 +29358,7 @@ SmStatus SmSurface::SimpleCoincidenceChecker
       // Check tangency.
       dMag = sMidPt[1].Length();
       if ( dMag > SM_EFF_ZERO ) { sMidPt[1] /= dMag; }
-      this->EvaluateNormal( sMidUVPnt, FALSE, FALSE, sNorm );
+      SER( this->EvaluateNormal( sMidUVPnt, FALSE, FALSE, sNorm ) );
       dDot = sMidPt[1].Dot( sNorm );
 
       bFound = ( smos_Fabs(dDot) < 0.017 ); // about 1 degree
@@ -29453,7 +29473,7 @@ SmBoolean bDebugMe = FALSE ;
           dMag = sStPnt[1].Length();
           if ( dMag > SM_EFF_ZERO) { sStPnt[1] /= dMag; }
           sUV.Set( sSol.m_vStart[0], sSol.m_vStart[1] );
-          this->EvaluateNormal( sUV, FALSE, FALSE, sNorm );
+          SER( this->EvaluateNormal( sUV, FALSE, FALSE, sNorm ) );
           dDot = sStPnt[1].Dot( sNorm );
 
           bFoundStart = ( smos_Fabs(dDot) < 0.017 ); // about 1 degree
@@ -29502,7 +29522,7 @@ SmBoolean bDebugMe = FALSE ;
           dMag = sEnPnt[1].Length();
           if ( dMag > SM_EFF_ZERO) { sEnPnt[1] /= dMag; }
           sUV.Set( sSol.m_vStart[0], sSol.m_vStart[1] );
-          this->EvaluateNormal( sUV, FALSE, FALSE, sNorm );
+          SER( this->EvaluateNormal( sUV, FALSE, FALSE, sNorm ) );
           dDot = sEnPnt[1].Dot( sNorm );
 
           bFoundEnd = ( smos_Fabs(dDot) < 0.017 ); // about 1 degree
@@ -30157,14 +30177,14 @@ SmStatus smsurf_CheckShapeMatch( SmVector3d sPVV0[3][3], // in: surface eval mat
   double dKappa0, dKappa1;
   SmVector3d sTmp;
 
-  smsurf_EvaluateNormalSection( sPVV0, sDir1, sTmp, dKappa0 );
-  smsurf_EvaluateNormalSection( sPVV1, sDir1, sTmp, dKappa1 );
+  SER( smsurf_EvaluateNormalSection( sPVV0, sDir1, sTmp, dKappa0 ) );
+  SER( smsurf_EvaluateNormalSection( sPVV1, sDir1, sTmp, dKappa1 ) );
 
   if ( smos_Fabs( dFlip*dKappa0 - dKappa1 ) > dAngTolRad )
     { return SM_SUCCESS; }
 
-  smsurf_EvaluateNormalSection( sPVV0, sDir2, sTmp, dKappa0 );
-  smsurf_EvaluateNormalSection( sPVV1, sDir2, sTmp, dKappa1 );
+  SER( smsurf_EvaluateNormalSection( sPVV0, sDir2, sTmp, dKappa0 ) );
+  SER( smsurf_EvaluateNormalSection( sPVV1, sDir2, sTmp, dKappa1 ) );
 
   if ( smos_Fabs( dFlip*dKappa0 - dKappa1 ) > dAngTolRad )
     { return SM_SUCCESS; }
@@ -30216,17 +30236,17 @@ SmStatus smsurf_DropVectors
 
   // unitize short tangent vectors (probably near singularities)
   if (dDULengthSq < SM_EFF_ZERO) {
-                                   sDU.Unitize();
+                                   (void)sDU.Unitize() ; // SolidCraft: a zero vector stays zero; the normal below is checked
                                  }
   if (dDVLengthSq < SM_EFF_ZERO) {
-                                   sDV.Unitize();
+                                   (void)sDV.Unitize() ; // SolidCraft: a zero vector stays zero; the normal below is checked
                                  }
   SmVector3d sNorm = sDU * sDV;
 
   // normalize the normal vector to make stable calculations near singularity cases
   if ( sNorm.LengthSquared() < SM_EFF_ZERO_SQ )
     { SER(SM_ERR); }
-  sNorm.Unitize();
+  SER( sNorm.Unitize() );
 
   // First, in regular cases, we don't have to do all of this
   // plane-projecting stuff: just writing the test vector as a
@@ -30272,7 +30292,7 @@ SmStatus smsurf_DropVectors
   // build a projection plane from the input values
   SmAxis2Placement sPlane;
   SmVector3d sOrig(0,0,0);
-  sPlane.SetSTEPCanonical(sOrig,sNorm,sDU);
+  SER( sPlane.SetSTEPCanonical(sOrig,sNorm,sDU) );
 
   // for every vector being dropped
   for (i=0; i<lNumVectorsToDrop; i++)
@@ -30544,13 +30564,13 @@ SmStatus SmSurface::PointBasedSurfaceIntersect  // Version that takes 3d points:
                                       aSurface2UVPts[i].x + sThisTol2d, aSurface2UVPts[i].y + sThisTol2d );
 
       // Refine the uv points.
-      this->LocalSurfaceIntersect(
+      SER( this->LocalSurfaceIntersect(
           sThisLocalDomain, crOtherSurface, sOtherLocalDomain,
           dInputPtTol3d,
           aSurface1UVPts[i], aSurface2UVPts[i],
           NULL, NULL, FALSE,
           bFoundSol, sSol
-      );
+      ) );
       if ( sSol.m_eSolutionType == SM_ST_SINGLE_VALUE )
       {
           if ( sSol.m_vStart.m_dSolutionValue > dInputPtTol3d )
@@ -30760,8 +30780,8 @@ SmStatus SmSurface::ClassifyIntersectingRangeSolution
   // get Solution segment start points and gapVector
   SmPoint3d sPoint[2] ; // sPoint[0] = crCurve  3dPoint  for param =  dStartPar[0]
                         // sPoint[1] = pSurface 3dPoint  for UV    = (dStartPar[1],dStartPar[2])
-  crCurve.EvaluatePoint(dStartPar[0], sPoint[0]) ;
-  pSurface->EvaluatePoint(SmPoint2d(dStartPar[1],dStartPar[2]), sPoint[1]) ;
+  SER( crCurve.EvaluatePoint(dStartPar[0], sPoint[0])  );
+  SER( pSurface->EvaluatePoint(SmPoint2d(dStartPar[1],dStartPar[2]), sPoint[1])  );
   SmVector3d sXSectGap = sPoint[1] - sPoint[0] ;
 
   // scale zero to current intersection point location
@@ -30829,7 +30849,7 @@ SmBoolean bDebugMe = FALSE ;
       double dT3    = dStartPar[2] + delta * dDeltaPar[2] ;
 
       // get Curve sample point
-      crCurve.EvaluatePoint(dT1, sCurvePoint[tgt]) ;
+      SER( crCurve.EvaluatePoint(dT1, sCurvePoint[tgt])  );
 
       // Find OtherCurve nearest point to sSurfacePoint
       // note: for small gaps (which is this function's operation point)
@@ -30837,9 +30857,9 @@ SmBoolean bDebugMe = FALSE ;
       //       the project point is just outside the domain
       SmBoolean bFoundAnswer = FALSE ;
       SmSolution sSolution ;
-      pSurface->LocalPointSolve(sReg, SM_SO_NORMALIZE,
+      SER( pSurface->LocalPointSolve(sReg, SM_SO_NORMALIZE,
                                 sCurvePoint[tgt], SmPoint2d(dT2,dT3),
-                                bFoundAnswer, sSolution) ;
+                                bFoundAnswer, sSolution)  );
 
       // when a solution was found
       if(bFoundAnswer)
@@ -30847,7 +30867,7 @@ SmBoolean bDebugMe = FALSE ;
           // evaluate the nearest Curve point
           sDropPoint.Set(sSolution.m_vStart.m_adParameters[0],
                          sSolution.m_vStart.m_adParameters[1]) ;
-          pSurface->EvaluatePoint(sDropPoint, sSurfacePoint[tgt]) ;
+          SER( pSurface->EvaluatePoint(sDropPoint, sSurfacePoint[tgt])  );
 
           // get the Curve/Curve gapVector
           //   little trick: Subtract the StartPoint sXSectGap from every gap SamplePoint
@@ -31028,7 +31048,7 @@ SmBoolean SmSurface::AdjustPeriodicityUVPoints
         if ( bChanged )
         {
             bRetVal = TRUE;
-            rUVDomain.SetUInterval( sDomain );
+            if ( rUVDomain.SetUInterval( sDomain ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a domain that can't be set changes nothing
             sm_SetCoordinates( aValues, 0, rUVPoints );
         }
     }
@@ -31043,7 +31063,7 @@ SmBoolean SmSurface::AdjustPeriodicityUVPoints
         if ( bChanged )
         {
             bRetVal = TRUE;
-            rUVDomain.SetVInterval( sDomain );
+            if ( rUVDomain.SetVInterval( sDomain ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: a domain that can't be set changes nothing
             sm_SetCoordinates( aValues, 1, rUVPoints );
         }
     }
@@ -31426,7 +31446,7 @@ SmStatus SmSurface::OutputGraphics
            // Create an approximate offset srf to use.
            // base offsettolerance on surface size
            SmExtent3d SrfBBox;
-           pBaseBSS->CalculateBoundingBox(pBaseBSS->GetNaturalUVDomain(), &SrfBBox);
+           SER( pBaseBSS->CalculateBoundingBox(pBaseBSS->GetNaturalUVDomain(), &SrfBBox) );
            double size = SrfBBox.GetSize().Length();
            if ( size >= 1.0e15 || size <= 0.0 )
              { size = 1.0 ; }
@@ -31485,10 +31505,10 @@ SmStatus SmSurface::OutputGraphics
       else if(pTgtSurface->IsBounded())  { sUVDomain = pTgtSurface->GetNaturalUVDomain() ; }
 
       SmPoint3d sP00, sP01, sP10, sP11;
-      pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(0.0, 0.0), sP00);
-      pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(1.0, 1.0), sP11);
-      pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(1.0, 0.0), sP10);
-      pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(0.0, 1.0), sP01);
+      SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(0.0, 0.0), sP00) );
+      SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(1.0, 1.0), sP11) );
+      SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(1.0, 0.0), sP10) );
+      SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(0.0, 1.0), sP01) );
 
       sPnts.Add(sP00);
       sPnts.Add(sP10);
@@ -31525,14 +31545,14 @@ SmStatus SmSurface::OutputGraphics
         {
           // evaluate position and tangents
           sUVPoint.Set(U0, V0) ;
-          pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval00[0], TRUE) ;  // nonZeroTangent values
+          SER( pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval00[0], TRUE)  );  // nonZeroTangent values
           aEval00[1][1] = aEval00[0][1] * aEval00[1][0] ;
-          aEval00[1][1].Unitize() ;
+          (void)aEval00[1][1].Unitize() ; // SolidCraft: drawing only
 
           sUVPoint.Set(U1, V0) ;
-          pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval10[0], TRUE) ;  // nonZeroTangent values
+          SER( pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval10[0], TRUE)  );  // nonZeroTangent values
           aEval10[1][1] = aEval10[0][1] * aEval10[1][0] ;
-          aEval10[1][1].Unitize() ;
+          (void)aEval10[1][1].Unitize() ; // SolidCraft: drawing only
 
           // for every domain vSpan
           for(jj=0, V1=V0+dV;
@@ -31541,14 +31561,14 @@ SmStatus SmSurface::OutputGraphics
             {
               // evaluate position and tangents
               sUVPoint.Set(U0, V1) ;
-              pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval01[0], TRUE) ; // nonZeroTangent values
+              SER( pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval01[0], TRUE)  ); // nonZeroTangent values
               aEval01[1][1] = aEval01[0][1] * aEval01[1][0] ;
-              aEval01[1][1].Unitize() ;
+              (void)aEval01[1][1].Unitize() ; // SolidCraft: drawing only
 
               sUVPoint.Set(U1, V1) ;
-              pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval11[0], TRUE) ;  // nonZeroTangent values
+              SER( pTgtSurface->Evaluate(sUVPoint, 1, 1, TRUE, TRUE, TRUE, aEval11[0], TRUE)  );  // nonZeroTangent values
               aEval11[1][1] = aEval11[0][1] * aEval11[1][0] ;
-              aEval11[1][1].Unitize() ;
+              (void)aEval11[1][1].Unitize() ; // SolidCraft: drawing only
 
               // output 2 triangles per rectangle mesh
               smgfx_DrawTriangle(aEval00[0][0], aEval11[0][0], aEval10[0][0], &aEval00[1][1], &aEval11[1][1], &aEval10[1][1], pOptGfxSet) ;
@@ -31585,11 +31605,11 @@ SmStatus SmSurface::OutputGraphics
 
       SmBoolean bReverseNormals = FALSE;
 
-      pBSS->OutputPolygons(crDisp.m_dChordHeight,
+      SER( pBSS->OutputPolygons(crDisp.m_dChordHeight,
                            crDisp.m_dChordHeight/2.0,
                            bReverseNormals,
                            sPolyOutput,
-                           pOptGfxSet);
+                           pOptGfxSet) );
 
     } // end IsNLibFaceting() - draw SM_DM_NLIB_FACETS
 
@@ -31607,9 +31627,9 @@ SmStatus SmSurface::OutputGraphics
       // when given an option domain - use it
       if(pOptUVDomain && !sUVDomain.AreDisjoint(*pOptUVDomain))
         {
-          pOptUVDomain->Intersect(sUVDomain, sUVDomain) ;
-          sUIvl.SetMinMax(sUVDomain.GetMin().x, sUVDomain.GetMax().x) ;
-          sVIvl.SetMinMax(sUVDomain.GetMin().y, sUVDomain.GetMax().y) ;
+          SER( pOptUVDomain->Intersect(sUVDomain, sUVDomain)  );
+          SER( sUIvl.SetMinMax(sUVDomain.GetMin().x, sUVDomain.GetMax().x)  );
+          SER( sVIvl.SetMinMax(sUVDomain.GetMin().y, sUVDomain.GetMax().y)  );
         }
 
       SmTArray<double> sUKnots(2,NULL,2) ;
@@ -31628,7 +31648,7 @@ SmStatus SmSurface::OutputGraphics
           double dV = sVKnots[i];
           SmPoint2d sStart(sUIvl.GetMin(),dV);
           SmPoint2d sEnd  (sUIvl.GetMax(),dV);
-          sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+          SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
 
         } // end iter every V knot
 
@@ -31638,7 +31658,7 @@ SmStatus SmSurface::OutputGraphics
           double dU = sUKnots[i];
           SmPoint2d sStart(dU,sVIvl.GetMin());
           SmPoint2d sEnd  (dU,sVIvl.GetMax());
-          sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+          SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
         } // end iter every V knot
 
       smgfx_OutputLineWidth(dLineWidth, pOptGfxSet) ;
@@ -31703,7 +31723,7 @@ SmStatus SmSurface::OutputGraphics
 
           sUVStart.Set(dU, dVMin) ;
           sUVEnd.Set  (dU, dVMax) ;
-          sm_DrawUVCurve(crDisp, pTgtSurface, sUVStart, sUVEnd, NULL, pOptGfxSet) ;
+          SER( sm_DrawUVCurve(crDisp, pTgtSurface, sUVStart, sUVEnd, NULL, pOptGfxSet)  );
           
           // cross derivative vector samples
           dLineWidth = smgfx_OutputLineWidth(1, pOptGfxSet) ;
@@ -31711,7 +31731,7 @@ SmStatus SmSurface::OutputGraphics
             {
               double dParam = sSmpIvl.Evaluate((double)ii / (double)lSmpCnt) ;
               sUVStart.Set(dU, dParam) ;
-              Evaluate1stDerivatives(sUVStart, TRUE, TRUE, sPoint, sDU, sDV) ;
+              SER( Evaluate1stDerivatives(sUVStart, TRUE, TRUE, sPoint, sDU, sDV)  );
               smgfx_OutputLine(sPoint.x, sPoint.y, sPoint.z,
                                sPoint.x+sDU.x, sPoint.y+sDU.y, sPoint.z+sDU.z) ; 
             } // end iter all CrossDeriv samples
@@ -31728,7 +31748,7 @@ SmStatus SmSurface::OutputGraphics
 
           sUVStart.Set(dUMin, dV) ;
           sUVEnd.Set  (dUMax, dV) ;
-          sm_DrawUVCurve(crDisp, pTgtSurface, sUVStart, sUVEnd, NULL, pOptGfxSet) ;
+          SER( sm_DrawUVCurve(crDisp, pTgtSurface, sUVStart, sUVEnd, NULL, pOptGfxSet)  );
 
           // cross derivative vector samples
           dLineWidth = smgfx_OutputLineWidth(1, pOptGfxSet) ;
@@ -31736,7 +31756,7 @@ SmStatus SmSurface::OutputGraphics
             {
               double dParam = sSmpIvl.Evaluate((double)ii / (double)lSmpCnt) ;
               sUVStart.Set(dParam, dV) ;
-              Evaluate1stDerivatives(sUVStart, TRUE, TRUE, sPoint, sDU, sDV) ; 
+              SER( Evaluate1stDerivatives(sUVStart, TRUE, TRUE, sPoint, sDU, sDV)  ); 
               smgfx_OutputLine(sPoint.x, sPoint.y, sPoint.z,
                                sPoint.x+sDV.x, sPoint.y+sDV.y, sPoint.z+sDV.z) ; 
             } // end iter all CrossDeriv samples
@@ -31813,14 +31833,14 @@ SmStatus SmSurface::OutputGraphics
               // singularity icon locals
               SmExtent2d sUVCorner = GetNaturalUVDomain() ;
 
-              if     (lFlatCorners & SM_FC_UMIN_VMIN) { sUVCorner.SetUMax(sUVCorner.EvaluateU(.125)) ;  
-                                                        sUVCorner.SetVMax(sUVCorner.EvaluateV(.125)) ; }
-              else if(lFlatCorners & SM_FC_UMIN_VMAX) { sUVCorner.SetUMax(sUVCorner.EvaluateU(.125)) ;  
-                                                        sUVCorner.SetVMin(sUVCorner.EvaluateV(.875)) ; }
-              else if(lFlatCorners & SM_FC_UMAX_VMIN) { sUVCorner.SetUMin(sUVCorner.EvaluateU(.875)) ;  
-                                                        sUVCorner.SetVMax(sUVCorner.EvaluateV(.125)) ; }
-              else if(lFlatCorners & SM_FC_UMAX_VMAX) { sUVCorner.SetUMin(sUVCorner.EvaluateU(.875)) ;  
-                                                        sUVCorner.SetVMin(sUVCorner.EvaluateV(.875)) ; }
+              if     (lFlatCorners & SM_FC_UMIN_VMIN) { SER( sUVCorner.SetUMax(sUVCorner.EvaluateU(.125)) ) ;  
+                                                        SER( sUVCorner.SetVMax(sUVCorner.EvaluateV(.125))  ); }
+              else if(lFlatCorners & SM_FC_UMIN_VMAX) { SER( sUVCorner.SetUMax(sUVCorner.EvaluateU(.125)) ) ;  
+                                                        SER( sUVCorner.SetVMin(sUVCorner.EvaluateV(.875))  ); }
+              else if(lFlatCorners & SM_FC_UMAX_VMIN) { SER( sUVCorner.SetUMin(sUVCorner.EvaluateU(.875)) ) ;  
+                                                        SER( sUVCorner.SetVMax(sUVCorner.EvaluateV(.125))  ); }
+              else if(lFlatCorners & SM_FC_UMAX_VMAX) { SER( sUVCorner.SetUMin(sUVCorner.EvaluateU(.875)) ) ;  
+                                                        SER( sUVCorner.SetVMin(sUVCorner.EvaluateV(.875))  ); }
               SmPoint2d sUVMin = sUVCorner.GetMin() ;
               SmPoint2d sUVMax = sUVCorner.GetMax() ;
               SmPoint2d sUVStart, sUVEnd ;
@@ -31835,7 +31855,7 @@ SmStatus SmSurface::OutputGraphics
                   double dParam = jj * .25 ;
                   sUVStart.Set(sUVCorner.EvaluateU(dParam), sUVMin.y) ;
                   sUVEnd  .Set(sUVCorner.EvaluateU(dParam), sUVMax.y) ;
-                  sm_DrawUVCurve(crDisp, this, sUVStart, sUVEnd, &sUVCorner, pOptGfxSet) ;
+                  SER( sm_DrawUVCurve(crDisp, this, sUVStart, sUVEnd, &sUVCorner, pOptGfxSet)  );
                 }
 
               // and 5 partial V IsoParam lines
@@ -31844,7 +31864,7 @@ SmStatus SmSurface::OutputGraphics
                   double dParam = jj * .25 ;
                   sUVStart.Set(sUVMin.x, sUVCorner.EvaluateV(dParam)) ;
                   sUVEnd  .Set(sUVMax.x, sUVCorner.EvaluateV(dParam)) ;
-                  sm_DrawUVCurve(crDisp, this, sUVStart, sUVEnd, &sUVCorner, pOptGfxSet) ;
+                  SER( sm_DrawUVCurve(crDisp, this, sUVStart, sUVEnd, &sUVCorner, pOptGfxSet)  );
                 }
 
             } // end FlatCorner check
@@ -31865,8 +31885,8 @@ SmStatus SmSurface::OutputGraphics
       SmExtent2d sUVDomain ;
       if     (pOptUVDomain) { sUVDomain = *pOptUVDomain ; }
       else if(IsBounded())  { sUVDomain = pTgtSurface->GetNaturalUVDomain() ; }
-      else                  { sUVDomain.SetMinMax(0.0, 0.0, 50.0, 50.0) ;
-                              sUVDomain.Intersect(pTgtSurface->GetNaturalUVDomain(), sUVDomain) ;   
+      else                  { SER( sUVDomain.SetMinMax(0.0, 0.0, 50.0, 50.0)  );
+                              (void)sUVDomain.Intersect(pTgtSurface->GetNaturalUVDomain(), sUVDomain) ; // SolidCraft: drawing only   
                             }
 
       // save current color and PointSize
@@ -31882,10 +31902,10 @@ SmStatus SmSurface::OutputGraphics
           smgfx_OutputPointSize(dPointSize * (1.0+dPar), pOptGfxSet) ;
 
           // evaluate sample point positions
-          pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(dPar,0.0),sPointUMin);
-          pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(0.0,dPar),sPointVMin);
-          pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(dPar,1.0),sPointUMax);
-          pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(1.0,dPar),sPointVMax);
+          SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(dPar,0.0),sPointUMin) );
+          SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(0.0,dPar),sPointVMin) );
+          SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(dPar,1.0),sPointUMax) );
+          SER( pTgtSurface->EvaluatePoint(sUVDomain.Evaluate(1.0,dPar),sPointVMax) );
 
           // change color and display each sample point (U: Green->Blue, V: Green->Red)
           smgfx_OutputColor(0.0, 1.0-dPar, dPar, pOptGfxSet) ; smgfx_OutputPoint(sPointUMin.x, sPointUMin.y, sPointUMin.z, pOptGfxSet) ;
@@ -31937,11 +31957,11 @@ SmStatus SmSurface::OutputGraphics
       if(pOptUVDomain && !sUVDomain.AreDisjoint(*pOptUVDomain))
         {
           // crosshatch FaceDomain/pOptDomain intersection
-          sUVDomain.Intersect(*pOptUVDomain, sUVDomain) ;
-          sUIvl.SetMinMax(smos_Max(sUVDomain.GetMin().x, sUKnots[0]),
-                          smos_Min(sUVDomain.GetMax().x, sUKnots.GetLast())) ;
-          sVIvl.SetMinMax(smos_Max(sUVDomain.GetMin().y, sVKnots[0]),
-                          smos_Min(sUVDomain.GetMax().y, sVKnots.GetLast())) ;
+          SER( sUVDomain.Intersect(*pOptUVDomain, sUVDomain)  );
+          SER( sUIvl.SetMinMax(smos_Max(sUVDomain.GetMin().x, sUKnots[0]),
+                          smos_Min(sUVDomain.GetMax().x, sUKnots.GetLast()))  );
+          SER( sVIvl.SetMinMax(smos_Max(sUVDomain.GetMin().y, sVKnots[0]),
+                          smos_Min(sUVDomain.GetMax().y, sVKnots.GetLast()))  );
         }
 
       // Make sure we draw the domain boundaries (These are usually knots and get drawn, but not always.)
@@ -31967,7 +31987,7 @@ SmStatus SmSurface::OutputGraphics
 
           // draw Const VKnot UVCurves
           smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-          sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+          SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
 
           // remember when Min/Max IsoCurves are done
           if ( smos_Fabs( dV - sVIvl.GetMin() ) < SM_EFF_ZERO_SQRT ) { bDidMin = TRUE; }
@@ -31990,7 +32010,7 @@ SmStatus SmSurface::OutputGraphics
 
                   // draw between Const Vknot UVCurves
                   smgfx_OutputLineWidth(crDisp.m_dCrossHatchLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-                  sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet); 
+                  SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) ); 
 
                 } // end every between V knot curve
             } // end need between V knot UVCurves check
@@ -32000,12 +32020,12 @@ SmStatus SmSurface::OutputGraphics
       if(FALSE == bDidMin) { SmPoint2d sStart( sUIvl.GetMin(), sVIvl.GetMin() );
                              SmPoint2d sEnd  ( sUIvl.GetMax(), sVIvl.GetMin() );
                              smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-                             sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+                             SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
                            }
       if(FALSE == bDidMax) { SmPoint2d sStart( sUIvl.GetMin(), sVIvl.GetMax() );
                              SmPoint2d sEnd  ( sUIvl.GetMax(), sVIvl.GetMax() );
                              smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-                             sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+                             SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
                            }
       bDidMin = bDidMax = FALSE;
 
@@ -32033,7 +32053,7 @@ SmStatus SmSurface::OutputGraphics
 
           // draw Const UKnot UVCurves
           smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-          sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+          SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
 
           // remember when Min/Max IsoCurves are done
           if(smos_Fabs(dU - sUIvl.GetMin()) < SM_EFF_ZERO_SQRT ) { bDidMin = TRUE; }
@@ -32056,7 +32076,7 @@ SmStatus SmSurface::OutputGraphics
 
                   // draw between Const Uknot UVCurves
                   smgfx_OutputLineWidth(crDisp.m_dCrossHatchLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-                  sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);  
+                  SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );  
                   
                 } // end every between U knot curve
             } // end need between U knot UVCurves check
@@ -32066,12 +32086,12 @@ SmStatus SmSurface::OutputGraphics
       if(FALSE == bDidMin) { SmPoint2d sStart( sUIvl.GetMin(), sVIvl.GetMin() );
                              SmPoint2d sEnd  ( sUIvl.GetMin(), sVIvl.GetMax() );
                              smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-                             sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+                             SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
                            }
       if(FALSE == bDidMax) { SmPoint2d sStart( sUIvl.GetMin(), sVIvl.GetMin() );
                              SmPoint2d sEnd  ( sUIvl.GetMin(), sVIvl.GetMax() );
                              smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet ); // a sm_DrawUVCurve 'bug' changes this value
-                             sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet);
+                             SER( sm_DrawUVCurve(crDisp, pTgtSurface, sStart, sEnd, &sUVDomain, pOptGfxSet) );
                            }
 
       // restore linewidth
@@ -32094,7 +32114,7 @@ SmStatus SmSurface::OutputGraphics
       ULONG lUCount, lVCount ;
       SmTArray<SmPoint3d> sCPoint, sPnts ;
       SmTArray<double> Weight ;
-      pBSS->GetControlPointNet(lUCount, lVCount, sCPoint, Weight) ;
+      SER( pBSS->GetControlPointNet(lUCount, lVCount, sCPoint, Weight)  );
 
       // for every V Control Point - Draw isoParameter controlPointPolygon
       for (ULONG jj=0; jj<lVCount; jj++)
@@ -32163,8 +32183,8 @@ SmStatus SmSurface::OutputGraphics
               SmPoint3d sPnt, sPnt2, sPnt3 ;
               SmBoolean bPnt3 = FALSE ;
               SmVector3d sDU, sDV, sNorm;
-              pTgtSurface->Evaluate1stDerivatives(sUV,TRUE,TRUE,sPnt,sDU,sDV);
-              pTgtSurface->EvaluateNormal(sUV,TRUE,TRUE,sNorm);
+              SER( pTgtSurface->Evaluate1stDerivatives(sUV,TRUE,TRUE,sPnt,sDU,sDV) );
+              SER( pTgtSurface->EvaluateNormal(sUV,TRUE,TRUE,sNorm) );
 
               // DrawPoint
               smgfx_OutputPoint(sPnt.x, sPnt.y, sPnt.z, pOptGfxSet);
@@ -32289,7 +32309,7 @@ SmDisplayList * SmSurface::DrawAt
   if (lNumDeriv == 0)
     {
       SmPoint3d sPoint;
-      EvaluatePoint(sUV,sPoint);
+      (void)EvaluatePoint(sUV,sPoint); // SolidCraft: drawing only
       smgfx_OutputPoint(sPoint.x, sPoint.y, sPoint.z, pOptGfxSet) ;
     }
 
@@ -32297,7 +32317,8 @@ SmDisplayList * SmSurface::DrawAt
   else if (lNumDeriv == 1)
     {
       SmPoint3d sPoints[2][2];
-      Evaluate(sUV,lNumDeriv,lNumDeriv,TRUE,TRUE,TRUE,sPoints[0], TRUE);  // nonZeroTangent values
+      // SolidCraft: drawing only, the status is discarded
+      (void)Evaluate(sUV,lNumDeriv,lNumDeriv,TRUE,TRUE,TRUE,sPoints[0], TRUE);  // nonZeroTangent values
       p0 = sPoints[0][0];
 
       smgfx_OutputPoint( p0.x, p0.y, p0.z, pOptGfxSet);
@@ -32311,7 +32332,7 @@ SmDisplayList * SmSurface::DrawAt
       smgfx_OutputLine( p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, pOptGfxSet);
 
       SmVector3d sNorm;
-      EvaluateNormal(sUV,TRUE,TRUE,sNorm);
+      (void)EvaluateNormal(sUV,TRUE,TRUE,sNorm); // SolidCraft: drawing only
       p1 = p0 + sNorm;
       smgfx_OutputColor(1,0,0, pOptGfxSet);
       smgfx_OutputLine( p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, pOptGfxSet);
@@ -32321,7 +32342,7 @@ SmDisplayList * SmSurface::DrawAt
   else
     {
       SmPoint3d sPoints[3][3];
-      Evaluate(sUV,lNumDeriv,lNumDeriv,TRUE,TRUE,TRUE,sPoints[0], TRUE);
+      (void)Evaluate(sUV,lNumDeriv,lNumDeriv,TRUE,TRUE,TRUE,sPoints[0], TRUE); // SolidCraft: drawing only
       p0 = sPoints[0][0];
 
       smgfx_OutputColor(1,0,0, pOptGfxSet);
@@ -32376,7 +32397,7 @@ SmDisplayList * SmSurface::DrawUVDomain
   SmTArray<SmPoint2d> sPoints(5,sPtsData,5) ;
 
   // trim requested domain to Natural domain
-  sUVDomain.Intersect(sUVNaturalDomain, sTgtUV) ;
+  (void)sUVDomain.Intersect(sUVNaturalDomain, sTgtUV) ; // SolidCraft: drawing only
 
   // load the point array
   sPoints.SetAt(0, sTgtUV.Evaluate(0,0)) ;
@@ -32489,7 +32510,8 @@ SmDisplayList * SmSurface::DrawAlong
           //                                      [Dv   Duv   Duuv   Duuuv   Duuuuv  ]
           //                                      [Dvv  Duvv  Duuvv  Duuuvv  Duuuuvv ]
           //                                      [Dvvv Duvvv Duuvvv Duuuvvv Duuuuvvv]
-          Evaluate(sPoint2d, 3, 3, TRUE, TRUE, TRUE, aD[0], TRUE) ; // nonZeroTangent values
+          // SolidCraft: drawing only, the status is discarded
+          (void)Evaluate(sPoint2d, 3, 3, TRUE, TRUE, TRUE, aD[0], TRUE) ; // nonZeroTangent values
 
           switch(eConstantParamType)
             {
@@ -32584,7 +32606,7 @@ SmDisplayList * SmSurface::DrawVectorField
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList]
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -32654,14 +32676,15 @@ SmDisplayList * SmSurface::DrawSTEP
       lUMesh *= 3 ;
       lVMesh *= 3 ;
     }
-  sSTEPDomain.SetMinMax(dUMin, dVMin, dUMax, dVMax) ;
+  (void)sSTEPDomain.SetMinMax(dUMin, dVMin, dUMax, dVMax) ; // SolidCraft: drawing only
   SmTArray<SmPoint3d> sLastU(lVMesh, NULL, lVMesh) ;
 
   // more locals
   SmExtent1d sSTEPIvl_U(sSTEPDomain.GetMin().x, sSTEPDomain.GetMax().x) ;
   SmExtent1d sSTEPIvl_V(sSTEPDomain.GetMin().y, sSTEPDomain.GetMax().y) ;
   SmExtent3d sBox ;
-  CalculateBoundingBox(GetNaturalUVDomain(), &sBox) ; // was STEP domain: error.
+  // SolidCraft: drawing only, the status is discarded
+  (void)CalculateBoundingBox(GetNaturalUVDomain(), &sBox) ; // was STEP domain: error.
   double dSize = smos_Min(sBox.GetSize().Length() / 4.0, 40.0) / 120.0 ;
   double dScaledZero = SM_EFF_ZERO * (1.0 + smos_Max(dSize, sBox.GetMaxDimension())) ;
 
@@ -32675,7 +32698,7 @@ SmDisplayList * SmSurface::DrawSTEP
           sSTEPPoint.Set(dU, dV) ;
 
           // evaluate
-          EvaluateSTEP(sSTEPPoint, 1, 1, TRUE, TRUE, TRUE, sPV) ;
+          (void)EvaluateSTEP(sSTEPPoint, 1, 1, TRUE, TRUE, TRUE, sPV) ; // SolidCraft: drawing only
           double dLength1 = sPV[1].Length() ;
           double dLength2 = sPV[2].Length() ;
           if(dLength1 > dScaledZero) sPV[1] = sPV[1]/dLength1 ;
@@ -32745,10 +32768,10 @@ SmDisplayList * SmSurface::DrawUVCurve
   for (ULONG i=0; i<=100; i++)
     {
       SmPoint3d sPnt, sNorm;
-      crCurve.EvaluatePoint(sIvl.Evaluate(i/100.0),sPnt);
+      (void)crCurve.EvaluatePoint(sIvl.Evaluate(i/100.0),sPnt); // SolidCraft: drawing only
       SmPoint2d sUV(sPnt.x,sPnt.y);
-      this->EvaluatePoint(sUV,sPnt);
-      this->EvaluateNormal(sUV,TRUE,TRUE,sNorm) ;
+      (void)this->EvaluatePoint(sUV,sPnt); // SolidCraft: drawing only
+      (void)this->EvaluateNormal(sUV,TRUE,TRUE,sNorm) ; // SolidCraft: drawing only
       sPnts.Add(sPnt);
       sNorm *= dNormalScale ;
       sNorms.Add(sNorm);
@@ -32824,15 +32847,15 @@ SmDisplayList * SmSurface::DrawUVPolyline
     {
       SmPoint3d sPnt, sNorm;
       SmPoint2d sUV(rUVPnts[ii].x,rUVPnts[ii].y);
-      this->EvaluatePoint(sUV,sPnt);
-      this->EvaluateNormal(sUV,TRUE,TRUE,sNorm) ;
+      (void)this->EvaluatePoint(sUV,sPnt); // SolidCraft: drawing only
+      (void)this->EvaluateNormal(sUV,TRUE,TRUE,sNorm) ; // SolidCraft: drawing only
       sPnts.Add(sPnt);
       sNorm *= dNormalScale ;
       sNorms.Add(sNorm);
 
       if(bDrawUVPlane)
         {
-          pUVPlane->EvaluatePoint(sUV,sPnt) ;
+          (void)pUVPlane->EvaluatePoint(sUV,sPnt) ; // SolidCraft: drawing only
           sUVPlanePnts.Add(sPnt) ;
         }
     }
@@ -32910,15 +32933,15 @@ SmDisplayList * SmSurface::DrawUVPolyline
     {
       SmPoint3d sPnt, sNorm;
       SmPoint2d sUV(rUVPnts[ii].x,rUVPnts[ii].y);
-      this->EvaluatePoint(sUV,sPnt);
-      this->EvaluateNormal(sUV,TRUE,TRUE,sNorm) ;
+      (void)this->EvaluatePoint(sUV,sPnt); // SolidCraft: drawing only
+      (void)this->EvaluateNormal(sUV,TRUE,TRUE,sNorm) ; // SolidCraft: drawing only
       sPnts.Add(sPnt);
       sNorm *= dNormalScale ;
       sNorms.Add(sNorm);
 
       if(bDrawUVPlane)
         {
-          pUVPlane->EvaluatePoint(sUV,sPnt) ;
+          (void)pUVPlane->EvaluatePoint(sUV,sPnt) ; // SolidCraft: drawing only
           sUVPlanePnts.Add(sPnt) ;
         }
     }
@@ -33018,7 +33041,7 @@ SmDisplayList * SmSurface::DrawUVDomain
   // classify the surface boundary seams and singularities
   bSeam[0]  = bSeam[1] = this->IsClosed(sUVDomain, SM_SP_U) ;
   bSeam[2]  = bSeam[3] = this->IsClosed(sUVDomain, SM_SP_V) ;
-  this->FindSingularities(bSing[0], bSing[1], bSing[2], bSing[3]) ;
+  (void)this->FindSingularities(bSing[0], bSing[1], bSing[2], bSing[3]) ; // SolidCraft: drawing only
 
   // set up the UVPlane 3d icon surface
     {
@@ -33035,11 +33058,11 @@ SmDisplayList * SmSurface::DrawUVDomain
           SmExtent3d sThisBox, sUBox ;
           for(ii=0;ii<cpOptUVCurves->GetSize();ii++)
             {
-              cpOptUVCurves->GetAt(ii)->CalculateBoundingBox(cpOptUVCurves->GetAt(ii)->GetNaturalInterval(), &sThisBox) ;
+              (void)cpOptUVCurves->GetAt(ii)->CalculateBoundingBox(cpOptUVCurves->GetAt(ii)->GetNaturalInterval(), &sThisBox) ; // SolidCraft: drawing only
               if(ii==0) sUBox = sThisBox ;
               else      sUBox.Union(sThisBox, sUBox) ;
             }
-          sBBoxUV.SetMinMax(sUBox.GetUMin(), sUBox.GetVMin(), sUBox.GetUMax(), sUBox.GetVMax()) ;
+          (void)sBBoxUV.SetMinMax(sUBox.GetUMin(), sUBox.GetVMin(), sUBox.GetUMax(), sUBox.GetVMax()) ; // SolidCraft: drawing only
         }
       else
         {
@@ -33048,20 +33071,20 @@ SmDisplayList * SmSurface::DrawUVDomain
 
       // adjust to optional subdomains - trim a surface copy and work with that for sizing and orienting the plane
       if(!sBBoxUV.AreEqual(sUVDomain, dUVTol)) { // copy and trim surface to given subdomain
-                                                 Copy(sContext, pCopySurface) ;
+                                                 (void)Copy(sContext, pCopySurface) ; // SolidCraft: drawing only
                                                  sClean.SetObj(pCopySurface) ;
-                                                 pCopySurface->TrimWithDomain(sBBoxUV) ;
+                                                 (void)pCopySurface->TrimWithDomain(sBBoxUV) ; // SolidCraft: drawing only
                                                }
       else                                     { // Set CopySurface to point to this
                                                  pCopySurface = (SmSurface *)this ;
                                                }
 
       // Get the surfaces's bounding boxes
-      pCopySurface->CalculateBoundingBox(sBBoxUV, &sBBox3d, &sPseudoBox) ;
+      (void)pCopySurface->CalculateBoundingBox(sBBoxUV, &sBBox3d, &sPseudoBox) ; // SolidCraft: drawing only
 
       // get a characteristic tangent plane on the surface (use a BBoxUV near the min corner)
       SmVector3d sSrfPt, sSrfDU, sSrfDV ;
-      pCopySurface->Evaluate1stDerivatives( sBBoxUV.Evaluate(0.01, 0.01), TRUE, TRUE, sSrfPt, sSrfDU, sSrfDV) ;
+      (void)pCopySurface->Evaluate1stDerivatives( sBBoxUV.Evaluate(0.01, 0.01), TRUE, TRUE, sSrfPt, sSrfDU, sSrfDV) ; // SolidCraft: drawing only
       SM_ASSERT(sSrfDU.Length() > SM_EFF_ZERO) ;
       SM_ASSERT(sSrfDV.Length() > SM_EFF_ZERO) ;
       SM_ASSERT((sSrfDU * sSrfDV).Length() > SM_EFF_ZERO) ;
@@ -33106,13 +33129,13 @@ SmDisplayList * SmSurface::DrawUVDomain
         sTmpY = sPseudoBox.GetBasis( sIndex[1] );
 
         // unitize and orthogonalize sTmpX and sTmpY
-        sTmpX.Unitize();
+        (void)sTmpX.Unitize(); // SolidCraft: drawing only
         sTmpY = sTmpX * sTmpY * sTmpX;
-        sTmpY.Unitize();
+        (void)sTmpY.Unitize(); // SolidCraft: drawing only
 
         // Pick X in the XY TmpPlane so that it lines up with Du
-        smgu_VecLinCombTwoVectors( sTmpX, sTmpY, sSrfDU, sX2d );
-        smgu_VecLinCombTwoVectors( sTmpX, sTmpY, sSrfDV, sY2d );
+        (void)smgu_VecLinCombTwoVectors( sTmpX, sTmpY, sSrfDU, sX2d ); // SolidCraft: drawing only
+        (void)smgu_VecLinCombTwoVectors( sTmpX, sTmpY, sSrfDV, sY2d ); // SolidCraft: drawing only
 
         double dX2dLength = sX2d.Length();
         double dY2dLength = sY2d.Length();
@@ -33143,9 +33166,9 @@ SmDisplayList * SmSurface::DrawUVDomain
       sY = sY2d.x * sTmpX + sY2d.y * sTmpY ;
 
       // unitize and orthogonalize sX and sY and sZ
-      sX.Unitize() ;
+      (void)sX.Unitize() ; // SolidCraft: drawing only
       sY = sX * sY * sX ;
-      sY.Unitize() ;
+      (void)sY.Unitize() ; // SolidCraft: drawing only
       sZ = sX * sY ;
 
       // Set Scale = 1 and place all the plane size in the UVDomain
@@ -33162,8 +33185,8 @@ SmDisplayList * SmSurface::DrawUVDomain
       SmAxis2Placement sPosition( sOrigin, sX, sY ) ;
       pUVPlane->SetUVScale(sUVScale) ;
       pUVPlane->SetPosition(sPosition) ;
-      pUVPlane->UpdateAnalyticalDomain(sBBoxUV) ;
-      pUVPlane->MakeNurb() ;
+      (void)pUVPlane->UpdateAnalyticalDomain(sBBoxUV) ; // SolidCraft: drawing only
+      (void)pUVPlane->MakeNurb() ; // SolidCraft: drawing only
 
     } // end setting up the UVPlane icon surface scope
 
@@ -33195,26 +33218,26 @@ SmDisplayList * SmSurface::DrawUVDomain
         { case 0: // UMIN
                   sUVPnt1 = sUVDomain.Evaluate(0,0) ;
                   sUVPnt2 = sUVDomain.Evaluate(0,1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ;
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ; // SolidCraft: drawing only
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ; // SolidCraft: drawing only
                   break ;
           case 1: // UMAX
                   sUVPnt1 = sUVDomain.Evaluate(1,0) ;
                   sUVPnt2 = sUVDomain.Evaluate(1,1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ;
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ; // SolidCraft: drawing only
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ; // SolidCraft: drawing only
                   break ;
           case 2: // VMIN
                   sUVPnt1 = sUVDomain.Evaluate(0,0) ;
                   sUVPnt2 = sUVDomain.Evaluate(1,0) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ;
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ; // SolidCraft: drawing only
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ; // SolidCraft: drawing only
                   break ;
           case 3: // VMAX
                   sUVPnt1 = sUVDomain.Evaluate(0,1) ;
                   sUVPnt2 = sUVDomain.Evaluate(1,1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ;
-                  pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ;
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt1,  sPnt1) ; // SolidCraft: drawing only
+                  (void)pUVPlane->EvaluatePointFast(sUVPnt2,  sPnt2) ; // SolidCraft: drawing only
                   break ;
         }
 
@@ -33235,7 +33258,7 @@ SmDisplayList * SmSurface::DrawUVDomain
           SmLine *pLine ;
           sPnt1.Set(sUVPnt1.x, sUVPnt1.y, 0.0) ;
           sPnt2.Set(sUVPnt2.x, sUVPnt2.y, 0.0) ;
-          SmLine::CreateLineSegment(sContext, 2, sPnt1, sPnt2, pLine) ;
+          (void)SmLine::CreateLineSegment(sContext, 2, sPnt1, sPnt2, pLine) ; // SolidCraft: drawing only
           SmObjDelete sCleanLine(pLine) ;
           DrawUVCurve(*pLine, FALSE, 1, FALSE, pOptGfxSet) ;
         }
@@ -33288,16 +33311,16 @@ void SmSurface::GetNearPlaneForUVDraw
 
       // adjust to optional subdomains - trim a surface copy and work with that for sizing and orienting the plane
       if(!sBBoxUV.AreEqual(sUVDomain, dUVTol)) { // copy and trim surface to given subdomain
-                                                 Copy(*GetContext(), pCopySurface) ;
+                                                 if ( Copy(*GetContext(), pCopySurface) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
                                                  sClean.SetObj(pCopySurface) ;
-                                                 pCopySurface->TrimWithDomain(sBBoxUV) ;
+                                                 if ( pCopySurface->TrimWithDomain(sBBoxUV) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
                                                }
       else                                     { // Set CopySurface to point to this
                                                  pCopySurface = (SmSurface *)this ;
                                                }
 
       // Get the surfaces's bounding boxes
-      pCopySurface->CalculateBoundingBox(sBBoxUV, &sBBox3d, &sPseudoBox) ;
+      if ( pCopySurface->CalculateBoundingBox(sBBoxUV, &sBBox3d, &sPseudoBox) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
 
       // orient the plane for drawing UVPlane graphics to the pseudo box
       double dTmp = 0.0 ;
@@ -33331,13 +33354,13 @@ void SmSurface::GetNearPlaneForUVDraw
       SmVector3d sTmpY = sPseudoBox.GetBasis(sIndex[1]) ;
 
       // unitize and orthogonalize sTmpX and sTmpY
-      sTmpX.Unitize() ;
+      if ( sTmpX.Unitize() != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
       sTmpY = sTmpX * sTmpY * sTmpX ;
-      sTmpY.Unitize() ;
+      if ( sTmpY.Unitize() != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
 
       // Pick X in the XY TmpPlane so that it lines up with Du
       SmVector3d sSrfPt, sSrfDU, sSrfDV ;
-      pCopySurface->Evaluate1stDerivatives( sBBoxUV.Evaluate(0.01, 0.01), TRUE, TRUE, sSrfPt, sSrfDU, sSrfDV) ;
+      if ( pCopySurface->Evaluate1stDerivatives( sBBoxUV.Evaluate(0.01, 0.01), TRUE, TRUE, sSrfPt, sSrfDU, sSrfDV) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
       SM_ASSERT(sSrfDU.Length() > SM_EFF_ZERO) ;
       SM_ASSERT(sSrfDV.Length() > SM_EFF_ZERO) ;
       SM_ASSERT((sSrfDU * sSrfDV).Length() > SM_EFF_ZERO) ;
@@ -33346,15 +33369,15 @@ void SmSurface::GetNearPlaneForUVDraw
          || (sSrfDU * sSrfDV).Length() < SM_EFF_ZERO)
         { return ; }
 
-      smgu_VecLinCombTwoVectors(sTmpX, sTmpY, sSrfDU, sX2d) ;
-      smgu_VecLinCombTwoVectors(sTmpX, sTmpY, sSrfDV, sY2d) ;
+      if ( smgu_VecLinCombTwoVectors(sTmpX, sTmpY, sSrfDU, sX2d) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
+      if ( smgu_VecLinCombTwoVectors(sTmpX, sTmpY, sSrfDV, sY2d) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
       sX = sX2d.x * sTmpX + sX2d.y * sTmpY ;
       sY = sY2d.x * sTmpX + sY2d.y * sTmpY ;
 
       // unitize and orthogonalize sX and sY and sZ
-      sX.Unitize() ;
+      if ( sX.Unitize() != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
       sY = sX * sY * sX ;
-      sY.Unitize() ;
+      if ( sY.Unitize() != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
       sZ = sX * sY ;
 
       // Set Scale = 1 and place all the plane size in the UVDomain
@@ -33371,8 +33394,8 @@ void SmSurface::GetNearPlaneForUVDraw
       SmAxis2Placement sPosition( sOrigin, sX, sY ) ;
       (*ppUVPlane)->SetUVScale(sUVScale) ;
       (*ppUVPlane)->SetPosition(sPosition) ;
-      (*ppUVPlane)->UpdateAnalyticalDomain(sBBoxUV) ;
-      (*ppUVPlane)->MakeNurb() ;
+      if ( (*ppUVPlane)->UpdateAnalyticalDomain(sBBoxUV) != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
+      if ( (*ppUVPlane)->MakeNurb() != SM_SUCCESS ) { *ppUVPlane = NULL ; return ; } // SolidCraft: no UV plane when the surface can't be sized or framed
 
     } // end setting up the UVPlane icon surface scope
 
@@ -33631,7 +33654,7 @@ SmDisplayList * SmSurface::DrawParams
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, &sUVDomain, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, &sUVDomain, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33670,7 +33693,7 @@ SmDisplayList * SmSurface::DrawPolygon
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33710,7 +33733,7 @@ SmDisplayList * SmSurface::DrawSeams
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33749,7 +33772,7 @@ SmDisplayList * SmSurface::DrawPoles
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33786,7 +33809,7 @@ SmDisplayList * SmSurface::DrawFlatCorners
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -33825,7 +33848,7 @@ SmDisplayList * SmSurface::DrawControlPoints
   SmVector3d sColor = smgfx_GetOutputColor(pOptGfxSet) ;
   smgfx_Open(smgfx_GetRuleColor(this, sDisp.GetShadedColorRule()), NULL, NULL, FALSE, pOptGfxSet);
 
-  OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, NULL, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end displayList
   pRtn = smgfx_Close(pOptGfxSet) ;
@@ -33889,7 +33912,7 @@ SmDisplayList * SmSurface::DrawUVBox
   SmCrvOnSurf s3DLine3(sUVLine3, *(SmSurface*)this) ;
 
   SmPoint3d sPnt ;
-  EvaluatePoint(sUVBox00, sPnt) ;
+  (void)EvaluatePoint(sUVBox00, sPnt) ; // SolidCraft: drawing only
 
 #ifdef SM_GFX_CODE
   // Get global SmGraphicsExtern.cpp:s_Disp display parameters
@@ -34077,7 +34100,7 @@ void SmSurface::DrawInspectTwoSurfaces
       double vNorm = (1-vFrac) * v1Lo + vFrac * v1Hi;
 
       sUV1 = sDom1.Evaluate( uNorm, vNorm );
-      this->EvaluatePoint( sUV1, sPt1 );
+      (void)this->EvaluatePoint( sUV1, sPt1 ); // SolidCraft: drawing only
 
       if ( pSrf2 == NULL )
       {
@@ -34086,8 +34109,9 @@ void SmSurface::DrawInspectTwoSurfaces
           continue;
       }
 
-      pSrf2->DropPoint( sPt1, sDom2, pGuessUVPtr,
-                        bSuccess, sUV2, dGapDist, bIsMulti );
+      // SolidCraft: drawing only, the status is discarded
+      (void)pSrf2->DropPoint( sPt1, sDom2, pGuessUVPtr,
+                        bSuccess, sUV2, dGapDist, bIsMulti ); // SolidCraft: drawing only
 
       if ( !bSuccess )
         { continue; } // breakpoint
@@ -34105,7 +34129,7 @@ void SmSurface::DrawInspectTwoSurfaces
       if ( dGapDist > dMaxGapDisplay )
         { continue; }
 
-      pSrf2->EvaluatePoint( sUV2, sPt2 );
+      (void)pSrf2->EvaluatePoint( sUV2, sPt2 ); // SolidCraft: drawing only
 
       // Do the graphics.
       if(bDrawSrf1Pt)
@@ -34120,12 +34144,12 @@ void SmSurface::DrawInspectTwoSurfaces
 
       if(bDrawSrf1Norm)
       {
-        this->EvaluateNormal( sUV1, FALSE, FALSE, sNorm1 );
+        (void)this->EvaluateNormal( sUV1, FALSE, FALSE, sNorm1 ); // SolidCraft: drawing only
         sNorm1 *= dNormLength;
         smgfx_SetLook( 2,4, sSrf1Color.x, sSrf1Color.y, sSrf1Color.z, pOptGfxSet ); sNorm1.Draw( &sPt1, NULL, pOptGfxSet ); sm_GraphicsLoop();
       }
       // We're going to need this below anyway:
-      pSrf2->EvaluateNormal( sUV2, FALSE, FALSE, sNorm2 );
+      (void)pSrf2->EvaluateNormal( sUV2, FALSE, FALSE, sNorm2 ); // SolidCraft: drawing only
       if(bDrawSrf2Norm)
       {
         sNorm2 *= dNormLength;
@@ -34169,13 +34193,15 @@ void SmSurface::DrawInspectTwoSurfaces
 
       if ( bEvalGeometric > 0 )
       {
-          this->EvaluateGeometric( sUV1, FALSE, FALSE,
+          // SolidCraft: drawing only, the status is discarded
+          (void)this->EvaluateGeometric( sUV1, FALSE, FALSE,
                       dGaussK1, dNormK1, dPrinK11, dPrinK21,
-                      sEFG1, sLMN1, sPrinVec11, sPrinVec21 );
+                      sEFG1, sLMN1, sPrinVec11, sPrinVec21 ); // SolidCraft: drawing only
 
-          pSrf2->EvaluateGeometric( sUV2, FALSE, FALSE,
+          // SolidCraft: drawing only, the status is discarded
+          (void)pSrf2->EvaluateGeometric( sUV2, FALSE, FALSE,
                       dGaussK2, dNormK2, dPrinK12, dPrinK22,
-                      sEFG2, sLMN2, sPrinVec12, sPrinVec22 );
+                      sEFG2, sLMN2, sPrinVec12, sPrinVec22 ); // SolidCraft: drawing only
 
       }
 
@@ -34232,9 +34258,9 @@ void SmSurface::DrawInspectCurveSurface
     {
       dT1 = ((double)ii) / (double)(iNumTries);
       dT1 = dStartParam + dT1 * ( dEndParam - dStartParam );
-      pCrv->EvaluatePoint( dT1, sCrvPt );
+      (void)pCrv->EvaluatePoint( dT1, sCrvPt ); // SolidCraft: drawing only
 
-      this->DropPoint( sCrvPt, sSrfDomain, pGuessPtr, bSuccess, sDropUV, dDist, bIsMulti );
+      (void)this->DropPoint( sCrvPt, sSrfDomain, pGuessPtr, bSuccess, sDropUV, dDist, bIsMulti ); // SolidCraft: drawing only
 
       if ( bSuccess )
         {
@@ -34331,10 +34357,10 @@ void SmSurface::DrawInspectSurfaceCurve
     {
       dT1 = ((double)ii) / (double)(iNumTries);
       dT1 = dStartParam + dT1 * ( dEndParam - dStartParam );
-      pCrv->EvaluatePoint( dT1, sUV3d );
+      (void)pCrv->EvaluatePoint( dT1, sUV3d ); // SolidCraft: drawing only
 
       sUV2d.Set( sUV3d.x, sUV3d.y );
-      this->EvaluatePoint ( sUV2d, sSrfPt );
+      (void)this->EvaluatePoint ( sUV2d, sSrfPt ); // SolidCraft: drawing only
 
       if ( iDebugDump > 0 )
       {
@@ -34345,7 +34371,7 @@ void SmSurface::DrawInspectSurfaceCurve
 
       if ( iDebugDump > 1 )
       {
-          this->EvaluateNormal( sUV2d, FALSE, FALSE, sNorm  );
+          (void)this->EvaluateNormal( sUV2d, FALSE, FALSE, sNorm  ); // SolidCraft: drawing only
           smos_sprintf(sBuff, _T("\n   pt %16.16lf %16.16lf %16.16lf  norm %16.16lf %16.16lf %16.16lf"),
                      sSrfPt.x, sSrfPt.y, sSrfPt.z, sNorm.x, sNorm.y, sNorm.z );
           smos_WriteBuffer(sBuff);
@@ -34353,7 +34379,7 @@ void SmSurface::DrawInspectSurfaceCurve
 
       if ( iDebugDump > 2 )
       {
-          this->Evaluate1stDerivatives( sUV2d, FALSE, FALSE, sSrfPt, sSu, sSv );
+          (void)this->Evaluate1stDerivatives( sUV2d, FALSE, FALSE, sSrfPt, sSu, sSv ); // SolidCraft: drawing only
           smos_sprintf(sBuff, _T("\n   d/du %16.16lf %16.16lf %16.16lf  d/dv %16.16lf %16.16lf %16.16lf"),
               sSu.x, sSu.y, sSu.z, sSv.x, sSv.y, sSv.z );
           smos_WriteBuffer(sBuff);
@@ -34367,9 +34393,10 @@ void SmSurface::DrawInspectSurfaceCurve
           SmBoolean bVFromLeft = FALSE;
           SmBoolean bOnlyUpperHalf = TRUE;
 
-          this->Evaluate( sUV2d, lNumDeriv, lNumDeriv,
+          // SolidCraft: drawing only, the status is discarded
+          (void)this->Evaluate( sUV2d, lNumDeriv, lNumDeriv,
                           bUFromLeft, bVFromLeft, bOnlyUpperHalf,
-                          sEvalMat[0] );
+                          sEvalMat[0] ); // SolidCraft: drawing only
 
           sSu = sEvalMat[1][0];
       }
@@ -34425,10 +34452,10 @@ SmStatus SmSurface::WriteToFile
 
   // Output header string - no longer optional
   SM_TYPE lType = GetType() ;
-  sDB.WriteType(lType) ;   //  SM_CURRENT_DATABASE_VERSION > 32   << "Object Type " << lType << "\n"
+  SER( sDB.WriteType(lType)  );   //  SM_CURRENT_DATABASE_VERSION > 32   << "Object Type " << lType << "\n"
 
   // pass the call along to appropriate derived type
-  WriteToDB(sDB, lDBVersionNumber) ;
+  SER( WriteToDB(sDB, lDBVersionNumber)  );
 
   // handle attributes
   if(bWriteAttributes && lDBVersionNumber > 30)
@@ -34441,7 +34468,7 @@ SmStatus SmSurface::WriteToFile
            SmTArray<SmAttribute*>              sAllAttributes ;
            SmMapTypeToType<SmAttribute*,ULONG> sAttrMap ; 
            SER(sm_ExtractAttributes(*cpContext,this,sThisAttributes,sAllAttributes,sAttrMap));
-           SmAttributeData::WriteIndexedAttributesToDB(sThisAttributes,sDB);
+           SER( SmAttributeData::WriteIndexedAttributesToDB(sThisAttributes,sDB) );
            // if (pAttributes) { delete pAttributes ; pAttributes = NULL ; }
          } // end surface has context check
     } // end write attribute check
@@ -34516,7 +34543,7 @@ SmStatus SmSurface::WriteArrayToFile
                SmTArray<SmAttribute*>              sAllAttributes ;
                SmMapTypeToType<SmAttribute*,ULONG> sAttrMap ; 
                SER(sm_ExtractAttributes(*cpContext,pSrf,sThisAttributes,sAllAttributes,sAttrMap));
-               SmAttributeData::WriteIndexedAttributesToDB(sThisAttributes,sDB);
+               SER( SmAttributeData::WriteIndexedAttributesToDB(sThisAttributes,sDB) );
                // if (pAttributes) { delete pAttributes ; pAttributes = NULL ; }
              } // end surface has context check
         }
@@ -34564,7 +34591,7 @@ SmStatus SmSurface::ReadFromFile
   // branch on version number
   if(lDBVersionNumber > 32)
     {
-      sDB.ReadType(lType) ;
+      SER( sDB.ReadType(lType)  );
     }
   else // old style write
     {
@@ -34574,7 +34601,7 @@ SmStatus SmSurface::ReadFromFile
     } // end branch for SM_CURRENT_DATABASE_VERSION <= 32
 
   // pass the call along to appropriate derived type
-  SmSurface::ReadFromDB(lType, sDB, crContext, rpNewSurface, lDBVersionNumber) ;
+  SER( SmSurface::ReadFromDB(lType, sDB, crContext, rpNewSurface, lDBVersionNumber)  );
 
   // all done
   return SM_SUCCESS;
@@ -34636,7 +34663,7 @@ SmStatus SmSurface::ReadArrayFromFile
       // branch on version number
       if(lDBVersionNumber > 32)
         {
-          sDB.ReadType(lType) ;
+          SER( sDB.ReadType(lType)  );
         }
       else // old style write
         {
@@ -34644,7 +34671,7 @@ SmStatus SmSurface::ReadArrayFromFile
         }
 
       // pass the call along to appropriate derived type
-      SmSurface::ReadFromDB(lType, sDB, crContext, pNewSurface, lDBVersionNumber) ;
+      SER( SmSurface::ReadFromDB(lType, sDB, crContext, pNewSurface, lDBVersionNumber)  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -34740,6 +34767,7 @@ PURPOSE:
 NOTES:
 ***********************************************************************/
 void SmSurface::Dump
+  // SolidCraft: drawing only, the status is discarded
   (void)
  const
 {
@@ -34923,8 +34951,8 @@ SmBoolean sm_AssertTestSurface4(const SmSurface *pSurface) // TRUE = okay, FALSE
   SmTArray<SmContinuityType> eContsU, eContsV;
 
   // Surface continuities across U and V knots
-  pSurface->CalculateContinuities ( SM_SP_U, eContU, eContsU );
-  pSurface->CalculateContinuities ( SM_SP_V, eContV, eContsV );
+  if ( pSurface->CalculateContinuities ( SM_SP_U, eContU, eContsU ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: continuities that can't be computed fail the test
+  if ( pSurface->CalculateContinuities ( SM_SP_V, eContV, eContsV ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: continuities that can't be computed fail the test
 
   // Good Surfaces have at least G1 continuity across every knot IsoParam curve
   SmBoolean bRtn = (   eContU >= SM_CT_G1
@@ -35172,7 +35200,7 @@ SmBoolean sm_AssertTestSurface6(const SmSurface *pSurface) // TRUE = okay, FALSE
         { continue; }
 
         // Get iso parameter boundaries
-        pSurface->CreateIsoBoundaries( *pContext, eSPType, dATol, pCrv1, pCrv2 );
+        if ( pSurface->CreateIsoBoundaries( *pContext, eSPType, dATol, pCrv1, pCrv2 ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: boundaries that can't be built or compared fail the test
         SmObjDelete sClean1( pCrv1 ), sClean2( pCrv2 );
 
         if ( pCrv1->IsDegenerate() || pCrv2->IsDegenerate() )
@@ -35180,7 +35208,7 @@ SmBoolean sm_AssertTestSurface6(const SmSurface *pSurface) // TRUE = okay, FALSE
 
         // Look for partial coincidence or G0 discontinuous
         SmXSectTol3d dXTol = SmTol::GetXSectTol3d( pCrv1, pCrv2 );
-        pCrv1->GlobalCoincidenceChecker( pCrv1->GetNaturalInterval(), *pCrv2, pCrv2->GetNaturalInterval(), dXTol, bMoreWork, sSols );
+        if ( pCrv1->GlobalCoincidenceChecker( pCrv1->GetNaturalInterval(), *pCrv2, pCrv2->GetNaturalInterval(), dXTol, bMoreWork, sSols ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: boundaries that can't be built or compared fail the test
 
         // Range of Values implies G0 discontinuous non-seam closure of surface
         for ( jj = 0; jj < sSols.GetSize(); jj++ )
