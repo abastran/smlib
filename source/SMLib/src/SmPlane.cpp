@@ -93,7 +93,7 @@ SmPlane::SmPlane
   SE(m_vPosition.SetCanonical(crOrigin,sY,sZ));
 
   // Make the plane m_vAnalUVDomain essentially infinite
-  m_vAnalUVDomain.SetMinMax(SmPoint2d(-SM_INFINITE_PARAMETER,-SM_INFINITE_PARAMETER),
+  (void)m_vAnalUVDomain.SetMinMax(SmPoint2d(-SM_INFINITE_PARAMETER,-SM_INFINITE_PARAMETER), // SolidCraft: a constructor cannot report
                             SmPoint2d(SM_INFINITE_PARAMETER,SM_INFINITE_PARAMETER));
 
   // set context if given
@@ -397,9 +397,9 @@ SmStatus SmPlane::CoincidenceCheck
         {
           for ( jj=0; jj<2; jj++ )
             {
-              this->EvaluatePoint( sDomain0.Evaluate( ii, jj ), sPt0 );
+              SER( this->EvaluatePoint( sDomain0.Evaluate( ii, jj ), sPt0 ) );
               sCorners0.Add( sPt0 );
-              crOther.EvaluatePoint( sDomain1.Evaluate( ii, jj ), sPt1 );
+              SER( crOther.EvaluatePoint( sDomain1.Evaluate( ii, jj ), sPt1 ) );
               sCorners1.Add( sPt1 );
             }
         } // end collecting corner points
@@ -535,7 +535,7 @@ SmStatus SmPlane::CoincidenceCheck
       for ( ii=1; ii<sOtherUVs.GetSize(); ii++ )
         {
           SmVector2d sVec( sOtherUVs[ii] - sOtherUVs[ii-1] );
-          sDomain0.IntersectWithInfiniteLine( sOtherUVs[ii-1], sVec, bSuccess, sIntIvl );
+          SER( sDomain0.IntersectWithInfiniteLine( sOtherUVs[ii-1], sVec, bSuccess, sIntIvl ) );
 
           if ( bSuccess )
             {
@@ -553,7 +553,7 @@ SmStatus SmPlane::CoincidenceCheck
       // or this plane is totally contained in the other.
       // Test our midpoint.
       sUV0 = sDomain0.Evaluate( 0.5, 0.5 );
-      this->EvaluatePoint( sUV0, sPt0 );
+      SER( this->EvaluatePoint( sUV0, sPt0 ) );
       SER( pOtherPlane->ProjectPointToUVDomain( sPt0, sUV1 ));
 
       // Also check max distance, for the output value.
@@ -593,12 +593,12 @@ SmStatus SmPlane::CoincidenceCheck
   SmObjsDelete<SmBSplineCurve*> sCleanUV0( &sBdrysUV0 );
   SmObjsDelete<SmBSplineCurve*> sCleanUV1( &sBdrysUV1 );
 
-  this->CreateNaturalUVTrimCurves( *(this->GetContext()), sDomain0, SM_SP_V, FALSE,
-      sBdrys3D0, sBdrysUV0, sOrients0 );  
+  SER( this->CreateNaturalUVTrimCurves( *(this->GetContext()), sDomain0, SM_SP_V, FALSE,
+      sBdrys3D0, sBdrysUV0, sOrients0 ) );  
   ULONG lNumBdrys0 = sBdrys3D0.GetSize(); // Presumably 4.
 
-  crOther.CreateNaturalUVTrimCurves( *(crOther.GetContext()), sDomain1, SM_SP_V, FALSE,
-      sBdrys3D1, sBdrysUV1, sOrients1 );  
+  SER( crOther.CreateNaturalUVTrimCurves( *(crOther.GetContext()), sDomain1, SM_SP_V, FALSE,
+      sBdrys3D1, sBdrysUV1, sOrients1 ) );  
   ULONG lNumBdrys1 = sBdrys3D1.GetSize();
 
   double dT0, dT1;
@@ -690,14 +690,14 @@ SmStatus SmPlane::CoincidenceCheck
                 case 2: { sUV1.Set( dT1, sDomain1.GetVMax() );  sUVBinorm1.Set(  0, -1 ); break; }
                 case 3: { sUV1.Set( sDomain1.GetUMin(), dT1 );  sUVBinorm1.Set(  1,  0 ); break; }
               }
-              crOther.EvaluateNormal( sUV1, TRUE, TRUE, sNorm1 );
+              SER( crOther.EvaluateNormal( sUV1, TRUE, TRUE, sNorm1 ) );
 
               if ( ! sNorm1.IsParallelTo( sNorm0, dAngTolDeg ) )
                 { continue; }
 
               // Have to check 2nd order terms: cyl with seam in plane.
-              crOther.Evaluate2ndDerivatives( sUV1, TRUE, TRUE,
-                          sPt1, sSu1, sSv1, sSuv1 , sSuu1, sSvv1);
+              SER( crOther.Evaluate2ndDerivatives( sUV1, TRUE, TRUE,
+                          sPt1, sSu1, sSv1, sSuv1 , sSuu1, sSvv1) );
 
               // Basically, if any of the other surface's derivatives
               // have components out of the plane, it can't be coincident.
@@ -727,8 +727,8 @@ SmStatus SmPlane::CoincidenceCheck
                   // Need to check binormals.
                   s3dBinorm0 = sUVBinorm0.x * sSu0  +  sUVBinorm0.y * sSv0;
 
-                  crOther.Evaluate1stDerivatives( sUV1, TRUE, TRUE,
-                          sPt1, sSu1, sSv1 );
+                  SER( crOther.Evaluate1stDerivatives( sUV1, TRUE, TRUE,
+                          sPt1, sSu1, sSv1 ) );
                   s3dBinorm1 = sUVBinorm1.x * sSu1  +  sUVBinorm1.y * sSv1;
 
                   if ( s3dBinorm0.Dot( s3dBinorm1 ) > 0.0 )
@@ -745,7 +745,7 @@ SmStatus SmPlane::CoincidenceCheck
   // Drop any point from each to the other.
   // Drop to this first because planes are easy.
   sUV1 = sDomain1.GetMid();
-  crOther.EvaluatePoint( sUV1, sPt1 );
+  SER( crOther.EvaluatePoint( sUV1, sPt1 ) );
   eStat = this->DropPoint(sPt1, 
                           sDomain0, 
                           NULL,                                                     
@@ -764,8 +764,8 @@ SmStatus SmPlane::CoincidenceCheck
       // Point coincidence, check normals.
 
       // Have to check 2nd order terms, not just normals: cyl with seam in plane.
-      crOther.Evaluate2ndDerivatives( sUV1, TRUE, TRUE,
-                          sPt1, sSu1, sSv1, sSuv1 , sSuu1, sSvv1);
+      SER( crOther.Evaluate2ndDerivatives( sUV1, TRUE, TRUE,
+                          sPt1, sSu1, sSv1, sSuv1 , sSuu1, sSvv1) );
 
       // Basically, if any of the other surface's derivatives
       // have components out of the plane, it can't be coincident.
@@ -780,7 +780,7 @@ SmStatus SmPlane::CoincidenceCheck
 
   // Repeat the other way around.
   sUV0 = sDomain0.GetMid();
-  this->EvaluatePoint( sUV0, sPt0 );
+  SER( this->EvaluatePoint( sUV0, sPt0 ) );
   eStat = crOther.DropPoint(sPt0, 
                             sDomain1, 
                             NULL, 
@@ -799,8 +799,8 @@ SmStatus SmPlane::CoincidenceCheck
       // Point coincidence, check normals.
 
       // Have to check 2nd order terms, not just normals: cyl with seam in plane.
-      crOther.Evaluate2ndDerivatives( sUV1, TRUE, TRUE,
-                          sPt1, sSu1, sSv1, sSuv1 , sSuu1, sSvv1);
+      SER( crOther.Evaluate2ndDerivatives( sUV1, TRUE, TRUE,
+                          sPt1, sSu1, sSv1, sSuv1 , sSuu1, sSvv1) );
 
       if ( smos_Fabs( sNorm0.Dot( sSu1  ) ) < dAngTolDeg
         && smos_Fabs( sNorm0.Dot( sSv1  ) ) < dAngTolDeg
@@ -873,18 +873,18 @@ SmStatus SmPlane::CreateIsoParametricCurve
       sIso.SetContext(NULL);
 
       // build OptUVIsoCurve
-      sIso.CreateUVIsoLine(*pOptUVIsoCurve, &crContext) ; 
+      SER( sIso.CreateUVIsoLine(*pOptUVIsoCurve, &crContext)  ); 
     } 
 
   // move min/max points to isoParameter Line endPoints
   SmExtent1d sLineIvl;
   if (eSurfParam == SM_SP_U ) { sPMin.x = dIsoParameter;
                                 sPMax.x = dIsoParameter;
-                                sLineIvl.SetMinMax(sPMin.y,sPMax.y);
+                                SER( sLineIvl.SetMinMax(sPMin.y,sPMax.y) );
                               }
   else                        { sPMin.y = dIsoParameter;
                                 sPMax.y = dIsoParameter;
-                                sLineIvl.SetMinMax(sPMin.x,sPMax.x);
+                                SER( sLineIvl.SetMinMax(sPMin.x,sPMax.x) );
                               }
 
   // evaluate Line 3D endPoints
@@ -1054,15 +1054,15 @@ SmBoolean bDebugMe = FALSE ;
       SmExtent1d sTrimIvl ;
       double dTolU = dApproxTol / m_vUVScale.x; // 3d tol to 2d
       double dTolV = dApproxTol / m_vUVScale.y;
-      crUVDomain.IntersectWithInfiniteLine(sStPnt2d,
+      SER( crUVDomain.IntersectWithInfiniteLine(sStPnt2d,
                                            sVec2d,
                                            bFoundIvl,
                                            sTrimIvl,
-                                           &dTolU, &dTolV);
+                                           &dTolU, &dTolV) );
 
       // union the trimIvl with the line ivl
       SmExtent1d sLineIvl(0.0,1.0), sFinalIvl(sIvl) ;
-      sTrimIvl.Intersect(sLineIvl, sTrimIvl) ;
+      (void)sTrimIvl.Intersect(sLineIvl, sTrimIvl) ; // SolidCraft: a disjoint interval comes back uninitialised, which is tested next
 
       // no DropCurve without UVDomain intersection
       if(   bFoundIvl == FALSE
@@ -1080,8 +1080,8 @@ SmBoolean bDebugMe = FALSE ;
           if ( !bCreatingUVTrimCurve )
           {
               // reevaluate crv[ivl]
-              sFinalIvl.SetMinMax( sFinalIvl.Evaluate( sTrimIvl.GetMin() ),
-                                   sFinalIvl.Evaluate( sTrimIvl.GetMax() ) );
+              SER( sFinalIvl.SetMinMax( sFinalIvl.Evaluate( sTrimIvl.GetMin() ),
+                                   sFinalIvl.Evaluate( sTrimIvl.GetMax() ) ) );
 
               // reevaluate crv[endpts]
               SER( cr3dCurve.EvaluatePoint( sFinalIvl.GetMin(), sStPnt3d ) );
@@ -1199,7 +1199,7 @@ SmBoolean bDebugMe = FALSE ;
       //    increase the number of curves handled by the cheaper dropPlane option)
       SmBSplineCurve *pCrvCopy3d = new(crContext) SmBSplineCurve(crBSplineCurve);
       SmObjDelete     sClean(pCrvCopy3d);
-      pCrvCopy3d->Trim(sIvl);   // may snap sIvl by tol to existing knots
+      SER( pCrvCopy3d->Trim(sIvl) );   // may snap sIvl by tol to existing knots
 
       // locals for GetCanonical call
       ULONG               lDim, lDegree;
@@ -1644,25 +1644,25 @@ SmStatus SmPlane::GlobalLineIntersect
             SmPoint2d sUV( sLo );
             double dLineParam;
             SER( this->EvaluatePointFast( sUV, sPt ));
-            smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam );
+            SER( smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam ) );
             sIvl.AddValue( dLineParam );
             sUV.Set( sLo.x, sHi.y );
             SER( this->EvaluatePointFast( sUV, sPt ));
-            smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam );
+            SER( smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam ) );
             sIvl.AddValue( dLineParam );
             sUV.Set( sHi.x, sLo.y );
             SER( this->EvaluatePointFast( sUV, sPt ));
-            smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam );
+            SER( smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam ) );
             sIvl.AddValue( dLineParam );
             sUV.Set( sHi.x, sHi.y );
             SER( this->EvaluatePointFast( sUV, sPt ));
-            smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam );
+            SER( smgu_LineClosestPoint( crLinePoint, crLineVector, sPt, dLineParam ) );
             sIvl.AddValue( dLineParam );
 
             sIvl.ExpandRelative( 1.2 );
           }
         if ( bFireRay )
-          { sIvl.SetMinMax( 0.0, smos_Max( sIvl.GetMax(), 0.0 ) ); }
+          { SER( sIvl.SetMinMax( 0.0, smos_Max( sIvl.GetMax(), 0.0 ) ) ); }
 
         // get untrimmed interval endPoints
         SmPoint3d sPlaneStartPt = crLinePoint + sIvl.GetMin() * crLineVector;
@@ -1779,7 +1779,7 @@ SmStatus SmPlane::GlobalLineIntersect
         if ( cpOptLineInterval )
           { sCurveDomain = *cpOptLineInterval; }
         if ( bFireRay )
-          { sCurveDomain.SetMinMax( 0.0, SM_BIG_DOUBLE ); }
+          { SER( sCurveDomain.SetMinMax( 0.0, SM_BIG_DOUBLE ) ); }
 
         // Method: Plane P(u,v) = P0 + u*Pu + v*Pv, Line L(t) = L0 + t*Lt,
         //  Pu, Pv and Lt are all constants, so set line and plane points equal,
@@ -2304,15 +2304,15 @@ SmBoolean bDebugMe = FALSE;
       // Trim line to Plane boundaries (no trimming infinite planes)
       SmBoolean bThisFoundInterval=TRUE, bOtherFoundInterval=TRUE ;
 
-      if(bThisBounded)  { TrimPlaneLineToPlaneDomain(crPlaneUVDomain, 
+      if(bThisBounded)  { SER( TrimPlaneLineToPlaneDomain(crPlaneUVDomain, 
                                                      sSegStart, sSegEnd, dTol, 
                                                      sSegStart, sSegEnd, 
-                                                     bThisFoundInterval) ;
+                                                     bThisFoundInterval)  );
                         }
-      if(bOtherBounded) { crOtherPlane.TrimPlaneLineToPlaneDomain(crOtherUVDomain, 
+      if(bOtherBounded) { SER( crOtherPlane.TrimPlaneLineToPlaneDomain(crOtherUVDomain, 
                                                                   sSegStart, sSegEnd, dTol, 
                                                                   sSegStart, sSegEnd, 
-                                                                  bOtherFoundInterval) ;
+                                                                  bOtherFoundInterval)  );
                         }
 
       // when line segment doesn't intersect both plane domains
@@ -2410,7 +2410,7 @@ SmStatus SmPlane::TrimPlaneLineToPlaneDomain
 
   // Find thisPlane and otherPlane line/domain intersection interval
   double dTolUV = d3dTolerance / m_vUVScale.GetMaxDimension() ;
-  crPlaneUVDomain.IntersectWithInfiniteLine(sUVStart,sUVVec,bFoundInterval,sPlaneIvl,&dTolUV);
+  SER( crPlaneUVDomain.IntersectWithInfiniteLine(sUVStart,sUVVec,bFoundInterval,sPlaneIvl,&dTolUV) );
   if (!bFoundInterval) 
     { return(SM_SUCCESS) ;
     }
@@ -2418,11 +2418,11 @@ SmStatus SmPlane::TrimPlaneLineToPlaneDomain
   // find the intersection between intersection result and input segment
   // 1. degenerate overlap on ThisIvl max end
   if     (smos_Fabs(sThisIvl.GetMax()-sPlaneIvl.GetMin()) < SM_EFF_ZERO)
-    { sIvl.SetMinMax(sThisIvl.GetMax(),sThisIvl.GetMax()) ;
+    { SER( sIvl.SetMinMax(sThisIvl.GetMax(),sThisIvl.GetMax())  );
     }
   // 2. degenerate overlap on ThisIvl min end
   else if(smos_Fabs(sThisIvl.GetMin()-sPlaneIvl.GetMax()) < SM_EFF_ZERO)
-    { sIvl.SetMinMax(sThisIvl.GetMin(),sThisIvl.GetMin()) ;
+    { SER( sIvl.SetMinMax(sThisIvl.GetMin(),sThisIvl.GetMin())  );
     }
   // 3. intersection of the two intervals      
   else if(SM_ERR == sThisIvl.Intersect(sPlaneIvl,sIvl))
@@ -2460,8 +2460,8 @@ static SmBoolean sm_IsGrazingIntersection( const SmCurve* cpCurve,
   // has any curvature, it's a graze.
   SmVector3d sCurveEval[3];
   SmVector3d sLineEval[2];
-  cpCurve->Evaluate( dCurveParam, 2, FALSE, sCurveEval );
-  cpLine ->Evaluate( dLineParam , 1, FALSE, sLineEval  );
+  if ( cpCurve->Evaluate( dCurveParam, 2, FALSE, sCurveEval ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: curves it cannot evaluate are not shown grazing
+  if ( cpLine ->Evaluate( dLineParam , 1, FALSE, sLineEval  ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: curves it cannot evaluate are not shown grazing
   if ( ! sCurveEval[1].IsParallelTo( sLineEval[1] ) )
     { return FALSE; }
 
@@ -2510,10 +2510,10 @@ SmStatus SmPlane::TrimCurveToPlaneDomain
   double minY = crPlaneUVDomain.GetMin().y ;
   double maxX = crPlaneUVDomain.GetMax().x ;
   double maxY = crPlaneUVDomain.GetMax().y ;
-  sUV.Set(minX, minY) ; EvaluatePoint(sUV, sP00) ;
-  sUV.Set(minX, maxY) ; EvaluatePoint(sUV, sP01) ;
-  sUV.Set(maxX, minY) ; EvaluatePoint(sUV, sP10) ;
-  sUV.Set(maxX, maxY) ; EvaluatePoint(sUV, sP11) ;
+  sUV.Set(minX, minY) ; SER( EvaluatePoint(sUV, sP00)  );
+  sUV.Set(minX, maxY) ; SER( EvaluatePoint(sUV, sP01)  );
+  sUV.Set(maxX, minY) ; SER( EvaluatePoint(sUV, sP10)  );
+  sUV.Set(maxX, maxY) ; SER( EvaluatePoint(sUV, sP11)  );
 
   // boundary line segments - a PlaneSurface domain boundary is a line
   SmExtent1d sLineIvl(0.0,1.0) ;
@@ -2531,8 +2531,8 @@ SmStatus SmPlane::TrimCurveToPlaneDomain
   for(ii=0;ii<4;ii++)
     {
       // Intersect Curve with boundary lines
-      crCurve.GlobalCurveIntersect(sIvl, *sLines[ii], sLines[ii]->GetNaturalInterval(),
-                                   d3dTolerance, sTSolutions) ; 
+      SER( crCurve.GlobalCurveIntersect(sIvl, *sLines[ii], sLines[ii]->GetNaturalInterval(),
+                                   d3dTolerance, sTSolutions)  ); 
 
       // accumulate the solutions - sorted by crCurve parameter
       SmGlobalSolver sGS ;
@@ -2596,8 +2596,8 @@ SmBoolean bDebugMe = FALSE ;
 
       // skip zero length intervals at the curve start, curve end, and PlaneCorner/curve intersections
       SmPoint3d sStartPoint[2], sEndPoint ;
-      crCurve.Evaluate(dSParam, 1, TRUE, sStartPoint) ;
-      crCurve.EvaluatePoint(dEParam, sEndPoint) ;
+      SER( crCurve.Evaluate(dSParam, 1, TRUE, sStartPoint)  );
+      SER( crCurve.EvaluatePoint(dEParam, sEndPoint)  );
       double dDist  = sStartPoint[0].DistanceBetween(sEndPoint) ;
       double dSpeed = sStartPoint[1].Length() ;
       if(   SM_IS_ZERO_TO_TOL(dSParam - dEParam, 10.0 * d3dTolerance/smos_Max(1.0, dSpeed))
@@ -2654,9 +2654,9 @@ SmBoolean bDebugMe = FALSE ;
 
       // drop curve interval midPoint to inside of trimmed plane
       double dT = ( dSParam + dEParam ) / 2.0;
-      crCurve.EvaluatePoint( dT, sMidPoint );
-      DropPointFast(crPlaneUVDomain, SM_SO_NORMALIZE, sMidPoint, NULL, d3dTolerance, NULL,
-                    SM_SR_SINGLE, sTSolutions) ;
+      SER( crCurve.EvaluatePoint( dT, sMidPoint ) );
+      SER( DropPointFast(crPlaneUVDomain, SM_SO_NORMALIZE, sMidPoint, NULL, d3dTolerance, NULL,
+                    SM_SR_SINGLE, sTSolutions)  );
       if ( sTSolutions.GetSize() > 0 )
         {
           // If the point is on the boundary of the domain, use a different curve point.  [B627]
@@ -2665,9 +2665,9 @@ SmBoolean bDebugMe = FALSE ;
             {
               double dFrac = 0.3579;  // Make it not quite the midpoint.
               double dParam = dSParam * dFrac  +  dEParam * (1.0-dFrac);
-              crCurve.EvaluatePoint( dParam, sMidPoint );
-              DropPointFast(crPlaneUVDomain, SM_SO_NORMALIZE, sMidPoint, NULL, d3dTolerance, NULL,
-                            SM_SR_SINGLE, sTSolutions) ;
+              SER( crCurve.EvaluatePoint( dParam, sMidPoint ) );
+              SER( DropPointFast(crPlaneUVDomain, SM_SO_NORMALIZE, sMidPoint, NULL, d3dTolerance, NULL,
+                            SM_SR_SINGLE, sTSolutions)  );
             }
         }
       
@@ -2689,7 +2689,7 @@ SmBoolean bDebugMe = FALSE ;
         {
           // Create a degenerate curve - at the curve point
           SmPoint3d sPoint ;
-          crCurve.EvaluatePoint(sStarts[ii], sPoint) ;
+          SER( crCurve.EvaluatePoint(sStarts[ii], sPoint)  );
           SE(SmBSplineCurve::CreateDegenerateCurve(*m_cpContext, 3,
                                                    sPoint,
                                                    pNewBSP));
@@ -2882,7 +2882,7 @@ SmBoolean SmPlane::IsNurbSurfacePlane
   // arrive here with valid plane
 
   // reparameterize the NURB so that AnalyticSurface->NurbDomain == InputSurface->NurbDomain
-  pPlane->Reparameterize(pTestSurface->GetNaturalUVDomain()) ;
+  if ( pPlane->Reparameterize(pTestSurface->GetNaturalUVDomain())  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a plane it cannot reparameterize onto the input domain is not the input (sClean frees it)
 
   // Copy pTestSurface attributes onto newPlane
   ((SmBSplineSurface *)pTestSurface)->Notify(SM_NO_COPY, pPlane, SM_NO_GET_OWNER(pPlane), SM_NO_GET_OWNER(pTestSurface));
@@ -3156,7 +3156,7 @@ SmBoolean bDebugMe = FALSE ;
   SmVector3d sOrigin = m_vPosition.GetOrigin() ;
   SmVector3d sXAxis  = m_vPosition.GetXAxis() ;
   SmVector3d sYAxis  = m_vPosition.GetYAxis() ;
-  m_vPosition.SetCanonical(sOrigin, sYAxis, sXAxis) ;
+  (void)m_vPosition.SetCanonical(sOrigin, sYAxis, sXAxis) ; // SolidCraft: swapping the axes of a valid frame cannot fail
   
   // transpose the m_vAnalUVDomain
   m_vAnalUVDomain.Transpose() ;
@@ -3440,15 +3440,15 @@ SmBoolean SmPlane::AssertValid
           
       // Domain min corner
       sUV.Set(sNaturalUVDomain.GetUMin(), sNaturalUVDomain.GetVMin()) ;           
-      EvaluatePoint( sUV, sAnalPt );
-      SmBSplineSurface::EvaluatePoint( sUV, sNurbPt );
+      (void)EvaluatePoint( sUV, sAnalPt ); // SolidCraft: a validity check reads what it computed
+      (void)SmBSplineSurface::EvaluatePoint( sUV, sNurbPt ); // SolidCraft: a validity check reads what it computed
       double dScaledZero = SM_EFF_ZERO * (1.0 + sAnalPt.GetMaxDimension()) ;
       bRtn &= SM_ASSERT_VALUE_REPORT(5, SM_LEVEL_0, (sAnalPt.CloserThan(dScaledZero, sNurbPt)), dScaledZero,sAnalPt.DistanceBetween(sNurbPt), _T("")) ;
 
       // Domain max corner
       sUV.Set(sNaturalUVDomain.GetUMax(), sNaturalUVDomain.GetVMax()) ; 
-      EvaluatePoint( sUV, sAnalPt );
-      SmBSplineSurface::EvaluatePoint( sUV, sNurbPt );
+      (void)EvaluatePoint( sUV, sAnalPt ); // SolidCraft: a validity check reads what it computed
+      (void)SmBSplineSurface::EvaluatePoint( sUV, sNurbPt ); // SolidCraft: a validity check reads what it computed
       dScaledZero = SM_EFF_ZERO * (1.0 + sAnalPt.GetMaxDimension()) ;
       bRtn &= SM_ASSERT_VALUE_REPORT(5, SM_LEVEL_0, (sAnalPt.CloserThan(dScaledZero, sNurbPt)), dScaledZero,sAnalPt.DistanceBetween(sNurbPt), _T("")) ;
       if(bRtn == FALSE)
@@ -3578,7 +3578,7 @@ SmStatus SmPlane::WriteToDB
     }
 
   // output the parent
-  SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber) ; 
+  SER( SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber)  ); 
 
   // all done
   return SM_SUCCESS;
@@ -3655,8 +3655,8 @@ SmStatus SmPlane::ReadFromDB
     }
 
   // load the plane
-  pPlane->m_vPosition.SetCanonical(sOrig, sX, sY) ;
-  pPlane->m_vAnalUVDomain.SetMinMax(sAnalMin, sAnalMax) ; 
+  SER( pPlane->m_vPosition.SetCanonical(sOrig, sX, sY)  );
+  SER( pPlane->m_vAnalUVDomain.SetMinMax(sAnalMin, sAnalMax)  ); 
   pPlane->m_vUVScale = sUVScale ;
 
   // read the parent object
@@ -3762,7 +3762,9 @@ SmBSplineCurve *SmPlane::MakeNewPlaneLine
 
   // trim line endPoints to plane UVDomain
   SmPoint3d sT0, sT1 ;
-  TrimPlaneLineToPlaneDomain(crPlaneUVDomain, crStartPt, crEndPt, dTol, sT0, sT1, rbFoundInterval) ;
+  // SolidCraft change: a line it cannot trim to the domain has no interval on the plane
+  if (TrimPlaneLineToPlaneDomain(crPlaneUVDomain, crStartPt, crEndPt, dTol, sT0, sT1, rbFoundInterval) != SM_SUCCESS)
+    { rbFoundInterval = FALSE ; }
 
   // when no part of the line is on the plane
   if(!rbFoundInterval) { return pCrv ; }
@@ -3779,7 +3781,7 @@ SmBSplineCurve *SmPlane::MakeNewPlaneLine
 
   // when line has a finite length
   SmVector3d sLineVec = sT1 - sT0 ;
-  sLineVec.Unitize() ;    
+  (void)sLineVec.Unitize() ; // SolidCraft: a zero vector stays zero
   rbFoundInterval = TRUE ;
   pCrv            = new (crContext) SmLine(sT0, sLineVec, SmExtent1d(0.0,1.0), dLineDist, 3);
 
@@ -3826,12 +3828,12 @@ SmStatus SmPlane::MakeNewPlaneEllipse
   SmPoint2d  sCenterUV ;
   SmVector3d sCircZAxis  = crCircXAxis * crCircYAxis ;
   SmVector3d sCircXPoint = crCircCenter + crCircXAxis ;
-  ProjectPointToUVDomain(crCircCenter, sCenterUV) ;
-  sCircZAxis.Unitize() ;
+  SER( ProjectPointToUVDomain(crCircCenter, sCenterUV)  );
+  (void)sCircZAxis.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // get circle's yAxis using plane normal as the positive direction
   SmVector3d sPlaneNormal, sCircYAxisForPlaneNormal ;
-  EvaluateNormal(sCenterUV, TRUE, TRUE, sPlaneNormal) ;
+  SER( EvaluateNormal(sCenterUV, TRUE, TRUE, sPlaneNormal)  );
   sCircYAxisForPlaneNormal = sPlaneNormal * crCircXAxis ;
 
   // note when circle axis and plane Normal are in opposite directions
@@ -3904,8 +3906,8 @@ SmStatus SmPlane::MakeNewPlaneEllipse
         } // end switch on ii
 
       // set isoLineVec
-      EvaluatePointFast(sPlaneStartUV, sPlaneStartPt) ;
-      EvaluatePointFast(sPlaneEndUV,   sPlaneEndPt) ;
+      SER( EvaluatePointFast(sPlaneStartUV, sPlaneStartPt)  );
+      SER( EvaluatePointFast(sPlaneEndUV,   sPlaneEndPt)  );
       sPlaneVec = sPlaneEndPt - sPlaneStartPt ;
       sBiNormIn = sPlaneNormal * sPlaneVec ;
 
@@ -3914,7 +3916,7 @@ SmStatus SmPlane::MakeNewPlaneEllipse
       double aParams[2] ;
       SmPoint3d sPt ;
       SmPoint2d sPtUV ;
-      smgu_LineCoPlanarEllipseIntersect
+      SER( smgu_LineCoPlanarEllipseIntersect
             (sPlaneStartPt,                // in : plane isocurve start 3d point
              sPlaneVec,                    // in : plane isocurve StartToEnd 3d vector
              crCircCenter,                 // in : circle center point 3d
@@ -3922,7 +3924,7 @@ SmStatus SmPlane::MakeNewPlaneEllipse
              dCircRadiusX,                 // in : circle 3d radius at XAXIS
              sCircYAxisForPlaneNormal,     // in : Y axis for CCW rotations within the plane
              dCircRadiusY,                 // in : circle 3d radius at XAXIS
-             dTol, lXSectCount, aParams) ; // out: line params
+             dTol, lXSectCount, aParams)  ); // out: line params
 
       // when there are solutions
       if(lXSectCount > 0)
@@ -3972,7 +3974,7 @@ SmStatus SmPlane::MakeNewPlaneEllipse
                 sTangentPt = sPt ; 
                 // curve inside when DotProduct(SurfaceBoundaryBinorm,CircleRadiusVec) > 0
                 // Binorm = [-dVecY, dVecX], CircleRadius = sCenterUV - sTangentUV.
-                ProjectPointToUVDomain(sTangentPt, sTangentUV) ;
+                SER( ProjectPointToUVDomain(sTangentPt, sTangentUV)  );
                 bTangentInside =  (( -dVecY * (sCenterUV.x - sTangentUV.x)
                                      +dVecX * (sCenterUV.y - sTangentUV.y)) > 0.0)
                                  ? TRUE
@@ -3985,7 +3987,7 @@ SmStatus SmPlane::MakeNewPlaneEllipse
               if(bInsideLine) 
                 { 
                   sTrimPoints.Add(sPt) ;
-                  ProjectPointToUVDomain(sPt, sPtUV) ;
+                  SER( ProjectPointToUVDomain(sPt, sPtUV)  );
                   sTrimUVs.Add(sPtUV) ;
                   // entering when dot(BiNormInside,EllipseTangent) > 0.0
                   //   (P-C) = Rx*cos(a)*X + Ry*sin(a)*Y
@@ -4010,7 +4012,7 @@ SmStatus SmPlane::MakeNewPlaneEllipse
               if(bInsideLine) 
                 { 
                   sTrimPoints.Add(sPt) ;
-                  ProjectPointToUVDomain(sPt, sPtUV) ;
+                  SER( ProjectPointToUVDomain(sPt, sPtUV)  );
                   sTrimUVs.Add(sPtUV) ;
                   // entering when dot(BiNormInside,EllipseTangent) > 0.0
                   //   (P-C) = Rx*cos(a)*X + Ry*sin(a)*Y
@@ -4082,7 +4084,7 @@ SmBoolean bDebugMe = FALSE ;
       if ( ! bTangent )
         {
           sCirclePt = crCircCenter + dCircRadiusX * crCircXAxis ;
-          ProjectPointToUVDomain(sCirclePt, sCircleUV) ; 
+          SER( ProjectPointToUVDomain(sCirclePt, sCircleUV)  ); 
           bTangentInside = crPlaneUVDomain.ContainsPoint2d(sCircleUV) ;
         }
 
@@ -4171,10 +4173,10 @@ SmBoolean bDebugMe = FALSE ;
       
       // trim arc to input circle domain
       SmTArray<SmExtent1d> sTrimIvls ;
-      crCircAnalIvl.IntersectPeriodic(sArcIvl,     // in : Other interval          
+      SER( crCircAnalIvl.IntersectPeriodic(sArcIvl,     // in : Other interval          
                                       360.0,       // in : period                  
                                       sTrimIvls,   // out: list of intersections   
-                                      TRUE) ;      // in : TRUE = split output intervals at
+                                      TRUE)  );      // in : TRUE = split output intervals at
                                                    //      sCricleExtent boundaries
       // for every trimmed arc interval
       for(jj=0;jj<sTrimIvls.GetSize();jj++)
@@ -4293,11 +4295,11 @@ SmStatus SmPlane::RebuildSTEPFromNURBParameters()
   // Get three corner 3d points, to get position and length scales.
   SmPoint3d sPt00, sPt01, sPt10;
   SmPoint2d sUV = sNurbDomain.Evaluate( 0, 0 );
-  SmBSplineSurface::EvaluatePoint( sUV, sPt00 );
+  SER( SmBSplineSurface::EvaluatePoint( sUV, sPt00 ) );
   sUV = sNurbDomain.Evaluate( 0, 1 );
-  SmBSplineSurface::EvaluatePoint( sUV, sPt01 );
+  SER( SmBSplineSurface::EvaluatePoint( sUV, sPt01 ) );
   sUV = sNurbDomain.Evaluate( 1, 0 );
-  SmBSplineSurface::EvaluatePoint( sUV, sPt10 );
+  SER( SmBSplineSurface::EvaluatePoint( sUV, sPt10 ) );
 
   // Set our scale first: 3d length divided by domain length.
   // U-scale:
@@ -4322,7 +4324,7 @@ SmStatus SmPlane::RebuildSTEPFromNURBParameters()
     + sNurbDomain.GetMin().y * m_vUVScale.y * m_vPosition.GetYAxis();
 
   // The new origin would be the start point minus that vector.
-  m_vPosition.SetCanonical( sPt00 - sStartVec, sUVec, sVVec );
+  SER( m_vPosition.SetCanonical( sPt00 - sStartVec, sUVec, sVVec ) );
 
   // Finally update the domain.
   m_vAnalUVDomain = sNurbDomain;

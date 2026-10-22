@@ -68,7 +68,7 @@ SmTorus::SmTorus
       SmVector3d        sZAxis     = crXAxis * crYAxis;
       SmPoint3d         sCircleCenter(crOrigin + dMajorRadius*crXAxis);
       SmCircle        * pNewCircle = NULL ; 
-      SmCircle::CreateCanonical(*pContext,
+      (void)SmCircle::CreateCanonical(*pContext, // SolidCraft: a constructor cannot report
                                 SmAxis2Placement(sCircleCenter,
                                                  crXAxis,
                                                  crXAxis * crYAxis),
@@ -322,7 +322,7 @@ SmBoolean bDebugMe = FALSE ;
       SmVector3d       sScale(dScale, dScale, dScale) ;
       SmAxis2Placement sMove ;
       sMove.Translate(sMoveVec) ;
-      pOffTorus->m_pGenCurve->Transform(sMove, &sScale) ; 
+      SER( pOffTorus->m_pGenCurve->Transform(sMove, &sScale)  ); 
     }
 
   // rebuild the underlying Nurb Surface
@@ -817,14 +817,14 @@ SmStatus SmTorus::CreateIsoParametricCurve
 
   // get the BSplineCurve          
   SmBSplineCurve *pIsoCurve ;
-  SmBSplineSurface::CreateIsoParametricCurve(crContext, 
+  SER( SmBSplineSurface::CreateIsoParametricCurve(crContext, 
                                              eSurfParam, 
                                              dIsoParameter, 
                                              0.0, 
                                              pIsoCurve, 
                                              pOptDomain,
                                              pOptMaxGap3d,     // out: opt achieved max gap, NULL to ignore, default:[NULL]
-                                             pOptUVIsoCurve) ; // out: opt 2d UVTrimCurve Line (diff parameterization), NULL to ignore, default:[NULL]
+                                             pOptUVIsoCurve)  ); // out: opt 2d UVTrimCurve Line (diff parameterization), NULL to ignore, default:[NULL]
 
   // low work - when curve is degenerate don't bother making a circle
   if(pIsoCurve->IsDegenerate()) { rpNewIsoCurve = pIsoCurve ;
@@ -849,8 +849,8 @@ SmStatus SmTorus::CreateIsoParametricCurve
   // Get IsoCurve Nurb endPoints
   SmPoint3d sNurbMinPoint, sNurbMaxPoint ;
   SmExtent1d sNurbIvl = pIsoCurve->GetNaturalInterval() ;
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sNurbMinPoint) ;
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sNurbMaxPoint) ;
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sNurbMinPoint)  );
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sNurbMaxPoint)  );
   SmVector3d sNurbMinVec = sNurbMinPoint - rTorusOrigin ;
   SmVector3d sNurbMaxVec = sNurbMaxPoint - rTorusOrigin ;
 
@@ -867,7 +867,7 @@ SmStatus SmTorus::CreateIsoParametricCurve
       if(dLength < SM_EFF_ZERO_SQRT)
         {
           SmPoint3d sNurbMidPoint ;
-          pIsoCurve->EvaluatePoint(sNurbIvl.Evaluate(.5), sNurbMidPoint) ;
+          SER( pIsoCurve->EvaluatePoint(sNurbIvl.Evaluate(.5), sNurbMidPoint)  );
           SmVector3d sNurbMidVec = sNurbMidPoint - rTorusOrigin ;
           sXAxis = sTorusZAxis * sNurbMinVec * sTorusZAxis ;
           dLength = sXAxis.Length() ;
@@ -905,8 +905,8 @@ SmStatus SmTorus::CreateIsoParametricCurve
       SmVector3d sCircleZAxis = sXAxis * sYAxis ;
       double dMinAngRad, dMaxAngRad ;
       double dMinAngDeg, dMaxAngDeg ;
-      sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMinVec, dMinAngRad) ;
-      sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMaxVec, dMaxAngRad) ;
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMinVec, dMinAngRad)  );
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMaxVec, dMaxAngRad)  );
       sAnalDomain.ContainsPeriodicValue(dMinAngRad * 180.0 / SM_PI, 360.0, &dMinAngDeg) ; 
       sAnalDomain.ContainsPeriodicValue(dMaxAngRad * 180.0 / SM_PI, 360.0, &dMaxAngDeg) ;
       
@@ -923,8 +923,8 @@ SmStatus SmTorus::CreateIsoParametricCurve
           // set isoCurve analytic domain accounting for m_binside reversals
           if ( smos_Fabs( dMaxAngDeg-dMinAngDeg ) < sAnalDomain.GetLength()-SM_EFF_ZERO )
             { dMaxAngDeg = dMinAngDeg + sAnalDomain.GetLength(); }
-          sCircleAnalDomain.SetMinMax(smos_Min(dMinAngDeg, dMaxAngDeg),
-                                      smos_Max(dMinAngDeg, dMaxAngDeg))  ;
+          SER( sCircleAnalDomain.SetMinMax(smos_Min(dMinAngDeg, dMaxAngDeg),
+                                      smos_Max(dMinAngDeg, dMaxAngDeg))   );
         }
     } // end need to compute interval from angles branch
   
@@ -1036,8 +1036,8 @@ static ULONG lDebugCount = 0 ;
   // evaluate Nurb min/max domain points
   SmExtent2d sNurbUVDomain = pTestSurface->GetNaturalUVDomain();
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
 
   // scale zero value
   double dScaledZero =   dToleranceScale  
@@ -1144,12 +1144,12 @@ static ULONG lDebugCount = 0 ;
   // Get GenCurve angles from each genCurves center point coordinate system
   // project Nurb Min/Max Point to Torus XY plane to get vec to Center of each GenCurve
   SmVector3d sMinPlanePoint, sMaxPlanePoint ;
-  smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint) ;
-  smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint) ;
+  if ( smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
+  if ( smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
   SmVector3d sStartForMinAngle = sMinPlanePoint - sTorusOrigin ; 
   SmVector3d sStartForMaxAngle = sMaxPlanePoint - sTorusOrigin ;
-  sStartForMinAngle.Unitize() ; 
-  sStartForMaxAngle.Unitize() ;
+  (void)sStartForMinAngle.Unitize() ; // SolidCraft: a zero vector stays zero
+  (void)sStartForMaxAngle.Unitize() ; // SolidCraft: a zero vector stays zero
   SmVector3d sMinOrigin = sTorusOrigin + dMajRad * sStartForMinAngle ; 
   SmVector3d sMaxOrigin = sTorusOrigin + dMajRad * sStartForMaxAngle ; 
 
@@ -1213,7 +1213,11 @@ static ULONG lDebugCount = 0 ;
   //  3. make a Torus PolarConverter for rotation angles
 
   // reparameterize the NURB so that AnalyticSurface->NurbDomain == InputSurface->NurbDomain
-  rpTorus->Reparameterize(pTestSurface->GetNaturalUVDomain()) ;
+  // SolidCraft change: a torus it cannot reparameterize onto the input domain is not the input
+  if (rpTorus->Reparameterize(pTestSurface->GetNaturalUVDomain()) != SM_SUCCESS)
+    { delete rpTorus; rpTorus = NULL;
+      return FALSE;
+    }
 
   // obsolete - it's a mistake to introduce tol sized variations between the Nurb and Anal reps by copying the m_pNurb object
   // Copy pTestSurface->m_pNurb into newTorus
@@ -1292,8 +1296,8 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
   // evaluate min/max domain points
   SmExtent2d sNurbUVDomain = GetNaturalUVDomain();
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  SER( EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) );
+  SER( EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) );
 
   // scaled zero value
   double dToleranceScale = 1000.0 ;  // loose because surf is already labeled analytic
@@ -1377,7 +1381,7 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
                            * sCommonVec ;
 
   // Install the origin into pRefFrame.  // [B328]
-  pRefFrame->SetCanonical( sTorusOrigin, pRefFrame->GetXAxisRef(), pRefFrame->GetYAxisRef() );
+  SER( pRefFrame->SetCanonical( sTorusOrigin, pRefFrame->GetXAxisRef(), pRefFrame->GetYAxisRef() ) );
 
   // get torus orientation and size
   SmVector3d sMajorVec = pOtherFrame->GetOriginRef() - pRefFrame->GetOriginRef() ;
@@ -1398,12 +1402,12 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
   // Get GenCurve angles from each genCurves center point coordinate system
   // project Nurb Min/Max Point to Torus XY plane to get vec to Center of each GenCurve
   SmVector3d sMinPlanePoint, sMaxPlanePoint ;
-  smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint) ;
-  smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint) ;
+  SER( smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint)  );
+  SER( smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint)  );
   SmVector3d sStartForMinAngle = sMinPlanePoint - sTorusOrigin ; 
   SmVector3d sStartForMaxAngle = sMaxPlanePoint - sTorusOrigin ;
-  sStartForMinAngle.Unitize() ; 
-  sStartForMaxAngle.Unitize() ;
+  (void)sStartForMinAngle.Unitize() ; // SolidCraft: a zero vector stays zero
+  (void)sStartForMaxAngle.Unitize() ; // SolidCraft: a zero vector stays zero
   SmVector3d sMinOrigin = sTorusOrigin + dMajRad * sStartForMinAngle ; 
   SmVector3d sMaxOrigin = sTorusOrigin + dMajRad * sStartForMaxAngle ; 
 
@@ -1465,7 +1469,7 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
 
   // Set PolarConverter from Nurb midPoint rotation isoParamCurve
   // pRotationIsoCrv will be an SmCircle because isoParam is coming from SmTorus
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
   
   //      SmBSplineCurve *pRotationIsoCrv = NULL ;
   //      m_vPolarConverter.SetPolarConversionPossible(FALSE) ;
@@ -1588,7 +1592,7 @@ SmStatus SmTorus::Transform
   m_dMinorRadius *= dScale;
 
   // finish the call in the parent function
-  SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale) ;
+  SER( SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale)  );
 
   // all done
   return SM_SUCCESS;
@@ -1710,7 +1714,7 @@ SmBoolean SmTorus::AssertValid
   // check temporary genCurve against parameterization of NurbSurface
   const SmContext &crContext = *GetContext() ;
   SmBSplineCurve  *pGenCurve = NULL ;
-  CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ;
+  (void)CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ; // SolidCraft: a validity check reads what it computed
   SmObjDelete sClean(pGenCurve) ;
 
   // GenCurve must have same parameterization as Surface in GenCurve direction
