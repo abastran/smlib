@@ -440,7 +440,21 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   only one of the two faces moved (a boss wall beside its base round, one piece of a split
   face), the drop crossed the gap, the failure was ignored, and the body came back with an edge
   as loose as the gap. A drop farther than ten times the edge's tolerance now fails the local
-  operation (offset and shell, which close such gaps later, are unchanged).
+  operation (offset and shell, which close such gaps later, are unchanged), except at a step
+  (next entry).
+- **A step where one of two tangent faces moved along its normal** (`SmOffsetGeometryCreation.cpp`,
+  `EdgeuseOffset`, `IsStepAcrossEdge`, `CreateStepWall`; `SmOffsetExecutive.cpp`,
+  `CloseLoopGaps`): one piece of a split face moved up or down stays parallel to the piece that
+  stayed, so no extension makes them meet and the local operation failed. Where the gap between
+  the two rebuilt edges runs along both faces' normals everywhere, the faces lie one step apart
+  and the operation now builds the ruled wall between the edges. A face at the wall's end had
+  one vertex between its edge along the moved face, which took the vertex along, and its edge
+  along the face that stayed, which still ended where it was: that edge gets the straight
+  segment to the vertex (it must lie on the face's surface) or, for a step down, is trimmed to
+  it, and edges running past the wall's corners are split there, so the stitch closes the body.
+  A 40 x 30 x 10 block with its top split at x = 20, the piece x < 20 up by 2: 8 faces, 13200.
+  A face that turns instead (a draft) or leaves a round (a boss wall moved off its base round)
+  still fails.
 - **An inward shell with no cavity** (`SmOffsetExecutive.cpp`, `ShellBrep`): an inward wall at
   or past the body's inradius leaves an empty offset (or one that is no closed solid), and the
   difference then handed the body back unhollowed as a success. Such a shell now fails

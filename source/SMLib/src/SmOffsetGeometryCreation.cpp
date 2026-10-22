@@ -2266,6 +2266,128 @@ SmBoolean SmOffsetGeometryCreation::HaveTangentGaps
 } // end SmOffsetGeometryCreation::HaveTangentGaps
 
 /*******************************************************************//**
+PURPOSE: Whether the faces of two offset edgeuses of one tangent edge stayed
+   parallel across it but apart.
+
+NOTES: When a local operation moves only one of two tangent faces along its
+   normal (one piece of a split face, a wall beside its base round), the two
+   faces stay tangent-parallel at the edge, one step apart: everywhere along
+   the edge the gap between the two offset edges runs along both faces'
+   normals. No extension of either face meets the other there; a wall between
+   the two edges closes the body. Samples the first edgeuse along its length,
+   finds the nearest point of the other's edge, and requires the gap to be
+   wider than the edges meet within and to run along both normals within that
+   distance. A face that turned instead (a draft about a hinge) leaves a gap
+   off its normal and is no step.
+***********************************************************************/
+SmStatus SmOffsetGeometryCreation::IsStepAcrossEdge
+  (SmEdgeuse * pOffsetEdgeuse,       // in : offset edgeuse on one face
+   SmEdgeuse * pOtherOffsetEdgeuse,  // in : offset edgeuse of the same original edge on the other face
+   SmBoolean & rbStep)               // out: TRUE = the faces lie apart along their normals everywhere
+  const
+{
+  rbStep = FALSE;
+  NER(pOffsetEdgeuse);
+  NER(pOtherOffsetEdgeuse);
+  SmEdge *pEdge      = pOffsetEdgeuse->GetEdge();      NER(pEdge);
+  SmEdge *pOtherEdge = pOtherOffsetEdgeuse->GetEdge(); NER(pOtherEdge);
+  SmFace *pFace      = pOffsetEdgeuse->GetFace();      NER(pFace);
+  SmFace *pOtherFace = pOtherOffsetEdgeuse->GetFace(); NER(pOtherFace);
+  SmSurface *pSurf      = pFace->GetSurface();      NER(pSurf);
+  SmSurface *pOtherSurf = pOtherFace->GetSurface(); NER(pOtherSurf);
+  if (pEdge == pOtherEdge)
+    { return SM_SUCCESS; }
+
+  // The distance the two edges meet within (as ExtendTrimEdges judges a drop).
+  double dMeetTol = 10.0 * smos_Max( smos_Max( (double)pEdge->GetTolerance(), (double)pOtherEdge->GetTolerance() ), m_dThisApproxTol3d );
+  SmExtent1d sOtherIvl = pOtherEdge->GetInterval();
+  if (!(sOtherIvl.GetLength() > 0.0))
+    { return SM_SUCCESS; }
+
+  const ULONG lNumSamples = 10;
+  for (ULONG ii=0; ii<=lNumSamples; ii++)
+    {
+      double dT = (double)ii / (double)lNumSamples;
+      SmPoint3d sPnt, sUV;
+      SER(pOffsetEdgeuse->NormalizedEvaluate(dT, FALSE, sPnt));
+      SER(pOffsetEdgeuse->NormalizedEvaluate(dT, TRUE,  sUV));
+
+      SmBoolean bFound = FALSE;
+      double dParam = 0.0, dDist = 0.0;
+      SER(pOtherEdge->ClosestPoint(sPnt, bFound, dParam, dDist));
+      if (!bFound || !(dDist > dMeetTol))
+        { return SM_SUCCESS; }
+      double dOtherT = (dParam - sOtherIvl.GetMin()) / sOtherIvl.GetLength();
+      if (pOtherOffsetEdgeuse->GetOrientation() == SM_OT_OPPOSITE)
+        { dOtherT = 1.0 - dOtherT; }
+      dOtherT = smos_Min(1.0, smos_Max(0.0, dOtherT));
+      SmPoint3d sOtherPnt, sOtherUV;
+      SER(pOtherOffsetEdgeuse->NormalizedEvaluate(dOtherT, FALSE, sOtherPnt));
+      SER(pOtherOffsetEdgeuse->NormalizedEvaluate(dOtherT, TRUE,  sOtherUV));
+
+      SmVector3d sNormal, sOtherNormal;
+      SER(pSurf->EvaluateNormal(SmPoint2d(sUV.x, sUV.y), FALSE, FALSE, sNormal));
+      SER(pOtherSurf->EvaluateNormal(SmPoint2d(sOtherUV.x, sOtherUV.y), FALSE, FALSE, sOtherNormal));
+
+      // The gap runs along both unit normals: what lies across each is within the meet distance.
+      SmVector3d sGap = sOtherPnt - sPnt;
+      if (   !(sGap.ProjectToPlane(sNormal).Length()      <= dMeetTol)
+          || !(sGap.ProjectToPlane(sOtherNormal).Length() <= dMeetTol))
+        { return SM_SUCCESS; }
+    } // end iter every sample along the edge
+
+  rbStep = TRUE;
+  return SM_SUCCESS;
+
+} // end SmOffsetGeometryCreation::IsStepAcrossEdge
+
+/*******************************************************************//**
+PURPOSE: The ruled wall between two offset edgeuses of one edge whose
+   faces lie apart (IsStepAcrossEdge).
+
+NOTES: The rails are the two edges' curves; the second runs the way the
+   first does (its edgeuse runs the other way round its face).
+***********************************************************************/
+SmStatus SmOffsetGeometryCreation::CreateStepWall
+  (const SmContext & crContext,            // in : context for new object construction
+   SmEdgeuse       * pOffsetEdgeuse,       // in : offset edgeuse on one face
+   SmEdgeuse       * pOtherOffsetEdgeuse,  // in : offset edgeuse of the same original edge on the other face
+   SmSurface      *& rpWall)               // out: the ruled wall
+  const
+{
+  rpWall = NULL;
+  NER(pOffsetEdgeuse);
+  NER(pOtherOffsetEdgeuse);
+  SmBSplineCurve *pRail1 = pOffsetEdgeuse->GetEdge()->CreateTrimmedNURBSCurve(crContext);
+  SmObjDelete sClean1(pRail1);
+  SmBSplineCurve *pRail2 = pOtherOffsetEdgeuse->GetEdge()->CreateTrimmedNURBSCurve(crContext);
+  SmObjDelete sClean2(pRail2);
+  NER(pRail1);
+  NER(pRail2);
+
+  SmExtent1d sIvl1 = pRail1->GetNaturalInterval();
+  SmExtent1d sIvl2 = pRail2->GetNaturalInterval();
+  SmPoint3d sStart1, sEnd1, sStart2, sEnd2;
+  SER(pRail1->EvaluatePoint(sIvl1.GetMin(), sStart1));
+  SER(pRail1->EvaluatePoint(sIvl1.GetMax(), sEnd1));
+  SER(pRail2->EvaluatePoint(sIvl2.GetMin(), sStart2));
+  SER(pRail2->EvaluatePoint(sIvl2.GetMax(), sEnd2));
+  if (  sStart1.DistanceBetween(sEnd2)   + sEnd1.DistanceBetween(sStart2)
+      < sStart1.DistanceBetween(sStart2) + sEnd1.DistanceBetween(sEnd2))
+    {
+      SmExtent1d sNewIvl;
+      SER(pRail2->ReverseParameterization(sIvl2, sNewIvl));
+    }
+
+  SmBSplineSurface *pWall = NULL;
+  SER(SmBSplineSurface::CreateRuledSurface(crContext, *pRail1, *pRail2, SM_SP_U, pWall));
+  NER(pWall);
+  rpWall = pWall;
+  return SM_SUCCESS;
+
+} // end SmOffsetGeometryCreation::CreateStepWall
+
+/*******************************************************************//**
 PURPOSE: Create the offset surface corresponding to an edgeuse.
 
 NOTES: 
@@ -2336,6 +2458,23 @@ static ULONG lDebugCount = 0 ;
 
       double    dTanTolDeg = cpOffsetExecutive->GetTangencyTolDegrees();
       SmBoolean bTanSec    = cpOriginalEdgeuse->IsTangentSector(dTanTolDeg);
+
+      // A local operation that moved only one of two tangent faces along its normal leaves
+      // them parallel, one step apart: a wall between their edges closes the body.
+      if (   bTanSec
+          && !bLamina
+          && cpOffsetExecutive->GetOffsetOperation() == SM_OO_LOCAL_OPERATION
+          && cpOffsetEdgeuse      != NULL
+          && cpOtherOffsetEdgeuse != NULL )
+        {
+          SmBoolean bStep = FALSE;
+          SER(IsStepAcrossEdge(cpOffsetEdgeuse, cpOtherOffsetEdgeuse, bStep));
+          if (bStep)
+            {
+              SER(CreateStepWall(crContext, cpOffsetEdgeuse, cpOtherOffsetEdgeuse, rpNewSurface));
+              return SM_SUCCESS;
+            }
+        }
 
       if ( bTanSec  ||  bLamina )
         {

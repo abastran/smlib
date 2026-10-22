@@ -227,6 +227,10 @@ public:
   // Internals:
 
   SmStatus BuildSideWallOfEdgeuse(SmEdgeuse *pEdgeuse);
+  // Close the loop gaps a local operation's steps leave: where consecutive edgeuses of an
+  // offset face no longer meet at their vertex, the straight edge between their ends.
+  SmStatus CloseLoopGaps();
+  SmStatus CloseLoopGap(SmFace *pFace, SmEdgeuse *pEdgeuse, SmBoolean bAtStart, const SmPoint3d &crVertexPoint, double dTol);
 
   virtual SmStatus BuildOffsetOfEdgeuses(SmEdgeuse *pEdgeuse,
                                          SmEdgeuse *pOtherEdgeuse,

@@ -1634,6 +1634,10 @@ SmBoolean bDebugMe8 = FALSE;
     } // end iter every offset edgeuse
 
 
+  // A local operation has no merge to close what a step wall leaves open at its ends.
+  if (m_eOffsetOperation == SM_OO_LOCAL_OPERATION)
+    { SER(CloseLoopGaps()); }
+
   // The offset of an edge along a collapsed face's end (where the round meets the face across its
   // end) now runs from the corner where the mated faces meet back to that corner: squeeze it out.
   for (ii=0; ii<sOffsetEdgeuses.GetSize(); ii++)
@@ -3006,6 +3010,204 @@ SmBoolean bDebugMe2 = FALSE;
     return SM_SUCCESS;
 
 } // end BuildSideWallOfEdgeuse
+
+/*******************************************************************//**
+PURPOSE: Close the gaps a local operation's step walls leave in the loops
+   of the faces at the walls' ends.
+
+NOTES: A face beside a step (a side wall of the block whose top piece moved)
+   had one vertex where its edge along the moved face met its edge along the
+   face that stayed. The moved edge took that vertex along (ReplaceEdgeCurves
+   moves an edge's vertices to its new ends), and the other edge still starts
+   where it did: the loop's consecutive edgeuses no longer meet at their
+   vertex. Each such gap gets the straight edge from the vertex to the edge
+   end left behind, which is where the step wall's end lies, and which the
+   stitch then joins to it. A gap whose straight edge leaves the face's surface
+   is no step end: the operation fails.
+***********************************************************************/
+SmStatus SmOffsetExecutive::CloseLoopGaps()
+{
+  NER(m_pOffsetBrep);
+  double dApproxTol = m_rGeometryCreation.GetThisApproxTol3d();
+  SmTArray<SmFace*> sFaces;
+  m_pOffsetBrep->GetFaces(sFaces);
+  for (ULONG ii=0; ii<sFaces.GetSize(); ii++)
+    {
+      SmFace *pFace = sFaces[ii];
+      // Each gap closed changes the loop: look again until none is left (each gap is closed once).
+      ULONG lGuard = 0;
+      SmBoolean bClosed = TRUE;
+      while (bClosed)
+        {
+          bClosed = FALSE;
+          if (++lGuard > 64) { SER(SM_ERR); }
+          SmFaceuse *pFU = pFace->GetUpwardFaceuse(); NER(pFU);
+          SmTArray<SmLoopuse*> sLoopuses;
+          pFU->GetLoopuses(sLoopuses);
+          for (ULONG jj=0; jj<sLoopuses.GetSize() && !bClosed; jj++)
+            {
+              SmTArray<SmEdgeuse*> sEUs;
+              sLoopuses[jj]->GetEdgeuses(sEUs);
+              ULONG lNum = sEUs.GetSize();
+              for (ULONG kk=0; kk<lNum && !bClosed; kk++)
+                {
+                  SmEdgeuse *pEU   = sEUs[kk];
+                  SmEdgeuse *pNext = sEUs[(kk+1) % lNum];
+                  if (pEU == pNext) { continue; }
+                  SmVertex *pV = pNext->GetVertexuse()->GetVertex();
+                  if (pEU->GetMate()->GetVertexuse()->GetVertex() != pV) { continue; }
+                  double dTol = 10.0 * smos_Max( smos_Max( (double)pEU->GetEdge()->GetTolerance(), (double)pNext->GetEdge()->GetTolerance() ), dApproxTol );
+                  SmPoint3d sEnd, sStart;
+                  SER(pEU->NormalizedEvaluate(1.0, FALSE, sEnd));
+                  SER(pNext->NormalizedEvaluate(0.0, FALSE, sStart));
+                  if (sEnd.DistanceBetween(sStart) <= dTol) { continue; }
+                  SmPoint3d sV = pV->GetPoint();
+                  if (sEnd.DistanceBetween(sV) <= dTol && sStart.DistanceBetween(sV) > dTol)
+                    { SER(CloseLoopGap(pFace, pNext, TRUE, sV, dTol)); }
+                  else if (sStart.DistanceBetween(sV) <= dTol && sEnd.DistanceBetween(sV) > dTol)
+                    { SER(CloseLoopGap(pFace, pEU, FALSE, sV, dTol)); }
+                  else
+                    { SER(SM_ERR); }
+                  bClosed = TRUE;
+                } // end iter every pair of consecutive edgeuses
+            } // end iter every loop
+        } // end until no gap is left
+    } // end iter every offset face
+
+  // A step wall's corners where an edge of another face runs past them (the edge between a
+  // side face's pieces, one beside the moved face and trimmed to the step, one beside the face
+  // that stayed): that edge is split there, so that each part meets its own neighbour. (In a
+  // local operation the only cap faces are step walls.)
+  SmTArray<SmFace*> sWalls;
+  m_vEToF.GetAllSeconds(sWalls);
+  SmTArray<SmVertex*> sCorners;
+  for (ULONG ii=0; ii<sWalls.GetSize(); ii++)
+    {
+      SmTArray<SmVertex*> sV;
+      sWalls[ii]->GetVertices(sV);
+      for (ULONG jj=0; jj<sV.GetSize(); jj++) { sCorners.AddUnique(sV[jj]); }
+    }
+  for (ULONG ii=0; ii<sCorners.GetSize(); ii++)
+    {
+      SmPoint3d sP = sCorners[ii]->GetPoint();
+      SmTArray<SmEdge*> sEdges;
+      m_pOffsetBrep->GetEdges(sEdges);
+      for (ULONG jj=0; jj<sEdges.GetSize(); jj++)
+        {
+          SmEdge *pE = sEdges[jj];
+          double dTol = 10.0 * smos_Max( (double)pE->GetTolerance(), dApproxTol );
+          if (   pE->GetStartVertex()->GetPoint().DistanceBetween(sP) <= dTol
+              || pE->GetEndVertex()->GetPoint().DistanceBetween(sP)   <= dTol)
+            { continue; }
+          SmBoolean bFound = FALSE;
+          double dParam = 0.0, dDist = 0.0;
+          SER(pE->ClosestPoint(sP, bFound, dParam, dDist));
+          if (!bFound || !(dDist <= dTol)) { continue; }
+          SmEdge   *pE1 = NULL;
+          SmEdge   *pE2 = NULL;
+          SmVertex *pNewV = NULL;
+          SER(m_pOffsetBrep->MakeVertexSplitEdge(pE, dParam, pE1, pE2, pNewV));
+        } // end iter every edge
+    } // end iter every step wall corner
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::CloseLoopGaps
+
+/*******************************************************************//**
+PURPOSE: Close one loop gap: pEdgeuse's start (bAtStart) or end lies away
+   from its vertex at crVertexPoint. The edge's curve gets the straight
+   segment from the vertex to that end joined on, and is split where they
+   join: the segment becomes an edge of its own.
+***********************************************************************/
+SmStatus SmOffsetExecutive::CloseLoopGap
+  (SmFace          * pFace,          // in : face whose loop has the gap
+   SmEdgeuse       * pEdgeuse,       // in : edgeuse whose end lies away from its vertex
+   SmBoolean         bAtStart,       // in : TRUE = its start, FALSE = its end
+   const SmPoint3d & crVertexPoint,  // in : where its vertex is
+   double            dTol)           // in : distance within which points meet
+{
+  NER(pFace);
+  NER(pEdgeuse);
+  SmEdge    *pEdge = pEdgeuse->GetEdge(); NER(pEdge);
+  SmSurface *pSurf = pFace->GetSurface(); NER(pSurf);
+
+  // The edge curve's end at the gap: its start where the edgeuse runs with it and starts there.
+  SmBoolean bSame   = (pEdgeuse->GetOrientation() == SM_OT_SAME);
+  ULONG     lCrvEnd = (bAtStart == bSame) ? 0 : 1;
+  SmBSplineCurve *pCurve = pEdge->CreateTrimmedNURBSCurve(m_crContext);
+  SmObjDelete sCleanCurve(pCurve);
+  NER(pCurve);
+  SmExtent1d sIvl = pCurve->GetNaturalInterval();
+  SmPoint3d  sGapEnd;
+  SER(pCurve->EvaluatePoint(lCrvEnd == 0 ? sIvl.GetMin() : sIvl.GetMax(), sGapEnd));
+
+  // A vertex that moved along the edge into it (a step down: the moved face's edge pulled the
+  // corner in along this one): the edge is trimmed to it.
+  {
+    SmSolution      sTData[16];
+    SmSolutionArray sTSolutions(16, sTData);
+    SER(pCurve->GlobalPointSolve(sIvl, SM_SO_MINIMIZE, crVertexPoint, dTol, NULL, NULL, SM_SR_SINGLE, sTSolutions));
+    if (sTSolutions.GetSize() > 0 && sTSolutions[0].m_vStart.m_dSolutionValue <= dTol)
+      {
+        double dAt = sTSolutions[0].m_vStart[0];
+        SmExtent1d sKeep = (lCrvEnd == 0) ? SmExtent1d(dAt, sIvl.GetMax()) : SmExtent1d(sIvl.GetMin(), dAt);
+        if (!(sKeep.GetLength() > SM_EFF_ZERO * (1.0 + sIvl.GetMaxDimension())))
+          { SER(SM_ERR); }
+        SER(pCurve->Trim(sKeep));
+        sCleanCurve.Clear();
+        pEdge->SetCurve(pCurve, TRUE);
+        pCurve->SetOwner(pEdge);
+        pEdge->SetInterval(pCurve->GetNaturalInterval());
+        return SM_SUCCESS;
+      }
+  }
+
+  // The straight segment must lie on the face's surface (as extended for the offset: the face's
+  // own surface ends at its old boundary).
+  SmSurface  *pExtSurf = NULL;
+  SmExtent2d  sExtDomain;
+  SER(GetCreateExtendedSurface(pSurf, sExtDomain, pExtSurf));
+  NER(pExtSurf);
+  SmSolution      sData[16];
+  SmSolutionArray sSolutions(16, sData);
+  for (ULONG ii=1; ii<4; ii++)
+    {
+      double dW = ii / 4.0;
+      SmPoint3d sPnt = crVertexPoint + (sGapEnd - crVertexPoint) * dW;
+      SER(pExtSurf->GlobalPointSolve(sExtDomain, SM_SO_MINIMIZE, sPnt, dTol, NULL, SM_SR_SINGLE, sSolutions));
+      if (sSolutions.GetSize() < 1 || !(sSolutions[0].m_vStart.m_dSolutionValue <= dTol))
+        { SER(SM_ERR); }
+    }
+
+  // The segment, from the vertex to the gap end, joined at the gap end.
+  SmBSplineCurve *pSegment = NULL;
+  SER(SmBSplineCurve::CreateLineSegment(m_crContext, 3, crVertexPoint, sGapEnd, pSegment));
+  SmObjDelete sCleanSegment(pSegment);
+  NER(pSegment);
+  SER(pCurve->JoinWith(lCrvEnd, pSegment, 1, &dTol));
+
+  // Where they join: the parameter of the gap end on the joined curve.
+  SmExtent1d sJoined = pCurve->GetNaturalInterval();
+  SmSolution      sCData[16];
+  SmSolutionArray sCSolutions(16, sCData);
+  SER(pCurve->GlobalPointSolve(sJoined, SM_SO_MINIMIZE, sGapEnd, dTol, NULL, NULL, SM_SR_SINGLE, sCSolutions));
+  if (sCSolutions.GetSize() < 1)
+    { SER(SM_ERR); }
+  double dJoint = sCSolutions[0].m_vStart[0];
+
+  // The edge takes the joined curve (its UV trims are rebuilt from it) and is split at the joint.
+  sCleanCurve.Clear();
+  pEdge->SetCurve(pCurve, TRUE);
+  pCurve->SetOwner(pEdge);
+  pEdge->SetInterval(sJoined);
+  SmEdge   *pNewEdge1 = NULL;
+  SmEdge   *pNewEdge2 = NULL;
+  SmVertex *pNewVertex = NULL;
+  SER(m_pOffsetBrep->MakeVertexSplitEdge(pEdge, dJoint, pNewEdge1, pNewEdge2, pNewVertex));
+  NER(pNewVertex);
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::CloseLoopGap
 
 /*******************************************************************//**
 PURPOSE: Build the offset of an edgeuse.

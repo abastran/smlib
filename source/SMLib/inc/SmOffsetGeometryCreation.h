@@ -152,6 +152,19 @@ public:
                              SmEdgeuse         * pOtherOffsetEdgeuse,
                              SmMarkType          eMarkType) ;       // in : uses without incrementing eMarkType value
 
+    // TRUE when the faces of two offset edgeuses of a tangent edge (only one of them moved)
+    // stayed parallel across it but apart: everywhere along the edge they lie apart along both
+    // faces' normals, so no extension makes them meet and a wall between the edges closes them.
+    SmStatus IsStepAcrossEdge(SmEdgeuse * pOffsetEdgeuse,
+                              SmEdgeuse * pOtherOffsetEdgeuse,
+                              SmBoolean & rbStep) const;
+
+    // The ruled wall between two offset edgeuses that lie apart (IsStepAcrossEdge).
+    SmStatus CreateStepWall(const SmContext & crContext,
+                            SmEdgeuse       * pOffsetEdgeuse,
+                            SmEdgeuse       * pOtherOffsetEdgeuse,
+                            SmSurface      *& rpWall) const;
+
     SmBoolean HaveTangentGaps(ULONG lNumSamples,
                               SmEdgeuse * cpOffsetEdgeuse,
                               SmEdgeuse * cpOtherOffsetEdgeuse);
