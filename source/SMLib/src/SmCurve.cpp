@@ -198,7 +198,9 @@ static SmStatus sm_RefineCCSolutions( SmSolutionArray &rSolutions )
               if ( bReverse1 ) { dFrac1 = 1.0 - dFrac1; }
               if ( bReverse2 ) { dFrac2 = 1.0 - dFrac2; }
 
-              if ( bHaveFracs && smos_Fabs( dFrac1 ) < dShiftLimit  &&  smos_Fabs( dFrac2 ) < dShiftLimit )
+              // SolidCraft: the end's shift is measured from the end of the range (fraction 1);
+              // measured from its start, as the start's is, no forward end was ever refined
+              if ( bHaveFracs && smos_Fabs( 1.0 - dFrac1 ) < dShiftLimit  &&  smos_Fabs( 1.0 - dFrac2 ) < dShiftLimit )
               {
                   rSol.m_vEnd.m_dSolutionValue  = dDev;
                   rSol.m_vEnd.m_adParameters[0] = dNew1;
