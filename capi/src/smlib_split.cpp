@@ -84,6 +84,40 @@ std::string list(const int64_t *v, int64_t n)
     return s + (n > 16 ? ",...]" : "]");
 }
 
+// Whether the plane `tool` reaches over all of `box` (each corner's foot on the plane lies in the
+// tool's parameter box): then its section with a face in the box is the infinite plane's.
+bool plane_covers(const smlib_surface &tool, const SmExtent3d &box, double tol)
+{
+    const SmPoint2d lo = tool.domain.GetMin(), hi = tool.domain.GetMax();
+    SmPoint3d o, pu, pv;
+    if (tool.s->EvaluatePoint(lo, o) != SM_SUCCESS || tool.s->EvaluatePoint(SmPoint2d(hi.x, lo.y), pu) != SM_SUCCESS ||
+        tool.s->EvaluatePoint(SmPoint2d(lo.x, hi.y), pv) != SM_SUCCESS)
+    {
+        return false;
+    }
+    // The plane is affine in (u, v): P = o + (u - u0) X + (v - v0) Y.
+    const SmVector3d X = (pu - o) / (hi.x - lo.x), Y = (pv - o) / (hi.y - lo.y);
+    const double a = X.Dot(X), b = X.Dot(Y), c = Y.Dot(Y), det = a * c - b * b;
+    if (!(std::fabs(det) > 0.0))
+    {
+        return false;
+    }
+    const SmPoint3d m = box.GetMin(), M = box.GetMax();
+    for (int k = 0; k < 8; ++k)
+    {
+        const SmPoint3d q((k & 1) ? M.x : m.x, (k & 2) ? M.y : m.y, (k & 4) ? M.z : m.z);
+        const SmVector3d r = q - o;
+        const double g0 = X.Dot(r), g1 = Y.Dot(r);
+        const double u = lo.x + (c * g0 - b * g1) / det, v = lo.y + (a * g1 - b * g0) / det;
+        const double su = tol / std::sqrt(a), sv = tol / std::sqrt(c);
+        if (!(u >= lo.x - su && u <= hi.x + su && v >= lo.y - sv && v <= hi.y + sv))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Cuts `face` where `tool` meets it; the faces it was split into besides itself go to `made`.
 int32_t cut_face(SmBrep &brep, SmFace *face, const smlib_surface &tool, double tol, SmTArray<SmFace *> &made)
 {
@@ -98,20 +132,22 @@ int32_t cut_face(SmBrep &brep, SmFace *face, const smlib_surface &tool, double t
     Curves cs;
     SmPoint3d at;
     SmVector3d normal;
-    if (tool.s->IsKindOf(SmPlane_TYPE) && tool.s->IsPlanar(SM_EFF_ZERO, &at, &normal) == TRUE)
+    SmExtent3d box;
+    int32_t bs = status(face->CalculateBoundingBox(box));
+    if (bs != SMLIB_OK)
+    {
+        return bs;
+    }
+    // A plane reaching over the face sections it exactly (SmPlaneCutter's way); a plane strip,
+    // like any other tool, is intersected over its own domain.
+    if (tool.s->IsKindOf(SmPlane_TYPE) && tool.s->IsPlanar(SM_EFF_ZERO, &at, &normal) == TRUE && plane_covers(tool, box, tol))
     {
         // As SmPlaneCutter: a face far from the plane is not sectioned.
-        SmExtent3d box;
-        int32_t s = status(face->CalculateBoundingBox(box));
-        if (s != SMLIB_OK)
-        {
-            return s;
-        }
         if (std::fabs(box.DistanceToPlane(at, normal)) > tol)
         {
             return SMLIB_OK;
         }
-        s = status(surface->CreatePlanarSectionCurves(ctx, domain, at, normal, &approx, NULL, &cs.c3, &cs.uv1));
+        int32_t s = status(surface->CreatePlanarSectionCurves(ctx, domain, at, normal, &approx, NULL, &cs.c3, &cs.uv1));
         if (s != SMLIB_OK)
         {
             return s;
