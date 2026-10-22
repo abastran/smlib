@@ -230,6 +230,18 @@ the parameter step that crosses `distance`, which must be the same all along the
 (`SMLIB_ERR_NOT_EXACT` otherwise, or where the box would pass a pole or wrap round); only a plane
 takes the G1 and G2 modes, as itself.
 
+## Untrim
+
+`smlib_untrim_face(body, point, tol, holes, n_holes, outer, in_place, &out)` restores the face
+nearest `point` towards its surface. Holes picked by points (or all, `n_holes` < 0) are deleted
+with `SmFace::DeleteInnerLoop` on a copy where their edges are lamina. With `outer` the face is
+rebuilt over its surface's parameter box (`SmBrep::CreateFaceFromSurface`: a free-form surface's
+own box, an analytic one's the tight box of its outer loop's UV trims) and each hole kept is
+rebuilt in it from its own edges (`MakeVertexLoop`, `MakeEdgeInFace`, the disc it splits off
+deleted, as `CreateFacesWithCurves` does). The face alone comes back, or with `in_place` the body
+with the face replaced; the new face and edges carry the attributes (history tags) of the ones
+they stand for.
+
 ## Diagnostics
 
 - **Log:** `smlib_set_log` receives one line per call, written after it returns. Example:
