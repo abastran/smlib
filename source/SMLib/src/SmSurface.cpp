@@ -12750,10 +12750,10 @@ ULONG SmSurface::GetFlatCorners              // rtn: SM_FC_NONE or orof: SM_FC_U
     {
       pFlatCornerPoints->SetSize(4) ;
       // SolidCraft: a corner point that can't be evaluated is left uninitialised
-      if(lRtn &= SM_FC_UMIN_VMIN) { if ( EvaluatePoint(sUMinVMin, (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX].SetUninitialized() ; } }
-      if(lRtn &= SM_FC_UMIN_VMAX) { if ( EvaluatePoint(sUMinVMax, (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX].SetUninitialized() ; } }
-      if(lRtn &= SM_FC_UMAX_VMIN) { if ( EvaluatePoint(sUMaxVMin, (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX].SetUninitialized() ; } }
-      if(lRtn &= SM_FC_UMAX_VMAX) { if ( EvaluatePoint(sUMaxVMax, (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX].SetUninitialized() ; } }
+      if(lRtn & SM_FC_UMIN_VMIN) { if ( EvaluatePoint(sUMinVMin, (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMIN_VMIN_INDEX].SetUninitialized() ; } }
+      if(lRtn & SM_FC_UMIN_VMAX) { if ( EvaluatePoint(sUMinVMax, (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMIN_VMAX_INDEX].SetUninitialized() ; } }
+      if(lRtn & SM_FC_UMAX_VMIN) { if ( EvaluatePoint(sUMaxVMin, (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMAX_VMIN_INDEX].SetUninitialized() ; } }
+      if(lRtn & SM_FC_UMAX_VMAX) { if ( EvaluatePoint(sUMaxVMax, (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX]) != SM_SUCCESS ) { (*pFlatCornerPoints)[SM_FC_UMAX_VMAX_INDEX].SetUninitialized() ; } }
     }
 
   // all done
