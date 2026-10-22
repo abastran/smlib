@@ -155,8 +155,7 @@ bool span_of(SmLoop *outer, SmExtent2d &box)
     {
         return false;
     }
-    box.SetMinMax(SmPoint2d(lo[0], lo[1]), SmPoint2d(hi[0], hi[1]));
-    return true;
+    return box.SetMinMax(SmPoint2d(lo[0], lo[1]), SmPoint2d(hi[0], hi[1])) == SM_SUCCESS;
 }
 
 // One edge of a hole to rebuild: its edge, how the loop runs along it, and its ends as the loop
