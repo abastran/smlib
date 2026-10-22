@@ -694,3 +694,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   now a coincidence only where the separation keeps one side; where it points to opposite sides at
   the range's ends, the answer is the crossing a curve/curve intersection finds there. Curves
   that coincide (equal circles, the separation numeric zero) still give their range.
+- **A boolean keeps the second operand's UV trims** (`SmMerge.cpp`, `SmMerge::MakeFaceuse`, new
+  `sm_CopyUVTrimCurvesOfOtherFace`): the faces a boolean takes over from its second operand are
+  rebuilt in the first by `SmBrep::MakeFace`, which was called without the operand's trims
+  (`SmBrep.h`: `cpOptUVCurves`), so every such edgeuse came out with none; SMLib then made the ones
+  it needed by projecting the edge (`SmEdgeuse::GetOrCreateUVTrimCurve`), and the rest stayed
+  missing. On a thread's groove cut from a shaft the two long helical edges between its root and
+  flanks were left without trims (tangency-labs/solidcore#474). Where the new edge runs on the
+  copy of the operand edge's curve over the same interval and the face on the copy of its surface,
+  the operand's trim is exact as it stands and is now copied over.
