@@ -351,13 +351,13 @@ static ULONG     lDebugCount = 0 ;
                 SmCurve* pCurve1 =pEdge1->GetCurve();
                 if ( !pCurve1 ) { break; }
            
-                pCurve1->SurfaceMaxDistanceBetween(
+                SER( pCurve1->SurfaceMaxDistanceBetween(
                            pEdge1->GetInterval(),  // in : curve domain of interest
                           *pSurface2,              // in :
                            pEFace2->GetUVDomain(), // in : surface domain of interest
                            lNumSamples,            // in : 0 means do a precise measurement
                            NULL,                   // in : optional maximum distance allowed
-                           dMaxDistToSurface );    // out: MaxDist(DropPt, 3dCurvePt)
+                           dMaxDistToSurface ) );    // out: MaxDist(DropPt, 3dCurvePt)
            
                 // remember the largest edge->Curve otherEdge->Face->Surface drop distance
                 if (dMaxDistToSurface > dE1DistToE2Faces) 
@@ -376,13 +376,13 @@ static ULONG     lDebugCount = 0 ;
                 SmCurve* pCurve2 = pEdge2->GetCurve();
                 if ( !pCurve2 ) { break; }
            
-                pCurve2->SurfaceMaxDistanceBetween(
+                SER( pCurve2->SurfaceMaxDistanceBetween(
                            pEdge2->GetInterval(),  // in : curve domain of interest
                           *pSurface1,              // in :
                            pEFace1->GetUVDomain(), // in : surface domain of interest
                            lNumSamples,            // in : 0 means do a precise measurement
                            &dE1DistToE2Faces, // in : optional maximum distance allowed
-                           dMaxDistToSurface );    // out: MaxDist(DropPt, 3dCurvePt)
+                           dMaxDistToSurface ) );    // out: MaxDist(DropPt, 3dCurvePt)
            
            
                 // remember the largest edge->Curve otherEdge->Face->Surface drop distance
@@ -422,13 +422,13 @@ static ULONG     lDebugCount = 0 ;
       SmCurve * pCurve1 = pEdge1->GetCurve();
       double sDData1[256];
       SmTArray<double> sKnots1(256,sDData1);
-      pCurve1->GetKnots(sKnots1);
+      SER( pCurve1->GetKnots(sKnots1) );
 
       // pEdge2 knots
       SmCurve * pCurve2 = pEdge2->GetCurve();
       double sDData2[256];
       SmTArray<double> sKnots2(256,sDData2);
-      pCurve2->GetKnots(sKnots2);
+      SER( pCurve2->GetKnots(sKnots2) );
 
       // when knot counts vary - keep the smallest count 
       if(sKnots2.GetSize() != sKnots1.GetSize()) 
@@ -570,7 +570,7 @@ SmBoolean bDebugMe = FALSE;
 
     // Check on the interior.
     SmBoolean bInterior = FALSE;
-    sm_CheckInteriorEdge( pEdge, dParam, dThisTol, bInterior );
+    SER( sm_CheckInteriorEdge( pEdge, dParam, dThisTol, bInterior ) );
     if ( bInterior == FALSE )
     {
         reReason = CLOSE_TO_BOUNDARY;
@@ -782,7 +782,7 @@ SmStatus SmStitch::DoSimpleFaceStitch
     // the vertex and edge pairs have been found and they 
     // are in tolerance so delete FacesToDelete. 
 
-    pBrepToStitch->RemoveFaces(cpFacesToDelete);  // increments unlocked mark value
+    SER( pBrepToStitch->RemoveFaces(cpFacesToDelete) );  // increments unlocked mark value
 
     // Note: this routine is never called, and the following is
     // presumably incorrect.  If the Edges and Vertices connected
@@ -1170,7 +1170,7 @@ SmBoolean bDebugMe = FALSE ;
              && pFace->IsDegenerate(TRUE, &sZoneTol3d))
            {
              // delete Face and its boundary edges and vertices from the Brep
-             pBrepToStitch->DeleteFace(pFace, TRUE) ;
+             SER( pBrepToStitch->DeleteFace(pFace, TRUE)  );
            }
         } // end iter every face
     } // end remove laminar sliver face check
@@ -1395,7 +1395,7 @@ SmBoolean bDebugMe = FALSE ;
 
           // get modified Brep Bounding box
           SmExtent3d sBrepBBox;
-          pBrepToStitch->CalculateBoundingBox(sBrepBBox);
+          SER( pBrepToStitch->CalculateBoundingBox(sBrepBBox) );
       
           // build modified Brep Edge spatial tree
           SmTArray<SmEdge*>   sEdges; 
@@ -2369,7 +2369,7 @@ SmStatus SmStitch::SelectRing
     SmMarkType eMarkType = sMarkLock.GetMarkType() ;
 
     SmExtent3d sBrepBBox;
-    pBrepToOrient->CalculateBoundingBox(sBrepBBox,TRUE);
+    SER( pBrepToOrient->CalculateBoundingBox(sBrepBBox,TRUE) );
     sBrepBBox.ExpandAbsolute(pBrepToOrient->GetTolerance()*100.0);
 
     SM_PTR_ARRAY(sFStack, SmFace, 256);  // SmTArray<SmFace *>
@@ -2429,7 +2429,7 @@ SmStatus SmStitch::SelectRing
                 double dParam = (j+1.0) / (lNumSamples + 2.0);
                 SmPoint3d sPnt, sDir;
                 SmExtent1d sOrigIvl = pEU->GetEdge()->GetInterval();
-                pEU->NormalizedEvaluate(dParam,FALSE,sPnt,&sDir);  // TRUE = UV Eval, FALSE = 3d Eval
+                SER( pEU->NormalizedEvaluate(dParam,FALSE,sPnt,&sDir) );  // TRUE = UV Eval, FALSE = 3d Eval
                 SmExtent3d sVBBox(sPnt);
                 sVBBox.ExpandAbsolute(m_dStitchTol3d);
                 SER(pEdgeTree->GetObjectsInBox(sVBBox,sObjects));
@@ -2462,12 +2462,12 @@ SmStatus SmStitch::SelectRing
                     if (bSuccess) {
                         SmPoint3d sPV[2];
                         double dNormParam = 0.0;
-                        sIvl.Inversion(dParam2,dNormParam);
+                        SER( sIvl.Inversion(dParam2,dNormParam) );
                         if (dNormParam < 0.02 || dNormParam > 0.98) continue;
                         SER(pEdge->GetCurve()->Evaluate(dParam2,1,TRUE,sPV));
                         //SmBoolean bSameOrient = TRUE;
                         double dAngleRad = 0.0;
-                        sPV[1].AngleBetween(sDir,dAngleRad);
+                        SER( sPV[1].AngleBetween(sDir,dAngleRad) );
                         double dAngleDeg = dAngleRad * 180.0 / SM_PI;
                         // Make sure we are going in either same or opposite direction
                         if (dAngleDeg > 5 && dAngleDeg < 175) continue;
@@ -2520,7 +2520,7 @@ SmStatus SmStitch::UnifyNormals
     SmMarkType eMarkType = sMarkLock.GetMarkType() ;
 
     SmExtent3d sBrepBBox;
-    pBrepToOrient->CalculateBoundingBox(sBrepBBox);
+    SER( pBrepToOrient->CalculateBoundingBox(sBrepBBox) );
 
     SM_PTR_ARRAY(sFStack, SmFace, 256);  // SmTArray<SmFace *>
     SM_PTR_ARRAY(sEdges,  SmEdge, 256);  // SmTArray<SmEdge *>
@@ -2575,7 +2575,7 @@ SmStatus SmStitch::UnifyNormals
                 double dParam = (j+1.0) / (lNumSamples + 2.0);
                 SmPoint3d sPnt, sDir;
                 SmExtent1d sOrigIvl = pEU->GetEdge()->GetInterval();
-                pEU->NormalizedEvaluate(dParam,FALSE,sPnt,&sDir);  // TRUE = UV Eval, FALSE = 3d Eval
+                SER( pEU->NormalizedEvaluate(dParam,FALSE,sPnt,&sDir) );  // TRUE = UV Eval, FALSE = 3d Eval
                 SmExtent3d sVBBox(sPnt);
                 sVBBox.ExpandAbsolute(m_dStitchTol3d);
                 SER(pEdgeTree->GetObjectsInBox(sVBBox,sObjects));
@@ -2608,12 +2608,12 @@ SmStatus SmStitch::UnifyNormals
                     if (bSuccess) {
                         SmPoint3d sPV[2];
                         double dNormParam = 0.0;
-                        sIvl.Inversion(dParam2,dNormParam);
+                        SER( sIvl.Inversion(dParam2,dNormParam) );
                         if (dNormParam < 0.02 || dNormParam > 0.98) continue;
                         SER(pEdge->GetCurve()->Evaluate(dParam2,1,TRUE,sPV));
                         //SmBoolean bSameOrient = TRUE;
                         double dAngleRad = 0.0;
-                        sPV[1].AngleBetween(sDir,dAngleRad);
+                        SER( sPV[1].AngleBetween(sDir,dAngleRad) );
                         double dAngleDeg = dAngleRad * 180.0 / SM_PI;
                         // Make sure we are going in either same or opposite direction
                         if (dAngleDeg > 5 && dAngleDeg < 175) continue;
@@ -2861,7 +2861,7 @@ SmStatus SmStitch::StitchVertexPairs
 
   SmPoint3d sPnt( 0,0,0 );
   SmVector3d sVec( 1,2,3 );
-  sVec.Unitize();
+  (void)sVec.Unitize(); // SolidCraft: a zero vector stays zero
 
   SmTArray< SmVertex* > sSortedVerts;
   SmTArray< double    > sSortParameter;
@@ -3279,7 +3279,7 @@ SmStatus SmStitch::StitchVertexPairs(
 
   SmPoint3d sPnt( 0,0,0 );
   SmVector3d sVec( 1,2,3 );
-  sVec.Unitize();
+  (void)sVec.Unitize(); // SolidCraft: a zero vector stays zero
 
   SmTArray< SmVertex* > sSortedVerts1,    sSortedVerts2;
   SmTArray< double    > sSortParameter1,  sSortParameter2;
@@ -3723,7 +3723,7 @@ SmBoolean bDebugMe = FALSE;
               else                     { SER( eStat ); }
           }
 
-          SmTol::UpdateObjectTolerance( pVtx1, dMinDist, dOldTol, bCheckGaps );
+          SER( SmTol::UpdateObjectTolerance( pVtx1, dMinDist, dOldTol, bCheckGaps ) );
 
           rdMaxVertexGap = smos_Max( rdMaxVertexGap, dMinDist );
 
@@ -3860,15 +3860,15 @@ SmStatus SmStitch::SplitEdgesWithVertices(
               SmPoint3d sMidPt = 0.5 * ( pV->GetPoint() + pNewVertex->GetPoint() );
               pV->SetPoint( sMidPt );
 
-              pBrep->GlueVertices( pV, pNewVertex );
+              SER( pBrep->GlueVertices( pV, pNewVertex ) );
               rProcessedVerts.Add( pV );
               rVerts[ii] = NULL;
 
               // Set max distance.
               rdMaxVertexGap = smos_Max( rdMaxVertexGap, dDistToEdge );
 
-              SmTol::UpdateObjectTolerance( pV,    dDistToEdge );
-              SmTol::UpdateObjectTolerance( pEdge, dDistToEdge );
+              SER( SmTol::UpdateObjectTolerance( pV,    dDistToEdge ) );
+              SER( SmTol::UpdateObjectTolerance( pEdge, dDistToEdge ) );
           }
           else
           {
@@ -3891,7 +3891,7 @@ SmStatus SmStitch::SplitEdgesWithVertices(
               rSplitEdges.Add( pEdge );
               rNewEdges.Add( pNewEdge );
 
-              SmTol::UpdateObjectTolerance( pNewEdge, dDistToEdge, pEdge->GetTolerance() );
+              SER( SmTol::UpdateObjectTolerance( pNewEdge, dDistToEdge, pEdge->GetTolerance() ) );
 
               // Also add to main Edges list: might still need processing in this routine.
               rEdges.Add( pNewEdge );
@@ -3989,7 +3989,7 @@ SmStatus SmStitch::StitchEdgesOfVertices
           if ( m_bMakingManifoldSolid /* && !pE->IsLamina() */ )
             {
               SmTArray< SmEdgeuse* > sEUs;
-              pE->GetEdgeuses( sEUs );
+              SER( pE->GetEdgeuses( sEUs ) );
               if ( sEUs.GetSize() >= 4 )
                 { continue; }
             }
@@ -4007,7 +4007,7 @@ SmStatus SmStitch::StitchEdgesOfVertices
               if ( m_bMakingManifoldSolid /* && !pTestE->IsLamina() */ )
                 {
                   SmTArray< SmEdgeuse* > sEUs;
-                  pTestE->GetEdgeuses( sEUs );
+                  SER( pTestE->GetEdgeuses( sEUs ) );
                   if ( sEUs.GetSize() >= 4 )
                     { continue; }
                 }
@@ -4148,7 +4148,7 @@ SmStatus SmStitch::StitchEdgesOfVertices
                   rGluedEdges  .Add( pE );
                   rDeletedEdges.Add( pTestE );
 
-                  SmTol::UpdateObjectTolerance( pE, dDistToCurve, dOldTol );
+                  SER( SmTol::UpdateObjectTolerance( pE, dDistToCurve, dOldTol ) );
 
                   sVEdges[kk] = NULL;  // per notes above (above the outer edge loop, jj).
 

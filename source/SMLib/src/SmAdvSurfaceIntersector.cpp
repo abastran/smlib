@@ -110,10 +110,10 @@ SmStatus tp_Newton(const SmSurface & crSa, const SmExtent2d & crDomA,
   // the iteration leaves the seed patches grown by half their size each side
   SmExtent2d sLocA = crSeedA, sLocB = crSeedB;
   SmPoint2d sGrowA = crSeedA.GetSize(), sGrowB = crSeedB.GetSize();
-  sLocA.SetMinMax(crSeedA.GetMin().x - 0.5*sGrowA.x, crSeedA.GetMin().y - 0.5*sGrowA.y,
-                  crSeedA.GetMax().x + 0.5*sGrowA.x, crSeedA.GetMax().y + 0.5*sGrowA.y);
-  sLocB.SetMinMax(crSeedB.GetMin().x - 0.5*sGrowB.x, crSeedB.GetMin().y - 0.5*sGrowB.y,
-                  crSeedB.GetMax().x + 0.5*sGrowB.x, crSeedB.GetMax().y + 0.5*sGrowB.y);
+  SER( sLocA.SetMinMax(crSeedA.GetMin().x - 0.5*sGrowA.x, crSeedA.GetMin().y - 0.5*sGrowA.y,
+                  crSeedA.GetMax().x + 0.5*sGrowA.x, crSeedA.GetMax().y + 0.5*sGrowA.y) );
+  SER( sLocB.SetMinMax(crSeedB.GetMin().x - 0.5*sGrowB.x, crSeedB.GetMin().y - 0.5*sGrowB.y,
+                  crSeedB.GetMax().x + 0.5*sGrowB.x, crSeedB.GetMax().y + 0.5*sGrowB.y) );
 
   rbConverged = FALSE;
   rdGap = SM_BIG_DOUBLE;
@@ -455,8 +455,9 @@ SmStatus SmAdvSurfaceIntersector::ComputeSingularityPoint
 // macro to flip output CUrveDir when it happens to be off by 180 degrees
 #define ALIGN_DIR_WITH_PREVIOUS_POINT \
   if(pPrev)                           \
-   { rTsectPnt.CrvDeriv().AngleBetween(pPrev->CrvDeriv(), dAngleRadians) ;                  \
-     if(smos_Fabs(dAngleRadians - SM_PI) < smos_Min( SM_PI / 30.0, 5.0 * m_dThisAngTolRad)) \
+   { /* SolidCraft change: without an angle (a zero tangent) there is nothing to align */      \
+     if(   rTsectPnt.CrvDeriv().AngleBetween(pPrev->CrvDeriv(), dAngleRadians) == SM_SUCCESS    \
+        && smos_Fabs(dAngleRadians - SM_PI) < smos_Min( SM_PI / 30.0, 5.0 * m_dThisAngTolRad)) \
        { rTsectPnt.CrvDeriv() = -rTsectPnt.CrvDeriv() ;                                     \
        }                                                                                    \
    }
@@ -507,10 +508,10 @@ SmStatus SmAdvSurfaceIntersector::ComputeSingularityPoint
       // project pPrev CrvDeriv() vector into rTsectPnt tangency plane
       SmPoint3d sEndPt = rTsectPnt.CrvPos() + pPrev->CrvDeriv();
       SmPoint3d sPtOnPlane;
-      smgu_PointProjectToPlane(sEndPt,
+      SER( smgu_PointProjectToPlane(sEndPt,
                                rTsectPnt.CrvPos(),
                                rTsectPnt.SrfNorm(0),
-                               sPtOnPlane);
+                               sPtOnPlane) );
       SmVector3d sDir = sPtOnPlane - rTsectPnt.CrvPos();
 
       // when projection worked - update the pPrev->CrvDeriv direction to that
@@ -605,8 +606,8 @@ SmStatus SmAdvSurfaceIntersector::ComputeSingularityPoint
             }
 
           // unitize the assymptotic directions
-          sAsympDir1.Unitize() ;
-          sAsympDirIn1.Unitize() ;
+          (void)sAsympDir1.Unitize() ; // SolidCraft: a zero vector stays zero
+          (void)sAsympDirIn1.Unitize() ; // SolidCraft: a zero vector stays zero
 
           // the other start directions are in the negative assymptotic directions
           SmVector3d sAsympDir2   = - sAsympDir1 ;
@@ -2076,7 +2077,7 @@ SmStatus SmAdvSurfaceIntersector::LocalSolve
           SmExtent3d sBBox = pSurfaceNode1->m_sBBox;
           sBBox.ExpandAbsolute( m_d3dTolerance );
           SmExtent3d sResult;
-          sBBox.Intersect( pSurfaceNode2->m_sBBox, sResult );
+          SER( sBBox.Intersect( pSurfaceNode2->m_sBBox, sResult ) );
 
           // Add intersection to solution: 
           //   Union 3D and UV Solution BBoxes, inc solution count

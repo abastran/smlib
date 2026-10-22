@@ -444,7 +444,7 @@ ULONG lCount      = 1 ; lCount++ ;
       SmSurface *pSurface = sSurfaces[ii];
       sSurfaceSubset.ReSet();
       sSurfaceSubset.Add(pSurface);
-      m_vTI.SetSubset(sSurfaceSubset);
+      SER( m_vTI.SetSubset(sSurfaceSubset) );
 
       // future accelerator option - register OtherBrep intersections
       //  to prevent them from being found a second time as the surfaces
@@ -646,7 +646,7 @@ ULONG lCount      = 1 ; lCount++ ;
           m_vTI.m_pOther = m_vTI.m_pBrep;         // use new Brep as next Boolean's OtherBrep
           m_vTI.m_pBrep  = pFinalResult;          // build Boolean results into FinalOutput
           sSurfaceSubset.ReSet();                 // clear the PartialMerge SubSet
-          m_vTI.SetSubset(sSurfaceSubset);
+          SER( m_vTI.SetSubset(sSurfaceSubset) );
 
           m_vTI.m_bIntersectWireEdges   = FALSE;  // skip Wire edges
           m_vTI.m_lIntersectLaminaEdges = 3;      // Only intersect lamina edges of other
@@ -679,7 +679,7 @@ ULONG lCount      = 1 ; lCount++ ;
           m_vTI.m_pOToB->RemoveAll();
           if (pSurfacePairsToSkipSSI)
             {
-              m_vTI.ClearExistingSSI();
+              SER( m_vTI.ClearExistingSSI() );
             }
 #ifdef SM_DEBUG_CODE
           // arrive here after adding the next surface (and its faces) from the input Brep to the pFinalBrep
@@ -1063,7 +1063,7 @@ SmBoolean bDebugMe=FALSE;
 
       // locals
       SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 8) ;
-      pEdge->GetEdgeuses(sEdgeuses) ;
+      SER( pEdge->GetEdgeuses(sEdgeuses)  );
       SM_ASSERT(sEdgeuses.GetSize() == 4) ;
 
       // 1st edgeuse Surface
@@ -1319,8 +1319,8 @@ SmBoolean bDebugMe=FALSE;
 
                   // Transfer the wire shell to the face shell
                   SmRegion *pWR = pWShell->GetRegion();
-                  pWShell->TransferChildrenTo(pFShell,NULL);
-                  pWR->Remove(pWShell);
+                  SER( pWShell->TransferChildrenTo(pFShell,NULL) );
+                  SER( pWR->Remove(pWShell) );
                   // delete pWShell; // protected.
                 }
             } // end 2 shells are a wire and a face shell check
@@ -1490,7 +1490,7 @@ SmStatus SmMerge::BooleanLists
           for(ii = 1; ii < num; ii++)
             {
               // todo: need to check the Context pointers in both the new copies and original topology objects
-              pBrep1->MergeBrep(*pBreps1[ii]);
+              SER( pBrep1->MergeBrep(*pBreps1[ii]) );
             }
         }
 //        SER(pBrep1->ShrinkGeometry());
@@ -1545,7 +1545,7 @@ SmStatus SmMerge::BooleanLists
           for(ii = 1; ii < num; ii++)
             {
               // todo: need to check the Context pointers in both the new copies and original topology objects
-              pBrep2->MergeBrep(*pBreps2[ii]);
+              SER( pBrep2->MergeBrep(*pBreps2[ii]) );
             }
         }
 //        SER(pBrep2->ShrinkGeometry());
@@ -1751,11 +1751,11 @@ SmBoolean bDebugMe2 = FALSE;
              {
                  SmBrep *pBrep4 = new(*pContext) SmBrep;
                  SER(pBrep3->CopyFaces(sFacesToCopy, pBrep4 ));
-                 pBrep4->StitchAndOrient();
+                 SER( pBrep4->StitchAndOrient() );
                  pBreps3.Add(pBrep4);
 
                  pBrep3->m_bEditingEnabled = TRUE;
-                 pBrep3->RemoveFaces(sFacesToCopy);  // increments unlocked mark value
+                 SER( pBrep3->RemoveFaces(sFacesToCopy) );  // increments unlocked mark value
 
                  sFaces.ReSet();
                  pBrep3->GetFaces(sFaces);
@@ -2325,7 +2325,8 @@ NOTES:
 static SmShell * sm_EdgeBordersSolid( SmEdge *pE )
 {
   SmTArray< SmEdgeuse* > sEUs;
-  pE->GetEdgeuses( sEUs );
+  if ( pE->GetEdgeuses( sEUs ) != SM_SUCCESS ) // SolidCraft change: no list, no shell found
+    { return NULL; }
   ULONG ii, lNumEUs = sEUs.GetSize();
   for ( ii = 0; ii < lNumEUs; ii++ )
     {
@@ -2355,6 +2356,11 @@ class SmTemporaryBrepTransform
   SmTopologyIntersector *m_pTI;
   SmPoint3d m_sCenter;
   SmBoolean m_bNeedsTranslation;
+  // SolidCraft change: which breps the constructor moved (only those are moved back) and its
+  // status (the constructor cannot return one; the user reads GetStatus()).
+  SmBoolean m_bMovedPrimary;
+  SmBoolean m_bMovedOther;
+  SmStatus  m_sStatus;
 
 public:
 
@@ -2363,11 +2369,18 @@ public:
     : m_pTI( pTI )
   {
     m_bNeedsTranslation = FALSE;
+    m_bMovedPrimary = FALSE;
+    m_bMovedOther = FALSE;
+    m_sStatus = SM_SUCCESS;
 
     // get parts bbox
     SmExtent3d sBBox1, sBBox2;
-    m_pTI->GetPrimaryBrep()->CalculateBoundingBox( sBBox1 );
-    m_pTI->GetOtherBrep()  ->CalculateBoundingBox( sBBox2 );
+    m_sStatus = m_pTI->GetPrimaryBrep()->CalculateBoundingBox( sBBox1 );
+    if ( m_sStatus != SM_SUCCESS )
+      { return; }
+    m_sStatus = m_pTI->GetOtherBrep()  ->CalculateBoundingBox( sBBox2 );
+    if ( m_sStatus != SM_SUCCESS )
+      { return; }
     sBBox1.Union( sBBox2, sBBox1 );
 
     // when bbox is very large - translate its center to the origin
@@ -2378,10 +2391,18 @@ public:
         SmAxis2Placement sXfm;
         m_sCenter = -m_sCenter;
         sXfm.Translate( m_sCenter );
-        m_pTI->GetPrimaryBrep()->Transform( sXfm );
-        m_pTI->GetOtherBrep()  ->Transform( sXfm );
+        m_sStatus = m_pTI->GetPrimaryBrep()->Transform( sXfm );
+        if ( m_sStatus != SM_SUCCESS )
+          { return; }
+        m_bMovedPrimary = TRUE;
+        m_sStatus = m_pTI->GetOtherBrep()  ->Transform( sXfm );
+        if ( m_sStatus != SM_SUCCESS )
+          { return; }
+        m_bMovedOther = TRUE;
       }
   } // end SmTemporaryBrepTransform constructor
+
+  SmStatus GetStatus() const { return m_sStatus; }
 
   // Destructor
   ~SmTemporaryBrepTransform()
@@ -2391,10 +2412,11 @@ public:
         SmAxis2Placement sXfm;
         m_sCenter = -m_sCenter;
         sXfm.Translate( m_sCenter );
-        if ( m_pTI->GetPrimaryBrep() != NULL )
-          {  m_pTI->GetPrimaryBrep()->Transform( sXfm ); }
-        if ( m_pTI->GetOtherBrep() != NULL )
-          {  m_pTI->GetOtherBrep()->Transform( sXfm ); }
+        // A destructor cannot report; a translation that worked one way works back.
+        if ( m_bMovedPrimary && m_pTI->GetPrimaryBrep() != NULL )
+          {  (void)m_pTI->GetPrimaryBrep()->Transform( sXfm ); }
+        if ( m_bMovedOther && m_pTI->GetOtherBrep() != NULL )
+          {  (void)m_pTI->GetOtherBrep()->Transform( sXfm ); }
       }
   } // end SmTemporaryBrepTransform destructor
 
@@ -2542,6 +2564,7 @@ SmStatus SmMerge::ManifoldBoolean
   // If the Breps are very far from the origin, translate them to the origin.
   // This can help a lot with numerical noise.
   SmTemporaryBrepTransform sTempXfm( &m_vTI );
+  SER( sTempXfm.GetStatus() ); // SolidCraft change: a failed move is the boolean's failure
 
   // check input: SM_BO_SLICE only defined when otherBrep is an oriented sheet
   if(eOperation == SM_BO_SLICE)
@@ -2553,7 +2576,7 @@ SmStatus SmMerge::ManifoldBoolean
               // just go ahead and orient the sheet for the user and carry on.
               SmTArray<SmFace*> sFaces ;
               m_vTI.m_pOther->GetFaces(sFaces) ;
-              m_vTI.m_pOther->OrientSheetSurfaces(sFaces[0], TRUE) ;
+              SER( m_vTI.m_pOther->OrientSheetSurfaces(sFaces[0], TRUE)  );
             }
         }
       else
@@ -2834,7 +2857,7 @@ static ULONG lDebugCount = 0 ;
               SmFace *pOF = (SmFace*)m_vTI.GetOtherMate(pF);
               if (pOF)
                 {
-                  m_vTI.RemoveRelationship(pF,pOF);
+                  SER( m_vTI.RemoveRelationship(pF,pOF) );
                 }
             }
           lCount = sDelFaces.GetSize();
@@ -2844,7 +2867,7 @@ static ULONG lDebugCount = 0 ;
               SmFace *pOF = (SmFace*)m_vTI.GetOtherMate(pF);
               if (pOF)
                 {
-                  m_vTI.RemoveRelationship(pF,pOF);
+                  SER( m_vTI.RemoveRelationship(pF,pOF) );
                 }
             }
 
@@ -3186,7 +3209,7 @@ static ULONG lDebugCount = 0 ;
               SmEdge *pOtherEdge = m_vOtherEdges[ii];
 
               // get all ThisBrep->CommonEdge->edgeuses (one edgeuse - one faceuse)
-              pEdge->GetEdgeuses(sEdgeuses);
+              SER( pEdge->GetEdgeuses(sEdgeuses) );
 
               // 7.A for every other ThisBrep->CommonEdge->Edgeuse->Face
               //      classify Face against matched OtherEdge->Sectors
@@ -3427,7 +3450,7 @@ static ULONG lDebugCount = 0 ;
                 { break; }
 
               // now the partner, get all OtherBrep->CommonEdge->edgeuses (one edgeuse - one faceuse)
-              pOtherEdge->GetEdgeuses(sEdgeuses);
+              SER( pOtherEdge->GetEdgeuses(sEdgeuses) );
 
               // 7.B for every other OtherBrep->CommonEdge->Edgeuse->Face
               //      classify Face against matched ThisEdge->Sectors
@@ -4301,7 +4324,7 @@ static ULONG lDebugCount = 0 ;
             {
               // save time - bump BrepCache->SpatialTree size up for all faces at once,
               //             rather than one at a time.
-              pBrepCache->ReSizeTrees(&sKeepOFaces, NULL, NULL) ;
+              SER( pBrepCache->ReSizeTrees(&sKeepOFaces, NULL, NULL)  );
 
             } // end adding multiple wires to a Brep with a cache check
 
@@ -4553,7 +4576,7 @@ static ULONG lDebugCount = 0 ;
                                         _T("MergeRegionAttirubte data assumption of just one ThisRegion during the split phase is broken.")) ;
                         }
 #endif // SM_DEBUG_CODE
-                      pMergeRegionAttrib1->SetRegions(0, pMergeRegionAttrib1->GetThisRegion(0), lThisSourceType1, pOtherRegion1, lOtherSourceType1) ;
+                      SER( pMergeRegionAttrib1->SetRegions(0, pMergeRegionAttrib1->GetThisRegion(0), lThisSourceType1, pOtherRegion1, lOtherSourceType1)  );
 #ifdef SM_DEBUG_CODE
                       if (bDebugMe)
                         {
@@ -4597,7 +4620,7 @@ static ULONG lDebugCount = 0 ;
                                         _T("MergeRegionAttirubte data assumption of just one ThisRegion during the split phase is broken.")) ;
                         }
 #endif // SM_DEBUG_CODE
-                      pMergeRegionAttrib2->SetRegions(0, pMergeRegionAttrib2->GetThisRegion(0), lThisSourceType2, pOtherRegion2, lOtherSourceType2) ;
+                      SER( pMergeRegionAttrib2->SetRegions(0, pMergeRegionAttrib2->GetThisRegion(0), lThisSourceType2, pOtherRegion2, lOtherSourceType2)  );
 #ifdef SM_DEBUG_CODE
                       if (bDebugMe)
                         {
@@ -4931,7 +4954,7 @@ SmBoolean bDebugRadialEdges = FALSE ;
       // gwc replaced by above new conditional:  m_vTI.m_pBrep->GetRegions(sBrepRegions);
       // gwc replaced by above new conditional:  if (sBrepRegions.GetSize() > 2 || !m_bManifoldBoolean)
         {
-          m_vTI.m_pBrep->FindAndSetInfiniteRegion();
+          SER( m_vTI.m_pBrep->FindAndSetInfiniteRegion() );
         }
     } // end STEP 8 - find and set the infinite region if missing
 
@@ -4939,7 +4962,7 @@ SmBoolean bDebugRadialEdges = FALSE ;
   //         - use Notify mechanims to broadcast the moves to callers
   //         - remove temporary MergeRegionAttrib attributes from the ResultRegions - we're done with them
     {
-      PropagateOtherSrcRegionAttribs(eOperation) ;
+      SER( PropagateOtherSrcRegionAttribs(eOperation)  );
     
     } // end STEP 9 - Propagate OtherBrep SrcRegion attributes to ResultRegion attributes
 
@@ -5047,7 +5070,7 @@ SmBoolean bDebugRadialEdges = FALSE ;
           // removed line: pBrep->SetTolerance(m_vTI.m_pOther->GetTolerance());
 
           // copy faces (keeping existing topology between faces)
-          m_vTI.m_pBrep->CopyFaces(sFaces,pBrep);
+          SER( m_vTI.m_pBrep->CopyFaces(sFaces,pBrep) );
           m_vOneBrepPer_OrigBrepConnectedFaceSet.Add(pBrep);
         }
       lCount = sOtherFacesCount.GetSize();
@@ -5062,7 +5085,7 @@ SmBoolean bDebugRadialEdges = FALSE ;
           SmBrep *pBrep = new (*m_vTI.m_pOther->GetContext()) SmBrep();
           // gwc: removed next line - sets pBrep->Tol = m_vTI.m_pBrep->GetContext()::ZoneTol3d
           //  pBrep->SetTolerance(m_vTI.m_pOther->GetTolerance());
-          m_vTI.m_pOther->CopyFaces(sFaces,pBrep);
+          SER( m_vTI.m_pOther->CopyFaces(sFaces,pBrep) );
           m_vOneBrepPer_OtherBrepConnectedFaceSet.Add(pBrep);
         }
 
@@ -5110,7 +5133,7 @@ if ( cbiEndDump>0 ) {
   // all done
   if ( m_vTI.m_pBrep != NULL )
     {
-      m_vTI.m_pBrep->DeleteStaleCaches();  // [B352]
+      SER( m_vTI.m_pBrep->DeleteStaleCaches() );  // [B352]
     }
 
   pBrepContext->SetDoingBoolean(FALSE);
@@ -5549,14 +5572,14 @@ SmStatus SmMerge::MergeAddedTopology(
   {
       SmFace *pF = sMasterFaces[ii];
       if ( pF == NULL ) { continue; }
-      pF->CalculateBoundingBox( sTempBox );
+      SER( pF->CalculateBoundingBox( sTempBox ) );
       sMasterBox.Union( sTempBox, sMasterBox );
   }
   for ( ii=0; ii<lNumMasterEdges; ii++ )
   {
       SmEdge *pE = sMasterEdges[ii];
       if ( pE == NULL ) { continue; }
-      pE->CalculateBoundingBox( &sTempBox );
+      SER( pE->CalculateBoundingBox( &sTempBox ) );
       sMasterBox.Union( sTempBox, sMasterBox );
   }
   for ( ii=0; ii<lNumMasterVerts; ii++ )
@@ -5571,14 +5594,14 @@ SmStatus SmMerge::MergeAddedTopology(
   {
       SmFace *pF = sAddedFaces[ii];
       if ( pF == NULL ) { continue; }
-      pF->CalculateBoundingBox( sTempBox );
+      SER( pF->CalculateBoundingBox( sTempBox ) );
       sThisBox.Union( sTempBox, sThisBox );
   }
   for ( ii=0; ii<lNumAddedEdges; ii++ )
   {
       SmEdge *pE = sAddedEdges[ii];
       if ( pE == NULL ) { continue; }
-      pE->CalculateBoundingBox( &sTempBox );
+      SER( pE->CalculateBoundingBox( &sTempBox ) );
       sThisBox.Union( sTempBox, sThisBox );
   }
   for ( ii=0; ii<lNumAddedVerts; ii++ )
@@ -5620,7 +5643,7 @@ SmStatus SmMerge::MergeAddedTopology(
   for ( ii = 0; ii < lNumAddedEdges; ii++ )
   {
     SmEdge *pE = sAddedEdges[ ii ];
-    pE->CalculateBoundingBox( &sBBox );
+    SER( pE->CalculateBoundingBox( &sBBox ) );
     if ( ! sMasterBox.AreDisjoint( sBBox, pE->GetTolerance() ) )
       { sTempEdges.Add( pE ); }
   }
@@ -5634,7 +5657,7 @@ SmStatus SmMerge::MergeAddedTopology(
   for ( ii = 0; ii < lNumAddedFaces; ii++ )
   {
     SmFace *pF = sAddedFaces[ ii ];
-    pF->CalculateBoundingBox( sBBox );
+    SER( pF->CalculateBoundingBox( sBBox ) );
     if ( ! sMasterBox.AreDisjoint( sBBox, pF->GetTolerance() ) )
       { sTempFaces.Add( pF ); }
   }
@@ -5661,7 +5684,7 @@ SmStatus SmMerge::MergeAddedTopology(
   for ( ii = 0; ii < lNumMasterEdges; ii++ )
   {
     SmEdge *pE = sMasterEdges[ ii ];
-    pE->CalculateBoundingBox( &sBBox );
+    SER( pE->CalculateBoundingBox( &sBBox ) );
     if ( ! sThisBox.AreDisjoint( sBBox, pE->GetTolerance() ) )
       { sTempEdges.Add( pE ); }
   }
@@ -5675,7 +5698,7 @@ SmStatus SmMerge::MergeAddedTopology(
   for ( ii = 0; ii < lNumMasterFaces; ii++ )
   {
     SmFace *pF = sMasterFaces[ ii ];
-    pF->CalculateBoundingBox( sBBox );
+    SER( pF->CalculateBoundingBox( sBBox ) );
     if ( ! sThisBox.AreDisjoint( sBBox, pF->GetTolerance() ) )
       { sTempFaces.Add( pF ); }
   }
@@ -5753,8 +5776,8 @@ SmStatus SmMerge::MergeAddedTopology(
   // argument passed to it.  If we preserve the pointers in the Master
   // Brep, it might help callers to keep track of pointers.
 
-  sStitcher.StitchVertexPairs( sMasterVerts, sAddedVerts,
-                         sProcessedVerts, sDeletedVerts, dThisGap, dThisMinUnstitched );
+  SER( sStitcher.StitchVertexPairs( sMasterVerts, sAddedVerts,
+                         sProcessedVerts, sDeletedVerts, dThisGap, dThisMinUnstitched ) );
 
   rdMaxVertGap       = dThisGap;
   rdMinUnstitchedVertGap = dThisMinUnstitched;
@@ -5792,8 +5815,8 @@ SmStatus SmMerge::MergeAddedTopology(
 
       if ( pThisVtxPtr != NULL )
       {
-          rTopoInt.RemoveRelationship(  pDelVtx,  pThisVtxPtr );
-          rTopoInt.Relate( sProcessedVerts[ ii ], pThisVtxPtr );
+          SER( rTopoInt.RemoveRelationship(  pDelVtx,  pThisVtxPtr ) );
+          SER( rTopoInt.Relate( sProcessedVerts[ ii ], pThisVtxPtr ) );
       }
   } // end for each glued vertex
 
@@ -5851,7 +5874,7 @@ SmStatus SmMerge::MergeAddedTopology(
   }
   sStitcher.SetStitchTol3d( dThisTol );
 
-  sStitcher.SplitEdgesWithVertices(
+  SER( sStitcher.SplitEdgesWithVertices(
             sAddedVerts,     // in/out: processed verts set to Null.
             sMasterEdges,    // in/out: processed edges set to Null.
             sSplittingVerts, // out: processed verts (from sAddedVerts) added.
@@ -5860,7 +5883,7 @@ SmStatus SmMerge::MergeAddedTopology(
 
             dThisGap,        // out
             dThisMinUnstitched   // out
-          );
+          ) );
 
   rdMaxVertGap       = smos_Max( rdMaxVertGap,       dThisGap );
   rdMinUnstitchedVertGap = smos_Min( rdMinUnstitchedVertGap, dThisMinUnstitched );
@@ -5881,7 +5904,7 @@ SmStatus SmMerge::MergeAddedTopology(
 
   // Now see about Master vertices splitting This edges.
 
-  sStitcher.SplitEdgesWithVertices(
+  SER( sStitcher.SplitEdgesWithVertices(
             sMasterVerts,    // in/out: processed verts set to Null.
             sAddedEdges,     // in/out: processed edges set to Null.
             sSplittingVerts, // out: processed verts (from sMasterVerts) added.
@@ -5890,7 +5913,7 @@ SmStatus SmMerge::MergeAddedTopology(
 
             dThisGap,        // out
             dThisMinUnstitched   // out
-          );
+          ) );
 
   rdMaxVertGap       = smos_Max( rdMaxVertGap,       dThisGap );
   rdMinUnstitchedVertGap = smos_Min( rdMinUnstitchedVertGap, dThisMinUnstitched );
@@ -5943,7 +5966,7 @@ SmStatus SmMerge::MergeAddedTopology(
   }
   sStitcher.SetStitchTol3d( dThisTol );
 
-  sStitcher.StitchEdgesOfVertices(
+  SER( sStitcher.StitchEdgesOfVertices(
             sProcessedVerts,  // in, unchanged: need to look at only these already-glued vertices.
 
             sGluedEdges,      // out: survivors of the glued edge pairs
@@ -5953,7 +5976,7 @@ SmStatus SmMerge::MergeAddedTopology(
             dThisGap,         // out
             dThisMinUnstitched    // out
 
-          );
+          ) );
 
   rdMaxEdgeGap       = smos_Max( rdMaxEdgeGap,       dThisGap );
   rdMinUnstitchedEdgeGap = smos_Min( rdMinUnstitchedEdgeGap, dThisMinUnstitched );
@@ -5990,8 +6013,8 @@ SmStatus SmMerge::MergeAddedTopology(
       SmEdge   * pThisEdgePtr = SM_CAST_PTR( SmEdge, pTmpObj );
       if ( pThisEdgePtr != NULL )
       {
-          rTopoInt.RemoveRelationship( pDelEdge, pThisEdgePtr );
-          rTopoInt.Relate( sGluedEdges[ ii ], pThisEdgePtr );
+          SER( rTopoInt.RemoveRelationship( pDelEdge, pThisEdgePtr ) );
+          SER( rTopoInt.Relate( sGluedEdges[ ii ], pThisEdgePtr ) );
       }
 
       // Remove pDelEdge from Master or Added list.
@@ -6063,7 +6086,7 @@ SmStatus SmMerge::MergeAddedTopology(
   }
   rTopoInt.SetThisApproxTol3d( dThisTol );
 
-  rTopoInt.VertexFaceIntersect(
+  SER( rTopoInt.VertexFaceIntersect(
             sAddedVerts,      // in/out: processed vertices set to Null.
             sMasterFaces,     // in:  (processed faces not set to Null.)
             sSplittingVerts,  // out: processed vertices from input vertex list
@@ -6073,7 +6096,7 @@ SmStatus SmMerge::MergeAddedTopology(
 
             m_bMakingManifoldSolid,
             m_bIgnoreProblems
-          );
+          ) );
 
   rdMaxVertGap       = smos_Max( rdMaxVertGap,       dThisGap );
   rdMinUnstitchedVertGap = smos_Min( rdMinUnstitchedVertGap, dThisMinUnstitched );
@@ -6091,7 +6114,7 @@ if ( sDumpSplit > 0 )
 
 
   // Now see about Master vertices sitting in This faces.
-  rTopoInt.VertexFaceIntersect(
+  SER( rTopoInt.VertexFaceIntersect(
             sMasterVerts,     // in/out: processed vertices set to Null.
             sAddedFaces,      // in:  (processed faces not set to Null.)
             sSplittingVerts,  // out: processed vertices from input vertex list
@@ -6101,7 +6124,7 @@ if ( sDumpSplit > 0 )
 
             m_bMakingManifoldSolid,
             m_bIgnoreProblems
-          );
+          ) );
 
   rdMaxVertGap       = smos_Max( rdMaxVertGap,       dThisGap );
   rdMinUnstitchedVertGap = smos_Min( rdMinUnstitchedVertGap, dThisMinUnstitched );
@@ -6153,7 +6176,7 @@ if ( sDumpSplit > 0 )
   }
   rTopoInt.SetThisApproxTol3d( dThisTol );
 
-  rTopoInt.EdgeEdgeIntersect(
+  SER( rTopoInt.EdgeEdgeIntersect(
             sMasterEdges,  // in: unchanged
             sAddedEdges,   // in: unchanged
 
@@ -6167,7 +6190,7 @@ if ( sDumpSplit > 0 )
 
             m_bMakingManifoldSolid,
             m_bIgnoreProblems
-        );
+        ) );
 
   rdMaxVertGap       = smos_Max( rdMaxVertGap,       dThisGap );
   rdMinUnstitchedVertGap = smos_Min( rdMinUnstitchedVertGap, dThisMinUnstitched );
@@ -6209,7 +6232,7 @@ if ( sDumpSplit > 0 )
 
   // First, Added edges intersecting Master faces.
 
-  rTopoInt.EdgeFaceIntersect(
+  SER( rTopoInt.EdgeFaceIntersect(
         sAddedEdges,     // in: unchanged
         sMasterFaces,    // in: unchanged
         sNewVerts,       // out: new vertices.
@@ -6221,7 +6244,7 @@ if ( sDumpSplit > 0 )
 
         m_bMakingManifoldSolid,
         m_bIgnoreProblems
-    );
+    ) );
 
   rdMaxEdgeGap       = smos_Max( rdMaxEdgeGap,       dThisGap );
   rdMinUnstitchedEdgeGap = smos_Min( rdMinUnstitchedEdgeGap, dThisMinUnstitched );
@@ -6242,7 +6265,7 @@ if ( sDumpSplit > 0 )
 
   // Now, original Master edges intersecting Added faces.
 
-  rTopoInt.EdgeFaceIntersect(
+  SER( rTopoInt.EdgeFaceIntersect(
         sMasterEdges,    // in: unchanged
         sAddedFaces,     // in: unchanged
         sNewVerts,       // out
@@ -6254,7 +6277,7 @@ if ( sDumpSplit > 0 )
 
         m_bMakingManifoldSolid,
         m_bIgnoreProblems
-    );
+    ) );
 
   rdMaxEdgeGap       = smos_Max( rdMaxEdgeGap,       dThisGap );
   rdMinUnstitchedEdgeGap = smos_Min( rdMinUnstitchedEdgeGap, dThisMinUnstitched );
@@ -6331,7 +6354,7 @@ if ( sDumpSplit > 0 )
 
   SmTArray< SmFace* > sImprintedFaces, sNewFaces, sSplitFaces;
 
-  rTopoInt.EdgeFaceCoincidence(
+  SER( rTopoInt.EdgeFaceCoincidence(
             sProcessedVerts,  // in: these will bound any coincident Edges.
             sGluedEdges,      // in: don't imprint these.
             sSplitEdges,      // out: edges imprinted into a face.
@@ -6344,7 +6367,7 @@ if ( sDumpSplit > 0 )
 
             m_bIgnoreProblems,
             m_bDoRegionNesting
-         );
+         ) );
 
   rdMaxEdgeGap       = smos_Max( rdMaxEdgeGap,       dThisGap );
   rdMinUnstitchedEdgeGap = smos_Min( rdMinUnstitchedEdgeGap, dThisMinUnstitched );
@@ -6399,7 +6422,7 @@ if ( sDumpSplit > 0 )
   }
   rTopoInt.SetThisApproxTol3d( dThisTol );
 
-  rTopoInt.FaceFaceIntersect(
+  SER( rTopoInt.FaceFaceIntersect(
             sProcessedVerts, // in: intersections will start and end on these.
             sMasterFaces,    // in: don't intersect two faces that are in
             sAddedFaces,     // in:     the same list.
@@ -6413,7 +6436,7 @@ if ( sDumpSplit > 0 )
 
             m_bIgnoreProblems,
             m_bDoRegionNesting
-         );
+         ) );
 
   rdMaxEdgeGap       = smos_Max( rdMaxEdgeGap,       dThisGap );
   rdMinUnstitchedEdgeGap = smos_Min( rdMinUnstitchedEdgeGap, dThisMinUnstitched );
@@ -6464,7 +6487,7 @@ if ( sDumpSplit > 0 )
 
   SmTArray< SmFace* > sSurvivingFaces, sDeletedFaces;
 
-  rTopoInt.FaceFaceCoincidence(
+  SER( rTopoInt.FaceFaceCoincidence(
             sGluedEdges,      // in: coincident faces will contain these edges
             sAddedFaces,      // in: candidates for deletion.
             sSurvivingFaces,  // out: glued and preserved
@@ -6475,7 +6498,7 @@ if ( sDumpSplit > 0 )
 
             m_bIgnoreProblems,
             m_bDoRegionNesting
-  );
+  ) );
 
   rdMaxEdgeGap       = smos_Max( rdMaxEdgeGap,       dThisGap );
   rdMinUnstitchedEdgeGap = smos_Min( rdMinUnstitchedEdgeGap, dThisMinUnstitched );
@@ -6516,8 +6539,8 @@ if ( sDumpSplit > 0 )
       SmFace   * pThisFacePtr = SM_CAST_PTR( SmFace, pTmpObj );
       if ( pThisFacePtr != NULL )
       {
-          rTopoInt.RemoveRelationship( pDelFace, pThisFacePtr );
-          rTopoInt.Relate( sSurvivingFaces[ ii ], pThisFacePtr );
+          SER( rTopoInt.RemoveRelationship( pDelFace, pThisFacePtr ) );
+          SER( rTopoInt.Relate( sSurvivingFaces[ ii ], pThisFacePtr ) );
       }
 
       // Also while we're here, add to ProcessedFace list.
@@ -6552,11 +6575,11 @@ if ( sDumpSplit > 0 )
       // If they don't already separate two regions:
       if ( pFU1->GetShell() == pFU2->GetShell() )
       {
-          pMasterBrep->TestClosureSplitRegion( TRUE, pFU1, pNewSh, pNewReg );
+          SER( pMasterBrep->TestClosureSplitRegion( TRUE, pFU1, pNewSh, pNewReg ) );
       }
   }
 
-  pMasterBrep->FindAndSetInfiniteRegion();
+  SER( pMasterBrep->FindAndSetInfiniteRegion() );
 
 #ifdef SM_DEBUG_CODE
   tEnd = clock();
@@ -6572,7 +6595,7 @@ if ( sDumpSplit > 0 )
   if ( pMasterBrep->IsManifoldSolid() )
   {
       SmBoolean bMaybeNotClosed;
-      pMasterBrep->OrientTrimmedSurfaces( TRUE, bMaybeNotClosed, TRUE );  // increments unlocked mark value
+      SER( pMasterBrep->OrientTrimmedSurfaces( TRUE, bMaybeNotClosed, TRUE ) );  // increments unlocked mark value
   }
   else
   {
@@ -7145,7 +7168,7 @@ static ULONG lDebugCount = 0 ;
         // Copy pOldSurface, when possible as an analytic surface
         SER(pOldSurface->CopyAndAddAnalytics(*pContext,pNewSurface));
         NER(pNewSurface);
-        m_vTI.Relate(pNewSurface,pOldSurface);
+        SER( m_vTI.Relate(pNewSurface,pOldSurface) );
 
 #ifdef SM_DEBUG_CODE
         // draw
@@ -7573,7 +7596,7 @@ SmBoolean bDebugMe = FALSE ;
               // to save time - get the bounding box of all these wires
               // and make sure the Brep->pBrepCache->GetCurveTree()
               // is sized to accomodate all the wires and their vertices being added
-              pBrepCache->ReSizeTrees(NULL, &sCollectedEdges, NULL) ;
+              SER( pBrepCache->ReSizeTrees(NULL, &sCollectedEdges, NULL)  );
 
             } // end adding multiple wires to a Brep with a cache check
 
@@ -7715,7 +7738,7 @@ SmBoolean bDebugMe = FALSE ;
         {
           // save time - bump BrepCache->SpatialTree size up for all vertices at once,
           //             rather than one at a time.
-          pBrepCache->ReSizeTrees(NULL, NULL, &sKeepOVertices) ;
+          SER( pBrepCache->ReSizeTrees(NULL, NULL, &sKeepOVertices)  );
 
         } // end adding multiple wires to a Brep with a cache check
 

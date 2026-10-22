@@ -73,6 +73,10 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmCurveFilletExecutive.cpp
   ${SRC}/SMLib/src/SmBlendSurface.cpp
   ${SRC}/SM_API/src/SmApiFillets.cpp
+  ${SRC}/SMLib/src/SmMerge.cpp
+  ${SRC}/SMLib/src/SmStitch.cpp
+  ${SRC}/SMLib/src/SmTopologyIntersector.cpp
+  ${SRC}/SMLib/src/SmAdvSurfaceIntersector.cpp
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")
