@@ -87,7 +87,7 @@ SmSurfOfExtrusion::SmSurfOfExtrusion
     {
       // get angle between curve planeNormal and ExtrusionVec
       double dAngleRad ;
-      m_vCurveVec.AngleBetween(crExtrusionVec, dAngleRad) ;
+      (void)m_vCurveVec.AngleBetween(crExtrusionVec, dAngleRad) ; // SolidCraft: a constructor cannot report
 
       // Avoid scaling problems due to angles
       // When close to perpendicular check by testing curve against plane perp to extrusion vector
@@ -187,7 +187,7 @@ SmSurfOfExtrusion::SmSurfOfExtrusion
     {
       // get angle between curve planeNormal and ExtrusionVec
       double dAngleRad ;
-      m_vCurveVec.AngleBetween(crExtrusionVec, dAngleRad) ;
+      (void)m_vCurveVec.AngleBetween(crExtrusionVec, dAngleRad) ; // SolidCraft: a constructor cannot report
 
       // Avoid scaling problems due to angles
       // When close to perpendicular check by testing curve against plane perp to extrusion vector
@@ -247,7 +247,7 @@ SmSurfOfExtrusion::SmSurfOfExtrusion
   if (crSource.m_pGenCurve)
     {
       SmCurve *pGenCurve;
-      crSource.m_pGenCurve->Copy(*pContext, pGenCurve);
+      (void)crSource.m_pGenCurve->Copy(*pContext, pGenCurve); // SolidCraft: a constructor cannot report
       m_pGenCurve = SM_CAST_PTR(SmBSplineCurve, pGenCurve);
       if (!m_pGenCurve)
         { SE(SM_ERR); }
@@ -375,7 +375,7 @@ SmBoolean bDebugMe = FALSE ;
   // set Surface and GenCurve nurb domain and enforce rule 2 assuming input GenCurve/Surf and PolarCurve/Surf knot vector compatibility
   // note: We reparameterize only to initialize the intervals and domain values so that MakeNurb() will build
   //       new Nurb structures trimmed and scaled to the input UVDomains
-  Reparameterize(sNurbDomain) ; 
+  SER( Reparameterize(sNurbDomain)  ); 
 
   // rebuild the associated m_pNurb
   SER(MakeNurb());
@@ -451,8 +451,8 @@ SmBoolean bDebugMe = FALSE ;
 
   // convert given NurbUVDomain corners into STEPUVPoints
   SmPoint2d sMinAnalUV, sMaxAnalUV;
-  ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMin(), sMinAnalUV );
-  ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMax(), sMaxAnalUV );
+  SER( ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMin(), sMinAnalUV ) );
+  SER( ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMax(), sMaxAnalUV ) );
 
   // Build desired new STEP UVDomain
   // Don't SetMinMax because Min might not be smaller (if swapped).
@@ -470,10 +470,10 @@ SmBoolean bDebugMe = FALSE ;
   SmExtent1d sGenIvl =   m_bSwapUV
                        ? crNewNurbsDomain.GetVInterval()
                        : crNewNurbsDomain.GetUInterval() ;
-  m_pGenCurve->ScaleKnotVector(sGenIvl.GetMin(), sGenIvl.GetMax()) ;
+  SER( m_pGenCurve->ScaleKnotVector(sGenIvl.GetMin(), sGenIvl.GetMax())  );
 
   // recompute a m_vOrigin point to ensure that the origin is still on the genCurve
-  m_pGenCurve->EvaluatePoint(m_pGenCurve->GetNaturalInterval().GetMin(), m_vOrigin) ;
+  SER( m_pGenCurve->EvaluatePoint(m_pGenCurve->GetNaturalInterval().GetMin(), m_vOrigin)  );
 
   // all done
   return SM_SUCCESS;
@@ -541,7 +541,7 @@ SmBoolean bDebugMe = FALSE ;
   // Rule 3. GenCurve NURBKnotVector == m_bSwapUV ? Surface->NURBKnotV : Surface->NURBKnotU  (No Changes)
 
   // Rule 2
-  m_pGenCurve->EditParameterization(m_bSwapUV ? crTrimDomain.GetVInterval() : crTrimDomain.GetUInterval()) ;
+  SER( m_pGenCurve->EditParameterization(m_bSwapUV ? crTrimDomain.GetVInterval() : crTrimDomain.GetUInterval())  );
 
   // done with modifications
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
@@ -632,8 +632,8 @@ SmStatus SmSurfOfExtrusion::STEPInversion
       SmPoint2d  sStepUVMin, sStepUVMax, sNurbsUVMin, sNurbsUVMax;
       sStepUVMin = crAnalDomain.GetMin();
       sStepUVMax = crAnalDomain.GetMax();
-      ConvertUVFromSTEPToNURBS( sStepUVMin, sNurbsUVMin );
-      ConvertUVFromSTEPToNURBS( sStepUVMax, sNurbsUVMax );
+      SER( ConvertUVFromSTEPToNURBS( sStepUVMin, sNurbsUVMin ) );
+      SER( ConvertUVFromSTEPToNURBS( sStepUVMax, sNurbsUVMax ) );
       SmExtent2d sNurbsDomain(sNurbsUVMin, sNurbsUVMax) ;
 
       // map 3dPoint to NurbUV parameter
@@ -1148,7 +1148,7 @@ SmExtent2d SmSurfOfExtrusion::GetMaxAnalyticDomain() const
   SmExtent1d sVDom = sDom.GetVInterval();
   sVDom.ExpandRelative( 100 );
 
-  sDom.SetMinMax( sUDom.GetMin(), sVDom.GetMin(), sUDom.GetMax(), sVDom.GetMax() );
+  (void)sDom.SetMinMax( sUDom.GetMin(), sVDom.GetMin(), sUDom.GetMax(), sVDom.GetMax() ); // SolidCraft: both intervals are well formed, it cannot fail
 
   return sDom;
 
@@ -1384,7 +1384,7 @@ SmStatus SmSurfOfExtrusion::CreateGeneratorFromDistance
   sRF.Translate(dVStepParam * m_vExtrusionVec);
 
   // translate the copied curve
-  pBSC->Transform(sRF);
+  SER( pBSC->Transform(sRF) );
 
   // set output
   rpGeneratorCurveArg = pBSC;
@@ -1453,20 +1453,20 @@ SmStatus SmSurfOfExtrusion::CreateDirectrixFromPoint
                                    // Get Curve/Line intersection
                                    SmBoolean bNeedsMoreIntersections;
                                    SmSolutionArray sSolutions;
-                                   GetGenCurve()->IntersectWithLine(sCurveDomain,
+                                   SER( GetGenCurve()->IntersectWithLine(sCurveDomain,
                                                                     sLine,
                                                                     sLineDomain,
                                                                     dTol,
                                                                     bNeedsMoreIntersections,
-                                                                    sSolutions);
+                                                                    sSolutions) );
 
                                    if ( bNeedsMoreIntersections || sSolutions.GetSize() < 1 )
                                      {
-                                       GetGenCurve()->GlobalCurveIntersect(sCurveDomain,
+                                       SER( GetGenCurve()->GlobalCurveIntersect(sCurveDomain,
                                                                            sLine,
                                                                            sLineDomain,
                                                                            dTol,
-                                                                           sSolutions );
+                                                                           sSolutions ) );
                                      }
 
                                    // CurrentHeight equals negative Line Param solution
@@ -1610,7 +1610,7 @@ SmBoolean bDebugMe = FALSE;
             // convert NurbUVPoints into StepUVPoints
             SmPoint2d sNurbUV(rSol.m_vStart[0], rSol.m_vStart[1]) ;
             SmPoint2d sStepUV ;
-            ConvertUVFromNURBSToSTEP(sNurbUV, sStepUV) ;
+            SER( ConvertUVFromNURBSToSTEP(sNurbUV, sStepUV)  );
 
             // save the Step points in the solution
             rSol.m_vStart[0] = sStepUV.x;
@@ -1964,10 +1964,10 @@ SmBoolean bDebugMe = FALSE;
       //  note: XSect curve gets trimmed to swept curve bounding box - coming up.
       SmBoolean bUseSurfaceEdges[2] ;
       SmTArray<SmCurve*> s3dCurves ; SmObjsDelete<SmCurve*>  sClean1( &s3dCurves) ;
-      crPlane.IntersectWithPlane(crContext, crOtherUVDomain,
+      SER( crPlane.IntersectWithPlane(crContext, crOtherUVDomain,
                                  sThisPlane, sThisPlane.GetSTEPUVDomain(), bUseSurfaceEdges,
                                  pdOptApproxTol3d, NULL, rbNeedsMoreIntersections,
-                                 &s3dCurves, NULL, NULL, NULL, NULL) ;
+                                 &s3dCurves, NULL, NULL, NULL, NULL)  );
 
 #ifdef SM_DEBUG_CODE
       if (bDebugMe || lCount == lDebugCount)
@@ -2006,7 +2006,7 @@ SmBoolean bDebugMe = FALSE;
                                                  s3dCurves[0]->GetNaturalInterval(),
                                                  NULL,
                                                  dTol) ;
-      this->CurveOnClassify(sCurveClassification) ;
+      SER( this->CurveOnClassify(sCurveClassification)  );
 
       // for every classification interval in this surface
       for(ii=0;ii<sCurveClassification.GetSize();ii++)
@@ -2032,8 +2032,8 @@ SmBoolean bDebugMe = FALSE;
 
           // else - add a trimmed curve to the output
           SmCurve *pCurve = NULL;
-          s3dCurves[0]->Copy(crContext, pCurve) ;
-          pCurve->Trim(sIvl) ;   // may snap sIvl by tol to existing knots
+          SER( s3dCurves[0]->Copy(crContext, pCurve)  );
+          SER( pCurve->Trim(sIvl)  );   // may snap sIvl by tol to existing knots
 
 #ifdef SM_DEBUG_CODE
           if(bDebugMe)
@@ -2189,7 +2189,7 @@ SmBoolean bDebugMe = FALSE;
       // get param along Extrusion Vector where InputPlane intersects ExtrusionVector
       double dDistCenterBaseToPlane = (rPlaneOrigin - m_vOrigin).Dot(m_vCurveVec) ;
       double dAngleRad = 0.0;
-      m_vCurveVec.AngleBetween(m_vExtrusionVec, dAngleRad) ;
+      SER( m_vCurveVec.AngleBetween(m_vExtrusionVec, dAngleRad)  );
       double dDistAlongExtrusion    = dDistCenterBaseToPlane * smos_Cosine(dAngleRad) ;
       double dParamAlongExtrusion   = dDistAlongExtrusion / m_vExtrusionVec.Length() ;
 
@@ -2242,12 +2242,12 @@ SmBoolean bDebugMe = FALSE;
       // between the directrix and the surface normal, e.g.
       // [ BD 070310 ]
       SmCurve *pProjCurve = NULL;
-      m_pGenCurve->CreatePlaneProjection( crContext,
+      SER( m_pGenCurve->CreatePlaneProjection( crContext,
                                           SM_PT_PARALLEL,
                                           rPlaneOrigin,
                                           sPlaneNormal,
                                           m_vExtrusionVec,
-                                          pProjCurve );
+                                          pProjCurve ) );
       SmObjDelete sCleanCrv( pProjCurve );
 
 #ifdef SM_DEBUG_CODE
@@ -2271,10 +2271,10 @@ SmBoolean bDebugMe = FALSE;
 
       // get plane and intersection curve bounding boxes
       SmPseudoBox sCurvePBox, sPlanePBox ;
-      crPlane.CalculateBoundingBox(crPlane.GetNaturalUVDomain(),
-                                   NULL, &sPlanePBox, NULL) ;
-      pProjCurve->CalculateBoundingBox(pProjCurve->GetNaturalInterval(),
-                                       NULL, &sCurvePBox, NULL) ;
+      SER( crPlane.CalculateBoundingBox(crPlane.GetNaturalUVDomain(),
+                                   NULL, &sPlanePBox, NULL)  );
+      SER( pProjCurve->CalculateBoundingBox(pProjCurve->GetNaturalInterval(),
+                                       NULL, &sCurvePBox, NULL)  );
 
       // only use curves intersecting plane domain
       sPlanePBox.ExpandAbsolute(dTol) ;
@@ -2283,7 +2283,7 @@ SmBoolean bDebugMe = FALSE;
           // trim curves to plane domain
           SmTArray<SmCurve *> s3dCurves ;
           SmObjsDelete<SmCurve *> sCleanArray(&s3dCurves) ;
-          crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pProjCurve, dTol, s3dCurves) ;
+          SER( crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pProjCurve, dTol, s3dCurves)  );
 
           // add trim curves to output
           if (pOpt3DCurves) { sCleanArray.Clear();
@@ -2350,8 +2350,8 @@ SmBoolean bDebugMe = FALSE;
         {
           // create line segment intersection curve
           SmBSplineCurve * pCrv = NULL;
-          m_pGenCurve->Evaluate(sSolutions[ii].m_vStart[0], 1, TRUE, sCrvPt);
-          CreateDirectrixFromPoint(crContext,sCrvPt[0],SM_EFF_ZERO_SQRT,pCrv);
+          SER( m_pGenCurve->Evaluate(sSolutions[ii].m_vStart[0], 1, TRUE, sCrvPt) );
+          SER( CreateDirectrixFromPoint(crContext,sCrvPt[0],SM_EFF_ZERO_SQRT,pCrv) );
           SmObjDelete sCleanCrv(pCrv);
 
 #ifdef SM_DEBUG_CODE
@@ -2383,9 +2383,9 @@ SmBoolean bDebugMe = FALSE;
               SmPoint3d sStartPt, sEndPt ;
               TO_EUCLID(pNurb->pol->Pw[0], sStartPt) ;
               TO_EUCLID(pNurb->pol->Pw[1], sEndPt) ;
-              crPlane.TrimPlaneLineToPlaneDomain(crPlane.GetNaturalUVDomain(),
+              SER( crPlane.TrimPlaneLineToPlaneDomain(crPlane.GetNaturalUVDomain(),
                                                  sStartPt, sEndPt, dTol,
-                                                 sStartPt, sEndPt, bFoundInterval) ;
+                                                 sStartPt, sEndPt, bFoundInterval)  );
 
               // only use curves that intersect plane domain
               if(bFoundInterval)
@@ -2674,7 +2674,7 @@ static SmStatus sm_IntersectGenerators
   SmVector3d           sExtrusionVec ;
   SmExtent1d           sExtrusionIvl         = rExtrusionSurf.GetSTEPUVDomain().GetVInterval() ;
   const SmContext    * pContext              = rExtrusionSurf.GetContext();
-  ((SmSurfOfExtrusion &)rExtrusionSurf).GetCanonical(pExtrusionGenCurve, sExtrusionVec) ;
+  SER( ((SmSurfOfExtrusion &)rExtrusionSurf).GetCanonical(pExtrusionGenCurve, sExtrusionVec)  );
   SmExtent1d           sExtrusionGenCurveIvl = pExtrusionGenCurve->GetNaturalInterval() ;
   double               dExtrusionLength      = sExtrusionVec.Length() ;
   double               dOtherLength          = rOtherExtrusionVec.Length() ;
@@ -2734,7 +2734,7 @@ SmBoolean bDebugMe = FALSE;
   // Intersect 2 genCurves along a projection of the of sExtrusionVec.
   // This is just like the intersections needed for hidden line removal
   SmVector3d sUnitExtrusionVec = sExtrusionVec ;
-  sUnitExtrusionVec.Unitize() ;
+  (void)sUnitExtrusionVec.Unitize() ; // SolidCraft: a zero vector stays zero
   SmSolutionArray sSolutions;
   SER(pExtrusionGenCurve->GlobalCurveSolve(sExtrusionGenCurveIvl,
                                            rOtherGenCurve,
@@ -2820,7 +2820,7 @@ SmBoolean bDebugMe = FALSE;
           SER(rOtherGenCurve.EvaluatePoint     (dOtherEnd,     sOtherPoint[jj]));
 
           // find the parameter of the sOtherPoint on line = sExtrusionPoint + dLineParam * sExtrusionVec
-          smgu_LineClosestPoint(sExtrusionPoint[jj], sExtrusionVec, sOtherPoint[jj], dLineParam) ;
+          SER( smgu_LineClosestPoint(sExtrusionPoint[jj], sExtrusionVec, sOtherPoint[jj], dLineParam)  );
 
           // these two points should be on the same line to tolerance
 #ifdef SM_DEBUG_CODE
@@ -2836,7 +2836,7 @@ SmBoolean bDebugMe = FALSE;
 
           // intersect the MappedIvl with the ExtrusionIvl to get overlapIvl of Extrusion vecs
           SmExtent1d sXSectIvl ;
-          sExtrusionIvl.Intersect(sOthermappedIvl, sXSectIvl) ;
+          SER( sExtrusionIvl.Intersect(sOthermappedIvl, sXSectIvl)  );
 
           // no overlap - no output curve
           if(sXSectIvl.IsInit())
@@ -3000,9 +3000,9 @@ SmBoolean bDebugMe = FALSE;
 
                   // copy, translate, and trim the TgtGenCurve
                   SmCurve * pCopiedGenerator = NULL ;
-                  pTgtCurve->Copy(*pContext, pCopiedGenerator) ; NER(pCopiedGenerator) ;
-                  pCopiedGenerator->Transform(sShiftRF);
-                  pCopiedGenerator->Trim(dTrimExtent1); // may snap sIvl by tol to existing knots
+                  SER( pTgtCurve->Copy(*pContext, pCopiedGenerator)  ); NER(pCopiedGenerator) ;
+                  SER( pCopiedGenerator->Transform(sShiftRF) );
+                  SER( pCopiedGenerator->Trim(dTrimExtent1) ); // may snap sIvl by tol to existing knots
 
                   // add curve to output
                   if(pOpt3DCurves)   { pOpt3DCurves->Add(pCopiedGenerator); }
@@ -3072,9 +3072,9 @@ SmBoolean bDebugMe = FALSE;
 
               // copy, translate, and trim the TgtGenCurve
               SmCurve * pCopiedGenerator = NULL ;
-              pTgtCurve->Copy(*pContext, pCopiedGenerator) ; NER(pCopiedGenerator) ;
-              pCopiedGenerator->Transform(sShiftRF);
-              pCopiedGenerator->Trim(dTrimExtent1);  // may snap sIvl by tol to existing knots
+              SER( pTgtCurve->Copy(*pContext, pCopiedGenerator)  ); NER(pCopiedGenerator) ;
+              SER( pCopiedGenerator->Transform(sShiftRF) );
+              SER( pCopiedGenerator->Trim(dTrimExtent1) );  // may snap sIvl by tol to existing knots
 
               // add curve to output
               if(pOpt3DCurves)   { pOpt3DCurves->Add(pCopiedGenerator); }
@@ -3220,10 +3220,10 @@ SmStatus SmSurfOfExtrusion::IntersectWithCylinder
   SmPoint3d sOtherAxisSegmentStartPoint(  rOtherOrigin + sOtherIvl.GetMin() * sOtherZAxis);
   SmPoint3d sOtherAxisSegmentEndPoint  (  rOtherOrigin + sOtherIvl.GetMax() * sOtherZAxis);
   SmBSplineCurve *pOtherGenCurve = NULL ;
-  crCylinder.CreateIsoCircleFromPoint(crContext,
+  SER( crCylinder.CreateIsoCircleFromPoint(crContext,
                                       sOtherAxisSegmentStartPoint,
                                       dTol,
-                                      pOtherGenCurve) ;
+                                      pOtherGenCurve)  );
   SmObjDelete sClean(pOtherGenCurve) ;
 
 #ifdef SM_DEBUG_CODE // draw input surfaces and their breps and faces if possible
@@ -3252,11 +3252,11 @@ SmBoolean bDebugMe = FALSE;
 #endif // SM_DEBUG_CODE
 
   // compute intersections based on overlap of extrusion lines that coalign from the GenCurves
-  sm_IntersectGenerators(*this,
+  SER( sm_IntersectGenerators(*this,
                           dTol,
                           *pOtherGenCurve, sOtherZAxis, sOtherIvl,
                           pOpt3DCurves, pOptCurveTypes,
-                          rbNeedsMoreIntersections) ;
+                          rbNeedsMoreIntersections)  );
 
 #ifdef SM_DEBUG_CODE // add xSectCurves to current drawing
   if (bDebugMe || lCount == lDebugCount)
@@ -3380,11 +3380,11 @@ SmBoolean bDebugMe = FALSE;
 #endif // SM_DEBUG_CODE
 
   // compute intersections based on overlap of extrusion lines that coalign from the GenCurves
-  sm_IntersectGenerators(*this,
+  SER( sm_IntersectGenerators(*this,
                           dTol,
                           *pOtherGenCurve, sOtherExtrusionVec, sOtherIvl,
                           pOpt3DCurves, pOptCurveTypes,
-                          rbNeedsMoreIntersections) ;
+                          rbNeedsMoreIntersections)  );
 
 #ifdef SM_DEBUG_CODE // add xSectCurves to current drawing
   if (bDebugMe || lCount == lDebugCount)
@@ -3495,9 +3495,9 @@ SmBoolean SmSurfOfExtrusion::IsNurbSurfaceSurfOfExtrusion
 
   // evaluate domain upper and lower corner surface points and sweep end point
   SmPoint3d sOrigin, sMaxPnt, sLineEnd;
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(), sOrigin);
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(), sMaxPnt);
-  pTestSurface->EvaluatePoint(sEndParam, sLineEnd);
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(), sOrigin) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate or move is not recognized
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(), sMaxPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate or move is not recognized
+  if ( pTestSurface->EvaluatePoint(sEndParam, sLineEnd) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate or move is not recognized
 
   // compute a tolerance
   double dPtTol =   dToleranceScale
@@ -3591,7 +3591,7 @@ SmBoolean SmSurfOfExtrusion::IsNurbSurfaceSurfOfExtrusion
       sShiftRF.Translate(-dStartKnot * sExtrusionVec);
 
       // translate
-      pGenCurve->Transform(sShiftRF);
+      if ( pGenCurve->Transform(sShiftRF) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate or move is not recognized
       sOrigin -= dStartKnot * sExtrusionVec ;
     }
 
@@ -3616,7 +3616,11 @@ SmBoolean SmSurfOfExtrusion::IsNurbSurfaceSurfOfExtrusion
   // end obsolete
 
   // reparameterize the NURB so that AnalyticSurface->NurbDomain == InputSurface->NurbDomain
-  rpSurfOfExtrusion->Reparameterize(pTestSurface->GetNaturalUVDomain()) ;
+  // SolidCraft change: a surface it cannot reparameterize onto the input domain is not the input
+  if (rpSurfOfExtrusion->Reparameterize(pTestSurface->GetNaturalUVDomain()) != SM_SUCCESS)
+    { delete rpSurfOfExtrusion ; rpSurfOfExtrusion = NULL ;
+      return FALSE ;
+    }
 
   // Copy pTestSurface attributes onto newSurfOfExtrusion
   ((SmBSplineSurface*)pTestSurface)->Notify(SM_NO_COPY, rpSurfOfExtrusion, SM_NO_GET_OWNER(rpSurfOfExtrusion), SM_NO_GET_OWNER(pTestSurface));
@@ -3673,7 +3677,7 @@ SmStatus SmSurfOfExtrusion::MakeNurb
   SmExtent1d        sAnalUIvl(m_vAnalUVDomain.GetUInterval());
 
   // Trim the m_pGenCurve to the current m_vAnalUVDomain.UInterval()
-  m_pGenCurve->AdjustSTEPInterval(sAnalUIvl);
+  SER( m_pGenCurve->AdjustSTEPInterval(sAnalUIvl) );
 
   // locals to hold m_pGenCurve Bspline parameters
   ULONG               lDim, lCrvDeg;
@@ -3838,7 +3842,7 @@ SmStatus SmSurfOfExtrusion::Transform
   SER( SmBSplineSurface::Transform( crRotateNMove, cpOptScale ));
 
   // transform the rest of the 3d data
-  m_pGenCurve->Transform( crRotateNMove, cpOptScale );
+  SER( m_pGenCurve->Transform( crRotateNMove, cpOptScale ) );
 
   // Scale first.
   if ( dScale != 1.0 )
@@ -3952,7 +3956,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // Update just the analytic domain and the GenCurve (both analytic and NURB)
-  UpdateAnalyticalDomain(rNewNurbUVDomain) ;
+  SER( UpdateAnalyticalDomain(rNewNurbUVDomain)  );
 
   // Now rebuild the Nurbs surface using the updated analytic domain.
   Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_OWNER(this), NULL);
@@ -4127,8 +4131,8 @@ SmBoolean SmSurfOfExtrusion::AssertValid
               sSTEPUV = m_vAnalUVDomain.Evaluate(((double)ii)/((double)lCnt),
                                                  ((double)jj)/((double)lCnt)) ;
 
-              ConvertUVFromSTEPToNURBS(sSTEPUV, sNURBUV) ;
-              ConvertUVFromNURBSToSTEP(sNURBUV, sTestSTEPUV) ;
+              (void)ConvertUVFromSTEPToNURBS(sSTEPUV, sNURBUV) ; // SolidCraft: a validity check reads what it computed
+              (void)ConvertUVFromNURBSToSTEP(sNURBUV, sTestSTEPUV) ; // SolidCraft: a validity check reads what it computed
 
               SmBoolean bGoodU = SM_IS_ZERO_TO_TOL(sSTEPUV.x - sTestSTEPUV.x, dTolU) ;
               SmBoolean bGoodV = SM_IS_ZERO_TO_TOL(sSTEPUV.y - sTestSTEPUV.y, dTolV) ;
@@ -4139,8 +4143,8 @@ SmBoolean SmSurfOfExtrusion::AssertValid
                 }
 
               // check equivalent evaluations
-              EvaluateSTEPPoint(sSTEPUV, sSTEPPoint) ;
-              EvaluatePoint(sNURBUV, sNURBPoint) ;
+              (void)EvaluateSTEPPoint(sSTEPUV, sSTEPPoint) ; // SolidCraft: a validity check reads what it computed
+              (void)EvaluatePoint(sNURBUV, sNURBPoint) ; // SolidCraft: a validity check reads what it computed
               bRtn &= SM_ASSERT_VALUE_REPORT(6, SM_LEVEL_0, (SM_IS_ZERO_TO_TOL(sSTEPPoint.DistanceBetween(sNURBPoint), SM_EFF_ZERO_SQRT)), SM_EFF_ZERO_SQRT, sSTEPPoint.DistanceBetween(sNURBPoint), _T("") ) ;
 
             } // end iter every V Sample point
@@ -4153,7 +4157,7 @@ SmBoolean SmSurfOfExtrusion::AssertValid
 
   // 4. check that m_vOrigin is a point on m_pGenCurve
   SmSolutionArray sSolutions ;
-  m_pGenCurve->GlobalPointSolve(m_pGenCurve->GetNaturalInterval(),
+  (void)m_pGenCurve->GlobalPointSolve(m_pGenCurve->GetNaturalInterval(), // SolidCraft: a validity check reads what it computed
                                 SM_SO_INTERSECT,
                                 m_vOrigin,
                                 SM_EFF_ZERO,
@@ -4175,8 +4179,8 @@ SmBoolean SmSurfOfExtrusion::AssertValid
     {
       // m_vCurvePoint = Point on line
       // m_vCurveVec   = Line Tangent
-      smgu_LinePointDistance(sLinePoint, sLineVec, m_vCurvePoint, dDist) ;
-      sLineVec.AngleBetween(m_vCurveVec, dAngleRad) ;
+      (void)smgu_LinePointDistance(sLinePoint, sLineVec, m_vCurvePoint, dDist) ; // SolidCraft: a validity check reads what it computed
+      (void)sLineVec.AngleBetween(m_vCurveVec, dAngleRad) ; // SolidCraft: a validity check reads what it computed
 
       bRtn &= SM_ASSERT_VALUE_REPORT(11, SM_LEVEL_0, (   SM_IS_ZERO_TO_TOL(dDist, SM_EFF_ZERO)), SM_EFF_ZERO, dDist, _T("") ) ;
       bRtn &= SM_ASSERT_VALUE_REPORT(12, SM_LEVEL_0, (   SM_IS_ZERO_TO_TOL(dAngleRad, SM_EFF_ZERO_RAD )
@@ -4188,8 +4192,8 @@ SmBoolean SmSurfOfExtrusion::AssertValid
     {
       // m_vCurvePoint = Point on Plane
       // m_vCurveVec   = Plane Normal
-      smgu_PlanePointDistance(sPlanePoint, sPlaneNormal, m_vCurvePoint, dDist) ;
-      sPlaneNormal.AngleBetween(m_vCurveVec, dAngleRad) ;
+      (void)smgu_PlanePointDistance(sPlanePoint, sPlaneNormal, m_vCurvePoint, dDist) ; // SolidCraft: a validity check reads what it computed
+      (void)sPlaneNormal.AngleBetween(m_vCurveVec, dAngleRad) ; // SolidCraft: a validity check reads what it computed
 
       bRtn &= SM_ASSERT_VALUE_REPORT(9, SM_LEVEL_0, (SM_IS_ZERO_TO_TOL(dDist, SM_EFF_ZERO)), SM_EFF_ZERO, dDist, _T("") ) ;
 
@@ -4210,7 +4214,7 @@ SmBoolean SmSurfOfExtrusion::AssertValid
   //            is a failing surface.
   switch(m_eOrientation)
     {
-      case SM_CO_LINEAR        : sLineVec.AngleBetween(m_vExtrusionVec, dAngleRad) ;
+      case SM_CO_LINEAR        : (void)sLineVec.AngleBetween(m_vExtrusionVec, dAngleRad) ; // SolidCraft: a validity check reads what it computed
                                  bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, (bLinear && bPlanar), SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;        // geometry description check
                                  bRtn &= SM_ASSERT_VALUE_REPORT(14, SM_LEVEL_0,
                                                                 (   !SM_IS_ZERO_TO_TOL(dAngleRad, SM_EFF_ZERO_RAD)
@@ -4219,7 +4223,7 @@ SmBoolean SmSurfOfExtrusion::AssertValid
                                                                  smos_Min(smos_Fabs(dAngleRad),smos_Fabs(dAngleRad-SM_PI)), _T("") ) ;  // unique sweep check
                                  break ;
 
-      case SM_CO_PERPENDICULAR : m_vExtrusionVec.AngleBetween(sPlaneNormal, dAngleRad) ;
+      case SM_CO_PERPENDICULAR : (void)m_vExtrusionVec.AngleBetween(sPlaneNormal, dAngleRad) ; // SolidCraft: a validity check reads what it computed
                                  bRtn &= SM_ASSERT_VALUE_REPORT(15, SM_LEVEL_0, (!bLinear && bPlanar), SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;    // geometry description check
                                  bRtn &= SM_ASSERT_VALUE_REPORT(16, SM_LEVEL_0,
                                                                 (   SM_IS_ZERO_TO_TOL(dAngleRad, SM_EFF_ZERO_RAD)
@@ -4227,17 +4231,17 @@ SmBoolean SmSurfOfExtrusion::AssertValid
                                                                  SM_EFF_ZERO_RAD, smos_Min(smos_Fabs(dAngleRad),smos_Fabs(dAngleRad-SM_PI)), _T("") ) ; // orthogonal sweep check
                                  break ;
 
-      case SM_CO_INDEPENDENT   : m_vExtrusionVec.AngleBetween(sPlaneNormal, dAngleRad) ;
+      case SM_CO_INDEPENDENT   : (void)m_vExtrusionVec.AngleBetween(sPlaneNormal, dAngleRad) ; // SolidCraft: a validity check reads what it computed
                                  bRtn &= SM_ASSERT_VALUE_REPORT(17, SM_LEVEL_0, (!bLinear && bPlanar), SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;    // geometry description check
                                  bRtn &= SM_ASSERT_VALUE_REPORT(18, SM_LEVEL_0, (!SM_IS_ZERO_TO_TOL(dAngleRad-SM_PI/2.0, SM_EFF_ZERO_RAD)), SM_EFF_ZERO_RAD,dAngleRad-SM_PI/2.0, _T("")) ;  // nonPlanar sweep check
                                  break ;
 
-      case SM_CO_COPLANAR      : m_vExtrusionVec.AngleBetween(sPlaneNormal, dAngleRad) ;
+      case SM_CO_COPLANAR      : (void)m_vExtrusionVec.AngleBetween(sPlaneNormal, dAngleRad) ; // SolidCraft: a validity check reads what it computed
                                  bRtn &= SM_ASSERT_VALUE_REPORT(19, SM_LEVEL_0, (!bLinear && bPlanar), SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;    // geometry description check
                                  bRtn &= SM_ASSERT_VALUE_REPORT(20, SM_LEVEL_0, (SM_IS_ZERO_TO_TOL(dAngleRad-SM_PI/2.0, SM_EFF_ZERO_RAD)), SM_EFF_ZERO_RAD, dAngleRad-SM_PI/2.0, _T("") ) ; // CoPlanar check
 
                                  // look for points of tangency on GenCurve with the extrusion Vec direction
-                                 m_pGenCurve->GlobalPropertyAnalysis(m_pGenCurve->GetNaturalInterval(),
+                                 (void)m_pGenCurve->GlobalPropertyAnalysis(m_pGenCurve->GetNaturalInterval(), // SolidCraft: a validity check reads what it computed
                                                                      SM_CP_PARALLEL_TO_VECTOR,
                                                                      &dNotUsed,
                                                                      &m_vExtrusionVec,
@@ -4250,7 +4254,7 @@ SmBoolean SmSurfOfExtrusion::AssertValid
       case SM_CO_NOT_PLANAR    : bRtn &= SM_ASSERT_VALUE_REPORT(22, SM_LEVEL_0, (!bLinear && !bPlanar), SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("") ) ; // geometry description check
 
                                  // look for points of tangency on GenCurve with the extrusion Vec direction
-                                 m_pGenCurve->GlobalPropertyAnalysis(m_pGenCurve->GetNaturalInterval(),
+                                 (void)m_pGenCurve->GlobalPropertyAnalysis(m_pGenCurve->GetNaturalInterval(), // SolidCraft: a validity check reads what it computed
                                                                      SM_CP_PARALLEL_TO_VECTOR,
                                                                      &dNotUsed,
                                                                      &m_vExtrusionVec,
@@ -4465,7 +4469,7 @@ SmStatus SmSurfOfExtrusion::WriteToDB
   SER(m_pGenCurve->WriteToDB(rDB, lDBVersionNumber)) ;
 
   // output the parent
-  SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber) ;
+  SER( SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber)  );
 
   // all done
   return SM_SUCCESS;
@@ -4566,7 +4570,7 @@ SmStatus SmSurfOfExtrusion::ReadFromDB
   pSurfOfExtrusion->m_pGenCurve->SetOwner(pSurfOfExtrusion) ;
   pSurfOfExtrusion->m_vOrigin       = sOrig ;
   pSurfOfExtrusion->m_vExtrusionVec = sExtrusionVec ;
-  pSurfOfExtrusion->m_vAnalUVDomain.SetMinMax(sAnalMin, sAnalMax) ;
+  SER( pSurfOfExtrusion->m_vAnalUVDomain.SetMinMax(sAnalMin, sAnalMax)  );
   pSurfOfExtrusion->m_eOrientation  = (SmCurveOrientType) eOrientation ;
   pSurfOfExtrusion->m_bSwapUV       = bSwapUV ;
   pSurfOfExtrusion->SetCurvePoint(sCurvePoint) ;
@@ -4634,12 +4638,12 @@ void SmSurfOfExtrusion::Dump
                      sNaturalMatchIvl =   m_bSwapUV
                                         ? sNaturalUVDomain.GetVInterval()
                                         : sNaturalUVDomain.GetUInterval() ;
-                     if(m_bSwapUV) { GetKnots(SM_SP_V, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ; }
-                     else          { GetKnots(SM_SP_U, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ; }
+                     if(m_bSwapUV) { (void)GetKnots(SM_SP_V, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ; } // SolidCraft: dump only
+                     else          { (void)GetKnots(SM_SP_U, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ; } // SolidCraft: dump only
                    }
   if(bHasGenCurve) { sGenSTEPInterval    = GetGenCurve()->GetSTEPInterval() ;
                      sGenNaturalInterval = GetGenCurve()->GetNaturalInterval() ;
-                     GetGenCurve()->GetKnots(sGenKnots, &sGenMults) ;
+                     (void)GetGenCurve()->GetKnots(sGenKnots, &sGenMults) ; // SolidCraft: dump only
                      bSameGenKnots =    SM_ARE_ARRAYS_SAME(sGenKnots, sNaturalGenMatchKnots)
                                      && SM_ARE_ARRAYS_SAME(sGenMults, sNaturalGenMatchMults) ;
                    }

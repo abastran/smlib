@@ -50,7 +50,7 @@ SmLine::SmLine
   // watch out for degenerate lines
   if(dScale < SM_EFF_ZERO) { sVec.Set(1,0,0) ; 
                              dScale = 1.0 ;
-                             sIvl.SetMinMax(0.0, 0.0) ;
+                             (void)sIvl.SetMinMax(0.0, 0.0) ; // SolidCraft: a constructor cannot report
                            }
   else                     { sVec /= dScale;  // Unitize.
                            }
@@ -189,7 +189,7 @@ SmLine::SmLine
 
       // give line an arbitrary direction and shrink AnalDomain down to a degenerate point
       m_vLineVector.Set(1,0,0) ;
-      m_vAnalDomain.SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMin()) ;
+      (void)m_vAnalDomain.SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMin()) ; // SolidCraft: a constructor cannot report
     }
 
   // when passed a context - use it
@@ -203,7 +203,7 @@ SmLine::SmLine
   if(pOptNurb) { gw_CURVE *pGwNurbCurve = ((SmBSplineCurve *)pOptNurb)->GetOrCreateGwNurbPointer() ;
 
                  // copy and save the gw_CURVE 
-                 SetFromGwNurb(0, pGwNurbCurve) ;
+                 (void)SetFromGwNurb(0, pGwNurbCurve) ; // SolidCraft: a constructor cannot report
                }
   else         { SE(MakeNurb()); 
                }
@@ -240,7 +240,7 @@ SmStatus SmLine::CreateLineSegment
   if(pOptInterval)
     {
       // adjust the parameter range
-      pLine->EditParameterization( *pOptInterval ) ; 
+      SER( pLine->EditParameterization( *pOptInterval )  ); 
     }
 
   // all done - set output
@@ -344,8 +344,8 @@ double SmLine::ApproximateLength
 
   // get interval endPoints
   SmPoint3d sStartPoint, sEndPoint;
-  EvaluatePoint(crInterval.GetMin(),sStartPoint);
-  EvaluatePoint(crInterval.GetMax(),sEndPoint);
+  if ( EvaluatePoint(crInterval.GetMin(),sStartPoint) != SM_SUCCESS ) { return 0.0 ; } // SolidCraft change: no length without its end points
+  if ( EvaluatePoint(crInterval.GetMax(),sEndPoint) != SM_SUCCESS ) { return 0.0 ; } // SolidCraft change: no length without its end points
 
   // return distance between points
   double dRet = sStartPoint.DistanceBetween(sEndPoint);
@@ -368,7 +368,7 @@ SmStatus SmLine::ConvertTo2D
   m_vLineVector.z = 0.0;
 
   // convert the underlying Nurb
-  SmBSplineCurve::ConvertTo2D() ;
+  SER( SmBSplineCurve::ConvertTo2D()  );
 
   // all done
   return SM_SUCCESS;
@@ -387,7 +387,7 @@ SmStatus SmLine::ConvertTo3D
   m_lDim = 3;
 
   // convert the underlying Nurb
-  SmBSplineCurve::ConvertTo3D() ;
+  SER( SmBSplineCurve::ConvertTo3D()  );
 
   // all done
   return SM_SUCCESS;
@@ -573,7 +573,7 @@ NOTES:
   if ( pOffsetLine != NULL )
   {
       pOffsetLine->m_vLinePoint += dOffsetDistance * sOffDir;
-      pOffsetLine->MakeNurb();
+      SER( pOffsetLine->MakeNurb() );
   }
   else
   {
@@ -636,8 +636,8 @@ SmStatus SmLine::CalculateBoundingBox
       else
         {  
           SmVector3d sBasis1, sBasis2, sBasis3;
-          sV1.MakeUnitOrthoVectors(NULL,sBasis1,sBasis2,sBasis3);
-          pPseudoBox->SetBasis(sBasis1,sBasis2,sBasis3);
+          SER( sV1.MakeUnitOrthoVectors(NULL,sBasis1,sBasis2,sBasis3) );
+          SER( pPseudoBox->SetBasis(sBasis1,sBasis2,sBasis3) );
         }
     } // end init pseudoBox
 
@@ -649,7 +649,7 @@ SmStatus SmLine::CalculateBoundingBox
                    pPseudoBox->AddPoint3d(sEndPoint);
                  }
   if(pPolarBox)  { pPolarBox->ReSet() ;
-                   pPolarBox->AddVector3d(sEndPoint - sStartPoint) ;
+                   SER( pPolarBox->AddVector3d(sEndPoint - sStartPoint)  );
                  }
 
   return SM_SUCCESS;
@@ -734,7 +734,7 @@ SmBoolean bDebugMe = FALSE;
 
   // convert AnalParam to NurbParam
   dAnalParam /= m_dScale ;
-  ConvertTFromSTEPToNURBS(dAnalParam, dRawNurbParam) ;
+  SER( ConvertTFromSTEPToNURBS(dAnalParam, dRawNurbParam)  );
 
   // clip endPoints
   dNurbParam = crNurbInterval.ClampValue(dRawNurbParam) ;
@@ -743,7 +743,7 @@ SmBoolean bDebugMe = FALSE;
   if(dNurbParam != dRawNurbParam)
     {
       SmPoint3d sPoint ;
-      EvaluatePoint(dNurbParam, sPoint) ;
+      SER( EvaluatePoint(dNurbParam, sPoint)  );
       dDist = sPoint.DistanceBetween(crTestPoint) ;
     } // end need to recompute Dist check
 
@@ -820,7 +820,7 @@ SmStatus SmLine::GetCanonical
   rLinePoint     = m_vLinePoint;
   rNonUnitVector = m_dScale*m_vLineVector;
   if(pOptAnalDomain) 
-    { pOptAnalDomain->SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMax()) ; }
+    { SER( pOptAnalDomain->SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMax())  ); }
   if(pOptInsideOut) { *pOptInsideOut = m_bInsideOut ; }
 
   // all done
@@ -848,7 +848,7 @@ SmStatus SmLine::GetCanonical
   rLinePoint  = m_vLinePoint ;
   rUnitVector = m_vLineVector ;
   rScale      = m_dScale ;
-  rAnalDomain.SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMax()) ;
+  SER( rAnalDomain.SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMax())  );
   if(pOptInsideOut) { *pOptInsideOut = m_bInsideOut ; }
   
   // all done
@@ -877,7 +877,7 @@ SmStatus SmLine::SetCanonical
   m_vLinePoint  = rLinePoint ;
   m_vLineVector = rUnitVector ;
   m_dScale      = dScale ;
-  m_vAnalDomain.SetMinMax(rAnalDomain.GetMin(), rAnalDomain.GetMax()) ;
+  SER( m_vAnalDomain.SetMinMax(rAnalDomain.GetMin(), rAnalDomain.GetMax())  );
 
   // Clean up the m_pNurb
   if(GetContext() != NULL)  
@@ -932,7 +932,7 @@ SmStatus SmLine::GlobalPointSolveSTEP
 
   // get limited interval
   SmExtent1d sAnalIvl ;
-  m_vAnalDomain.Intersect(crSTEPInterval, sAnalIvl) ;
+  SER( m_vAnalDomain.Intersect(crSTEPInterval, sAnalIvl)  );
   sAnalIvl.Union(crSTEPInterval, sAnalIvl) ;
 
   // Locals: Solution param, Solution distance, and temporary soloution object
@@ -1048,7 +1048,7 @@ SmStatus SmLine::Evaluate
   SM_REF1(bFromLeft) ; 
   // convert to STEP parameter
   double dSTEPParam  ;
-  ConvertTFromNURBSToSTEP(dNurbParam, dSTEPParam) ;
+  SER( ConvertTFromNURBSToSTEP(dNurbParam, dSTEPParam)  );
 
   // Set 2nd order and higher derivatives to zero
   for (ULONG i=2; i<lNumDerivatives+1; i++) 
@@ -1135,7 +1135,7 @@ SmStatus SmLine::EvaluatePoint
 { 
   // convert to STEP parameter
   double dSTEPParam  ;
-  ConvertTFromNURBSToSTEP(dNurbParam, dSTEPParam) ;
+  SER( ConvertTFromNURBSToSTEP(dNurbParam, dSTEPParam)  );
 
   rPoint = m_vLinePoint + dSTEPParam * m_dScale * m_vLineVector ;
   return SM_SUCCESS;
@@ -1172,7 +1172,7 @@ SmBoolean SmLine::IsLine
   const
 {
   // set output
-  EvaluateSTEPPoint(m_vAnalDomain.GetMin(),rLinePoint);
+  if ( EvaluateSTEPPoint(m_vAnalDomain.GetMin(),rLinePoint) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a line whose start cannot be evaluated is not recognized
   rLineVector =  m_vAnalDomain.IsBounded() 
                ? m_vAnalDomain.GetLength() * m_dScale * m_vLineVector
                : m_dScale * m_vLineVector ;
@@ -1224,8 +1224,8 @@ SmBoolean SmLine::IsDegenerate
 #endif // SM_DEBUG_CODE
 
       double dStepMin, dStepMax;
-      ConvertTFromNURBSToSTEP( pInterval->GetMin(), dStepMin );
-      ConvertTFromNURBSToSTEP( pInterval->GetMax(), dStepMax );
+      if ( ConvertTFromNURBSToSTEP( pInterval->GetMin(), dStepMin ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: an interval it cannot convert is not shown degenerate
+      if ( ConvertTFromNURBSToSTEP( pInterval->GetMax(), dStepMax ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: an interval it cannot convert is not shown degenerate
 
       dDist = m_dScale * smos_Fabs( dStepMax - dStepMin );
     }
@@ -1498,7 +1498,7 @@ SmBoolean bDebugMe=FALSE;
   SmExtent1d sIvl2 = pOtherCurve->GetNaturalInterval();
 
   double dThisLen;
-  this->Length( sIvl1, 0.0, dThisLen );  // 0.0: tol: not used.
+  SER( this->Length( sIvl1, 0.0, dThisLen ) );  // 0.0: tol: not used.
 
   // Get a tolerance to use.
   double dTol = ( pGapTolerance != NULL )
@@ -1570,7 +1570,7 @@ SmBoolean bDebugMe=FALSE;
 
   // And update the Nurbs.
   Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_OWNER(this), NULL);
-  this->MakeNurb();
+  SER( this->MakeNurb() );
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
 
   return SM_SUCCESS;
@@ -1601,8 +1601,8 @@ SmStatus SmLine::Length
   {
        // get interval endPoints
        SmPoint3d sStartPoint, sEndPoint;
-       EvaluatePoint(crInterval.GetMin(),sStartPoint);
-       EvaluatePoint(crInterval.GetMax(),sEndPoint);
+       SER( EvaluatePoint(crInterval.GetMin(),sStartPoint) );
+       SER( EvaluatePoint(crInterval.GetMax(),sEndPoint) );
        rdLength = sStartPoint.DistanceBetween(sEndPoint);
   }
   else     
@@ -1663,21 +1663,21 @@ SmStatus SmLine::MakeNurb()
   // Set ControlPoint Z values for 2d curves
   if( m_lDim == 2)
     {
-      this->ConvertTo2D() ;
+      SER( this->ConvertTo2D()  );
     }
 
   // when a SmSurfOfExtrusion GenCurve, look for Parent Surface NURB Interval constraint
   if(m_pOwner && m_pOwner->IsKindOf(SmSurfOfExtrusion_TYPE))
     {
       SmExtent1d sNURBIvl = ((SmSurfOfExtrusion*)m_pOwner)->GetGenDirParamExtent() ;
-      EditParameterization(sNURBIvl, FALSE) ; // FALSE = No Need for Notify
+      SER( EditParameterization(sNURBIvl, FALSE)  ); // FALSE = No Need for Notify
     }
 
   // when a SmSurfOfRevolution GenCurve, look for Parent Surface NURB Interval constraint
   if(m_pOwner && m_pOwner->IsKindOf(SmSurfOfRevolution_TYPE))
     {
       SmExtent1d sNURBIvl = ((SmSurfOfRevolution*)m_pOwner)->GetGenDirParamExtent() ;
-      EditParameterization(sNURBIvl, FALSE) ; // FALSE = No Need for Notify
+      SER( EditParameterization(sNURBIvl, FALSE)  ); // FALSE = No Need for Notify
     }
 
   // all done
@@ -1723,7 +1723,7 @@ SmStatus SmLine::RefreshAnalytics()
       m_vLineVector = (sEndPoint - sStartPoint) ;
       m_dScale      = m_vLineVector.Length() / m_vAnalDomain.GetLength() ;
       if(m_dScale < SM_EFF_ZERO) { m_dScale = 1.0 ; }
-      m_vLineVector.Unitize() ;
+      (void)m_vLineVector.Unitize() ; // SolidCraft: a zero vector stays zero
       m_vLinePoint = sStartPoint - m_vLineVector * m_dScale * m_vAnalDomain.GetMin() ;
 #ifdef SM_DEBUG_CODE
       if(!sEndPoint.CloserThan(SM_EFF_ZERO * fabs(  1.0
@@ -1744,7 +1744,7 @@ SmStatus SmLine::RefreshAnalytics()
       m_vLineVector = (sStartPoint - sEndPoint) ;
       m_dScale      = m_vLineVector.Length() / m_vAnalDomain.GetLength() ;
       if(m_dScale < SM_EFF_ZERO) { m_dScale = 1.0 ; }
-      m_vLineVector.Unitize() ;
+      (void)m_vLineVector.Unitize() ; // SolidCraft: a zero vector stays zero
       m_vLinePoint = sEndPoint - m_vLineVector * m_dScale * m_vAnalDomain.GetMin() ;
 #ifdef SM_DEBUG_CODE
       if(!sStartPoint.CloserThan(SM_EFF_ZERO * (  1.0 
@@ -1805,7 +1805,7 @@ SmStatus SmLine::ReverseParameterization
   m_vLineVector = - m_vLineVector;
 
   // reverse Nurb curve
-  if (m_pNurb) { SmBSplineCurve::ReverseParameterization(crOldInterval,rNewInterval) ; }
+  if (m_pNurb) { SER( SmBSplineCurve::ReverseParameterization(crOldInterval,rNewInterval)  ); }
 
   // all done
   return SM_SUCCESS;
@@ -1929,7 +1929,7 @@ SmStatus SmLine::STEPInversion
       if(*pOptLoc == SM_CL_INTERIOR)
         {
           SmPoint3d sPoint ;
-          EvaluateSTEPPoint(rdAnalyticParameter, sPoint) ;
+          SER( EvaluateSTEPPoint(rdAnalyticParameter, sPoint)  );
           double dDist = sPoint.DistanceBetween(crPointOnCurve) ;
           double dScaledZero = SM_EFF_ZERO * (1.0 + sPoint.GetMaxDimension()) ;
 
@@ -2079,7 +2079,7 @@ SmStatus SmLine::Transform
   // which is the speed, or distance per unit parameter.
   SmPoint3d sStartPoint = m_vLinePoint;
   SmPoint3d sEndPoint;
-  EvaluateSTEPPoint( 1.0, sEndPoint );
+  SER( EvaluateSTEPPoint( 1.0, sEndPoint ) );
 
   // scale the points
   if (cpOptScale) 
@@ -2096,7 +2096,7 @@ SmStatus SmLine::Transform
   m_vLinePoint  = sStartPoint;
   m_vLineVector = sEndPoint - sStartPoint;
   m_dScale      = m_vLineVector.Length();
-  m_vLineVector.Unitize();    
+  (void)m_vLineVector.Unitize(); // SolidCraft: a zero vector stays zero
 
   // transform the nurb curve
   if (m_pNurb) 
@@ -2176,7 +2176,7 @@ SmOrientType    * pOptCrvOrientation)  // in : orientation for when we have a cr
       // watch out for degenerate lines
       if(dScale < SM_EFF_ZERO) { sVec.Set(1,0,0) ; 
                                  dScale = 1.0 ;
-                                 sIvl.SetMinMax(0.0, 0.0) ;
+                                 SER( sIvl.SetMinMax(0.0, 0.0)  );
                                }
       else                     { sVec /= dScale ;   // Unitize.
                                }
@@ -2189,7 +2189,7 @@ SmOrientType    * pOptCrvOrientation)  // in : orientation for when we have a cr
       // m_bInsideOut = m_bInsideOut ; // leave as is
 
       // refresh m_pNurb
-      MakeNurb() ;
+      SER( MakeNurb()  );
 
       // all done
       return(SM_SUCCESS) ;
@@ -2199,7 +2199,7 @@ SmOrientType    * pOptCrvOrientation)  // in : orientation for when we have a cr
     {
       // when needed - make m_pNurb
       if(m_pNurb == NULL)
-        { MakeNurb() ; }
+        { SER( MakeNurb()  ); }
 
       // make new line BSplineCurve
       *ppOptNewCurve = new (GetContext()) SmBSplineCurve(*this) ;
@@ -2255,18 +2255,18 @@ SmBoolean bDebugMe = FALSE ;
 
   // trim the analytic interval
   double dStepMin, dStepMax ;
-  ConvertTFromNURBSToSTEP(crTrimInterval.GetMin(), dStepMin) ;
-  ConvertTFromNURBSToSTEP(crTrimInterval.GetMax(), dStepMax) ;
+  SER( ConvertTFromNURBSToSTEP(crTrimInterval.GetMin(), dStepMin)  );
+  SER( ConvertTFromNURBSToSTEP(crTrimInterval.GetMax(), dStepMax)  );
   SM_ASSERT(dStepMax > dStepMin || m_bInsideOut) ;
-  if(m_bInsideOut) { m_vAnalDomain.SetMinMax(dStepMax, dStepMin) ; }
-  else             { m_vAnalDomain.SetMinMax(dStepMin, dStepMax) ; }
+  if(m_bInsideOut) { SER( m_vAnalDomain.SetMinMax(dStepMax, dStepMin)  ); }
+  else             { SER( m_vAnalDomain.SetMinMax(dStepMin, dStepMax)  ); }
 
   Notify( SM_NO_PRE_EDIT, this, SM_NO_GET_OWNER( this ), NULL );
   // to avoid tolerances - just rebuild the nurbCurve
-  MakeNurb() ;
+  SER( MakeNurb()  );
   
   // Set Nurb Parameterization - which calls Notify
-  SmBSplineCurve::EditParameterization(crTrimInterval, bNotify) ;
+  SER( SmBSplineCurve::EditParameterization(crTrimInterval, bNotify)  );
 
   Notify( SM_NO_POST_EDIT, this, SM_NO_GET_OWNER( this ), NULL );
 
@@ -2370,13 +2370,13 @@ SmBoolean SmLine::AssertValid
 
       // evaluate STEP endPoints
       SmPoint3d  sSTEPStartPoint, sSTEPEndPoint ;
-      EvaluateSTEPPoint(m_vAnalDomain.GetMin(), sSTEPStartPoint) ;
-      EvaluateSTEPPoint(m_vAnalDomain.GetMax(), sSTEPEndPoint) ;
+      (void)EvaluateSTEPPoint(m_vAnalDomain.GetMin(), sSTEPStartPoint) ; // SolidCraft: a validity check reads what it computed
+      (void)EvaluateSTEPPoint(m_vAnalDomain.GetMax(), sSTEPEndPoint) ; // SolidCraft: a validity check reads what it computed
 
       // evaluate Nurb endPoints
       SmPoint3d  sNurbStartPoint, sNurbEndPoint ;
-      SmBSplineCurve::EvaluatePoint(sNurbDomain.GetMin(), sNurbStartPoint) ;
-      SmBSplineCurve::EvaluatePoint(sNurbDomain.GetMax(), sNurbEndPoint) ;
+      (void)SmBSplineCurve::EvaluatePoint(sNurbDomain.GetMin(), sNurbStartPoint) ; // SolidCraft: a validity check reads what it computed
+      (void)SmBSplineCurve::EvaluatePoint(sNurbDomain.GetMax(), sNurbEndPoint) ; // SolidCraft: a validity check reads what it computed
 
       // verify that STEP and Nurb representations are equivalent
       double dScaledZero = SM_EFF_ZERO * (1.0 + smos_Max(sSTEPStartPoint.GetMaxDimension(),
@@ -2490,7 +2490,7 @@ SmStatus SmLine::WriteToDB
     }
 
   // Write the base object
-  SmBSplineCurve::WriteToDB(rDB, lDBVersionNumber) ;
+  SER( SmBSplineCurve::WriteToDB(rDB, lDBVersionNumber)  );
 
   // all done
   return SM_SUCCESS ;
@@ -2560,7 +2560,7 @@ SmStatus SmLine::ReadFromDB
   // load the obj
   pLine->m_vLinePoint     = sLinePoint ;
   pLine->m_vLineVector    = sLineVector ;
-  pLine->m_vAnalDomain.SetMinMax(dAnalMin, dAnalMax) ; 
+  SER( pLine->m_vAnalDomain.SetMinMax(dAnalMin, dAnalMax)  ); 
   pLine->m_dScale         = dScale ;
   pLine->m_bInsideOut     = bInsideOut ;
 
@@ -2568,7 +2568,7 @@ SmStatus SmLine::ReadFromDB
   rpNewCurve = pLine ;
 
   // read the base type
-  SmBSplineCurve::ReadFromDB(SmBSplineCurve_TYPE, rDB, lDim, crContext, rpNewCurve, lDBVersionNumber) ; 
+  SER( SmBSplineCurve::ReadFromDB(SmBSplineCurve_TYPE, rDB, lDim, crContext, rpNewCurve, lDBVersionNumber)  ); 
 
   // all done
   return SM_SUCCESS;
@@ -2635,10 +2635,10 @@ void SmLine::Dump
   SmPoint3d sNurbEndPoint, sNurbStartPoint ;
   SmPoint3d sStepEndPoint, sStepStartPoint ;
   SmExtent1d sNurbIvl = GetNaturalInterval();
-  EvaluatePoint(sNurbIvl.GetMin(),sNurbStartPoint) ;
-  EvaluatePoint(sNurbIvl.GetMax(),sNurbEndPoint) ;
-  EvaluateSTEPPoint(m_vAnalDomain.GetMin(),sStepStartPoint) ;
-  EvaluateSTEPPoint(m_vAnalDomain.GetMax(),sStepEndPoint) ;
+  (void)EvaluatePoint(sNurbIvl.GetMin(),sNurbStartPoint) ; // SolidCraft: dump only
+  (void)EvaluatePoint(sNurbIvl.GetMax(),sNurbEndPoint) ; // SolidCraft: dump only
+  (void)EvaluateSTEPPoint(m_vAnalDomain.GetMin(),sStepStartPoint) ; // SolidCraft: dump only
+  (void)EvaluateSTEPPoint(m_vAnalDomain.GetMax(),sStepEndPoint) ; // SolidCraft: dump only
 
   // output representations
   smos_sprintf(sBuff,       _T("\nSmLine = 0x%p"), this) ;

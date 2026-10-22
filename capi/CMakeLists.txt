@@ -93,6 +93,14 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmCrvOnSurf.cpp
   ${SRC}/SMLib/src/SmCurveClass.cpp
   ${SRC}/SMLib/src/SmBrepData.cpp
+  ${SRC}/SMLib/src/SmPlane.cpp
+  ${SRC}/SMLib/src/SmCone.cpp
+  ${SRC}/SMLib/src/SmSphere.cpp
+  ${SRC}/SMLib/src/SmTorus.cpp
+  ${SRC}/SMLib/src/SmLine.cpp
+  ${SRC}/SMLib/src/SmEllipse.cpp
+  ${SRC}/SMLib/src/SmSurfOfRevolution.cpp
+  ${SRC}/SMLib/src/SmSurfOfExtrusion.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp
