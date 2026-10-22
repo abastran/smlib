@@ -91,7 +91,8 @@ shim at a time, each with a case in a fuzz target.
 `src/smlib_sweeps.cpp`: `smlib_extrude` (straight through `SmApiCreateLinearSweep`, drafted
 through `SmApiCreateTaperExtrude`), `smlib_revolve` (`SmApiCreateRotationalSweep`), `smlib_sweep`
 (`SmApiCreateCurveSweep`, the path's curves joined into one B-spline, the profile carried as it
-lies relative to the path), `smlib_loft` (`SmApiCreateSkinPrimitive`) and `smlib_screw_sweep`.
+lies relative to the path), `smlib_loft` (`SmApiCreateSkinPrimitive`), `smlib_screw_sweep` and
+`smlib_sweep_stations`.
 Profiles, paths and sections cross as curve lists (lines, circular arcs, NURBS; `include/smlib.h`
 gives the layout), checked before SMLib sees them and built into SMLib curves inside the call.
 With `cap` the result must be a closed manifold solid (`SMLIB_ERR_NOT_SOLID` otherwise).
@@ -103,10 +104,16 @@ curve sweep carries the profile on its own frame along the path, which along a h
 profile away from a screw motion (3 turns of a thread's tooth came out 1 to 2% off in volume);
 `smlib_screw_sweep` therefore places the profile by the screw motion itself at stations along
 the turns and skins the walls through them, cubic, the stations close enough for the caller's
-tolerance.
+tolerance. SM_API's curve sweep has no twist and its scale law is uniform in the path's parameter,
+and nothing in SM_API follows guide rails round a closed profile; `smlib_sweep_stations` takes the
+caller's stations instead (affine maps: the profile twisted, scaled or stretched and carried
+along the path), places the profile exactly by each (its control points mapped), skins the walls
+through the sections (`SmApiCreateSkinPrimitive`, cubic) and caps them, or, round a closed path
+where the last section lies on the first, glues the walls' ends to their starts
+(`SmApiStitchIntoSolid`).
 
 `tests/sweeps.cpp` checks each against closed-form volumes and SMLib's check, and feeds hostile
-curve lists; `fuzz/fuzz_sweeps.cpp` (`smlib_fuzz_sweeps`) fuzzes all five.
+curve lists; `fuzz/fuzz_sweeps.cpp` (`smlib_fuzz_sweeps`) fuzzes all six.
 
 ## Flat B-rep arrays
 

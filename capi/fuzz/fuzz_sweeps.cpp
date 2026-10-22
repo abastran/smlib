@@ -4,8 +4,8 @@
 // libFuzzer target for the sweeps (src/smlib_sweeps.cpp): curve lists made from the input, half
 // of them well-formed loops (rectangles, discs, polygons and NURBS pieces of random sizes, places
 // and orientations) so SMLib's sweeps run, the rest arbitrary kinds and numbers; each one through
-// smlib_extrude, smlib_revolve, smlib_sweep, smlib_loft and smlib_screw_sweep with arbitrary or
-// near-sane options. Any status is fine; a crash, hang, leak or exception is not.
+// smlib_extrude, smlib_revolve, smlib_sweep, smlib_loft, smlib_screw_sweep and
+// smlib_sweep_stations with arbitrary or near-sane options. Any status is fine; a crash, hang, leak or exception is not.
 //
 //   cmake -S capi -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DSMLIB_CAPI_FUZZ=ON -DSMLIB_CAPI_TESTS=OFF
 //   cmake --build build-fuzz --target smlib_fuzz_sweeps && build-fuzz/smlib_fuzz_sweeps -max_total_time=120
@@ -165,7 +165,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     }
     int32_t cap = in.byte() % 3 == 0 ? 0 : 1;
     smlib_brep *b = nullptr;
-    switch (in.byte() % 5)
+    switch (in.byte() % 6)
     {
     case 0:
         drop(smlib_extrude(pk, nk, pr, nr, dir, in.in(-1.0, 200.0), in.byte() % 2 ? 0.0 : in.in(-1.7, 1.7), cap, &b), b);
@@ -213,6 +213,33 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                         all.reals.empty() ? nullptr : all.reals.data(), static_cast<int64_t>(all.reals.size()), sizes.data(),
                         static_cast<int64_t>(sizes.size()), static_cast<int32_t>(in.byte() % 5), cap, &b),
              b);
+        break;
+    }
+    case 4:
+    {
+        // Stations up a line, turning, scaling and shearing by arbitrary amounts (some singular),
+        // or wholly arbitrary maps.
+        int n = 1 + in.byte() % 40;
+        bool sane = in.byte() % 2 == 0;
+        double twist = in.in(-30.0, 30.0), scale = in.in(-2.0, 50.0), shear = in.in(-3.0, 3.0), rise = in.in(-1.0, 300.0);
+        std::vector<double> maps;
+        for (int i = 0; i < n; ++i)
+        {
+            double f = n > 1 ? static_cast<double>(i) / (n - 1) : 0.0;
+            if (sane)
+            {
+                double a = twist * f, k = 1.0 + (scale - 1.0) * f;
+                maps.insert(maps.end(), {k * std::cos(a), k * std::sin(a), 0, -k * std::sin(a), k * std::cos(a), 0, shear * f, 0, 1, 0, 0, rise * f});
+            }
+            else
+            {
+                for (int j = 0; j < 12; ++j)
+                {
+                    maps.push_back(in.in(-1e3, 1e3));
+                }
+            }
+        }
+        drop(smlib_sweep_stations(pk, nk, pr, nr, maps.data(), n, static_cast<int32_t>(in.byte() % 4), &b), b);
         break;
     }
     default:

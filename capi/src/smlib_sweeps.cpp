@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The sweeps of include/smlib.h: extrusion (straight or with draft), revolution, sweep along a
-// path, loft through sections and the screw sweep of a thread. Profiles, paths and sections
+// path, loft through sections, the screw sweep of a thread, and the sweep through stations of a
+// profile that twists, scales or follows rails. Profiles, paths and sections
 // cross as curve lists (lines, circular arcs and NURBS, include/smlib.h); each call builds its
 // own SMLib curves from them, so nothing the caller owns is touched.
 //
@@ -701,6 +702,162 @@ extern "C" int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, cons
                 return s;
             }
             return finish(r, true, out);
+        }
+    );
+}
+
+namespace
+{
+
+// The station maps of smlib_sweep_stations: `n` maps of 12 numbers, each a 3 x 3 matrix by columns
+// then a translation, every number finite, each matrix of bounded size and far from singular (a
+// section squashed to a line or a point is no section), each translation within MAX_COORD.
+bool maps_ok(const double *maps, int64_t n)
+{
+    for (int64_t i = 0; i < n; ++i)
+    {
+        const double *m = maps + 12 * i;
+        if (!finite(m, 12) || !coord_ok(m + 9, 3))
+        {
+            return false;
+        }
+        double c0 = length(m), c1 = length(m + 3), c2 = length(m + 6);
+        if (!(c0 < 1e6 && c1 < 1e6 && c2 < 1e6))
+        {
+            return false;
+        }
+        double det = m[0] * (m[4] * m[8] - m[7] * m[5]) - m[3] * (m[1] * m[8] - m[7] * m[2]) + m[6] * (m[1] * m[5] - m[4] * m[2]);
+        if (!(std::fabs(det) > 1e-9 * c0 * c1 * c2))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// A copy of `c` as a plain B-spline with every control point carried by the affine map `m`
+// (x -> M x + t, as maps_ok reads it). An affine map moves a NURBS curve exactly by its control
+// points, the weights unchanged.
+int32_t placed(const SmContext &ctx, const SmBSplineCurve &c, const double *m, SmBSplineCurve *&out)
+{
+    ULONG dim = 0, degree = 0;
+    SmTArray<SmPoint3d> points;
+    SmBSplineCurveForm form = SM_CF_UNSPECIFIED;
+    SmTArray<ULONG> mult;
+    SmTArray<double> unique;
+    SmKnotType kt = SM_KT_UNSPECIFIED;
+    SmTArray<double> weights;
+    if (c.GetCanonical(dim, degree, points, form, mult, unique, kt, weights) != SM_SUCCESS || dim != 3)
+    {
+        return static_cast<int32_t>(SM_ERR);
+    }
+    for (ULONG i = 0; i < points.GetSize(); ++i)
+    {
+        const SmPoint3d p = points[i];
+        points[i] = SmPoint3d(m[0] * p.x + m[3] * p.y + m[6] * p.z + m[9], m[1] * p.x + m[4] * p.y + m[7] * p.z + m[10],
+                              m[2] * p.x + m[5] * p.y + m[8] * p.z + m[11]);
+    }
+    SmBSplineCurve *r = nullptr;
+    SmStatus s = SmBSplineCurve::CreateCanonical(ctx, 3, degree, points, SM_CF_UNSPECIFIED, mult, unique, SM_KT_UNSPECIFIED,
+                                                 weights.GetSize() > 0 ? &weights : nullptr, nullptr, r);
+    if (s != SM_SUCCESS || r == nullptr)
+    {
+        delete r;
+        return s != SM_SUCCESS ? status(s) : SM_ERR;
+    }
+    out = r;
+    return SMLIB_OK;
+}
+
+} // namespace
+
+extern "C" int32_t smlib_sweep_stations(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double *maps,
+                                        int64_t n_stations, int32_t ends, smlib_brep **out)
+{
+    if (out == nullptr || maps == nullptr || n_stations < 2 || n_stations > SMLIB_SWEEP_MAX_STATIONS ||
+        (ends != SMLIB_ENDS_OPEN && ends != SMLIB_ENDS_CAPPED && ends != SMLIB_ENDS_JOINED))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_sweep_stations", list(n_kinds, n_reals) + ", stations=" + std::to_string(n_stations) + ", ends=" + std::to_string(ends));
+    dump_curves(c, "profile", kinds, n_kinds, reals, n_reals);
+    c.input_text("maps",
+                 [=](const std::string &path)
+                 {
+                     if (FILE *f = std::fopen(path.c_str(), "w"))
+                     {
+                         for (int64_t i = 0; i < 12 * n_stations; ++i)
+                         {
+                             std::fprintf(f, "%.17g%c", maps[i], i % 12 == 11 ? '\n' : ' ');
+                         }
+                         std::fclose(f);
+                     }
+                 });
+    return c.run(
+        [&]
+        {
+            if (!maps_ok(maps, n_stations))
+            {
+                return SMLIB_ERR_ARG;
+            }
+            Curves profile;
+            int32_t s = parse(kinds, n_kinds, reals, n_reals, profile);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            if (static_cast<double>(profile.v.size()) * static_cast<double>(n_stations) > SMLIB_SWEEP_MAX_STATION_CURVES)
+            {
+                return SMLIB_ERR_ARG;
+            }
+            // Every section is the profile carried by its station's map: the sections share the
+            // profile's degrees and knots, which the skin interpolates control point by control
+            // point (cubic across the stations, or as high as their number allows).
+            const SmContext &ctx = *SmApiGetOrCreateContext();
+            Curves sections;
+            SmTArray<ULONG> counts;
+            SmTArray<const SmCurve *> all;
+            for (int64_t i = 0; i < n_stations; ++i)
+            {
+                for (SmCurve *x : profile.v)
+                {
+                    const SmBSplineCurve *b = SM_CAST_PTR(SmBSplineCurve, x);
+                    if (b == nullptr)
+                    {
+                        return SMLIB_ERR_ARG;
+                    }
+                    SmBSplineCurve *p = nullptr;
+                    s = placed(ctx, *b, maps + 12 * i, p);
+                    if (s != SMLIB_OK)
+                    {
+                        return s;
+                    }
+                    sections.v.push_back(p);
+                    all.Add(p);
+                }
+                counts.Add(static_cast<ULONG>(profile.v.size()));
+            }
+            ULONG degree = static_cast<ULONG>(std::min<int64_t>(3, n_stations - 1));
+            SmBrep *r = nullptr;
+            s = status(SmApiCreateSkinPrimitive(counts, all, degree, ends == SMLIB_ENDS_CAPPED ? TRUE : FALSE, r, nullptr, nullptr, nullptr));
+            if (s == SMLIB_OK && ends == SMLIB_ENDS_JOINED)
+            {
+                // The last section lies on the first: the walls' ends are glued to their starts.
+                SmBoolean solid = FALSE;
+                ULONG stitched = 0;
+                double vertex_gap = 0.0, edge_gap = 0.0;
+                s = status(SmApiStitchIntoSolid(r, solid, stitched, vertex_gap, edge_gap));
+                if (s == SMLIB_OK && !solid)
+                {
+                    s = SMLIB_ERR_NOT_SOLID;
+                }
+            }
+            if (s != SMLIB_OK)
+            {
+                delete r;
+                return s;
+            }
+            return finish(r, ends != SMLIB_ENDS_OPEN, out);
         }
     );
 }
