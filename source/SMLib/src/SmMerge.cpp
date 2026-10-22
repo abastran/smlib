@@ -6864,6 +6864,76 @@ SmStatus SmMerge::MergeVertex
 } // end SmMerge::MergeVertex
 
 /*******************************************************************//**
+PURPOSE: Give the edgeuses of a face just made in Brep from an OtherBrep
+         faceuse the UV trim curves of the OtherBrep edgeuses they copy.
+
+NOTES:
+  A UVTrimCurve is parameterized by its edge's curve parameter on its face's
+  surface (SmEdgeuse.h: stored once per mated pair).  It stays exact on the
+  new edgeuse when the new edge runs on the copy MergeEdge made of the other
+  edge's curve, over the same interval, and the new face lies on the copy
+  MakeFaceuse made of the other face's surface (CopyAndAddAnalytics gives the
+  same points at the same parameters, an analytic copy included).
+  Elsewhere the new edgeuse keeps what MakeFace gave it and SMLib makes its
+  trim when it needs it (SmEdgeuse::GetOrCreateUVTrimCurve).
+
+  MakeFace builds the faceuse of the other faceuse's orientation from the
+  given edgeuses in order, loop by loop (as it assigns cpOptUVCurves), so the
+  i-th edgeuse of that faceuse answers the i-th edgeuse of the other faceuse.
+***********************************************************************/
+static SmStatus sm_CopyUVTrimCurvesOfOtherFace
+  (SmFaceuse             * pOtherFaceuse,      // in : OtherBrep faceuse the new face was made from
+   SmFace                * pNewFace,           // in : the new Brep face
+   SmTopologyIntersector & rTopoIntersector)   // in : Brep/OtherBrep mates
+{
+  NER(pOtherFaceuse);
+  NER(pNewFace);
+
+  SmSurface *pOtherSurface = pOtherFaceuse->GetFace()->GetSurface();
+  SmSurface *pNewSurface   = pNewFace->GetSurface();
+  NER(pOtherSurface);
+  NER(pNewSurface);
+  if (pNewSurface != rTopoIntersector.GetBrepMate(pOtherSurface))
+    { return SM_SUCCESS; }
+
+  SmFaceuse *pFU1 = NULL, *pFU2 = NULL;
+  pNewFace->GetFaceuses(pFU1,pFU2);
+  NER(pFU1);
+  NER(pFU2);
+  SmFaceuse *pNewFaceuse = pFU1->GetOrientation() == pOtherFaceuse->GetOrientation() ? pFU1 : pFU2;
+
+  SmTArray<SmEdgeuse*> sOtherEdgeuses, sNewEdgeuses;
+  pOtherFaceuse->GetEdgeuses(sOtherEdgeuses);
+  pNewFaceuse->GetEdgeuses(sNewEdgeuses);
+  if (sOtherEdgeuses.GetSize() != sNewEdgeuses.GetSize())
+    { SER(SM_ERR); }
+
+  const SmContext *pContext = pNewFace->GetContext();
+  for (ULONG ii=0; ii<sNewEdgeuses.GetSize(); ii++)
+    {
+      SmEdgeuse      *pOtherEU   = sOtherEdgeuses[ii];
+      SmEdgeuse      *pNewEU     = sNewEdgeuses[ii];
+      SmEdge         *pOtherEdge = pOtherEU->GetEdge();
+      SmEdge         *pNewEdge   = pNewEU->GetEdge();
+      SmBSplineCurve *pTrim      = pOtherEU->GetUVTrimCurve();
+      if (   pTrim == NULL
+          || pNewEdge != rTopoIntersector.GetBrepMate(pOtherEdge)
+          || pNewEdge->GetCurve() != rTopoIntersector.GetBrepMate(pOtherEdge->GetCurve())
+          || pNewEdge->GetInterval().GetMin() != pOtherEdge->GetInterval().GetMin()
+          || pNewEdge->GetInterval().GetMax() != pOtherEdge->GetInterval().GetMax())
+        { continue; }
+
+      SmBSplineCurve *pCopy = NULL;
+      SER(pTrim->Copy(*pContext,pCopy));
+      NER(pCopy);
+      pNewEU->SetUVTrimCurve(pCopy,0.0,TRUE); // TRUE = delete a trim MakeFace made for sectoring
+    }
+
+  return SM_SUCCESS;
+
+} // end sm_CopyUVTrimCurvesOfOtherFace
+
+/*******************************************************************//**
 PURPOSE: Make a face from the OtherBrep in m_vTI.m_pBrep.
 
 NOTES:
@@ -7253,6 +7323,9 @@ static ULONG lDebugCount = 0 ;
       { SER( eStat ); }
 
     SER( m_vTI.Relate( pNewFace, pFaceToMake ));
+
+    // MakeFace does not take the other face's UV trims over; carry the exact ones across
+    SER( sm_CopyUVTrimCurvesOfOtherFace( pFaceuseToMakeInBrep, pNewFace, m_vTI ));
 
     pFaceToMake->Notify(SM_NO_COPY, pNewFace, SM_NO_GET_BREP(pNewFace), SM_NO_GET_BREP(pFaceToMake)) ;
 
