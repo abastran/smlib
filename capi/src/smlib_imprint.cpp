@@ -3,11 +3,14 @@
 
 // smlib_imprint: where a tool body meets a body, its faces cut along the intersection
 // (SmApiBooleanWithOptions with SM_BO_IMPRINT, the tool kept). Trim and Split Face build on it.
+// smlib_face_points: a point inside each face (SmFace::CalculateAnInternalPoint, which classifies
+// parameter lines against the face's trims), for telling the pieces apart.
 
 #include "smlib_shim.h"
 
 #include <SmApiBrep.h>
 #include <SmApiQueries.h>
+#include <SmFace.h>
 
 #include <memory>
 
@@ -82,6 +85,40 @@ extern "C" int32_t smlib_imprint(const smlib_brep *body, const smlib_brep *tool,
                 return SMLIB_ERR_NO_CUT;
             }
             return take(a.release(), out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_face_points(const smlib_brep *body, double *out, int64_t n_faces)
+{
+    if (!valid(body) || out == nullptr || n_faces < 0)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_face_points", handle(body) + ", n_faces=" + std::to_string(n_faces));
+    c.input("body", body);
+    return c.run(
+        [&]
+        {
+            SmTArray<SmFace *> faces;
+            body->p->GetFaces(faces);
+            if (static_cast<int64_t>(faces.GetSize()) != n_faces)
+            {
+                return SMLIB_ERR_ARG;
+            }
+            for (ULONG i = 0; i < faces.GetSize(); ++i)
+            {
+                SmPoint3d p;
+                int32_t s = status(faces[i]->CalculateAnInternalPoint(p));
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+                out[3 * i] = p.x;
+                out[3 * i + 1] = p.y;
+                out[3 * i + 2] = p.z;
+            }
+            return SMLIB_OK;
         }
     );
 }
