@@ -531,10 +531,12 @@ SmBoolean bDebugMe = FALSE;
 
               // spheres project to ellipses - find max radius of sphere projections
               SmVector3d sEyeVec1 = sSph1Center - m_cpOptVectors[2] ;
+              // SolidCraft: without these directions the projected radius has no bound, so
+              // nothing can be ruled out
               SmVector3d sDir1    = sEyeVec1 * m_cpOptVectors[1] ; // vec perp to eyevec and view norm
-              sDir1.Unitize() ;
+              if (sDir1.Unitize() != SM_SUCCESS) { return TRUE ; }
               SmVector3d sDir2    = sDir1 * sEyeVec1 ;             // vec perp to eyevec in view normal plane
-              sDir2.Unitize() ;
+              if (sDir2.Unitize() != SM_SUCCESS) { return TRUE ; }
               SmVector3d sRadVec ;
               double dNewRad1MaxSq = 0.0, dNewRadSq ;
               ULONG ii ;
@@ -552,9 +554,9 @@ SmBoolean bDebugMe = FALSE;
 
               SmVector3d sEyeVec2 = sSph2Center - m_cpOptVectors[2] ;
               sDir1    = sEyeVec2 * m_cpOptVectors[1] ; // vec perp to eyevec and view norm
-              sDir1.Unitize() ;
+              if (sDir1.Unitize() != SM_SUCCESS) { return TRUE ; }
               sDir2    = sDir1 * sEyeVec2 ;             // vec perp to eyevec in view normal plane
-              sDir2.Unitize() ;
+              if (sDir2.Unitize() != SM_SUCCESS) { return TRUE ; }
               double dNewRad2MaxSq = 0.0 ;
               for(ii=0;ii<4;ii++)
                 {
@@ -869,8 +871,10 @@ SmBoolean bDebugMe = FALSE;
             {
               dFrac = ii / dNumSamples;
               dT = sIvl2.Evaluate( dFrac );
-              pCOS->EvaluatePoint( dT, sSrfPt );
-              pCOS->EvaluateSurfaceNormal( dT, FALSE, sUVPtDer, sNorm );
+              // SolidCraft: a sample that cannot be evaluated leaves the offset box unbounded
+              if (   pCOS->EvaluatePoint( dT, sSrfPt ) != SM_SUCCESS
+                  || pCOS->EvaluateSurfaceNormal( dT, FALSE, sUVPtDer, sNorm ) != SM_SUCCESS )
+                { return TRUE; }
               if ( sNorm.Dot( sDiffVec ) < 0.0 )
                 { sNorm *= -1.0; }
 

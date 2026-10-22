@@ -102,6 +102,9 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmRotationalSweepGeometry.cpp
   ${SRC}/SMLib/src/SmPrimitiveCreation.cpp
   ${SRC}/SM_API/src/SmApiPrimitives.cpp
+  ${SRC}/SMLib/src/SmLocalSolve1d.cpp
+  ${SRC}/SMLib/src/SmLocalSolveNd.cpp
+  ${SRC}/SMLib/src/SmGlobalSolver.cpp
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")
