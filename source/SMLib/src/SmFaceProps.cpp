@@ -971,7 +971,7 @@ SmStatus SmFaceProps::SetProps_Stage2
   // m_eBadMissingSeam, m_eBadCrossedSeam, m_eBadNearMissSeam
   if(m_bClosedU == TRUE || m_bClosedV == TRUE)
     {
-      m_pFace->HasSeamProblem
+      SER( m_pFace->HasSeamProblem // SolidCraft change: its status is passed on
         (
          *m_pCrvClassU,       // i/o: ConstU_Seam/Face Classification <br>
          *m_pCrvClassV,       // i/o: ConstV_Seam/Face Classification <br>
@@ -998,7 +998,7 @@ SmStatus SmFaceProps::SetProps_Stage2
                               //      gets access to m_sRawTouchListU   m_sRawTouchListV
                               //                     m_sDoneTouchListU  m_sDoneTouchListV
                               //  TODO: see if input args m_bClosedU, m_bClosedV, and the m_eBad... flags can be passed through the SmFaceProps argument.
-        ) ;
+        ) ) ;
 
        // set the boolean error flags
        m_bBadMissingSeam  = (m_eBadMissingSeam  != SM_SP_NEITHER) ; // TRUE = Face has a problem
