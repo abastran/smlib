@@ -758,7 +758,8 @@ int32_t smlib_revolve(const int64_t *kinds, int64_t n_kinds, const double *reals
 /* The profile swept along a path of end-to-end curves (joined into one B-spline), carried with
  * the path's start: the profile keeps its place relative to it. The side walls are B-spline
  * approximations of the swept surface, one per stretch of profile between tangent breaks; along a
- * straight path (lines end to end in one direction) the sweep is an extrusion with exact walls.
+ * straight path (lines end to end in one direction) the sweep is an extrusion, and turning with a
+ * path of arcs about one axis a revolution, with exact walls.
  * Round a closed path (ending where it starts) the walls close on each other: no caps. */
 int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const int64_t *path_kinds,
                     int64_t n_path_kinds, const double *path_reals, int64_t n_path_reals, int32_t frame, int32_t cap,
