@@ -48,16 +48,6 @@ On solids filleted with `circular_fillet`, `tessellate()` can wind some triangle
 
 **Workaround:** a `surface_angle_tolerance_deg` of 15° avoided every case found.
 
-## Measurement
-
-### Area, volume and mass properties of faces bounded by circles
-
-Face area, Brep area and volume, and mass properties (`Face.area()`, `Brep.area()`, `Brep.volume()` and the matching `SmApi*` functions) were inaccurate for faces whose trim curves have interior knots, such as rational circles: each trim curve is now integrated knot span by knot span, and such faces meet the requested `relative_accuracy` (a cylinder's volume is 1.8e-6 off at 1e-4).
-
-Faces of surfaces with interior knots of their own (a NURBS sphere or torus) can still miss it by a small factor: at 1e-4 a sphere's area came out 1.6e-4 off and a torus's volume 2.5e-4, at 1e-3 a torus's 1.7e-3 (tangency-labs/solidcore#384).
-
-**Workaround:** use a smaller `relative_accuracy`. The error fell as the accuracy was tightened in every measured case.
-
 ## USD import and validation
 
 ### Malformed BrepArray topology can crash import

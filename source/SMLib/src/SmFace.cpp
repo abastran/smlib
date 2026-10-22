@@ -17,6 +17,7 @@
 #include <SmSurface.h>
 #include <SmEdge.h>
 #include <SmBSplineSurface.h>
+#include <algorithm>
 #include <SmTArray.h>
 #include <SmTrimSrfCache.h>
 #include <SmGeomUtility.h>
@@ -5920,6 +5921,104 @@ SmBoolean bDebugMe = FALSE;
 } // end SmODEIsoCurveLengthIFEO::Evaluate
 
 /*******************************************************************//**
+PURPOSE: The knots of a B-spline surface along eParam strictly inside
+         (dLo, dHi), ascending. An analytic surface is smooth everywhere:
+         none.
+***********************************************************************/
+static SmStatus sm_SurfaceKnotsInside
+(
+  const SmSurface  & crSurface,   // in :
+  SmSurfParamType    eParam,      // in : SM_SP_U or SM_SP_V
+  double             dLo,         // in :
+  double             dHi,         // in :
+  SmTArray<double> & rKnots       // out:
+)
+{
+    rKnots.ReSet();
+    if (!crSurface.IsKindOf(SmBSplineSurface_TYPE)) { return SM_SUCCESS; }
+    SmTArray<double> sAll;
+    SER(crSurface.GetKnots(eParam, sAll));
+    for (ULONG i = 0; i < sAll.GetSize(); i++)
+    {
+        if (sAll[i] > dLo && sAll[i] < dHi) { rKnots.Add(sAll[i]); }
+    }
+    return SM_SUCCESS;
+}
+
+/*******************************************************************//**
+PURPOSE: Where the precise-property integrand is not smooth along a UV trim
+         curve: its own knots, and the parameters where it crosses a knot
+         line u = k of a B-spline surface (across one, the inner integral's
+         derivatives in u jump). Ascending, the curve's ends included.
+
+NOTES: Within a knot span u(t) is a polynomial (or rational) of the curve's
+  degree; each crossing is found by a sign change of u(t) - k between
+  4 (degree + 1) evenly spaced points of the span, then bisection.
+***********************************************************************/
+static SmStatus sm_TrimCurveBreaks
+(
+  const SmBSplineCurve & crUVCurve,  // in :
+  const SmSurface      & crSurface,  // in :
+  SmTArray<double>     & rBreaks     // out:
+)
+{
+    rBreaks.ReSet();
+    SmTArray<double> sKnots;
+    SER(crUVCurve.GetKnots(sKnots));
+    if (sKnots.GetSize() < 2) { SER(SM_ERR); }
+
+    SmExtent3d sBox;
+    SER(crUVCurve.CalculateBoundingBox(crUVCurve.GetNaturalInterval(), &sBox));
+    SmTArray<double> sULines;
+    SER(sm_SurfaceKnotsInside(crSurface, SM_SP_U, sBox.GetMin().x, sBox.GetMax().x, sULines));
+
+    const ULONG lSamples = 4 * (crUVCurve.GetDegree() + 1);
+    auto u = [&](double dT, double & rdU) -> SmStatus
+    {
+        SmPoint3d sP;
+        SER(crUVCurve.EvaluatePoint(dT, sP));
+        rdU = sP.x;
+        return SM_SUCCESS;
+    };
+    for (ULONG iK = 0; iK + 1 < sKnots.GetSize(); iK++)
+    {
+        const double dA = sKnots[iK], dB = sKnots[iK+1];
+        rBreaks.Add(dA);
+        for (ULONG iL = 0; iL < sULines.GetSize(); iL++)
+        {
+            const double dK = sULines[iL];
+            double dT0 = dA, dU0 = 0.0;
+            SER(u(dT0, dU0));
+            for (ULONG iS = 1; iS <= lSamples; iS++)
+            {
+                double dT1 = dA + (dB - dA) * iS / lSamples, dU1 = 0.0;
+                SER(u(dT1, dU1));
+                if ((dU0 - dK) * (dU1 - dK) < 0.0)
+                {
+                    double dLo = dT0, dHi = dT1, dULo = dU0;
+                    for (int iBis = 0; iBis < 64 && dHi - dLo > SM_EFF_ZERO * (1.0 + smos_Fabs(dHi)); iBis++)
+                    {
+                        double dMid = 0.5 * (dLo + dHi), dUMid = 0.0;
+                        SER(u(dMid, dUMid));
+                        if ((dULo - dK) * (dUMid - dK) <= 0.0) { dHi = dMid; }
+                        else { dLo = dMid; dULo = dUMid; }
+                    }
+                    rBreaks.Add(0.5 * (dLo + dHi));
+                }
+                else if (dU1 == dK && iS < lSamples)
+                {
+                    rBreaks.Add(dT1);
+                }
+                dT0 = dT1; dU0 = dU1;
+            }
+        }
+    }
+    rBreaks.Add(sKnots[sKnots.GetSize()-1]);
+    std::sort(&rBreaks[0], &rBreaks[0] + rBreaks.GetSize());
+    return SM_SUCCESS;
+}
+
+/*******************************************************************//**
 PURPOSE:
 
 NOTES:
@@ -5955,14 +6054,28 @@ SmBoolean bDebugMe = FALSE;
     if (smos_Fabs(sPV[1].x) > SM_EFF_ZERO) {
         const ULONG lNumComponents = m_pYScale->GetSize();
         SmTArray<double> dY(lNumComponents,NULL,lNumComponents);
-        double dStep = sPV[0].y - m_dMinV;
+        SmTArray<double> dPieceY(lNumComponents,NULL,lNumComponents);
+
+        // Along the iso-u line the integrand is smooth only within each knot
+        // span of the surface: integrated span by span, as the trim curve is.
+        SmTArray<double> sBreaks;
+        SER(sm_SurfaceKnotsInside(m_crSurface, SM_SP_V, m_dMinV, sPV[0].y, sBreaks));
+        sBreaks.InsertAt(0, m_dMinV);
+        sBreaks.Add(sPV[0].y);
 
         ULONG lNumOK, lNumBad;
-        // A failed inner integration is not a zero-area contribution; return
-        // the failure so callers cannot accept plausible partial properties.
-        SER(sIntegrator.RungeKuttaODEIntegrate(dY,m_dMinV,
-            sPV[0].y, m_dIsoCurveAccuracy, dStep/2.0, 0.0, lNumOK, lNumBad,
-            m_pYScale));
+        dY.SetAll(0.0);
+        for (ULONG iP = 0; iP + 1 < sBreaks.GetSize(); iP++)
+        {
+            const double dA = sBreaks[iP], dB = sBreaks[iP+1];
+            dPieceY.SetAll(0.0);
+            // A failed inner integration is not a zero-area contribution; return
+            // the failure so callers cannot accept plausible partial properties.
+            SER(sIntegrator.RungeKuttaODEIntegrate(dPieceY, dA, dB,
+                m_dIsoCurveAccuracy, (dB - dA)/2.0, 0.0, lNumOK, lNumBad,
+                m_pYScale));
+            for (ULONG iC = 0; iC < lNumComponents; iC++) { dY[iC] += dPieceY[iC]; }
+        }
         rDyDxValues.ReSet();
         rDyDxValues.Add(0.0);
         rDyDxValues.Append(dY);
@@ -6100,18 +6213,19 @@ SmBoolean bDebugMe = FALSE;
             ULONG lNumOK, lNumBad;
 
             // The integrand is smooth only within each knot span of the trim
-            // curve: at an interior knot the curve's derivatives jump (a
-            // rational circle's double knots), and a Runge-Kutta step across
-            // one is outside the method's error model, so its error estimate
-            // does not bound its error and the result misses the requested
-            // accuracy (KNOWN_ISSUES.md, "faces bounded by circles"). Each
-            // span is integrated on its own, from its own span/2 first step.
-            SmTArray<double> sKnots;
-            SER(pBSC->GetKnots(sKnots));
+            // curve and between the surface's knot lines u = k it crosses: at
+            // either, derivatives jump (a rational circle's double knots), and
+            // a Runge-Kutta step across one is outside the method's error
+            // model, so its error estimate does not bound its error and the
+            // result misses the requested accuracy (tangency-labs/solidcore#384,
+            // faces bounded by circles). Each piece is integrated on its own, from
+            // its own half-length first step.
+            SmTArray<double> sBreaks;
+            SER(sm_TrimCurveBreaks(*pBSC, *this->GetSurface(), sBreaks));
             dY.SetAll(0.0);
-            for (ULONG iK = 0; iK + 1 < sKnots.GetSize(); iK++)
+            for (ULONG iK = 0; iK + 1 < sBreaks.GetSize(); iK++)
             {
-                const double dA = sKnots[iK], dB = sKnots[iK+1];
+                const double dA = sBreaks[iK], dB = sBreaks[iK+1];
                 if (!(dB > dA)) { continue; }
                 dSpanY.SetAll(0.0);
                 // Propagate failure instead of dropping the span: a silent skip
