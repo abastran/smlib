@@ -82,6 +82,11 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmOffsetSurface.cpp
   ${SRC}/SMLib/src/SmOffsetCurve.cpp
   ${SRC}/SM_API/src/SmApiBrep.cpp
+  ${SRC}/SMLib/src/SmTopologySweep.cpp
+  ${SRC}/SMLib/src/SmTransSweepGeometry.cpp
+  ${SRC}/SMLib/src/SmRotationalSweepGeometry.cpp
+  ${SRC}/SMLib/src/SmPrimitiveCreation.cpp
+  ${SRC}/SM_API/src/SmApiPrimitives.cpp
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")

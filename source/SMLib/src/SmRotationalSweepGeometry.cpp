@@ -856,7 +856,7 @@ SmStatus SmRotationalSweepGeometry::GetStartCoordSystem
 
   sDiffVec /= dLen;
 
-  rCoordSys.SetCanonical( rPt, m_sAxis, sDiffVec );
+  SER( rCoordSys.SetCanonical( rPt, m_sAxis, sDiffVec ) );
 
   return SM_SUCCESS;
 
@@ -952,7 +952,7 @@ SmStatus SmRotationalSweepGeometry::VertexSweepHigher
   double dRad = (sRotCenter - sOriginalPt).Length();
 
   SmAxis2Placement sA2P;
-  sA2P.SetCanonical(sRotCenter,sXVect,sYVect);
+  SER( sA2P.SetCanonical(sRotCenter,sXVect,sYVect) );
 
   SmNurbCircleParam eParameterization = SM_CO_QUADRATIC;  // degree 2
   // The circle generator can cope all angles.
