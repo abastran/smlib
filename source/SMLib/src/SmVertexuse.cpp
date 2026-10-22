@@ -760,7 +760,7 @@ SmStatus SmVertexuse::ComputeUVSector
   SmExtent2d sUVDomain  = pFace->GetUVDomain();
 
   // compute the UV point - pass the call along
-  ComputeUVPoint(rUVSectorIO.m_sBegEdgeUVPoint, bOKToMakeUVTrimCurve) ;
+  SER( ComputeUVPoint(rUVSectorIO.m_sBegEdgeUVPoint, bOKToMakeUVTrimCurve)  );
 
   // branch between Loop and Edge Vertices
   if(GetVertexuseType() == SmLoopuse_TYPE)
@@ -800,7 +800,7 @@ SmStatus SmVertexuse::ComputeUVSector
       SmCurve   * pEndCurve   = pEndEdge ? pEndEdge->GetCurve() : NULL ;
 
       // compute EndSector UVPoint - usually same as sBegUVPoint except for Vertices on Seams (with missing seam edges) or Singularities
-      pEndVertexuse->ComputeUVPoint(rUVSectorIO.m_sEndEdgeUVPoint, bOKToMakeUVTrimCurve) ;
+      SER( pEndVertexuse->ComputeUVPoint(rUVSectorIO.m_sEndEdgeUVPoint, bOKToMakeUVTrimCurve)  );
       SM_ASSERT_MSG(pEndVertexuse->GetVertex() == pVertex, 
                     _T("SmVertexuse::ComputeUVSector - found wrong Sector ending EndVertexuse - needs review")) ;
 
@@ -819,8 +819,8 @@ SmStatus SmVertexuse::ComputeUVSector
       rUVSectorIO.m_dEndEdgeParam = rUVSectorIO.m_pEndEdgeuse->GetOrientation() == SM_OT_OPPOSITE ? sEndEdgeIvl.GetMin() : sEndEdgeIvl.GetMax() ;
 
       // Begin and End Tangent Vecs, Oriented From Vertex into Face
-      pBegCurve->Evaluate(rUVSectorIO.m_dBegEdgeParam, 1, TRUE, sBegEdgePV, TRUE) ; // TRUE = NonZeroTangents
-      pEndCurve->Evaluate(rUVSectorIO.m_dEndEdgeParam, 1, TRUE, sEndEdgePV, TRUE) ; // TRUE = NonZeroTangents
+      SER( pBegCurve->Evaluate(rUVSectorIO.m_dBegEdgeParam, 1, TRUE, sBegEdgePV, TRUE)  ); // TRUE = NonZeroTangents
+      SER( pEndCurve->Evaluate(rUVSectorIO.m_dEndEdgeParam, 1, TRUE, sEndEdgePV, TRUE)  ); // TRUE = NonZeroTangents
       if(rUVSectorIO.m_pBegEdgeuse->GetOrientation() == SM_OT_OPPOSITE) { sBegEdgePV[1] = -sBegEdgePV[1] ; }
       if(rUVSectorIO.m_pEndEdgeuse->GetOrientation() == SM_OT_SAME)     { sEndEdgePV[1] = -sEndEdgePV[1] ; }
       double dBegEdgeSpeed = sBegEdgePV[1].Length() ;
@@ -910,22 +910,22 @@ lDebugCnt++ ;
 #endif // SM_DEBUG_CODE
 
           // Find DegenParam for BegEdge
-          pSurface->FindDegenParamForDirection(rUVSectorIO.m_sBegEdgeUVPoint, // i/o: a point on the surface singularity                                       
+          SER( pSurface->FindDegenParamForDirection(rUVSectorIO.m_sBegEdgeUVPoint, // i/o: a point on the surface singularity                                       
                                                sBegEdgePV[1],                 // in : the direction to match with the NonSingular Surface tangent               
                                                TRUE,                          // in : TRUE  = Dir to match is from the pole heading out, as in starting a curve 
                                                                               //    : FALSE = Dir to match ends at the pole heading in, as in ending a curve    
                                                eSingularDir,                  // in : oneof SM_SP_U: Surf(si,v) == Surf(sj,v) where si, sj are any valid u values
                                                                               //    :       SM_SP_V: Surf(u,si) == Surf(u,sj) where si, sj are any valid v values
-                                               SM_APPROX_TOL_3D) ;            // in : a loose tolerance; will try for a tight one.                              
+                                               SM_APPROX_TOL_3D)  );            // in : a loose tolerance; will try for a tight one.                              
 
           // Find DegenParam for EndEdge
-          pSurface->FindDegenParamForDirection(rUVSectorIO.m_sEndEdgeUVPoint, // i/o: a point on the surface singularity                                       
+          SER( pSurface->FindDegenParamForDirection(rUVSectorIO.m_sEndEdgeUVPoint, // i/o: a point on the surface singularity                                       
                                                sEndEdgePV[1],                 // in : the direction to match with the NonSingular Surface tangent               
                                                TRUE,                          // in : TRUE  = Dir to match is from the pole heading out, as in starting a curve 
                                                                               //    : FALSE = Dir to match ends at the pole heading in, as in ending a curve    
                                                eSingularDir,                  // in : oneof SM_SP_U: Surf(si,v) == Surf(sj,v) where si, sj are any valid u values
                                                                               //    :       SM_SP_V: Surf(u,si) == Surf(u,sj) where si, sj are any valid v values
-                                               SM_APPROX_TOL_3D) ;            // in : a loose tolerance; will try for a tight one.                              
+                                               SM_APPROX_TOL_3D)  );            // in : a loose tolerance; will try for a tight one.                              
 
         } // end Vertex on Pole check
 
@@ -936,18 +936,18 @@ lDebugCnt++ ;
       if(!bOnFlatCorner)
         {
           // project BegEdge Tangent Vec down to UVPlane Corner and unitize
-          pSurface->DropVectors(rUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, 1, &sBegEdgePV[1], &rUVSectorIO.m_sBegEdgeUVTan) ;
-          rUVSectorIO.m_sBegEdgeUVTan.Unitize() ;
+          SER( pSurface->DropVectors(rUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, 1, &sBegEdgePV[1], &rUVSectorIO.m_sBegEdgeUVTan)  );
+          (void)rUVSectorIO.m_sBegEdgeUVTan.Unitize() ; // SolidCraft: a zero vector stays zero
 
           // project EndEdge Tangent Vec down to UVPlane Corner and unitize
-          pSurface->DropVectors(rUVSectorIO.m_sEndEdgeUVPoint, TRUE, TRUE, 1, &sEndEdgePV[1], &rUVSectorIO.m_sEndEdgeUVTan) ;
-          rUVSectorIO.m_sEndEdgeUVTan.Unitize() ;
+          SER( pSurface->DropVectors(rUVSectorIO.m_sEndEdgeUVPoint, TRUE, TRUE, 1, &sEndEdgePV[1], &rUVSectorIO.m_sEndEdgeUVTan)  );
+          (void)rUVSectorIO.m_sEndEdgeUVTan.Unitize() ; // SolidCraft: a zero vector stays zero
         } // end not on a flatCorner branch
       else // on a FlatCorner - look for special case of Edges running along SurfaceBoundaries
         {
           // Surface Eval
           SmVector3d sPoint, sDU, sDV ;
-          pSurface->Evaluate1stDerivatives(rUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, sPoint, sDU, sDV) ; // always calculates NonZeroTangents
+          SER( pSurface->Evaluate1stDerivatives(rUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, sPoint, sDU, sDV)  ); // always calculates NonZeroTangents
 
           // as needed negate sDU and sDV to point into the surface knowing rBedEdgeUVPoint is in a surface corner
           SmPoint2d sMidUV = sUVDomain.GetMid() ;
@@ -995,8 +995,8 @@ lDebugCnt++ ;
 
       // UVSector AngDeg in SurfNormal coordinates
       if(     lOppositeCount == 0 
-          ||  lOppositeCount == 2)   { rUVSectorIO.m_sBegEdgeUVTan.CCWAngleBetween(rUVSectorIO.m_sEndEdgeUVTan,dSectorAngRad) ; }
-      else /* lOppositeCount == 1 */ { rUVSectorIO.m_sEndEdgeUVTan.CCWAngleBetween(rUVSectorIO.m_sBegEdgeUVTan,dSectorAngRad) ; }
+          ||  lOppositeCount == 2)   { SER( rUVSectorIO.m_sBegEdgeUVTan.CCWAngleBetween(rUVSectorIO.m_sEndEdgeUVTan,dSectorAngRad)  ); }
+      else /* lOppositeCount == 1 */ { SER( rUVSectorIO.m_sEndEdgeUVTan.CCWAngleBetween(rUVSectorIO.m_sBegEdgeUVTan,dSectorAngRad)  ); }
 
           rUVSectorIO.m_dSectorAngDeg = SM_RAD2DEG(dSectorAngRad) ;
 
@@ -1096,15 +1096,15 @@ lDebugCnt++ ;
               SmBoolean bHasIsoParamV = FALSE;
               SmPoint3d sBeg3d, sEnd3d;
               SmVector3d sBegDU, sBegDV, sEndDU, sEndDV;
-              pFace->GetSurface()->Evaluate1stDerivatives( rUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, sBeg3d, sBegDU, sBegDV ); // rSectorUVPoint was rStartEdgeUVPoint
-              pFace->GetSurface()->Evaluate1stDerivatives( rUVSectorIO.m_sEndEdgeUVPoint, TRUE, TRUE, sEnd3d, sEndDU, sEndDV );
+              SER( pFace->GetSurface()->Evaluate1stDerivatives( rUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, sBeg3d, sBegDU, sBegDV ) ); // rSectorUVPoint was rStartEdgeUVPoint
+              SER( pFace->GetSurface()->Evaluate1stDerivatives( rUVSectorIO.m_sEndEdgeUVPoint, TRUE, TRUE, sEnd3d, sEndDU, sEndDV ) );
               double dRadLimit = .5 / 180. * SM_PI;
               
               if ( eSeamDir == SM_SP_U || eSeamDir == SM_SP_BOTH )
               {
                   double dAng1, dAng2;
-                  sBegEdgePV[1].AngleBetween( sBegDV, dAng1 );
-                  sEndEdgePV[1].AngleBetween( sEndDV, dAng2 );
+                  SER( sBegEdgePV[1].AngleBetween( sBegDV, dAng1 ) );
+                  SER( sEndEdgePV[1].AngleBetween( sEndDV, dAng2 ) );
 
                   bHasIsoParamU = ( ( rUVSectorIO.m_sBegEdgeUVTan.x * rUVSectorIO.m_sEndEdgeUVTan.x ) < 0.0 )
                       && ( dAng1 > dRadLimit ) && ( dAng1 < SM_PI - dRadLimit )
@@ -1113,8 +1113,8 @@ lDebugCnt++ ;
               if ( eSeamDir == SM_SP_V || eSeamDir == SM_SP_BOTH )
               {
                   double dAng1, dAng2;
-                  sBegEdgePV[1].AngleBetween( sBegDU, dAng1 );
-                  sEndEdgePV[1].AngleBetween( sEndDU, dAng2 );
+                  SER( sBegEdgePV[1].AngleBetween( sBegDU, dAng1 ) );
+                  SER( sEndEdgePV[1].AngleBetween( sEndDU, dAng2 ) );
 
                   bHasIsoParamV = ( ( rUVSectorIO.m_sBegEdgeUVTan.y * rUVSectorIO.m_sEndEdgeUVTan.y ) < 0.0 )
                       && ( dAng1 > dRadLimit ) && ( dAng1 < SM_PI - dRadLimit )
@@ -1204,7 +1204,7 @@ double SmVertexuse::GetTurningAngDeg() const
   SmUVSectorIO sUVSectorIO ;
 
   // Sector eval
-  ComputeUVSector(sUVSectorIO,             // out: Optional Sector Properties. NULL to ignore, default:[NULL]
+  (void)ComputeUVSector(sUVSectorIO,             // out: Optional Sector Properties. NULL to ignore, default:[NULL] // SolidCraft: turning angles have no error value, and no SMLib operation reads them
                   bOKToMakeUVTrimCurve) ;  // in : TRUE  = Use LocalSolve with guesses from UVTrimCurve
                                            //      FALSE = don't make UVTrimCurve, if missing use GlobalSolve, default:[TRUE]
   /*
@@ -1513,7 +1513,7 @@ SmBoolean SmVertexuse::IsVertexEdgeGapFresh
       SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(this->GetContext()) ;
 
       // calculate the gap without changing the cache
-      ((SmVertexuse *)this)->CalcVertexEdgeGap( &rVertexEdgeGap, FALSE) ; // FALSE = don't change chache
+      if ( ((SmVertexuse *)this)->CalcVertexEdgeGap( &rVertexEdgeGap, FALSE)  != SM_SUCCESS ) { return FALSE ; } // FALSE = don't change chache // SolidCraft change: a gap that cannot be calculated is not shown fresh
 
       // check that fresh gap == cached gap
       bRtn = SM_ARE_SAME_TO_TOL(rVertexEdgeGap, m_sVertexEdgeGap3d, sXSectTol3d/1000.0) ;
@@ -1544,7 +1544,7 @@ SmBoolean SmVertexuse::IsVertexFaceGapFresh
       SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(this->GetContext()) ;
 
       // calculate the gap without changing the cache
-      ((SmVertexuse *)this)->CalcVertexFaceGap( &rVertexFaceGap, FALSE) ;
+      if ( ((SmVertexuse *)this)->CalcVertexFaceGap( &rVertexFaceGap, FALSE)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a gap that cannot be calculated is not shown fresh
 
       // check that fresh gap == cached gap
       bRtn = SM_ARE_SAME_TO_TOL(rVertexFaceGap, m_sVertexFaceGap3d, sXSectTol3d/1000.0) ;
@@ -1628,7 +1628,7 @@ SmVertexEdgeGap * SmVertexuse::GetVertexEdgeGap
   if( bForceCalc || !m_sVertexEdgeGap3d.IsInit())
     {
       // refresh the Vertex/Edge gap cache
-      CalcVertexEdgeGap((SmVertexEdgeGap *)NULL, TRUE) ;
+      (void)CalcVertexEdgeGap((SmVertexEdgeGap *)NULL, TRUE) ; // SolidCraft: on failure the cache stays as it was
     }
 
   // all done
@@ -1655,7 +1655,7 @@ SmVertexFaceGap * SmVertexuse::GetVertexFaceGap
   if( bForceCalc || !m_sVertexFaceGap3d.IsInit())
     {
       // refresh the Vertex/Face gap cache
-      CalcVertexFaceGap(NULL, TRUE) ;
+      (void)CalcVertexFaceGap(NULL, TRUE) ; // SolidCraft: on failure the cache stays as it was
     }
 
   // all done
@@ -2017,8 +2017,8 @@ SmBoolean SmVertexuse::IsSectorMissingSeam    // rtn: TRUE = Sector contains a S
   SmUVSectorIO sUVSectorIO ; 
 
   // Compute Sector properties
-  ComputeUVSector(sUVSectorIO,              // out: Optional Sector Properties. NULL to ignore. Default:[NULL]
-                  bUVSpaceOkay) ;           // in : default:[TRUE]  = Use LocalSolve with guesses from UVTrimCurve
+  if ( ComputeUVSector(sUVSectorIO,              // out: Optional Sector Properties. NULL to ignore. Default:[NULL] // SolidCraft change: a sector that cannot be computed shows no missing seam (outputs stay FALSE)
+                  bUVSpaceOkay)  != SM_SUCCESS ) { return FALSE ; }           // in : default:[TRUE]  = Use LocalSolve with guesses from UVTrimCurve
                                             //      FALSE = don't make UVTrimCurve, if missing use GlobalSolve
 
   // set optional output
@@ -2183,14 +2183,14 @@ SmBoolean SmVertexuse::IsSectorGapFreeAndOriented() const
   SmPoint3d sBegCrvPoint,  sEndCrvPoint ;
    
   sVertexPoint = pBegVertex->GetPoint() ;
-  pBegEdge->GetCurve()->EvaluatePoint(dBegParam, sBegCrvPoint) ; 
-  pEndEdge->GetCurve()->EvaluatePoint(dBegParam, sEndCrvPoint) ; 
+  if ( pBegEdge->GetCurve()->EvaluatePoint(dBegParam, sBegCrvPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
+  if ( pEndEdge->GetCurve()->EvaluatePoint(dBegParam, sEndCrvPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
 
   // Evaluated UV Space Points
   SmPoint2d sBegTrimCrvPoint,     sEndTrimCrvPoint,     sBegTrimCrvTan,     sEndTrimCrvTan ;
   SmPoint3d sBegTrimCrvPointIn3d, sEndTrimCrvPointIn3d, sBegTrimCrvTanIn3d, sEndTrimCrvTanIn3d ;
-  pBegEdgeuse->NormalizedEvaluate(0.0, TRUE, sBegTrimCrvPointIn3d, &sBegTrimCrvTanIn3d) ; // TRUE = UV Eval, FALSE = 3d Eval
-  pEndEdgeuse->NormalizedEvaluate(1.0, TRUE, sEndTrimCrvPointIn3d, &sEndTrimCrvTanIn3d) ; // TRUE = UV Eval, FALSE = 3d Eval
+  if ( pBegEdgeuse->NormalizedEvaluate(0.0, TRUE, sBegTrimCrvPointIn3d, &sBegTrimCrvTanIn3d)  != SM_SUCCESS ) { return FALSE ; } // TRUE = UV Eval, FALSE = 3d Eval // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
+  if ( pEndEdgeuse->NormalizedEvaluate(1.0, TRUE, sEndTrimCrvPointIn3d, &sEndTrimCrvTanIn3d)  != SM_SUCCESS ) { return FALSE ; } // TRUE = UV Eval, FALSE = 3d Eval // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
 
   sBegTrimCrvPoint = sBegTrimCrvPointIn3d ; 
   sBegTrimCrvTan   = sBegTrimCrvTanIn3d ; 
@@ -2209,17 +2209,17 @@ SmBoolean SmVertexuse::IsSectorGapFreeAndOriented() const
   double    dFaceVert_Gap3d = 0.0;
   double    dFaceBegEdge_Gap3d = 0.0, dFaceEndEdge_Gap3d = 0.0;
 
-  pSurface->DropPoint(sVertexPoint, sUVDomain, &sBegTrimCrvPoint, bSuccess, sVertexPoint2d, dFaceVert_Gap3d, bIsMulti) ;
-  pSurface->DropPoint(sBegCrvPoint, sUVDomain, &sBegTrimCrvPoint, bSuccess, sBegCrvPoint2d, dFaceBegEdge_Gap3d, bIsMulti) ;
-  pSurface->DropPoint(sEndCrvPoint, sUVDomain, &sEndTrimCrvPoint, bSuccess, sEndCrvPoint2d, dFaceEndEdge_Gap3d, bIsMulti) ;
+  if ( pSurface->DropPoint(sVertexPoint, sUVDomain, &sBegTrimCrvPoint, bSuccess, sVertexPoint2d, dFaceVert_Gap3d, bIsMulti)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
+  if ( pSurface->DropPoint(sBegCrvPoint, sUVDomain, &sBegTrimCrvPoint, bSuccess, sBegCrvPoint2d, dFaceBegEdge_Gap3d, bIsMulti)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
+  if ( pSurface->DropPoint(sEndCrvPoint, sUVDomain, &sEndTrimCrvPoint, bSuccess, sEndCrvPoint2d, dFaceEndEdge_Gap3d, bIsMulti)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
 
   // UV Points Mapped to 3d Space
   SmPoint3d sVertexPoint3d ;
   SmPoint3d sBegTrimCrvPoint3d, sEndTrimCrvPoint3d ;
 
-  pSurface->EvaluatePoint(sVertexPoint2d, sVertexPoint3d) ;
-  pSurface->EvaluatePoint(sBegTrimCrvPoint, sBegTrimCrvPoint3d) ;
-  pSurface->EvaluatePoint(sEndTrimCrvPoint, sEndTrimCrvPoint3d) ;
+  if ( pSurface->EvaluatePoint(sVertexPoint2d, sVertexPoint3d)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
+  if ( pSurface->EvaluatePoint(sBegTrimCrvPoint, sBegTrimCrvPoint3d)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
+  if ( pSurface->EvaluatePoint(sEndTrimCrvPoint, sEndTrimCrvPoint3d)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
 
   // short names for SmTol::MapTo2d calls
   SmPoint2d sMapUV = sBegTrimCrvPoint ;  // for okay sectors - any of the UVPoints should work for mapping to 2d
@@ -2299,9 +2299,9 @@ SmBoolean SmVertexuse::IsSectorGapFreeAndOriented() const
 
       // Sector Angle Deg in SurfNormal coordinates
       double dSectorUVAngRad = 0.0;
-      sBegTrimCrvTan.Unitize() ;
-      sEndTrimCrvTan.Unitize() ;
-      sBegTrimCrvTan.CCWAngleBetween(sEndTrimCrvTan, dSectorUVAngRad) ; 
+      (void)sBegTrimCrvTan.Unitize() ; // SolidCraft: a zero vector stays zero
+      (void)sEndTrimCrvTan.Unitize() ; // SolidCraft: a zero vector stays zero
+      if ( sBegTrimCrvTan.CCWAngleBetween(sEndTrimCrvTan, dSectorUVAngRad)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a sector whose points cannot be evaluated or dropped is not shown gap free
 
       // when SectorUVAngle <= 180  
       if(dSectorUVAngRad <= SM_PI)
@@ -2474,7 +2474,7 @@ SmDisplayList * SmVertexuse::Draw
       // SmVector2d  sUVBegEdgeTan, sUVEndEdgeTan ;
 
       // Get Sector Geometry: sRtn == SM_SUCCESS for eTYpe == SmEdgeuse_TYPE, else == SM_ERR
-      ComputeUVSector(sUVSectorIO,  // out: Optional Sector Properties. NULL to ignore. default:[NULL]
+      (void)ComputeUVSector(sUVSectorIO,  // out: Optional Sector Properties. NULL to ignore. default:[NULL] // SolidCraft: drawing only
                       TRUE) ;       // in : TRUE  = Use LocalSolve with guesses from UVTrimCurve
                                     //      FALSE = don't make UVTrimCurve, if missing use GlobalSolve, default:[TRUE]
       // sUVPoint,        // out: Projection of Vertexuse->Vertex->Point onto
@@ -2499,7 +2499,7 @@ SmDisplayList * SmVertexuse::Draw
            sUVSectorIO.m_dBegEdgeParam = (eBegEdgeType == SM_EP_START) ? sBegEdgeIvl.Evaluate(0.05) : sBegEdgeIvl.Evaluate(0.95) ;
        
            // GetEdgeuse binormal positions and directions
-           sUVSectorIO.m_pBegEdgeuse->EvaluateBinormal(sUVSectorIO.m_dBegEdgeParam, 
+           (void)sUVSectorIO.m_pBegEdgeuse->EvaluateBinormal(sUVSectorIO.m_dBegEdgeParam, // SolidCraft: drawing only
                                                        TRUE, 
                                                        sBegEdgeBinormalPoint,         // out: 3D pt on edge
                                                        sBegEdgeBinormal,              // out: unit-vector pointing to SmFace interior from rBinormalPoint
@@ -2529,7 +2529,7 @@ SmDisplayList * SmVertexuse::Draw
            sUVSectorIO.m_dEndEdgeParam = (eEndEdgeType == SM_EP_START) ? sEndEdgeIvl.Evaluate(0.05) : sEndEdgeIvl.Evaluate(0.95) ;
        
            // GetEdgeuse binormal positions and directions
-           sUVSectorIO.m_pEndEdgeuse->EvaluateBinormal(sUVSectorIO.m_dEndEdgeParam, 
+           (void)sUVSectorIO.m_pEndEdgeuse->EvaluateBinormal(sUVSectorIO.m_dEndEdgeParam, // SolidCraft: drawing only
                                                   TRUE, 
                                                   sEndEdgeBinormalPoint, 
                                                   sEndEdgeBinormal, 
@@ -2558,7 +2558,7 @@ SmDisplayList * SmVertexuse::Draw
            sUVSectorIO.m_dBegEdgeParam = (eBegEdgeType == SM_EP_START) ? sBegEdgeIvl.Evaluate(dStep) : sBegEdgeIvl.Evaluate(1.0 - dStep) ;
        
            // GetEdgeuse binormal positions and directions
-           sUVSectorIO.m_pBegEdgeuse->EvaluateBinormal(sUVSectorIO.m_dBegEdgeParam, TRUE, sBegEdgeBinormalPoint, sBegEdgeBinormal, NULL, &sBegEdgeFaceuseNormal, &sUVBegEdgePoint) ;  
+           (void)sUVSectorIO.m_pBegEdgeuse->EvaluateBinormal(sUVSectorIO.m_dBegEdgeParam, TRUE, sBegEdgeBinormalPoint, sBegEdgeBinormal, NULL, &sBegEdgeFaceuseNormal, &sUVBegEdgePoint) ; // SolidCraft: drawing only
           
            // UVRadius
            if(dSectorRadUV >  (sUVBegEdgePoint-sUVSectorIO.m_sBegEdgeUVPoint).Length() * .8)
@@ -2575,7 +2575,7 @@ SmDisplayList * SmVertexuse::Draw
            sUVSectorIO.m_dEndEdgeParam = (eEndEdgeType == SM_EP_START) ? sEndEdgeIvl.Evaluate(dStep) : sEndEdgeIvl.Evaluate(1.0 - dStep) ;
        
            // GetEdgeuse binormal positions and directions
-           sUVSectorIO.m_pEndEdgeuse->EvaluateBinormal(sUVSectorIO.m_dEndEdgeParam, TRUE, sEndEdgeBinormalPoint, sEndEdgeBinormal, NULL, &sEndEdgeFaceuseNormal, &sUVEndEdgePoint) ;  
+           (void)sUVSectorIO.m_pEndEdgeuse->EvaluateBinormal(sUVSectorIO.m_dEndEdgeParam, TRUE, sEndEdgeBinormalPoint, sEndEdgeBinormal, NULL, &sEndEdgeFaceuseNormal, &sUVEndEdgePoint) ; // SolidCraft: drawing only
              
            // UVRadius
            if(dSectorRadUV >  (sUVEndEdgePoint-sUVSectorIO.m_sBegEdgeUVPoint).Length() * .8)
@@ -2602,23 +2602,23 @@ SmDisplayList * SmVertexuse::Draw
 
         // Build ArcCurves in Sector - don't care if arcs run outside surface - that makes it easier to see database errors
         SmBoolean bOutDomain1 = FALSE, bOutDomain2 = FALSE, bOutDomain3 = FALSE, bOutDomain4 = FALSE, bOutDomain5 = FALSE ;
-        pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 0.3*dSectorRadUV, bOutDomain1, pSectorArc1) ; 
-        pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 0.6*dSectorRadUV, bOutDomain2, pSectorArc2) ; 
-        pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 0.9*dSectorRadUV, bOutDomain3, pSectorArc3) ; 
-        pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 1.2*dSectorRadUV, bOutDomain4, pSectorArc4) ; 
-        pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 1.5*dSectorRadUV, bOutDomain5, pSectorArc5) ; 
+        (void)pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 0.3*dSectorRadUV, bOutDomain1, pSectorArc1) ; // SolidCraft: drawing only
+        (void)pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 0.6*dSectorRadUV, bOutDomain2, pSectorArc2) ; // SolidCraft: drawing only
+        (void)pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 0.9*dSectorRadUV, bOutDomain3, pSectorArc3) ; // SolidCraft: drawing only
+        (void)pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 1.2*dSectorRadUV, bOutDomain4, pSectorArc4) ; // SolidCraft: drawing only
+        (void)pSurface->CreateArcOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVSectorIO.m_sBegEdgeUVTan, sUVSectorIO.m_dSectorAngDeg, 1.5*dSectorRadUV, bOutDomain5, pSectorArc5) ; // SolidCraft: drawing only
         if(bOutDomain1 || bOutDomain2 || bOutDomain3 || bOutDomain4 || bOutDomain5)
           { // rebuild CrvOnSurf as SmCircle when CrvOnSurf UVCurve runs out of the Surface domain
             SmVector3d sX        = sBegEdgeBinormalPoint - sVertexPoint ;                                                          
             SmVector3d sY        = sEndEdgeFaceuseNormal * sX ; 
             SmVector3d sEndTan   = sEndEdgeBinormalPoint - sVertexPoint ;
             double     dAngRad3d ; 
-            sBegEdgeFaceuseNormal.CCWAngleBetween(sX, sEndTan, dAngRad3d) ;
+            (void)sBegEdgeFaceuseNormal.CCWAngleBetween(sX, sEndTan, dAngRad3d) ; // SolidCraft: drawing only
             double     dAngDeg3d = SM_RAD2DEG(dAngRad3d) ;
             if(dAngDeg3d < SM_EFF_ZERO_DEG) { dAngDeg3d += 360.0 ; }
             double     dRadius3d = smos_Min(sX.Length(), sEndTan.Length()) * .8 ;
-            sX.Unitize() ;
-            sY.Unitize() ; 
+            (void)sX.Unitize() ; // SolidCraft: a zero vector stays zero
+            (void)sY.Unitize() ; // SolidCraft: a zero vector stays zero
             SmExtent1d sAnalDomain(0.0, dAngDeg3d) ; 
 
             // replace CrvOnSurf curves whose UVTrimCircles run beyond the Surface's UVDomain with approximate 3d arcs
@@ -2647,7 +2647,7 @@ SmDisplayList * SmVertexuse::Draw
                                || (dBegEdgeAngRad < 5*SM_PI/2.0 && (dBegEdgeAngRad+dSectorAngRad) > 5*SM_2PI/2.0)) ? 1.0 : -1.0 ;
                 sUVEndEdgePt.y += dDir * 1.2*dSectorRadUV ;
                 sUVEndEdgePt.y = sUVDomain.GetVInterval().ClampValue(sUVEndEdgePt.y) ; 
-                pSurface->CreateLineOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVEndEdgePt, pMissingSeamLine1) ;
+                (void)pSurface->CreateLineOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVEndEdgePt, pMissingSeamLine1) ; // SolidCraft: drawing only
                 sCleanMissingSeam2.SetObj(pMissingSeamLine1) ;
               }
 
@@ -2656,7 +2656,7 @@ SmDisplayList * SmVertexuse::Draw
                                || (dBegEdgeAngRad < SM_2PI && (dBegEdgeAngRad+dSectorAngRad) > SM_2PI)) ? 1.0 : -1.0 ;
                 sUVEndEdgePt.x += dDir * 1.2*dSectorRadUV ;
                 sUVEndEdgePt.x = sUVDomain.GetUInterval().ClampValue(sUVEndEdgePt.x) ; 
-                pSurface->CreateLineOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVEndEdgePt, pMissingSeamLine2) ;
+                (void)pSurface->CreateLineOnSurf(*cpContext, sUVSectorIO.m_sBegEdgeUVPoint, sUVEndEdgePt, pMissingSeamLine2) ; // SolidCraft: drawing only
                 sCleanMissingSeam1.SetObj(pMissingSeamLine2) ;
               }
           } // end MissingSeam check
@@ -2791,8 +2791,8 @@ SmDisplayList * SmVertexuse::DrawMicro
 
       // build FaceCorner triangle strip - Point[0] = corner, Points[1,...] sampled fan circumference
         {
-          pSurface->EvaluatePoint(sUVSectorIO.m_sBegEdgeUVPoint, sFacePoint) ;
-          pSurface->EvaluateNormal(sUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, sFaceNormal) ;
+          (void)pSurface->EvaluatePoint(sUVSectorIO.m_sBegEdgeUVPoint, sFacePoint) ; // SolidCraft: drawing only
+          (void)pSurface->EvaluateNormal(sUVSectorIO.m_sBegEdgeUVPoint, TRUE, TRUE, sFaceNormal) ; // SolidCraft: drawing only
           if(bSwapNormal) { sFaceNormal = -sFaceNormal ; }
           sFacePoints.Add(sFacePoint) ;
           sFaceNormals.Add(sFaceNormal) ;
@@ -2805,8 +2805,8 @@ SmDisplayList * SmVertexuse::DrawMicro
               sSmpPointUV = sUVSectorIO.m_sBegEdgeUVPoint + sRotTan ;
 
               // build triangle strip - Point[0] = corner, Points[1,...] sampled fan
-              pSurface->EvaluatePoint(sSmpPointUV, sFacePoint) ;
-              pSurface->EvaluateNormal(sSmpPointUV, TRUE, TRUE, sFaceNormal) ;
+              (void)pSurface->EvaluatePoint(sSmpPointUV, sFacePoint) ; // SolidCraft: drawing only
+              (void)pSurface->EvaluateNormal(sSmpPointUV, TRUE, TRUE, sFaceNormal) ; // SolidCraft: drawing only
               if(bSwapNormal) { sFaceNormal = -sFaceNormal ; }
               sFacePoints.Add(sFacePoint) ;
               sFaceNormals.Add(sFaceNormal) ;
@@ -2846,10 +2846,10 @@ SmDisplayList * SmVertexuse::DrawMicro
           for(ii=0;ii<8;ii++)
             {
               // sample the curves
-              if(dLastBegEdgeParam != sUVSectorIO.m_dBegEdgeParam) { pBegEdgeCurve->EvaluatePoint(sUVSectorIO.m_dBegEdgeParam, sBegEdgePoint) ;
+              if(dLastBegEdgeParam != sUVSectorIO.m_dBegEdgeParam) { (void)pBegEdgeCurve->EvaluatePoint(sUVSectorIO.m_dBegEdgeParam, sBegEdgePoint) ; // SolidCraft: drawing only
                                                                      sBegEdgePoints.Add(sBegEdgePoint) ;
                                                                    }
-              if(dLastEndEdgeParam != sUVSectorIO.m_dEndEdgeParam) { pEndEdgeCurve->EvaluatePoint(sUVSectorIO.m_dEndEdgeParam, sEndEdgePoint) ;
+              if(dLastEndEdgeParam != sUVSectorIO.m_dEndEdgeParam) { (void)pEndEdgeCurve->EvaluatePoint(sUVSectorIO.m_dEndEdgeParam, sEndEdgePoint) ; // SolidCraft: drawing only
                                                                      sEndEdgePoints.Add(sEndEdgePoint) ;
                                                                    }
 

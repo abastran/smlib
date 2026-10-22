@@ -88,7 +88,7 @@ void SmFaceuse::GetLoopuses
     } // end TgtLoopsOnly is TRUE check
   else // include all loopuses branch              
     { 
-      GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rLoopuses)) ; 
+      (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rLoopuses)) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
     }
 
 } // end SmFaceuse::GetLoopuses
@@ -281,27 +281,27 @@ SmStatus SmFaceuse::CollectAdjacentFaceuses
                 double sMidParam = sInt.GetMid();
                 double sMaxParam = sInt.GetMax();
 
-                pEU->EvaluateBinormal(sMinParam, TRUE, sEUBinormalPoint, sEUBinormal, NULL, &sEUFUNormalMin);
-                pEURad->EvaluateBinormal(sMinParam, TRUE, sEURadBinormalPoint, sEURadBinormal, NULL, &sEURadFUNormalMax);
+                SER( pEU->EvaluateBinormal(sMinParam, TRUE, sEUBinormalPoint, sEUBinormal, NULL, &sEUFUNormalMin) );
+                SER( pEURad->EvaluateBinormal(sMinParam, TRUE, sEURadBinormalPoint, sEURadBinormal, NULL, &sEURadFUNormalMax) );
                 SM_ASSERT(sEUBinormalPoint.DistanceBetween(sEURadBinormalPoint) < SM_EFF_ZERO);
 
-                sEUFUNormalMin.AngleBetween(sEURadFUNormalMax, sAngle);
+                SER( sEUFUNormalMin.AngleBetween(sEURadFUNormalMax, sAngle) );
 
                 if (sAngle > *pOptAngleThreshold) continue;
 
-                pEU->EvaluateBinormal(sMidParam, TRUE, sEUBinormalPoint, sEUBinormal, NULL, &sEUFUNormalMid);
-                pEURad->EvaluateBinormal(sMidParam, TRUE, sEURadBinormalPoint, sEURadBinormal, NULL, &sEURadFUNormalMid);
+                SER( pEU->EvaluateBinormal(sMidParam, TRUE, sEUBinormalPoint, sEUBinormal, NULL, &sEUFUNormalMid) );
+                SER( pEURad->EvaluateBinormal(sMidParam, TRUE, sEURadBinormalPoint, sEURadBinormal, NULL, &sEURadFUNormalMid) );
                 SM_ASSERT(sEUBinormalPoint.DistanceBetween(sEURadBinormalPoint) < SM_EFF_ZERO);
 
-                sEUFUNormalMid.AngleBetween(sEURadFUNormalMid, sAngle);
+                SER( sEUFUNormalMid.AngleBetween(sEURadFUNormalMid, sAngle) );
 
                 if (sAngle > *pOptAngleThreshold) continue;
 
-                pEU->EvaluateBinormal(sMaxParam, TRUE, sEUBinormalPoint, sEUBinormal, NULL, &sEUFUNormalMax);
-                pEURad->EvaluateBinormal(sMaxParam, TRUE, sEURadBinormalPoint, sEURadBinormal, NULL, &sEURadFUNormalMin);
+                SER( pEU->EvaluateBinormal(sMaxParam, TRUE, sEUBinormalPoint, sEUBinormal, NULL, &sEUFUNormalMax) );
+                SER( pEURad->EvaluateBinormal(sMaxParam, TRUE, sEURadBinormalPoint, sEURadBinormal, NULL, &sEURadFUNormalMin) );
                 SM_ASSERT(sEUBinormalPoint.DistanceBetween(sEURadBinormalPoint) < SM_EFF_ZERO);
 
-                sEUFUNormalMax.AngleBetween(sEURadFUNormalMin, sAngle);
+                SER( sEUFUNormalMax.AngleBetween(sEURadFUNormalMin, sAngle) );
 
                 if (sAngle > *pOptAngleThreshold) continue;
             }
@@ -375,7 +375,7 @@ SmDisplayList * SmFaceuse::Draw
   smgfx_SetFaceuseNormalGain(dNormalGain) ;
 
   // output Face graphics
-  GetFace()->OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ;
+  (void)GetFace()->OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // clear global display parameter DrawFaceuse data
   sDisp.m_bDrawFaceuse = FALSE ;
