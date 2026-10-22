@@ -769,3 +769,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   10 mm cubes measured 1200 mm² instead of 800. Under area behaviour 2 the void side's faceuse
   also added its volume. Each faceuse now adds its volume and mass where it bounds a non void
   region, and its area and area moments where the area behaviour selects it.
+- **A spindle torus's self-intersection checked without a report** (`SmTorus.cpp`,
+  `SmTorus::AssertValid`, new test 5): for a torus whose major radius is below its minor one the
+  check put the apex angle at 90 + acos(R/r) instead of 90 + asin(R/r), compared it with the U
+  (major) interval instead of the V (minor) one, and on a hit cleared the result without a
+  report. Every spindle torus with a whole turn of U failed silently, even its outer sheet alone.
+  An apex may now bound the V domain but not lie inside it (as a sphere's poles, SmSphere tests 4
+  and 5), and test 5 reports how far inside it lies.
