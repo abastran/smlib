@@ -6081,6 +6081,60 @@ SmStatus SmFilletSolver::TestRollOver
 } // end SmFilletSolver::TestRollOver
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. Whether every rail of this solver's fillet stays on the face it
+    rolls on, so that the blend fits.
+
+NOTES: Each rail, untrimmed (CalcFilletGeom made it), is classified against its face with
+    SmFace::CurveOnClassify. It may run off the face past its ends (the corners trim it there)
+    and off across a tangent side edge (a rollover onto the next face, which TestRollOver
+    processes). A rail that is nowhere on its face, or that leaves it between its ends across
+    an edge that is not tangent (a wall, the rim of an opening), means the blend is larger
+    than the faces allow: rbFit is FALSE. Touching or running along the face's boundary is on
+    the face.
+***********************************************************************/
+SmStatus SmFilletSolver::RailsFitTheirFaces
+  (SmBoolean & rbFit) // out: FALSE = a rail leaves its face
+{
+  rbFit = TRUE;
+  for (ULONG k=0; k<m_vFilletGeoms.GetSize() && rbFit; k++)
+    {
+      SmFilletGeom * pFG = m_vFilletGeoms[k];
+      if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
+        { continue; }
+      for (ULONG ii=0; ii<2 && rbFit; ii++)
+        {
+          SmFilletEdge * pRail = pFG->GetRail(ii);                 NER(pRail);
+          SmCurve      * pCurve = pRail->GetCurve();               NER(pCurve);
+          SmFace       * pFace = pRail->GetOriginalFace();         NER(pFace);
+          SmEdgeuse    * pEU = pRail->GetPrimaryEdgeuse();         NER(pEU);
+          SmEdgeuse    * pMate = pEU->GetMate();                   NER(pMate);
+          SmCurveClassification sClass(pCurve, pCurve->GetNaturalInterval(), pMate->GetUVTrimCurvePointer(), GetThisApproxTol3d());
+          SER( pFace->CurveOnClassify( TRUE, sClass, TRUE ));
+          ULONG lNumIvls = sClass.GetSize();
+          SmBoolean bOnFace = FALSE;
+          for (ULONG j=0; j<lNumIvls; j++)
+            {
+              SmCurveInterval & rIvl = sClass[j];
+              if (rIvl.m_vMid.GetPointClass() != SM_PC_UNKNOWN)
+                {
+                  bOnFace = TRUE;
+                  continue;
+                }
+              if (j == 0 || j+1 == lNumIvls)
+                { continue; } // past an end of the face, where a corner trims it
+              SmEdge * pSide = (rIvl.m_vStart.GetPointClass() == SM_PC_EDGE) ? (SmEdge*)rIvl.m_vStart.GetObject() : NULL;
+              SmBoolean bOppositeNormals = FALSE;
+              if (pSide == NULL || !sm_TestManifoldTangentRollover(pSide, bOppositeNormals, m_dTangencyTolerance, 0))
+                { rbFit = FALSE; }
+            }
+          if (!bOnFace)
+            { rbFit = FALSE; }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmFilletSolver::RailsFitTheirFaces
+
+/*******************************************************************//**
 Static Functions:
 ***********************************************************************/
 

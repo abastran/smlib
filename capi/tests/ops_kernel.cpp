@@ -353,8 +353,10 @@ int main()
         const double corners[12] = {20, 20, 10, -20, 20, 10, 20, -20, 10, -20, -20, 10};
         smlib_brep *rounded = nullptr;
         CHECK(smlib_fillet(plate, corners, 4, 0.1, 1.0, &rounded, nullptr) == SMLIB_OK);
-        const double bottom[3] = {0, -20, 0};
-        if (rounded != nullptr && smlib_chamfer(rounded, bottom, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK)
+        // The whole bottom loop: its four sides and the four arcs of the corner rounds.
+        const double h = 19.0 + std::sqrt(0.5);
+        const double bottom[24] = {0, -20, 0, 20, 0, 0, 0, 20, 0, -20, 0, 0, h, h, 0, -h, h, 0, h, -h, 0, -h, -h, 0};
+        if (rounded != nullptr && smlib_chamfer(rounded, bottom, 8, 0.1, 1.0, &r, nullptr) == SMLIB_OK)
         {
             CHECK(near(volume_of(r), volume_of(rounded) - 4.0 * 38.0 * 0.5 - 4.0 * (PI / 2.0) / 3.0, 1e-7));
             done(r);
@@ -379,8 +381,10 @@ int main()
         const double corners[12] = {0, 0, 30, 297, 0, 30, 0, 100, 30, 297, 100, 30};
         smlib_brep *rounded = nullptr;
         CHECK(smlib_fillet(block, corners, 4, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
-        const double rim[3] = {148.5, 0, 60};
-        if (rounded != nullptr && smlib_fillet(rounded, rim, 1, 0.1, 5.0, &r, nullptr) == SMLIB_OK)
+        // The whole top rim: its four sides and the four arcs of the corner rounds.
+        const double a = 5.0 - 5.0 * std::sqrt(0.5);
+        const double rim[24] = {148.5, 0, 60, 297, 50, 60, 148.5, 100, 60, 0, 50, 60, a, a, 60, 297 - a, a, 60, a, 100 - a, 60, 297 - a, 100 - a, 60};
+        if (rounded != nullptr && smlib_fillet(rounded, rim, 8, 0.1, 5.0, &r, nullptr) == SMLIB_OK)
         {
             double removed = 754.0 * 25.0 * (1.0 - PI / 4.0) + 4.0 * (PI / 2.0) * (62.5 - 125.0 / 3.0);
             CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-7));
@@ -406,8 +410,11 @@ int main()
         const double bottom[12] = {12.5, 0, 0, 25, 12.5, 0, 12.5, 25, 0, 0, 12.5, 0};
         smlib_brep *rounded = nullptr;
         CHECK(smlib_fillet(tray, bottom, 4, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
-        const double vertical[12] = {0, 0, 6, 25, 0, 6, 25, 25, 6, 0, 25, 6};
-        if (rounded != nullptr && smlib_fillet(rounded, vertical, 4, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        // Each vertical edge and the seam where the two bottom rounds below it meet, which
+        // continues it tangentially (a point of it: x = y = z = 2 - sqrt 2 at the origin corner).
+        const double s2 = 2.0 - std::sqrt(2.0);
+        const double vertical[24] = {0, 0, 6, 25, 0, 6, 25, 25, 6, 0, 25, 6, s2, s2, s2, 25 - s2, s2, s2, 25 - s2, 25 - s2, s2, s2, 25 - s2, s2};
+        if (rounded != nullptr && smlib_fillet(rounded, vertical, 8, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
         {
             double removed = 4.0 * (32.0 * (1.0 - PI / 4.0) + 16.0 / 3.0 - 4.0 * PI / 3.0);
             CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-7));
@@ -422,11 +429,10 @@ int main()
     }
 
     // tangency-labs/solidcore#453: a 20 cube with a hole r5 along y whose wall touches the
-    // bottom face along one line, its back rim chamfered 3. The rim's tangent chain takes the
-    // bottom edge too, so four filleted edges meet at the touching point among five, a corner
-    // no corner type handles. The vertex was left with its array of edgeuses where its corner
-    // belongs, and the smooth-sequence walk called it as a corner (a crash). No chamfer of
-    // that size exists there (the rim has no face below it): a status, every blend kind.
+    // bottom face along one line, its back rim chamfered 3. With the rim's tangent chain the
+    // bottom edge came too, four filleted edges met at the touching point among five, a corner
+    // no corner type handles, and the smooth-sequence walk called it as a corner (a crash). No
+    // chamfer of that size exists there (the rim has no face below it): refused, every kind.
     {
         SmBrep *bore = nullptr;
         CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 5.0, 20.0, bore) == SM_SUCCESS && bore != nullptr);
@@ -437,12 +443,12 @@ int main()
         CHECK(smlib_boolean(cube, &tool, SMLIB_BOOLEAN_SUBTRACT, &holed_low) == SMLIB_OK);
         CHECK(near(volume_of(holed_low), 8000.0 - PI * 25.0 * 20.0, 1e-6));
         const double back_rim[3] = {10, 20, 10};
-        CHECK(smlib_chamfer(holed_low, back_rim, 1, 0.1, 3.0, &r, nullptr) > 0 && r == nullptr);
+        CHECK(smlib_chamfer(holed_low, back_rim, 1, 0.1, 3.0, &r, nullptr) != SMLIB_OK && r == nullptr);
         for (int32_t kind : {SMLIB_BLEND_ROUND, SMLIB_BLEND_CURVATURE, SMLIB_BLEND_CHORD, SMLIB_BLEND_CHAMFER})
         {
             const double size = 3.0;
             int64_t failed = -1;
-            CHECK(smlib_blend(holed_low, kind, back_rim, &size, 1, 0.1, &r, &failed) > 0 && r == nullptr);
+            CHECK(smlib_blend(holed_low, kind, back_rim, &size, 1, 0.1, &r, &failed) != SMLIB_OK && r == nullptr);
         }
         smlib_brep_free(holed_low);
         delete bore;
@@ -657,8 +663,10 @@ int main()
         smlib_brep *lid = box(-3, -3, 1, 6, 6, 3);
         smlib_brep *cut = nullptr;
         CHECK(smlib_boolean(ball, lid, SMLIB_BOOLEAN_SUBTRACT, &cut) == SMLIB_OK && sound(cut));
-        const double rim[3] = {std::sqrt(3.0), 0, 1};
-        if (cut != nullptr && smlib_fillet(cut, rim, 1, 0.5, 1.0, &r, nullptr) == SMLIB_OK)
+        // The rim's four arcs, one on each side patch.
+        const double q = std::sqrt(3.0);
+        const double rim[12] = {q, 0, 1, 0, q, 1, -q, 0, 1, 0, -q, 1};
+        if (cut != nullptr && smlib_fillet(cut, rim, 4, 0.5, 1.0, &r, nullptr) == SMLIB_OK)
         {
             CHECK(near(volume_of(r), 7.0 * PI + PI * PI / 2.0, 5e-5));
             done(r);
@@ -675,33 +683,15 @@ int main()
 
     // tangency-labs/solidcore#422: a plate 40 x 20 x 10 with a through hole r3 at (20, 14.5),
     // its top edge y = 20 rounded R4. The round's contact line on the top (y = 16) runs across
-    // the hole, so the round must be trimmed by the hole's wall; SMLib put the rails into the
-    // faces they lie on and intersected the round with nothing else, and the body came back
-    // open. It now merges such a round into the body face by face. The round takes
-    // (1 - pi/4) 16 along 40, less what the hole had already taken of that: for y in [16, 17.5]
-    // the hole's chord 2 sqrt(9 - (y - 14.5)^2) times the round's depth 4 - sqrt(16 - (y - 16)^2).
+    // the hole: the round is larger than the top face allows there, and is refused
+    // (SMLIB_ERR_NO_ROOM) rather than built across the hole.
     {
         smlib_brep *plate = box(0, 0, 0, 40, 20, 10);
         smlib_brep *bore = cylinder(20, 14.5, -1, 3, 12);
         smlib_brep *holed_plate = nullptr;
         CHECK(smlib_boolean(plate, bore, SMLIB_BOOLEAN_SUBTRACT, &holed_plate) == SMLIB_OK);
-        double overlap = 0.0;
-        const int steps = 2000;  // Simpson's rule
-        for (int i = 0; i <= steps; ++i)
-        {
-            double y = 16.0 + 1.5 * i / steps;
-            double chord = 2.0 * std::sqrt(std::max(0.0, 9.0 - (y - 14.5) * (y - 14.5)));
-            double depth = 4.0 - std::sqrt(16.0 - (y - 16.0) * (y - 16.0));
-            overlap += (i == 0 || i == steps ? 1.0 : (i % 2 != 0 ? 4.0 : 2.0)) * chord * depth;
-        }
-        overlap *= 1.5 / (3.0 * steps);
         const double edge[3] = {5, 20, 10};
-        CHECK(holed_plate != nullptr && smlib_fillet(holed_plate, edge, 1, 0.1, 4.0, &r, nullptr) == SMLIB_OK);
-        if (r != nullptr)
-        {
-            CHECK(near(volume_of(r), volume_of(holed_plate) - (640.0 * (1.0 - PI / 4.0) - overlap), 1e-7));
-            done(r);
-        }
+        CHECK(holed_plate != nullptr && smlib_fillet(holed_plate, edge, 1, 0.1, 4.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
         for (smlib_brep *b : {plate, bore, holed_plate})
         {
             smlib_brep_free(b);

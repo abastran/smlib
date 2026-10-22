@@ -475,7 +475,8 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 /* A selection point is as near to two edges (faces) as the body's modelling tolerance can tell. */
 #define SMLIB_ERR_PICK_AMBIGUOUS (-1102)
 /* An inward offset leaves no room inside the body: no point of it lies farther than the wall
- * from every face that is offset (smlib_shell, smlib_offset_faces). */
+ * from every face that is offset (smlib_shell, smlib_offset_faces); a blend larger than the
+ * faces it rolls on allow (smlib_fillet and the blends after it). */
 #define SMLIB_ERR_NO_ROOM (-1103)
 /* SMLib reported success but the operation did nothing: a blend (smlib_fillet, smlib_chamfer,
  * smlib_blend, smlib_fillet_variable, smlib_chamfer_sides) that made no face, a face move or draft (smlib_offset_faces, smlib_draft) that left no face on the
@@ -522,14 +523,17 @@ int32_t smlib_boolean2d(const smlib_brep *a, const smlib_brep *b, int32_t op, sm
 /* The number of separate solid regions of `brep` (voids not counted). */
 int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
 
-/* A new body: `brep` with the selected edges rounded at constant `radius` (> 0) by a circular
- * cross-section. Each selected edge brings its whole tangent chain: every edge that continues
- * a rounded edge within 0.5 degrees at a shared vertex is rounded too. */
+/* A new body: `brep` with exactly the selected edges rounded at constant `radius` (> 0) by a
+ * circular cross-section; an edge that continues one of them tangentially is rounded only if it
+ * is selected too (a caller that wants a whole tangent chain selects it). A blend whose contact
+ * line (rail) would leave the face it rolls on, other than past the face's end or across a
+ * tangent edge onto the next face, is larger than the faces allow: SMLIB_ERR_NO_ROOM, nothing
+ * built. The same holds for every blend below. */
 int32_t smlib_fillet(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double radius,
                      smlib_brep **out, int64_t *out_failed_point);
 
-/* A new body: `brep` with the selected edges (and their tangent chains, as for smlib_fillet)
- * cut by an equal-distance chamfer, `distance` (> 0) back from the edge along each face, with
+/* A new body: `brep` with the selected edges (exactly those, as for smlib_fillet) cut by an
+ * equal-distance chamfer, `distance` (> 0) back from the edge along each face, with
  * bevelled corners. The setback is measured at each edge's midpoint; SMLib keeps the chord
  * across the chamfer constant along an edge, so on an edge whose dihedral angle varies the
  * setback varies with it. */
@@ -554,13 +558,13 @@ int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_po
 #define SMLIB_BLEND_CHAMFER 3
 
 /* A new body: `brep` with the selected edges blended as `kind` (SMLIB_BLEND_*), each at its
- * point's size (`sizes`, one per point, each > 0). Each selected edge brings its whole tangent
- * chain, as for smlib_fillet; an edge reached from several points takes the first point's size.
+ * point's size (`sizes`, one per point, each > 0): exactly those edges, as for smlib_fillet; an
+ * edge reached from several points takes the first point's size.
  * smlib_fillet and smlib_chamfer are this call with one size for every point. */
 int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, int64_t n_points,
                     double tolerance, smlib_brep **out, int64_t *out_failed_point);
 
-/* A new body: `brep` with the one edge `point` selects (no tangent chain) rounded by a circular
+/* A new body: `brep` with the one edge `point` selects rounded by a circular
  * cross-section whose radius varies along it: a clamped B-spline of `degree` (1 to 3) over the
  * position along the edge, 0 at its end nearest `start` and 1 at the other, with `n_knots`
  * knots (n_radii + degree + 1, rising from 0 to 1, each end repeated degree + 1 times) and
@@ -573,8 +577,8 @@ int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, 
 int32_t smlib_fillet_variable(const smlib_brep *brep, const double *point, double tolerance, const double *start, int32_t degree,
                               const double *knots, int64_t n_knots, const double *radii, int64_t n_radii, smlib_brep **out);
 
-/* A new body: `brep` with the selected edges and their tangent chains (as for smlib_fillet) cut
- * by an unequal chamfer with bevelled corners: `distance` (> 0) back from the edge along the face
+/* A new body: `brep` with the selected edges (exactly those, as for smlib_fillet) cut by an
+ * unequal chamfer with bevelled corners: `distance` (> 0) back from the edge along the face
  * whose outward normal at the edge's midpoint leans most along `first` (non-zero), and along the
  * other face `second` (> 0) back, or (`second_is_angle` 1) at the angle `second` (radians, in
  * (0, pi)) the chamfer makes with the first face. Setbacks are measured at each edge's

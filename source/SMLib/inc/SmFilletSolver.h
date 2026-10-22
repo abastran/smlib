@@ -322,6 +322,7 @@ public:
                          SmTsectPnt       & rNextPoint);
                
   SmStatus     TestRollOver(SmTArray<SmFilletCorner*> & rAdjustedCorners);
+  SmStatus     RailsFitTheirFaces(SmBoolean & rbFit); // SolidCraft change: whether every rail stays on the face it rolls on
   SmStatus     TrimRails();
 
   // utilities

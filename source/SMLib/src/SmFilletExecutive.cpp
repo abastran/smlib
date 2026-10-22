@@ -1691,95 +1691,6 @@ static SmStatus sm_ReplaceIsoCrvOnSurf
 } // end sm_ReplaceIsoCrvOnSurf
 
 /*******************************************************************//**
-PURPOSE: Whether a fillet's rail runs off the face it lies on: a point of
-   it, away from its ends, outside that face (in a hole of it, past its edge).
-
-NOTES: SolidCraft change, for DoFilleting. Rail i of a solver's fillet lies on
-   the face of the solver's edgeuse i.
-***********************************************************************/
-SmStatus SmFilletExecutive::RailsLeaveTheirFaces
- (SmBoolean & rbLeave)   // out: TRUE = some rail runs off its face
-{
-  rbLeave = FALSE;
-  constexpr ULONG lSamples = 16;
-  for (ULONG i=0; i<m_vFilletSolvers.GetSize() && !rbLeave; i++)
-    {
-      SmFilletSolver * pFS = m_vFilletSolvers[i];
-      if (pFS == NULL)
-        { continue; }
-      for (ULONG j=0; j<pFS->m_vFilletGeoms.GetSize() && !rbLeave; j++)
-        {
-          SmFilletGeom * pFG = pFS->m_vFilletGeoms[j];
-          if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
-            { continue; }
-          for (ULONG lRail=0; lRail<2 && !rbLeave; lRail++)
-            {
-              SmEdgeuse * pEU = pFS->GetEdgeuse(lRail);
-              SmFace * pFace = (pEU != NULL && pEU->GetLoopuse() != NULL && pEU->GetLoopuse()->GetFaceuse() != NULL)
-                               ? pEU->GetLoopuse()->GetFaceuse()->GetFace() : NULL;
-              SmFilletEdge * pRail = pFG->GetRail(lRail);
-              SmCurve * pCurve = (pRail != NULL) ? pRail->GetCurve() : NULL;
-              if (pFace == NULL || pCurve == NULL)
-                { continue; }
-              // the rail between its vertices (its curve may run on, a line indefinitely)
-              SmVertex * apEnds[2] = { pRail->GetStartVertex(), pRail->GetEndVertex() };
-              double adEnds[2];
-              SmBoolean bEnds = (apEnds[0] != NULL && apEnds[1] != NULL);
-              for (ULONG e=0; e<2 && bEnds; e++)
-                {
-                  double dDist;
-                  SER(pCurve->DropPoint(pCurve->GetNaturalInterval(), apEnds[e]->GetPoint(), NULL,
-                                        SmTol::GetZoneTol3d(pFace), NULL, bEnds, adEnds[e], dDist));
-                }
-              if (!bEnds || adEnds[0] == adEnds[1])
-                { continue; }
-              // between them; on a closed curve, from the start vertex on along the curve (round
-              // past its end if need be) to the end vertex
-              SmExtent1d sNatural = pCurve->GetNaturalInterval();
-              double     dSpan    = adEnds[1] - adEnds[0];
-              if (!pCurve->IsClosed(sNatural))
-                {
-                  adEnds[0] = smos_Min(adEnds[0], adEnds[1]);
-                  dSpan     = smos_Fabs(dSpan);
-                }
-              else if (dSpan < 0.0)
-                { dSpan += sNatural.GetLength(); }
-              for (ULONG k=1; k<lSamples && !rbLeave; k++)
-                {
-                  double dParam = adEnds[0] + dSpan * (double)k / lSamples;
-                  if (dParam > sNatural.GetMax())
-                    { dParam -= sNatural.GetLength(); }
-                  SmPoint3d sPnt;
-                  SER(pCurve->EvaluatePoint(dParam, sPnt));
-                  // outside by its 3D classification and by its UV one too (the 3D one alone can
-                  // miss a face on a sphere patch near the edge of its domain)
-                  SmZoneTol3d sTol = SmTol::GetZoneTol3d(pFace);
-                  SmPointClassification sClass;
-                  if (   pFace->Point3DClassify(sPnt, sTol, TRUE, sClass) != SM_SUCCESS
-                      || sClass.GetPointClass() != SM_PC_UNKNOWN)
-                    { continue; }
-                  SmPoint2d sUV;
-                  SmBoolean bDropped = FALSE, bMultivalued = FALSE;
-                  double dGap = SM_BIG_DOUBLE;
-                  if (pFace->GetSurface()->DropPoint(sPnt, pFace->GetUVDomain(), NULL, bDropped, sUV, dGap, bMultivalued) != SM_SUCCESS)
-                    { continue; }
-                  if (bDropped)  // the rail is an approximation, off its surface by more than sTol
-                    {
-                      SmPointClassification sUVClass;
-                      if (   pFace->PointClassify(sUV, sTol, TRUE, TRUE, sUVClass) != SM_SUCCESS
-                          || sUVClass.GetPointClass() != SM_PC_UNKNOWN)
-                        { continue; }
-                    }
-                  rbLeave = TRUE;
-                }
-            }
-        }
-    }
-  return SM_SUCCESS;
-
-} // end SmFilletExecutive::RailsLeaveTheirFaces
-
-/*******************************************************************//**
 PURPOSE: Keep copies of the fillet surfaces of solvers whose radius has a
    corner, where those surfaces turn (a C0 knot).
 
@@ -2547,6 +2458,19 @@ SmStatus SmFilletExecutive::CreateFilletBrep
   // Fillet surfaces and rail curves exist now, not trimmed to anything.
   // For example, new fillet vertices that are supposed to lie in a face
   // of the target Brep might lie outside of the face.
+
+  // SolidCraft change: a blend whose rails leave the faces they roll on is larger than those
+  // faces allow, and is refused here rather than built across what lies beyond them.
+  for(solverIdx=0; solverIdx<m_vFilletSolvers.GetSize(); solverIdx++)
+    {
+      SmBoolean bFit = TRUE;
+      SER( m_vFilletSolvers[solverIdx]->RailsFitTheirFaces( bFit ));
+      if ( !bFit )
+        {
+          GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: a rail leaves the face it rolls on (the blend is larger than the faces allow)") );
+          return SM_ERR;
+        }
+    }
 
 #ifdef SM_DEBUG_CODE
   if (iDebugLevel > 0 ) 
@@ -3437,21 +3361,6 @@ SmBoolean bDebugMe = FALSE ;
   
   m_vTI.SetPrimaryBrep(m_pTargetBrep);
   m_vTI.SetOtherBrep(m_pFilletBrep);
-
-  // SolidCraft change: topology insertion puts each fillet's rails into the faces they lie on
-  // and trims those faces back to them; it intersects the fillet with nothing else. A rail that
-  // runs off its face (a round over a hole in it) meets other faces of the target, which the
-  // fillet must be trimmed by: merge the fillet faces into the target then, one at a time.
-  if ( m_bDoTopologyInsertion && !m_bDoPiecewiseMerge && !m_bDoGlobalMerge )
-    {
-      SmBoolean bLeave = FALSE;
-      SER( RailsLeaveTheirFaces( bLeave ) );
-      if ( bLeave )
-        {
-          m_bDoTopologyInsertion = FALSE;
-          m_bDoPiecewiseMerge    = TRUE;
-        }
-    }
 
   // Merge the m_pFilletBrep geometry into the original m_pTargetBrep one face at a time
   if ( m_bDoPiecewiseMerge )
