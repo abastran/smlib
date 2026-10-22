@@ -73,7 +73,7 @@ GW_EXPORT NL_FLAG N_CreateSkinSrfBoundaryContinuity( NL_CURVE **, NL_INDEX, NL_S
                                                     NL_CURVE **, NL_DEGREE, NL_REAL, NL_FLAG, NL_PARAMETER *, NL_KNOTVECTOR *, 
                                                     NL_SURFACE *, NL_STACKS *, NL_STACKS * );
 GW_EXPORT NL_FLAG N_CreateSweepScale( NL_CURVE *, NL_CURVE *, NL_VECTOR, NL_CURVE *, NL_CURVE *, NL_FLAG, NL_PARAMETER, 
-                                     NL_DEGREE, NL_FLAG, NL_REAL, NL_SURFACE *, NL_STACKS * );
+                                     NL_DEGREE, NL_FLAG, NL_REAL, NL_SURFACE *, NL_STACKS *, NL_VECTOR *placed = NULL );
 GW_EXPORT NL_FLAG N_SweepCrossTangentCrv( NL_VECTOR *, NL_POINT *, NL_VECTOR *, NL_RMATRIX *, NL_RMATRIX *, NL_CURVE *, 
                                          NL_CURVE *, NL_STACKS * );
 GW_EXPORT NL_FLAG N_AdjustDerivSrf( NL_SURFACE *, NL_FLAG, NL_FLAG, NL_FLAG, NL_SURFACE *, NL_STACKS * );

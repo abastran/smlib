@@ -287,7 +287,10 @@ SMAPI_EXPORT SmApiStatus SmApiCreateCurveSweep(
     SmBrep*& rpResult,                    ///< [out]: Resulting SmBrep                                          <br>
     SmTArray<SmFace*>* pOptStartFaces,    ///< [opt]: Start cap faces (NULL to ignore)                         <br>
     SmTArray<SmFace*>* pOptSideFaces,     ///< [opt]: Side faces (NULL to ignore)                              <br>
-    SmTArray<SmFace*>* pOptEndFaces      ///< [opt]: End cap faces (NULL to ignore)                           <br>
+    SmTArray<SmFace*>* pOptEndFaces,     ///< [opt]: End cap faces (NULL to ignore)                           <br>
+    SmAxis2Placement* pOptPlacements = NULL ///< [opt]: (SolidCraft fork) 3 entries: the rigid motions carrying the profile <br>
+                                          ///<        curves as given onto the first, middle and last sections the sweep <br>
+                                          ///<        placed (NULL to ignore; not with a scale curve)               <br>
 );
 
 SMAPI_EXPORT SmApiStatus SmApiCreateCurveSweepFromFaces(

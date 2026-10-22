@@ -1482,7 +1482,8 @@ SmApiStatus SmApiCreateCurveSweep
     SmBrep*& rpResult,
     SmTArray<SmFace*>* pOptStartFaces,
     SmTArray<SmFace*>* pOptSideFaces,
-    SmTArray<SmFace*>* pOptEndFaces
+    SmTArray<SmFace*>* pOptEndFaces,
+    SmAxis2Placement* pOptPlacements
 )
 {
     rpResult = NULL;
@@ -1500,7 +1501,7 @@ SmApiStatus SmApiCreateCurveSweep
 
     SmPrimitiveCreation sPC( rpResult->GetInfiniteRegion() );
     const SmStatus eSweepStat = sPC.CreateCurveSweep( rProfileCurves, pPathCurve, pScaleReference, pScaleCurve,
-                               SM_ZONE_TOL_3D, pOptions, sStartFaces, sSideFaces, sEndFaces );
+                               SM_ZONE_TOL_3D, pOptions, sStartFaces, sSideFaces, sEndFaces, TRUE, pOptPlacements );
     if( eSweepStat != SM_SUCCESS )
     {
         // Do not hand back a half-built Brep. The kernel works on copies of

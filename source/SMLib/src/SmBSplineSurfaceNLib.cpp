@@ -5762,7 +5762,8 @@ SmStatus SmBSplineSurface::CreateSweepSurface
                                                    //                            + TrajectoryCurve(v)
                                                    //               this is an approximate surface.
    double                 dThisApproxTol3d,        // in : Max distance between exact surface and newSurf approximation 
-   SmBSplineSurface    *& rpNewSurf)               // out: new sweptSurface
+   SmBSplineSurface    *& rpNewSurf,               // out: new sweptSurface
+   SmAxis2Placement     * pOptPlacements)          // out: optional, 3: where the section's first, middle and last instances lie
 {
   // check input
   SM_ASSERT_MSG(rpNewSurf == NULL,_T("SmBSplineSurface::CreateSweepSurface - output pointer not NULL on input")) ;
@@ -5793,6 +5794,19 @@ SmStatus SmBSplineSurface::CreateSweepSurface
     {
       // nlSurf(u,v) = nlCurvS(u) + nlCurvT(v) ;
       NL_SER(N_CreateTransSweepSrf( nlCurvT, nlCurvS, &nlSurf, &nlStacks ));
+
+      // SolidCraft fork: the section's instance at v is the section moved by TrajectoryCurve(v)
+      if (pOptPlacements)
+        {
+          const SmExtent1d sIvl = cpTrajectoryCurve->GetNaturalInterval() ;
+          const double adT[3] = { sIvl.GetMin(), sIvl.Evaluate( 0.5 ), sIvl.GetMax() } ;
+          for (int ii = 0 ; ii < 3 ; ii++)
+            {
+              SmPoint3d sAt ;
+              SER(cpTrajectoryCurve->EvaluatePoint( adT[ii], sAt )) ;
+              pOptPlacements[ii] = SmAxis2Placement( sAt, SmVector3d( 1, 0, 0 ), SmVector3d( 0, 1, 0 ) ) ;
+            }
+        }
     }
   else 
     {
@@ -5818,6 +5832,7 @@ SmStatus SmBSplineSurface::CreateSweepSurface
         { nlDeg = 3; }
 
       NL_PARAMETER nlDummy = 0.0;
+      NL_VECTOR    nlPlaced[12];
       NL_SER(N_CreateSweepScale( nlCurvT, nlCurvS,
                                  nlZAxis,
                                  NULL,
@@ -5828,7 +5843,19 @@ SmStatus SmBSplineSurface::CreateSweepSurface
                                  NL_UDIR,
                                  dThisApproxTol3d,
                                  &nlSurf,
-                                 &nlStacks));
+                                 &nlStacks,
+                                 pOptPlacements ? nlPlaced : NULL));
+
+      // SolidCraft fork: each instance is the section carried from the global system onto the
+      // local one (OL, XL, YL, ZL) it was placed on
+      if (pOptPlacements)
+        {
+          for (int ii = 0 ; ii < 3 ; ii++)
+            {
+              const NL_VECTOR &o = nlPlaced[4 * ii], &x = nlPlaced[4 * ii + 1], &y = nlPlaced[4 * ii + 2] ;
+              pOptPlacements[ii] = SmAxis2Placement( SmPoint3d( o.x, o.y, o.z ), SmVector3d( x.x, x.y, x.z ), SmVector3d( y.x, y.y, y.z ) ) ;
+            }
+        }
     }
 
   // build SmBSplineSurface from NurbSurface

@@ -349,7 +349,10 @@ public:
     SmTArray<SmFace*>  & rStartFaces,       // out: list of new faces for start cap                               
     SmTArray<SmFace*>  & rSideFaces,        // out: list of new faces added to this brep                          
     SmTArray<SmFace*>  & rEndFaces,         // out: list of new faces for end cap                                 
-    SmBoolean bTestContinuity = TRUE        // in : test source curves for continuity                             
+    SmBoolean bTestContinuity = TRUE,       // in : test source curves for continuity                             
+    SmAxis2Placement   * pOptPlacements = NULL // out: (SolidCraft fork) optional, 3 entries: the rigid motions carrying
+                                            //      the profile curves as given onto the sweep's first, middle and last
+                                            //      sections (without a scale curve)
   );      
 
   // Extracts curves from the face edges and calls CreateCurveSweep
