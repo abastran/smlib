@@ -647,3 +647,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   union of two cylinders had an intersection curve end 1.3e-5 mm from its vertex (edge
   tolerance 5.8e-6, vertex 2.6e-5) and failed the check. Each end is now measured against the
   vertex point with its edge/vertex XSectTol3d.
+- **A failed evaluation taken for a value** (`SmLocalSolve1d.cpp`, `SolveOscillating`, `SolveIt`;
+  `SmLocalSolveNd.cpp`, `SolveIt`): an evaluator that fails leaves no function value (the curve
+  property evaluator zeroes its outputs first). The 1D oscillation search skipped a failed guess
+  and then read the last guess's output as a sign change, so bisection returned F = 0 as a
+  minimum: the minimum radius of curvature of a straight UV trim on a cylinder came out 0. A 1D
+  solve without an interval went on from a failed first evaluation. The N-D solver summed the
+  equations of a failed clamped evaluation, could take a failed scaled one, and kept the first
+  point's Jacobian and found flag when it took the scaled point. A sign change now counts only
+  at a guess that was evaluated, a failed start without an interval returns its status, and the
+  N-D step takes its equations, Jacobian and found flag from the one evaluation it uses (or
+  stops when none succeeded).
