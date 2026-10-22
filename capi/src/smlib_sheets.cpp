@@ -81,7 +81,6 @@ extern "C" int32_t smlib_stitch(const smlib_brep *brep, double tolerance, int32_
                 return s;
             }
             *out_closed = lamina == 0 && w->IsManifoldSolid() ? 1 : 0;
-            settle_tolerances(w.get());
             return take(w.release(), out);
         }
     );
@@ -123,7 +122,6 @@ extern "C" int32_t smlib_offset_sheet(const smlib_brep *sheet, double distance, 
             {
                 w.reset(moved);
             }
-            settle_tolerances(w.get());
             return take(w.release(), out);
         }
     );

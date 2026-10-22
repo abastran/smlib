@@ -515,7 +515,6 @@ int32_t finish(Owned r, bool solid_in, smlib_brep **out, bool nonmanifold = fals
     {
         return SMLIB_ERR_NOT_SOLID;
     }
-    settle_tolerances(r.get());
     return take(r.release(), out);
 }
 
