@@ -45,10 +45,6 @@ namespace
 // nearest-entity search (points x entities) stays cheap.
 constexpr int64_t MAX_POINTS = 4096;
 
-// Two edges continue each other when their directions at the shared vertex differ by less
-// than SMLib's own angle for parallel vectors (SM_CONTINUITY_ANGLE, 0.5 degrees).
-const double TANGENT_COS = std::cos(SM_CONTINUITY_ANGLE * SM_PI / 180.0);
-
 // Owns an SmBrep until it is handed on.
 using Owned = std::unique_ptr<SmBrep>;
 
@@ -201,74 +197,6 @@ std::string pts(const double *points, int64_t n)
     return n == 0 ? std::string("[]") : vec(points, static_cast<int>(n * 3));
 }
 
-// The unit direction pointing into `e` from its end at `v`; false for a closed edge (both ends
-// at `v`) or an edge whose tangent cannot be evaluated.
-bool direction_from(const SmEdge *e, const SmVertex *v, SmVector3d &dir)
-{
-    SmCurve *c = e->GetCurve();
-    if (c == nullptr || e->IsClosed())
-    {
-        return false;
-    }
-    SmExtent1d ivl = e->GetInterval();
-    SmVector3d lo[2];
-    SmVector3d hi[2];
-    if (c->Evaluate(ivl.GetMin(), 1, TRUE, lo) != SM_SUCCESS || c->Evaluate(ivl.GetMax(), 1, TRUE, hi) != SM_SUCCESS)
-    {
-        return false;
-    }
-    SmVector3d at = v->GetPoint();
-    bool start = (lo[0] - at).Length() <= (hi[0] - at).Length();
-    dir = start ? lo[1] : -hi[1];
-    double len = dir.Length();
-    if (!(len > 0.0) || !std::isfinite(len))
-    {
-        return false;
-    }
-    dir = dir / len;
-    return true;
-}
-
-// Grows `edges` by every filletable edge that continues one of them tangentially at a shared
-// vertex, until no more do: a pick on one edge of a smooth chain rounds the whole chain. Each
-// edge added takes the size (`sizes`, one per edge, grown alongside) of the edge it continues.
-void tangent_chains(std::vector<SmEdge *> &edges, std::vector<double> &sizes)
-{
-    std::unordered_set<SmEdge *> in(edges.begin(), edges.end());
-    for (size_t i = 0; i < edges.size(); ++i)
-    {
-        SmEdge *e = edges[i];
-        SmVertex *ends[2] = {nullptr, nullptr};
-        e->GetVertices(ends[0], ends[1]);
-        for (SmVertex *v : ends)
-        {
-            SmVector3d de;
-            if (v == nullptr || !direction_from(e, v, de))
-            {
-                continue;
-            }
-            SmTArray<SmEdge *> around;
-            v->GetEdges(around);
-            for (ULONG k = 0; k < around.GetSize(); ++k)
-            {
-                SmEdge *f = around[k];
-                SmVector3d df;
-                if (f == nullptr || in.count(f) != 0 || f->GetBlendEdgeuse() == nullptr || !direction_from(f, v, df))
-                {
-                    continue;
-                }
-                // Continuing means leaving the vertex the opposite way from `e`.
-                if (de.Dot(df) < -TANGENT_COS)
-                {
-                    in.insert(f);
-                    edges.push_back(f);
-                    sizes.push_back(sizes[i]);
-                }
-            }
-        }
-    }
-}
-
 // The radius of the ball whose tangent points on the two faces of `e` lie `distance` back from
 // the edge, at the edge's midpoint: distance * tan(a / 2), with a the angle between b0 and b1,
 // the unit directions into the faces perpendicular to the edge (distance itself on a right-
@@ -299,12 +227,15 @@ bool chamfer_radius(SmEdge *e, double distance, double &radius)
 // call's inputs (Call::input_text) so a failing blend can be read without a debugger.
 std::string g_blend_why;
 
-void note_blend_failure(SmFilletExecutive &exec, int32_t s)
+// The status a blend that failed with status `s` reports, its reason noted (g_blend_why): a
+// blend the executive found larger than its faces allow (SM_FILERR_NO_ROOM, a rail leaving the
+// face it rolls on) is SMLIB_ERR_NO_ROOM, any other failure `s`.
+int32_t blend_failure(SmFilletExecutive &exec, int32_t s)
 {
     SmFilletErrorInfo *e = exec.GetFilletErrorInfo();
     if (e == nullptr)
     {
-        return;
+        return s;
     }
     char head[256];
     std::snprintf(head, sizeof head, "status %d, fillet error %d, corner type %d, edge type %d, at (%.9g, %.9g, %.9g)\n", static_cast<int>(s),
@@ -315,6 +246,7 @@ void note_blend_failure(SmFilletExecutive &exec, int32_t s)
     {
         g_blend_why += ascii(c, SM_TBLOCK_SIZE) + "\n";
     }
+    return e->GetErrorCode() == SM_FILERR_NO_ROOM ? SMLIB_ERR_NO_ROOM : s;
 }
 
 // Chamfers `edges` of `b` in place, edge i with its first edgeuse's surface offset `first[i]`
@@ -343,16 +275,14 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
     int32_t s = status(exec.SetFilletParameters(b, es, kinds, solvers, r0, nullptr, -1.0, -1.0, -1.0, -1.0, 1, 1.0, &r1));
     if (s != SMLIB_OK)
     {
-        note_blend_failure(exec, s);
-        return s;
+        return blend_failure(exec, s);
     }
     // SetFilletParameters chose the executive's options as SmApiFilletEdges and
     // SmApiSetBevelCorners run it (no global merge, which leaves a hole rim open).
     s = status(exec.CreateFilletCorners());
     if (s != SMLIB_OK)
     {
-        note_blend_failure(exec, s);
-        return s;
+        return blend_failure(exec, s);
     }
     SmTArray<SmFilletCorner *> &corners = exec.GetFilletCorners();
     for (ULONG j = 0; j < corners.GetSize(); ++j)
@@ -362,8 +292,7 @@ int32_t chamfer_offsets(SmBrep *b, const std::vector<SmEdge *> &edges, const std
     s = status(exec.DoFilleting());
     if (s != SMLIB_OK)
     {
-        note_blend_failure(exec, s);
-        return s;
+        return blend_failure(exec, s);
     }
     s = status(b->StitchAndOrient());
     // A chamfer that made no face did nothing, whatever SMLib's status said.
@@ -556,16 +485,14 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
                                                 -1.0, -1.0, continuity, 1.0));
     if (s != SMLIB_OK)
     {
-        note_blend_failure(exec, s);
-        return s;
+        return blend_failure(exec, s);
     }
     // SetFilletParameters chose the executive's options as SmApiFilletEdges runs it (its
     // SetDoGlobalMerge comes before, so SetFilletParameters resets it).
     s = status(exec.DoFillet());
     if (s != SMLIB_OK)
     {
-        note_blend_failure(exec, s);
-        return s;
+        return blend_failure(exec, s);
     }
     s = status(b->StitchAndOrient());
     // A round that made no face did nothing, whatever SMLib's status said.
@@ -1122,7 +1049,6 @@ int32_t blend_call(const char *fn, const smlib_brep *brep, int32_t kind, const d
             {
                 each.push_back(sizes[one_size ? 0 : k]);
             }
-            tangent_chains(picked, each);
             bool solid_in = w->IsManifoldSolid();
             s = kind == SMLIB_BLEND_CHAMFER ? chamfer_edges(w.get(), picked, each) : round_edges(w.get(), picked, each, kind, {});
             if (s != SMLIB_OK)
@@ -1392,8 +1318,6 @@ extern "C" int32_t smlib_chamfer_sides(const smlib_brep *brep, const double *poi
             {
                 return s;
             }
-            std::vector<double> unused(picked.size(), distance);
-            tangent_chains(picked, unused);
             bool solid_in = w->IsManifoldSolid();
             std::vector<double> r0;
             std::vector<double> r1;

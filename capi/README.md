@@ -51,8 +51,10 @@ boolean result is `SMLIB_ERR_EMPTY`; several solids come back as one body
 Edges and faces are chosen by points, never by SMLib's internal order: each point takes the
 nearest edge (face), which must lie within the caller's tolerance and be nearer than any other
 by more than the body's modelling tolerance (`SMLIB_ERR_PICK_NONE`, `SMLIB_ERR_PICK_AMBIGUOUS`,
-with the point's index). Fillets and chamfers take each picked edge's whole tangent chain
-(edges meeting within 0.5°). A chamfer's distance is the setback along each face at the edge's
+with the point's index). Fillets and chamfers blend exactly the picked edges: a tangent chain
+is the caller's to select. A blend whose rail leaves the face it rolls on (past neither the
+face's end nor a tangent edge onto the next face) is larger than the faces allow and is
+`SMLIB_ERR_NO_ROOM`. A chamfer's distance is the setback along each face at the edge's
 midpoint; it is cut by SMLib's constant-radius solver with a linear section, whose ball radius
 is the setback times tan(a/2), a being the angle between the faces there. A shell's thickness
 is negative inward, positive outward. An inward wall that leaves no room inside the body is
@@ -68,7 +70,7 @@ the body behind them is `SMLIB_ERR_NO_ROOM` by the same test. `smlib_thicken` ma
 sheet with `SmApiShellBrepFull` (ruled walls along the open edges), a symmetric one after
 moving the sheet back by half with `SmApiOffsetBrepFull`.
 
-`smlib_blend` gives each picked edge (and its tangent chain) its own size and one of four
+`smlib_blend` gives each picked edge its own size and one of four
 blends: a round (circular section, constant radius, as `smlib_fillet`), a curvature-continuous
 round (SMLib's G2 blend-curve section between the contact lines of the round of that radius), a
 chord round (circular section at a constant width from contact to contact, SMLib's
@@ -625,14 +627,6 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   loops of the wrong orientation, rails up to half a millimetre off their surfaces. It now
   removes no edge the target had and no edge between two of its faces, as booleans clean up
   only the edges of their intersection.
-- **A round that runs over a hole** (`SmFilletExecutive.h`/`.cpp`, `DoFilleting`, new
-  `RailsLeaveTheirFaces`): topology insertion, the executive's default, puts each round's rails
-  into the faces they lie on and trims those faces back to them, and intersects the round with
-  nothing else. An R4 round on a plate's edge whose contact line runs across a through hole
-  must be trimmed by the hole's wall; it wasn't, and the body came back open. When a rail runs
-  off the face it lies on (a point of it outside that face by both the 3D and the UV
-  classification), the fillet faces are now merged into the body one at a time instead
-  (`m_bDoPiecewiseMerge`), which intersects them with the rest of it.
 - **Offset surfaces extended the same way whatever was evaluated first** (`SmOffsetSurface.cpp`,
   `sm_ExtendSurface`, new `sm_ExtendToward`, `SmOffsetSurface::EvaluatePoint`,
   `EvaluatePlainOrSimple`): evaluated beyond its base surface's domain, an offset surface
@@ -688,6 +682,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   that owner, which never listed the copy; once the removal's status was passed on, every split of
   a ProtoEdge that carries an EdgeDefinition failed (an inward shell of the ladder part failed in
   its offset's self-intersection merge). The copy now starts without an owner.
+- **A blend larger than its faces is refused** (`SmFilletSolver.h`/`.cpp`, new
+  `RailsFitTheirFaces`; `SmFilletExecutive.cpp`, `CreateFilletBrep`, `DoFilleting`;
+  `SmFilletGeom.h`, `SM_FILERR_NO_ROOM`): once the fillet surfaces and rails are computed, each
+  rail is classified against the face it rolls on (`SmFace::CurveOnClassify`). A rail nowhere on
+  its face, or leaving it between its ends across an edge that is not tangent, fails the fillet
+  with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`). This replaces the earlier change that
+  merged such a fillet into the body face by face (`RailsLeaveTheirFaces`), which built a round
+  or a chamfer across the openings it ran into.
 - **A rail that runs along its face's rim** (`SmFilletSolver.cpp`, `TestRollOver`): the rollover
   test classifies each rail against its face and treats every interval boundary as the rail
   crossing a side edge. A blend whose setback reaches exactly to a hole's rim (a 5 mm chamfer or
