@@ -644,6 +644,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   The side is now the one the filleted edge lies on (a copy of the edge's curve, named from the
   fillet surface by an attribute the merge's copies carry), the same side on a round; and a
   merge in which no fillet face separates two regions fails (`SM_FILERR_BAD_MERGE`).
+- **A split ProtoEdge's upper EdgeDefinition** (`SmProtoTopology.cpp`, `SmEdgeDefinition::Split`):
+  the upper child is a copy of the EdgeDefinition, and the copy constructor gives it the
+  original's owner, the lower ProtoEdge. `SmProtoEdge::AddEdgeDefinition` then removes it from
+  that owner, which never listed the copy; once the removal's status was passed on, every split of
+  a ProtoEdge that carries an EdgeDefinition failed (an inward shell of the ladder part failed in
+  its offset's self-intersection merge). The copy now starts without an owner.
 - **A rail that runs along its face's rim** (`SmFilletSolver.cpp`, `TestRollOver`): the rollover
   test classifies each rail against its face and treats every interval boundary as the rail
   crossing a side edge. A blend whose setback reaches exactly to a hole's rim (a 5 mm chamfer or
