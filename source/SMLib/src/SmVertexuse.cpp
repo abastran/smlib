@@ -932,22 +932,26 @@ lDebugCnt++ ;
 #endif // SM_DEBUG_CODE
 
           // Find DegenParam for BegEdge
-          SER( pSurface->FindDegenParamForDirection(rUVSectorIO.m_sBegEdgeUVPoint, // i/o: a point on the surface singularity                                       
+          // SolidCraft: (void). By its implementation SM_ERR means no exact match within the tolerance,
+          // and rUV then holds its best value, which is what the code below uses.
+          (void)pSurface->FindDegenParamForDirection(rUVSectorIO.m_sBegEdgeUVPoint, // i/o: a point on the surface singularity                                       
                                                sBegEdgePV[1],                 // in : the direction to match with the NonSingular Surface tangent               
                                                TRUE,                          // in : TRUE  = Dir to match is from the pole heading out, as in starting a curve 
                                                                               //    : FALSE = Dir to match ends at the pole heading in, as in ending a curve    
                                                eSingularDir,                  // in : oneof SM_SP_U: Surf(si,v) == Surf(sj,v) where si, sj are any valid u values
                                                                               //    :       SM_SP_V: Surf(u,si) == Surf(u,sj) where si, sj are any valid v values
-                                               SM_APPROX_TOL_3D)  );            // in : a loose tolerance; will try for a tight one.                              
+                                               SM_APPROX_TOL_3D);            // in : a loose tolerance; will try for a tight one.                              
 
           // Find DegenParam for EndEdge
-          SER( pSurface->FindDegenParamForDirection(rUVSectorIO.m_sEndEdgeUVPoint, // i/o: a point on the surface singularity                                       
+          // SolidCraft: (void). By its implementation SM_ERR means no exact match within the tolerance,
+          // and rUV then holds its best value, which is what the code below uses.
+          (void)pSurface->FindDegenParamForDirection(rUVSectorIO.m_sEndEdgeUVPoint, // i/o: a point on the surface singularity                                       
                                                sEndEdgePV[1],                 // in : the direction to match with the NonSingular Surface tangent               
                                                TRUE,                          // in : TRUE  = Dir to match is from the pole heading out, as in starting a curve 
                                                                               //    : FALSE = Dir to match ends at the pole heading in, as in ending a curve    
                                                eSingularDir,                  // in : oneof SM_SP_U: Surf(si,v) == Surf(sj,v) where si, sj are any valid u values
                                                                               //    :       SM_SP_V: Surf(u,si) == Surf(u,sj) where si, sj are any valid v values
-                                               SM_APPROX_TOL_3D)  );            // in : a loose tolerance; will try for a tight one.                              
+                                               SM_APPROX_TOL_3D);            // in : a loose tolerance; will try for a tight one.                              
 
         } // end Vertex on Pole check
 

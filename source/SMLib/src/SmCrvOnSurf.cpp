@@ -87,7 +87,7 @@ SmBoolean bDebugMe = FALSE ;
     {
       const SmContext * pContext = GetContext();
       if (pContext == NULL) { SE(SM_ERR); return; }
-      m_pUVCurve->Copy(*pContext, m_pUVCurve) ; 
+      (void)m_pUVCurve->Copy(*pContext, m_pUVCurve) ; // SolidCraft: a void setter cannot report (see the SolidCraft report: SetAll)
       // owner of Copy updated in next section
     }
 
@@ -96,7 +96,7 @@ SmBoolean bDebugMe = FALSE ;
     {
       const SmContext * pContext = GetContext();
       if (pContext == NULL) { SE(SM_ERR); return; }
-      m_pSurface->Copy(*pContext, m_pSurface) ;
+      (void)m_pSurface->Copy(*pContext, m_pSurface) ; // SolidCraft: a void setter cannot report (see the SolidCraft report: SetAll)
       // owner of Copy updated in next section
     }
 
@@ -154,14 +154,14 @@ SmCrvOnSurf::SmCrvOnSurf
 
   // new UVLine
   SmLine *pNewLine = NULL ; 
-  SmLine::CreateLineSegment(*pContext, 2, rStartUV, rEndUV, pNewLine) ;
+  (void)SmLine::CreateLineSegment(*pContext, 2, rStartUV, rEndUV, pNewLine) ; // SolidCraft: a constructor cannot report
 
   // pSurface
   SmSurface *pSurface = &rSurface ;
 
   // m_lOwnerFlag 2: Copy Surface to be deleted when SmCrvOnSurf is destructed
   if (lOwnerFlag == 2) 
-    { rSurface.Copy(*pContext, pSurface) ; }
+    { (void)rSurface.Copy(*pContext, pSurface) ; } // SolidCraft: a constructor cannot report
 
   // set all the values - use lOwnerFlag == 0 to just store rSurface and pNewLine values without copy - we'll fix ownership next
   SetAll(*pNewLine, rSurface, cpUVDomain, 0, pContext) ;
@@ -208,7 +208,7 @@ SmCrvOnSurf::SmCrvOnSurf
         { SE(SM_ERR); return; }
 
       // copy the UVCurve
-      crCurveToCopy.m_pUVCurve->Copy(*pContext, m_pUVCurve) ;
+      (void)crCurveToCopy.m_pUVCurve->Copy(*pContext, m_pUVCurve) ; // SolidCraft: a constructor cannot report
       m_pUVCurve->SetOwner(this) ;
     }
 
@@ -220,7 +220,7 @@ SmCrvOnSurf::SmCrvOnSurf
         { SE(SM_ERR); return; }
 
       // copy the Surface
-      crCurveToCopy.m_pSurface->Copy(*pContext, m_pSurface) ;
+      (void)crCurveToCopy.m_pSurface->Copy(*pContext, m_pSurface) ; // SolidCraft: a constructor cannot report
       m_pSurface->SetOwner(this) ;
     }
 
@@ -235,7 +235,7 @@ SmCrvOnSurf::SmCrvOnSurf
 
   if (m_pBSApproxCurve)
   {
-      crCurveToCopy.m_pBSApproxCurve->Copy(*GetContext(), m_pBSApproxCurve);
+      (void)crCurveToCopy.m_pBSApproxCurve->Copy(*GetContext(), m_pBSApproxCurve); // SolidCraft: a constructor cannot report
       m_pBSApproxCurve->SetOwner(this);
       m_dMaxGap3d = crCurveToCopy.m_dMaxGap3d;
       m_bParametrizationMatches = crCurveToCopy.m_bParametrizationMatches;
@@ -381,7 +381,7 @@ SmStatus SmCrvOnSurf::ApproximateCurve(const SmContext& crContext, // in : memor
               ->GetOrCreateBSApproxPointer(
                   pBSCurve, dApproxTol3D, SM_CONST_CAST(SmTArray<double>*, &crBreakParams), &bOptMatchParameterization);
       if(pBSCurve)
-          pBSCurve->Copy(crContext, rpNewBSplineCurve);
+          SER( pBSCurve->Copy(crContext, rpNewBSplineCurve) );
       rdAchievedTol = this->GetBSApproxMaxGap3d();
       return eStat;
 
@@ -922,7 +922,7 @@ SmStatus SmCrvOnSurf::CalculateContinuities
 
   // get effective knots and continuities
   SmTArray<double> sKnots ;
-  GetKnots(sKnots) ;
+  SER( GetKnots(sKnots)  );
 
   // start and end knots
   rContinuitiesAtKnots.SetSize(sKnots.GetSize()) ;
@@ -934,11 +934,11 @@ SmStatus SmCrvOnSurf::CalculateContinuities
   for(ii=1;ii+1<sKnots.GetSize();ii++) // note: can't say sKnots.GetSize()-1
     {
       // evaluate geometric continuities
-      EvaluateContinuity(sKnots[ii], TRUE, 
+      SER( EvaluateContinuity(sKnots[ii], TRUE, 
                         *this, sKnots[ii], FALSE,
                          eThisContinuity,
                          sThisEval, sOtherEval, 
-                         dContinuityAngleTol) ;
+                         dContinuityAngleTol)  );
 
       // set output
       rContinuitiesAtKnots.SetAt(ii, eThisContinuity) ;  
@@ -984,7 +984,7 @@ SmStatus SmCrvOnSurf::CreateMirrorCurve
 
     // Create the new geometry
     SER(m_pSurface->CreateMirrorSurface(crContext, crMirrorPlane, pMirrorSurf));
-    m_pUVCurve->Copy(crContext, pNewCurve);
+    SER( m_pUVCurve->Copy(crContext, pNewCurve) );
 
     // Create the new curve on mirrored geometry. It owns the curve and surf
     rpMirrorCurve = new (crContext) SmCrvOnSurf(*pNewCurve, *pMirrorSurf, &m_vUVDomain, 3);
@@ -1110,7 +1110,7 @@ SmBoolean bDebugMe = FALSE;
   SmTArray<SmPoint3d> sControlPoints;
   SmTArray<double> sWeights;
 
-  pBSCurve->GetControlPolygon(sControlPoints, sWeights);
+  SER( pBSCurve->GetControlPolygon(sControlPoints, sWeights) );
 
   double dMin = SM_BIG_DOUBLE;
   ULONG lMinIndex = 0;
@@ -1184,7 +1184,7 @@ SmStatus SmCrvOnSurf::GetKnots
   double dTol2d = SM_EFF_ZERO * ( 1.0 + m_pSurface->GetNaturalUVDomain().GetMaxDimension() ) ;
 
   // get the UVCurve knots and multiplicities
-  m_pUVCurve->GetKnots(rKnots, pKnotMultiplicities, pOptIvl) ;
+  SER( m_pUVCurve->GetKnots(rKnots, pKnotMultiplicities, pOptIvl)  );
 
   // modify the mult list to act as if pUVCurve is a degree 3 BSpline
   ULONG lUVDegree = m_pUVCurve->GetDegree() ;
@@ -1286,7 +1286,7 @@ ULONG SmCrvOnSurf::GetNumberNaturalKnots()
   ULONG ii ;
   SmTArray<double> sKnots ;
   SmTArray<ULONG>  sMults ;
-  GetKnots(sKnots, &sMults) ;
+  (void)GetKnots(sKnots, &sMults) ; // SolidCraft: on failure no knots are counted
 
   // count the knots
   for(ii=0;ii<sKnots.GetSize();ii++)
@@ -1355,7 +1355,7 @@ SmStatus SmCrvOnSurf::GetOrCreateBSApproxPointer
       {
           SmTArray<ULONG> sMults;
           SmTArray<double> sKnots;
-          this->GetKnots(sKnots, &sMults);
+          SER( this->GetKnots(sKnots, &sMults) );
           m_vBreaks.Copy(sKnots);
           m_bNeedBreaks = FALSE;
       }
@@ -1500,7 +1500,7 @@ SmStatus SmCrvOnSurf::Transform
   // Transform cached bspline approximation
   if (m_pBSApproxCurve)
   {
-      m_pBSApproxCurve->Transform(crRotateNMove, cpOptScale);
+      SER( m_pBSApproxCurve->Transform(crRotateNMove, cpOptScale) );
   }
 
   // If we don't own the surface, the owner will transform it.
@@ -1755,8 +1755,8 @@ SmBoolean bDebugMe = FALSE;
     {
       bDoPrecise = TRUE;
       SmTArray<double> sKnots, sOtherKnots;
-      GetKnots(sKnots);
-      crOtherCurve.GetKnots(sOtherKnots);
+      SER( GetKnots(sKnots) );
+      SER( crOtherCurve.GetKnots(sOtherKnots) );
 
       lNumSamples = 22 + sKnots.GetSize() + sOtherKnots.GetSize();
     }
@@ -1932,7 +1932,7 @@ SmBoolean bDebugMe = FALSE;
   const SmSurface *pBaseSrf = this->GetBaseSurface(); NER( pBaseSrf );
   SmCrvOnSurf *pNonConstThis = SM_CONST_CAST( SmCrvOnSurf*, this ); NER( pNonConstThis );
   SER(pNonConstThis->EvaluateSurfaceNormal( dThisTMaxDist, TRUE, sUVPtDer, sNorm ));
-  pBaseSrf->EvaluatePoint( sUVPtDer[0], sPt );
+  SER( pBaseSrf->EvaluatePoint( sUVPtDer[0], sPt ) );
   double dScaledZero = SM_EFF_ZERO * (1.0 + sPt.GetMaxDimension());
 
   if ( dMaxDist > dScaledZero )
@@ -1970,10 +1970,10 @@ SmBoolean bDebugMe = FALSE;
               dOtherTMaxDist = dTMax2;
 
               // Find corresponding param on this curve.
-              crOtherCurve.EvaluatePoint( dTMax2, sPt );
+              SER( crOtherCurve.EvaluatePoint( dTMax2, sPt ) );
               double dTMax1 = 0.0, dDist = 0.0;
 //cbi smaller interval: dThisTMaxDev +- 1 / (lNumSamples-1), truncated to crInterval.
-              this->DropPoint(crInterval,       // in : target curve allowed domain
+              SER( this->DropPoint(crInterval,       // in : target curve allowed domain
                               sPt,              // in : Point to drop to curve
                               NULL,             // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                 //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -1986,7 +1986,7 @@ SmBoolean bDebugMe = FALSE;
                               &dThisTMaxDev,    // out: TRUE = found a drop point
                               bFoundAnswer,     // out: found drop curve param
                               dTMax1,           // out: found drop distance
-                              dDist) ;          // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                              dDist)  );          // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                 //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                 //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                 //      default:[SM_SO_MINIMIZE] to preserve original behavior
@@ -2017,7 +2017,7 @@ SmBoolean bDebugMe = FALSE;
   // Need surface point and normal for that operation.
   SmPoint3d sPnt;
   SER( pNonConstThis->EvaluateSurfaceNormal( dThisTMaxDev, TRUE, sUVPtDer, sNorm ));
-  this->GetBaseSurface()->EvaluatePoint( sUVPtDer[0], sPnt );
+  SER( this->GetBaseSurface()->EvaluatePoint( sUVPtDer[0], sPnt ) );
   dScaledZero = SM_EFF_ZERO * (1.0 + sPnt.GetMaxDimension());
 
   if ( dMaxDev > dScaledZero )
@@ -2278,7 +2278,7 @@ SmStatus SmCrvOnSurf::ReadFromDB
   // load obj
   pCrvOnSurf->m_pUVCurve    = pUVCurve ;   
   pCrvOnSurf->m_pSurface    = pSurface ;   
-  pCrvOnSurf->m_vUVDomain.SetMinMax(sMin, sMax) ;  
+  SER( pCrvOnSurf->m_vUVDomain.SetMinMax(sMin, sMax)  );  
   pCrvOnSurf->m_bNeedBreaks = bNeedBreaks ;
   pCrvOnSurf->m_lOwnerFlag  = 2 ; 
   
@@ -2384,7 +2384,7 @@ SmBoolean SmCrvOnSurf::AssertValid
 
   // Curve UV BBox
   SmExtent3d sCurveBBox ;
-  m_pUVCurve->CalculateBoundingBox(m_pUVCurve->GetNaturalInterval(), &sCurveBBox) ;
+  (void)m_pUVCurve->CalculateBoundingBox(m_pUVCurve->GetNaturalInterval(), &sCurveBBox) ; // SolidCraft: a validity check reads what it computed
   SmExtent2d sCurveUVBox(sCurveBBox.GetUMin(), sCurveBBox.GetVMin(),
                          sCurveBBox.GetUMax(), sCurveBBox.GetVMax()) ;
   
