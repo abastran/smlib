@@ -109,6 +109,10 @@ surfaces where the curve sweep fits B-splines), `smlib_loft`
 the loop in the same place in the next section), `smlib_loft_to_point` (a pyramid: the planar
 base and a triangle from each of its lines to the apex, stitched and oriented as
 `SmApiCreatePyramid` builds its own), `smlib_screw_sweep` and `smlib_sweep_stations`.
+`smlib_project_curves` projects a curve list onto one picked face along a direction
+(`SmBrep::CreateParallelProjectionCurves` restricted to that face, as `SmApiProjectCurve` runs it
+on all of them) and hands back the projected curves as the B-splines SMLib made
+(`smlib_curves`), with their intervals.
 Profiles, paths and sections cross as curve lists (lines, circular arcs, NURBS; `include/smlib.h`
 gives the layout), checked before SMLib sees them and built into SMLib curves inside the call.
 With `cap` the result must be a closed manifold solid (`SMLIB_ERR_NOT_SOLID` otherwise).

@@ -867,6 +867,35 @@ int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *r
 int32_t smlib_sweep_stations(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double *maps,
                              int64_t n_stations, int32_t ends, smlib_brep **out);
 
+/* ---- Curves projected onto a face (src/smlib_sweeps.cpp) ----------------------------------- */
+
+/* Curves made by an operation, as a curve list of NURBS curves (the layout above), each with its
+ * interval (min, max). Read with smlib_curves_size and smlib_curves_read; free with
+ * smlib_curves_free. */
+typedef struct smlib_curves smlib_curves;
+
+/* The curves of the curve list projected along `direction` (non-zero, pointing from the curves
+ * toward the face) onto the face of `brep` that `face_point` picks (within `pick_tolerance`, as
+ * any selection): SMLib's parallel projection onto the face's surface, trimmed to the face, each
+ * projected curve within `tolerance` (1e-9 to 1e3 mm) of the true projection. A curve whose
+ * projection leaves the face and comes back makes several; their order is SMLib's, curve by
+ * input curve. No projection at all is SMLIB_ERR_EMPTY; a projected curve that is not a clamped
+ * B-spline is SMLIB_ERR_UNSUPPORTED. */
+int32_t smlib_project_curves(const smlib_brep *brep, const double face_point[3], double pick_tolerance, const int64_t *kinds,
+                             int64_t n_kinds, const double *reals, int64_t n_reals, const double direction[3], double tolerance,
+                             smlib_curves **out);
+
+/* The sizes of `curves`: its curve list's arrays and its number of curves (two intervals
+ * numbers each). */
+int32_t smlib_curves_size(const smlib_curves *curves, int64_t *n_kinds, int64_t *n_reals, int64_t *n_curves);
+
+/* Copies `curves` out; each size must be exactly what smlib_curves_size gave (`n_intervals` two
+ * per curve). */
+int32_t smlib_curves_read(const smlib_curves *curves, int64_t *kinds, int64_t n_kinds, double *reals, int64_t n_reals, double *intervals,
+                          int64_t n_intervals);
+
+void smlib_curves_free(smlib_curves *curves);
+
 /* ---- Imprint (src/smlib_imprint.cpp) ------------------------------------------------------ */
 
 /* The tool cut nothing: no face of the body meets it. */
