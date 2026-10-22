@@ -399,11 +399,7 @@ void note_blend_failure(SmFilletExecutive &exec, int32_t s)
     g_blend_why = head;
     for (const TCHAR *c : {e->m_cComment, e->m_cEntityName})
     {
-        for (size_t i = 0; i < SM_TBLOCK_SIZE && c[i] != 0; ++i)
-        {
-            g_blend_why += static_cast<char>(c[i] < 128 ? c[i] : '?');
-        }
-        g_blend_why += "\n";
+        g_blend_why += ascii(c, SM_TBLOCK_SIZE) + "\n";
     }
 }
 

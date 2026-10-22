@@ -287,6 +287,10 @@ face of a sheet onto its surface's offset along its normal (`SmApiOffsetBrepFull
 
 - **Log:** `smlib_set_log` receives one line per call, written after it returns. Example:
   `smlib_make_box(origin=[0,0,0], size=[10,20,30]) -> 0 (0.21 ms)`.
+  It also receives each warning, message and error SMLib reports itself through
+  `smos_ErrorMessage` (`WARN`, `SE`, explicit reports), tagged with the call in flight: the
+  shims install SMLib's error callback (`smos_SetErrorCallback`, kept per thread by
+  `SmThreadLocalStorage`) on the calling thread at the start of every call.
 - **Replay dumps:** with `smlib_set_dump_dir` set, every failing call leaves its line in
   `<n>-<function>.txt` and each B-rep it was given as a native `<n>-<function>-<input>.smb`. To
   replay a call, read those back with `smlib_brep_read` and call the function again.
