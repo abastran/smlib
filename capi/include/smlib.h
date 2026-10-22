@@ -881,6 +881,22 @@ int32_t smlib_imprint(const smlib_brep *body, const smlib_brep *tool, smlib_brep
  * B-spline surface is SMLib's extended surface. The face keeps its orientation. */
 int32_t smlib_extend_sheet(const smlib_brep *sheet, const double point[3], double tol, double distance, int32_t mode, smlib_brep **out);
 
+/* ---- Untrim (src/smlib_untrim.cpp) -------------------------------------------------------- */
+
+/* A new body: the face of `body` nearest `point` (within `tol`) restored towards its surface.
+ * The holes taken away are the inner loops nearest each of the `n_holes` points `holes` (each
+ * within `tol`, else SMLIB_ERR_PICK_NONE), or every inner loop when `n_holes` < 0. With `outer`,
+ * the outer boundary goes back to the surface's parameter box (a free-form surface's own; an
+ * analytic surface's the box of the face's outer loop in its parameters), bounded by the box's
+ * iso-parameter edges, the holes kept rebuilt in it from their own edges; a box that goes all
+ * the way round a periodic direction is SMLIB_ERR_NOT_EXACT. The result is the face alone, or
+ * with `in_place` the whole body with the face replaced (a hole another face uses is then
+ * SMLIB_ERR_UNSUPPORTED). The face keeps its orientation and the attributes of the face and
+ * edges it is made from (history tags). Nothing to do (no holes and not `outer`) is
+ * SMLIB_ERR_ARG. */
+int32_t smlib_untrim_face(const smlib_brep *body, const double point[3], double tol, const double *holes, int64_t n_holes, int32_t outer,
+                          int32_t in_place, smlib_brep **out);
+
 #ifdef __cplusplus
 }
 #endif
