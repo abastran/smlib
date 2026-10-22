@@ -212,6 +212,15 @@ sample, the API writes NaN, while the runner drops the sample. `tests/ssi.cpp` c
 cases against their closed forms and rejects hostile inputs; `fuzz/fuzz_ssi.cpp`
 (`smlib_fuzz_ssi`, run with `-timeout=10`) fuzzes the constructors and all three methods.
 
+## Planar regions
+
+`smlib_planar_faces` (`src/smlib_sweeps.cpp`) makes a sheet of planar faces from a curve list of
+closed loops in one plane, in any order (`SmApiCreatePlanarFaces`, which nests them: outer loops,
+their holes, islands in the holes). `smlib_boolean2d` (`src/smlib_ops.cpp`) combines two such
+sheets on one plane as regions of it (`SmApiBoolean2d`): SMLib's topology intersector splits both
+inputs' edges where they cross, and the result's edges are copies of the inputs' own curves
+(lines, circles and NURBS, none refitted), so the regions read back exactly.
+
 ## Imprint
 
 `smlib_imprint(body, tool, &out)` cuts each face of `body` that `tool` meets along the

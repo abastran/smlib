@@ -16,6 +16,7 @@
 #include <SmApiBrep.h>
 #include <SmApiCurves.h>
 #include <SmApiPrimitives.h>
+#include <SmApiTrimmedSurfaces.h>
 #include <SmBSplineCurve.h>
 #include <SmCircle.h>
 #include <SmLine.h>
@@ -1150,6 +1151,37 @@ extern "C" int32_t smlib_sweep_stations(const int64_t *kinds, int64_t n_kinds, c
                 return s;
             }
             return finish(r, ends != SMLIB_ENDS_OPEN, out);
+        }
+    );
+}
+
+extern "C" int32_t smlib_planar_faces(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, smlib_brep **out)
+{
+    if (out == nullptr)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_planar_faces", list(n_kinds, n_reals));
+    dump_curves(c, "loops", kinds, n_kinds, reals, n_reals);
+    return c.run(
+        [&]
+        {
+            Curves loops;
+            int32_t s = parse(kinds, n_kinds, reals, n_reals, loops);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            SmBrep *r = nullptr;
+            // On success the faces' edges own the curves; on failure they stay ours.
+            s = status(SmApiCreatePlanarFaces(loops.array(), r));
+            if (s != SMLIB_OK)
+            {
+                delete r;
+                return s;
+            }
+            loops.v.clear();
+            return finish(r, false, out);
         }
     );
 }

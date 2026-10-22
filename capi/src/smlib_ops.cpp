@@ -12,6 +12,7 @@
 #include "smlib_shim.h"
 
 #include <SmApiBrep.h>
+#include <SmPrimitiveCreation.h>
 #include <SmApiQueries.h>
 #include <SmAttribute.h>
 #include <SmBSplineCurve.h>
@@ -1064,6 +1065,69 @@ extern "C" int32_t smlib_boolean_with(const smlib_brep *a, const smlib_brep *b, 
                 return finish(Owned(r), solid_in, out, nonmanifold);
             }
             return finish(std::move(ca), solid_in, out, nonmanifold);
+        }
+    );
+}
+
+extern "C" int32_t smlib_boolean2d(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out)
+{
+    Sm2DBooleanOperationType kind;
+    switch (op)
+    {
+    case SMLIB_BOOLEAN_UNION:
+        kind = SM_2D_UNION;
+        break;
+    case SMLIB_BOOLEAN_SUBTRACT:
+        kind = SM_2D_DIFFERENCE;
+        break;
+    case SMLIB_BOOLEAN_INTERSECT:
+        kind = SM_2D_INTERSECTION;
+        break;
+    default:
+        return SMLIB_ERR_ARG;
+    }
+    if (!valid(a) || !valid(b) || out == nullptr)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_boolean2d", handle(a) + ", " + handle(b) + ", op=" + std::to_string(op));
+    c.input("a", a);
+    c.input("b", b);
+    return c.run(
+        [&]
+        {
+            int32_t s = SMLIB_OK;
+            Owned ca = copy_of(a, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            Owned cb = copy_of(b, s);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            // SmApiBoolean2d returns success without a result when an input has no faces.
+            if (ca->GetNumFaces() == 0 || cb->GetNumFaces() == 0)
+            {
+                return SMLIB_ERR_EMPTY;
+            }
+            SmBrep *r = nullptr;
+            s = status(SmApiBoolean2d(ca.get(), cb.get(), kind, r));
+            if (s != SMLIB_OK)
+            {
+                // Both operands are still allocated (possibly modified); the owners free them.
+                return s;
+            }
+            // Success: B is deleted and the result is A, edited in place.
+            cb.release();
+            if (r != nullptr && r != ca.get())
+            {
+                // Not what SM_API documents; SMLib owns A now, so leave it be.
+                ca.release();
+                return finish(Owned(r), false, out);
+            }
+            return finish(std::move(ca), false, out);
         }
     );
 }
