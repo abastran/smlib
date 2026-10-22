@@ -108,6 +108,7 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmLocalSolveNd.cpp
   ${SRC}/SMLib/src/SmGlobalSolver.cpp
   ${SRC}/SMLib/src/SmBSplineSurface.cpp
+  ${SRC}/SMLib/src/SmBSplineCurve.cpp
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")
