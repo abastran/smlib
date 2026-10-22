@@ -241,10 +241,40 @@ int main()
                                 ring_path.nk(), ring_path.reals.data(), ring_path.nr(), SMLIB_SWEEP_FOLLOW, 1, &b);
         int64_t counts[3] = {0, 0, 0};
         CHECK(s == SMLIB_OK && b != nullptr && smlib_brep_counts(b, counts) == SMLIB_OK);
-        std::printf("%-34s faces %lld\n", round ? "sweep disc round a circle" : "sweep square round a circle", static_cast<long long>(counts[0]));
-        CHECK(counts[0] == (round ? 1 : 4));
-        expect(round ? "sweep disc round a circle" : "sweep square round a circle", s, &b, (round ? PI * 9.0 : 25.0) * 2 * PI * 30.0, 1e-3);
+        // Round arcs about one axis the walls are SM_API's surfaces of revolution: the disc's a
+        // torus; the square's two planes and two rational NURBS (its revolved lines), which SMLib
+        // measures within 1e-4, as its other revolutions.
+        smlib_flat *f = nullptr;
+        const int64_t *types = nullptr;
+        int64_t n = 0;
+        CHECK(b != nullptr && smlib_brep_export(b, &f) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_FACE_SURFACE_TYPE, &types, &n) == SMLIB_OK);
+        int64_t nurbs = 0;
+        for (int64_t i = 0; i < n; ++i)
+        {
+            nurbs += types[i] == SMLIB_FLAT_SURFACE_NURBS;
+        }
+        smlib_flat_free(f);
+        std::printf("%-34s faces %lld, nurbs %lld\n", round ? "sweep disc round a circle" : "sweep square round a circle",
+                    static_cast<long long>(counts[0]), static_cast<long long>(nurbs));
+        CHECK(counts[0] == (round ? 1 : 4) && nurbs == (round ? 0 : 2));
+        expect(round ? "sweep disc round a circle" : "sweep square round a circle", s, &b, (round ? PI * 9.0 : 25.0) * 2 * PI * 30.0,
+               round ? 1e-6 : 1e-4);
     }
+    // Round a closed path of lines and arcs (a stadium: 20 straight, a half turn of radius 10,
+    // back, and round) the ends meet the same way: one wall per path piece, no caps, A L.
+    List stadium;
+    stadium.line(0, -10, 0, 20, -10, 0).arc(20, 0, 0, 0, 0, 1, 0, -1, 0, 10, 0, PI);
+    stadium.line(20, 10, 0, 0, 10, 0).arc(0, 0, 0, 0, 0, 1, 0, 1, 0, 10, 0, PI);
+    List stadium_section = circle(0, -10, 0, 1, 0, 0, 0, 1, 0, 2);
+    b = nullptr;
+    int32_t closed_status = smlib_sweep(stadium_section.kinds.data(), stadium_section.nk(), stadium_section.reals.data(), stadium_section.nr(),
+                                        stadium.kinds.data(), stadium.nk(), stadium.reals.data(), stadium.nr(), SMLIB_SWEEP_FOLLOW, 1, &b);
+    int64_t stadium_counts[3] = {0, 0, 0};
+    CHECK(closed_status == SMLIB_OK && b != nullptr && smlib_brep_counts(b, stadium_counts) == SMLIB_OK);
+    std::printf("%-34s faces %lld\n", "sweep disc round a stadium", static_cast<long long>(stadium_counts[0]));
+    CHECK(stadium_counts[0] == 4);
+    expect("sweep disc round a stadium", closed_status, &b, PI * 4.0 * (40.0 + 20.0 * PI), 1e-4);
     List bend;
     bend.arc(-20, 0, 0, 0, -1, 0, 1, 0, 0, 20, 0, PI / 2);
     b = nullptr;

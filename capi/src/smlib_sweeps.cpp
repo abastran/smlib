@@ -399,6 +399,47 @@ bool straight(const Curves &path, SmVector3d &dir, double &distance)
     return !path.v.empty();
 }
 
+// Whether the path (parsed as `path` from its curve list) is arcs end to end about one axis: then
+// `centre`, the unit `axis` they turn about counter-clockwise and the total `angle` (radians).
+bool circular(const Curves &path, const int64_t *kinds, int64_t n_kinds, const double *reals, SmPoint3d &centre, SmVector3d &axis,
+              double &angle)
+{
+    angle = 0.0;
+    if (kinds == nullptr || reals == nullptr || n_kinds != static_cast<int64_t>(path.v.size()) || path.v.empty())
+    {
+        return false;
+    }
+    SmPoint3d prev;
+    double radius = 0.0;
+    for (int64_t i = 0; i < n_kinds; ++i)
+    {
+        if (kinds[i] != SMLIB_CURVE_ARC)
+        {
+            return false;
+        }
+        const double *r = reals + 12 * i;
+        SmPoint3d c(r[0], r[1], r[2]);
+        SmVector3d k(r[3], r[4], r[5]);
+        k = k / k.Length();
+        SmPoint3d a, b;
+        path.v[static_cast<size_t>(i)]->GetEnds(a, b);
+        if (i == 0)
+        {
+            centre = c;
+            axis = k;
+            radius = r[9];
+        }
+        else if (c.DistanceBetween(centre) > 1e-9 || k.Dot(axis) < 1.0 - 1e-12 || std::fabs(r[9] - radius) > 1e-9 ||
+                 a.DistanceBetween(prev) > 1e-9)
+        {
+            return false;
+        }
+        prev = b;
+        angle += r[11] - r[10];
+    }
+    return angle <= TWO_PI * (1.0 + 1e-12);
+}
+
 // A path of end-to-end curves as one B-spline (CreateCurveSweep takes a single curve).
 int32_t joined(const Curves &path, std::unique_ptr<SmBSplineCurve> &out)
 {
@@ -574,6 +615,23 @@ extern "C" int32_t smlib_sweep(const int64_t *kinds, int64_t n_kinds, const doub
             {
                 SmBrep *r = nullptr;
                 s = status(SmApiCreateLinearSweep(profile.array(), dir, distance, cap ? TRUE : FALSE, r));
+                if (s != SMLIB_OK)
+                {
+                    delete r;
+                    return s;
+                }
+                return finish(r, cap != 0, out);
+            }
+            // Turning with a path of arcs about one axis, the profile turns about it: SM_API's
+            // rotational sweep builds the walls exactly (tori, cones, planes, ...).
+            SmPoint3d centre;
+            SmVector3d axis;
+            double angle = 0.0;
+            if (frame == SMLIB_SWEEP_FOLLOW && circular(path, path_kinds, n_path_kinds, path_reals, centre, axis, angle))
+            {
+                SmBrep *r = nullptr;
+                double degrees = std::min(360.0, angle * 180.0 / SM_PI);
+                s = status(SmApiCreateRotationalSweep(profile.array(), centre, axis, degrees, cap ? TRUE : FALSE, r));
                 if (s != SMLIB_OK)
                 {
                     delete r;
