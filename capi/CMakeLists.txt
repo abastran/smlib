@@ -85,6 +85,7 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmVertex.cpp
   ${SRC}/SMLib/src/SmEdge.cpp
   ${SRC}/SMLib/src/SmEdgeuse.cpp
+  ${SRC}/SMLib/src/SmFaceProps.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp
