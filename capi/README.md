@@ -836,3 +836,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   part, both sides void (#3447). Such a pair is now kept where the body's material on it lies
   on the side the sheet's `SM_OT_SAME` faceuse bounds, the side 7.4d keeps for faces in a
   sector, and deleted otherwise.
+- **A seam read from its vertices** (`SmTrimmingTools.cpp`, `SmTrimmingTools::CheckLoop`): an
+  edgeuse without a UVTrimCurve (a face `SmBrep::MakeFaceWithCurves` made from 3D curves, whose
+  trims are built later) has its UV ends from its vertexuses' projections (`GetEdgeUVExtremes`),
+  which on a closed direction are known only modulo the period: both uses of a seam edge project
+  to the same side. The check read that as the loop jumping the seam (tests #1/#2, "UVEdge/UVEdge
+  Gap"), so a full-turn revolve of one line or arc (`sm_CreateAnalyticRotationalSweep`'s cone or
+  cylinder face) was refused as made, and passed once copied (the copy builds the trims). Such an
+  end is now taken on the period nearest the end it is compared with.
