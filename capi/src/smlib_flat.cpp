@@ -22,6 +22,7 @@
 #include <SmBSplineCurve.h>
 #include <SmBSplineSurface.h>
 #include <SmBrep.h>
+#include <SmTrimmingTools.h>
 #include <SmBrepData.h>
 #include <SmCircle.h>
 #include <SmCone.h>
@@ -1280,6 +1281,29 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
     std::vector<int64_t> sVertexShellIdx;   // BrepData vertex indices of VertexShells (removed from the vertex arrays)
     std::vector<int64_t> sWireEdgeIdx;      // BrepData edge indices of WireEdges (removed from the edge arrays)
     std::vector<int64_t> sNonFaceEdgeuseIdx; // BrepData edgeuse indices of WireEdge edgeuses (removed from the edgeuse arrays)
+
+    // A curved face SMLib made without UV trims (MakeFaceWithCurves attaches them only when its
+    // 3D curves were made from them) gets SMLib's own, made as SMLib makes them when it needs
+    // them, so every exported trim is SMLib's.
+    {
+        SmTArray<SmFace *> sFaces;
+        pBrep_ii->GetFaces(sFaces);
+        for (ULONG ii = 0; ii < sFaces.GetSize(); ++ii)
+        {
+            const SmFace *pFace = sFaces[ii];
+            if (pFace == NULL || pFace->GetSurface() == NULL || pFace->GetSurface()->IsKindOf(SmPlane_TYPE) ||
+                SmTrimmingTools::AreUVCurvesPresent(pFace) == TRUE)
+            {
+                continue;
+            }
+            double dMeanGap = 0.0, dMaxGap = 0.0, dMeanVertexGap = 0.0, dMaxVertexGap = 0.0, dMeanCurveGap = 0.0, dMaxCurveGap = 0.0;
+            SmStatus made = pFace->CreateUVTrimCurves(FALSE, NULL, NULL, dMeanGap, dMaxGap, dMeanVertexGap, dMaxVertexGap, dMeanCurveGap, dMaxCurveGap);
+            if (made != SM_SUCCESS)
+            {
+                return made;
+            }
+        }
+    }
 
     // temp BrepData_ii built from Brep_ii; each SmBrepData topology object points back to its
     // source SmBrep topology object (example: SmVertexData::m_pVertex).
