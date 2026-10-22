@@ -3049,16 +3049,19 @@ PURPOSE: AssertValid() Test reporting static labels
 SmAssertReportLabel sTrimmingCheckLoop_list[] =
 /* lOwnerLabelIndex == 3 */
 {
-  /*  0 */ {SM_AT_GEOMETRIC, _T("Edge/Edge Gap"),     _T("Gap between edge endPoints exceeds tolerance") },
+  /*  0 */ {SM_AT_GEOMETRIC, _T("Edge/Edge Gap"),     _T("Gap between an edge endPoint and the vertex its edges meet at exceeds tolerance") },
   /*  1 */ {SM_AT_DOMAIN,    _T("UVEdge/UVEdge Gap"), _T("too large U Dir gap between loop Edge endPoints that are not on a singularity") },
   /*  2 */ {SM_AT_DOMAIN,    _T("UVEdge/UVEdge Gap"), _T("too large V Dir gap between loop Edge endPoints that are not on a singularity") }
 } ;
 
 /*******************************************************************//**
-PURPOSE:  signal errors when gap between any connecting
-             pair of loop->edges exceeds d3DTolerance.
+PURPOSE:  signal errors when a connecting pair of loop->edges does not
+             meet at the vertex between them.
 
-             gap = Surface(loop->edge->StartUVPoint) - Surface(loop->prevEdge->EndUVPoint)
+             The edges meet there when each lifted UV end lies within the
+             edge/vertex XSectTol3d of the vertex point:
+               Surface(loop->prevEdge->EndUVPoint) to Vertex, and
+               Surface(loop->edge->StartUVPoint)   to Vertex
 
           Large nonperiodic UV gaps may close within the edge intersection
           tolerance when their entire intervening B-spline subpatch (or
@@ -3134,16 +3137,29 @@ SmStatus SmTrimmingTools::CheckLoop
           SER(pSurface->EvaluatePoint(current_start,
                                       current_start_3d));
 
-          // error - when SurfacePoints vary by more than d3DTolerance
           double dEndStartDist = previous_end_3d.DistanceBetween(current_start_3d) ;
 
-          // check the Edge/Edge xsect distance
-          //   gwc: this is a tight test - edges must be within XSectTol3d of Vertices, but two edges connected to one
-          //        vertex could be positioned so that their EndPoint distance is greater than XSectTol3d(pEdge1,pEdge2)
-          SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(sEdgeuses[ii]->GetEdge(), sEdgeuses[previous]->GetEdge()) ; 
+          // The two edges meet at the vertex between them, so the loop is closed in 3d
+          // when each edge end classifies to that vertex: it lies within the edge/vertex
+          // XSectTol3d of the vertex point (SmTol.h, tolerance model 3a, rule 1). The
+          // edge/edge XSectTol3d is tighter than the model: two edge ends inside one vertex
+          // neighborhood can lie farther apart than their edges' tolerances.
+          SmEdge   *pPrevEdge = sEdgeuses[previous]->GetEdge() ;
+          SmEdge   *pCurrEdge = sEdgeuses[ii]->GetEdge() ;
+          SmVertex *pVertex   = sEdgeuses[ii]->GetVertexuse()->GetVertex() ;
+          const SmPoint3d &rVertexPoint = pVertex->GetPoint() ;
+          double       dPrevGap      = previous_end_3d.DistanceBetween(rVertexPoint) ;
+          double       dCurrGap      = current_start_3d.DistanceBetween(rVertexPoint) ;
+          SmXSectTol3d sPrevXSectTol = SmTol::GetXSectTol3d(pPrevEdge, pVertex) ;
+          SmXSectTol3d sCurrXSectTol = SmTol::GetXSectTol3d(pCurrEdge, pVertex) ;
+          SmBoolean    bClosed3d     = (dPrevGap <= sPrevXSectTol && dCurrGap <= sCurrXSectTol) ;
 
-          bOK &= SM_ASSERT_OBJ_VALUE_REPORT(pLoop, SM_LIST_3, 0, SM_LEVEL_0, (dEndStartDist <= sXSectTol3d), pLoop, sXSectTol3d, dEndStartDist, _T("") ) ;
-          if(dEndStartDist > sXSectTol3d )
+          // the edges' own XSectTol3d bounds the UV subpatch test below
+          SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(pCurrEdge, pPrevEdge) ;
+
+          bOK &= SM_ASSERT_OBJ_VALUE_REPORT(pLoop, SM_LIST_3, 0, SM_LEVEL_0, (dPrevGap <= sPrevXSectTol), pLoop, sPrevXSectTol, dPrevGap, _T("") ) ;
+          bOK &= SM_ASSERT_OBJ_VALUE_REPORT(pLoop, SM_LIST_3, 0, SM_LEVEL_0, (dCurrGap <= sCurrXSectTol), pLoop, sCurrXSectTol, dCurrGap, _T("") ) ;
+          if(!bClosed3d)
             {
               rlClosure = 3;
 
@@ -3200,8 +3216,8 @@ SmBoolean bDebugMe = FALSE ;
                 }
 #endif // SM_DEBUG_CODE
               TCHAR sBuff[SM_TBLOCK_SIZE] ;
-              smos_sprintf(sBuff, _T("SmTrimmingTools::CheckLoop() - Gap/Tol [%16.16lf / %16.16lf] in Loop for edgeuse.\n"),
-                                dEndStartDist, (double)sXSectTol3d /* , sEdgeuses[i] */ ) ;
+              smos_sprintf(sBuff, _T("SmTrimmingTools::CheckLoop() - EdgeEnd/Vertex Gap/Tol [%16.16lf / %16.16lf] and [%16.16lf / %16.16lf] in Loop for edgeuse.\n"),
+                                dPrevGap, (double)sPrevXSectTol, dCurrGap, (double)sCurrXSectTol) ;
               SE_MSG(SM_ERR,sBuff);  // was SER_MSG(SM_ERR,sBuff); prevented further tests.
             }
 
