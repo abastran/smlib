@@ -810,3 +810,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   couldn't be evaluated said it had found a solution; it finds none. A tree node with no surface
   cache returned the owner cast to one; it returns NULL, which the solvers check. (The spindle
   torus entry above is tangency-labs/solidcore#524.)
+- **A range solution's end refined** (`SmCurve.cpp`, `sm_RefineCCSolutions`): the end of a
+  curve/curve range was moved onto the refined intersection only when its parameter shift,
+  measured as a fraction from the range's start, was under 0.2 %; at the end that fraction is
+  about 1 (and 0 again once reversed back), so no end was ever refined. The end's shift is now
+  measured from the end: an end 1e-7 past a crossing moves onto it (gap 5e-6 to 1e-16).
