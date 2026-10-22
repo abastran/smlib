@@ -101,6 +101,13 @@ enum : int64_t
     kCurveEllipse = SMLIB_FLAT_CURVE_ELLIPSE,
 };
 
+// A face whose arrays carry a NURBS surface block: a NURBS face, or an analytic face given with
+// its SMLib NURBS form (FACE_NURBS_FORM), whose range and UV trims are in that NURBS's parameters.
+bool FaceHasNurbs(const FlatBrep &F, size_t iFace)
+{
+    return F.face_surface_type[iFace] == kSurfaceNurbs || (!F.face_nurbs_form.empty() && F.face_nurbs_form[iFace] == 1);
+}
+
 // USD writes USDBREP_NO_OBJECT_INDEX (9999999) for "no vertex"; the flat arrays use -1.
 constexpr int64_t kNoIndex = -1;
 
@@ -545,7 +552,7 @@ SmBSplineCurve *smu_CreateSmBSplineCurve2d_ForEdgeuseIndex(
     const FlatBrep &F,
     Cursor &c,
     size_t iEdgeuseIndex,
-    int64_t rFaceSurfaceType,       // in : owner face surface type; only NURBS-face UV curves are imported
+    bool bFaceHasNurbs,             // in : the owner face carries a NURBS block; only its UV curves are imported
     SmBoolean bEdgeuseSameOrientation // in : TRUE when the UV curve follows the edge's curve direction
 )
 {
@@ -568,10 +575,9 @@ SmBSplineCurve *smu_CreateSmBSplineCurve2d_ForEdgeuseIndex(
         c.knot += iKnotCount;
     };
 
-    // Analytic surfaces use a different parameterization from their internal SMLib NURBS form.
-    // Discard authored curves and let SMLib construct trims from the 3D edges when they are
-    // needed.
-    if (rFaceSurfaceType != kSurfaceNurbs)
+    // An analytic face given without its NURBS form has no parameters its UV curves could be in:
+    // discard them and let SMLib construct trims from the 3D edges when they are needed.
+    if (!bFaceHasNurbs)
     {
         fAdvancePackedCurve();
         return NULL;
@@ -1477,9 +1483,10 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             tFaceSurfaceType = kSurfaceTorus;
         }
 
-        // SMLib UV trim curves are parameterized on the analytic surface's internal NURBS
-        // representation, not on the analytic parameters of the arrays. Retain UV curves only
-        // when this face is itself exported as a NURBS surface.
+        // A curved analytic face is also given with its NURBS form (FACE_NURBS_FORM), the NURBS
+        // SMLib works on: its range and UV trims are in that NURBS's parameters, as SMLib holds
+        // them. A plane's are in its own (u, v), which carries no trims.
+        const bool bNurbsForm = tFaceSurfaceType != kSurfaceNurbs && tFaceSurfaceType != kSurfacePlane;
         for (uint32_t kk = 0; kk < rFaceData.m_lNumLoops; ++kk)
         {
             const uint32_t lLoopIndex = rFaceData.m_lStartLoop + kk;
@@ -1487,7 +1494,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             {
                 return SM_ERR; // "face loop index is out of bounds"
             }
-            sLoopExportsUVCurves[lLoopIndex] = tFaceSurfaceType == kSurfaceNurbs;
+            sLoopExportsUVCurves[lLoopIndex] = tFaceSurfaceType == kSurfaceNurbs || bNurbsForm;
         }
 
         // face range - must match the UV conventions declared by each surface API's schema:
@@ -1504,7 +1511,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         const SmExtent2d &sFaceRangeDomain = rFaceData.m_vUVDomain;
         double sFaceUVMin[2] = {sFaceRangeDomain.GetUMin(), sFaceRangeDomain.GetVMin()};
         double sFaceUVMax[2] = {sFaceRangeDomain.GetUMax(), sFaceRangeDomain.GetVMax()};
-        if (tFaceSurfaceType != kSurfaceNurbs)
+        if (tFaceSurfaceType != kSurfaceNurbs && !bNurbsForm)
         {
             SmExtent2d sStepDom = pFace->GetSurface()->GetSTEPUVDomain();
             double dUMin = sStepDom.GetUMin();
@@ -1541,6 +1548,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         F.face_loop_count.push_back(rFaceData.m_lNumLoops);
         F.face_surface_type.push_back(tFaceSurfaceType);
         F.face_trim_type.push_back(tFaceTrimType);
+        F.face_nurbs_form.push_back(bNurbsForm ? 1 : 0);
         F.face_range.insert(F.face_range.end(), {sFaceUVMin[0], sFaceUVMin[1], sFaceUVMax[0], sFaceUVMax[1]});
 
         // face surface
@@ -1648,7 +1656,17 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             F.face_torus_major_radius.push_back(dMajorRadius);
             F.face_torus_minor_radius.push_back(dMinorRadius);
         }
-        else
+        if (bNurbsForm)
+        {
+            // Every analytic class is an SmBSplineSurface: its own NURBS, in face order with the
+            // NURBS faces' surfaces.
+            SmStatus s = smu_AddSmBSplineSurface(*SM_REINTERPRET_CAST(SmBSplineSurface *, pSurface), F);
+            if (s != SM_SUCCESS)
+            {
+                return s;
+            }
+        }
+        else if (tFaceSurfaceType == kSurfaceNurbs)
         {
             // NURB or approximation path
             SmBSplineSurface *pBSplineSurface = NULL;
@@ -2198,6 +2216,20 @@ bool Validate(const FlatBrep &F, Shape &S)
     {
         return false;
     }
+    if (!F.face_nurbs_form.empty())
+    {
+        if (F.face_nurbs_form.size() != S.faces || !Bits(F.face_nurbs_form))
+        {
+            return false;
+        }
+        for (size_t i = 0; i < S.faces; ++i)
+        {
+            if (F.face_nurbs_form[i] == 1 && (F.face_surface_type[i] == kSurfaceNurbs || F.face_surface_type[i] == kSurfacePlane))
+            {
+                return false;
+            }
+        }
+    }
     for (size_t i = 0; i < S.faces; ++i)
     {
         const double u0 = F.face_range[4 * i], v0 = F.face_range[4 * i + 1], u1 = F.face_range[4 * i + 2], v1 = F.face_range[4 * i + 3];
@@ -2400,7 +2432,12 @@ bool Validate(const FlatBrep &F, Shape &S)
     {
         nT[static_cast<size_t>(t)]++;
     }
-    const size_t nN = nT[kSurfaceNurbs], nP = nT[kSurfacePlane], nCy = nT[kSurfaceCylinder], nCo = nT[kSurfaceCone], nS = nT[kSurfaceSphere],
+    size_t nN = 0;
+    for (size_t i = 0; i < S.faces; ++i)
+    {
+        nN += FaceHasNurbs(F, i) ? 1 : 0;
+    }
+    const size_t nP = nT[kSurfacePlane], nCy = nT[kSurfaceCylinder], nCo = nT[kSurfaceCone], nS = nT[kSurfaceSphere],
                  nTo = nT[kSurfaceTorus];
     if (F.face_nurbs_u_vertex_count.size() != nN || F.face_nurbs_v_vertex_count.size() != nN || F.face_nurbs_u_order.size() != nN ||
         F.face_nurbs_v_order.size() != nN)
@@ -2453,7 +2490,7 @@ bool Validate(const FlatBrep &F, Shape &S)
         uk = vk = 0;
         for (size_t i = 0; i < S.faces; ++i)
         {
-            if (F.face_surface_type[i] != kSurfaceNurbs)
+            if (!FaceHasNurbs(F, i))
             {
                 continue;
             }
@@ -2517,6 +2554,81 @@ bool Validate(const FlatBrep &F, Shape &S)
         }
     }
     return true;
+}
+
+// Whether two B-spline surfaces are the same NURBS: equal sizes and orders, knots equal to within
+// rounding, control points within dTol and weights equal to within rounding.
+bool SameNurbs(const SmBSplineSurface &crA, const SmBSplineSurface &crB, double dTol)
+{
+    FlatBrep A, B;
+    if (smu_AddSmBSplineSurface(crA, A) != SM_SUCCESS || smu_AddSmBSplineSurface(crB, B) != SM_SUCCESS)
+    {
+        return false;
+    }
+    if (A.face_nurbs_u_vertex_count != B.face_nurbs_u_vertex_count || A.face_nurbs_v_vertex_count != B.face_nurbs_v_vertex_count ||
+        A.face_nurbs_u_order != B.face_nurbs_u_order || A.face_nurbs_v_order != B.face_nurbs_v_order)
+    {
+        return false;
+    }
+    const auto fClose = [](const std::vector<double> &x, const std::vector<double> &y, double t)
+    {
+        if (x.size() != y.size())
+        {
+            return false;
+        }
+        for (size_t i = 0; i < x.size(); ++i)
+        {
+            if (!(std::fabs(x[i] - y[i]) <= t * smos_Max(1.0, std::fabs(x[i]))))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    return fClose(A.face_nurbs_u_knots, B.face_nurbs_u_knots, 1e-12) && fClose(A.face_nurbs_v_knots, B.face_nurbs_v_knots, 1e-12) &&
+           fClose(A.face_nurbs_weights, B.face_nurbs_weights, 1e-12) && fClose(A.face_nurbs_cvs, B.face_nurbs_cvs, dTol);
+}
+
+// The analytic surface of kind tKind (cylinder, cone, sphere or torus) that SMLib's own test finds
+// in crNurbs, keeping crNurbs as its NURBS form; NULL when SMLib finds none, or makes one with
+// another NURBS (SmCone::IsNurbSurfaceCone rebuilds its NURBS and reparameterises it, where the
+// others adopt the one tested). The face's trims are in crNurbs's parameters, so only that NURBS
+// will do.
+SmSurface *AnalyticOfNurbs(const SmContext &ctx, const SmBSplineSurface &crNurbs, int64_t tKind, double dTol)
+{
+    SmBSplineSurface *pAnalytic = NULL;
+    SmBoolean bFound = FALSE;
+    if (tKind == kSurfaceCylinder)
+    {
+        SmCylinder *p = NULL;
+        bFound = SmCylinder::IsNurbSurfaceCylinder(ctx, &crNurbs, p);
+        pAnalytic = p;
+    }
+    else if (tKind == kSurfaceCone)
+    {
+        SmCone *p = NULL;
+        bFound = SmCone::IsNurbSurfaceCone(ctx, &crNurbs, p);
+        pAnalytic = p;
+    }
+    else if (tKind == kSurfaceSphere)
+    {
+        SmSphere *p = NULL;
+        bFound = SmSphere::IsNurbSurfaceSphere(ctx, &crNurbs, p);
+        pAnalytic = p;
+    }
+    else if (tKind == kSurfaceTorus)
+    {
+        SmTorus *p = NULL;
+        bFound = SmTorus::IsNurbSurfaceTorus(ctx, &crNurbs, p);
+        pAnalytic = p;
+    }
+    // IsNurbSurfaceCone can return an error status as its SmBoolean: only TRUE is a yes.
+    if (bFound != TRUE || pAnalytic == NULL || !SameNurbs(crNurbs, *pAnalytic, dTol))
+    {
+        delete pAnalytic;
+        return NULL;
+    }
+    return pAnalytic;
 }
 
 // An SmAxis2Placement (`out`) from an origin, an axis (z) and a reference direction (x):
@@ -2726,6 +2838,7 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         SmFaceData &rFaceData = pData->m_vFaces[iLocal];
         rFaceData.ReSet();
         const int64_t tSurfaceType = F.face_surface_type[iLocal];
+        const bool bNurbsForm = tSurfaceType != kSurfaceNurbs && FaceHasNurbs(F, iLocal);
 
         // Mapping face:trimType -> SMLib m_bRectangularTrim (tri-state):
         //   "rectangular" -> TRUE   (definitively naturally/rectangularly trimmed)
@@ -2739,7 +2852,11 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         // Analytic surface face:range angular parameters are radians, but SMLib analytic
         // surfaces (SmSphere, SmCylinder, SmCone, SmTorus) use degrees for their STEP
         // parameterization. Convert angular parameters from radians to degrees.
-        if (tSurfaceType == kSurfaceSphere || tSurfaceType == kSurfaceTorus)
+        if (bNurbsForm)
+        {
+            // The range is in the NURBS form's parameters already.
+        }
+        else if (tSurfaceType == kSurfaceSphere || tSurfaceType == kSurfaceTorus)
         {
             // Sphere/Torus: both U (rotation) and V (latitude/tube angle) are angular
             sDomain = SmExtent2d(
@@ -2770,7 +2887,20 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         const SmContext &ctx = *pData->GetContext();
         SmSurface *pNewSurface = NULL;
         SmStatus stat = SM_SUCCESS;
-        if (tSurfaceType == kSurfaceSphere)
+        if (bNurbsForm)
+        {
+            // An analytic face given with its NURBS form: that NURBS, as the analytic class the
+            // arrays name (its canonical entry is passed over; the NURBS defines the surface).
+            iSphere += tSurfaceType == kSurfaceSphere ? 1 : 0;
+            iCylinder += tSurfaceType == kSurfaceCylinder ? 1 : 0;
+            iCone += tSurfaceType == kSurfaceCone ? 1 : 0;
+            iTorus += tSurfaceType == kSurfaceTorus ? 1 : 0;
+            SmBSplineSurface *pNurbs = smu_CreateSmBSplineSurface3d(ctx, F, sNurbsSurfaces);
+            SmObjDelete sNurbsCleanup(pNurbs);
+            pNewSurface = pNurbs != NULL ? AnalyticOfNurbs(ctx, *pNurbs, tSurfaceType, F.tolerance[0]) : NULL;
+            stat = pNewSurface != NULL ? SM_SUCCESS : SM_ERR_INVALID_INPUT;
+        }
+        else if (tSurfaceType == kSurfaceSphere)
         {
             size_t i = iSphere++;
             SmAxis2Placement sOrigin;
@@ -2909,7 +3039,7 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             return stat != SM_SUCCESS ? stat : SM_ERR;
         }
 
-        const bool bAnalyticSurface = tSurfaceType != kSurfaceNurbs;
+        const bool bAnalyticSurface = tSurfaceType != kSurfaceNurbs && !bNurbsForm;
         if (bAnalyticSurface && sDomain.IsBounded())
         {
             SmStatus adjStat = pNewSurface->AdjustSTEPUVDomain(sDomain);
@@ -3034,7 +3164,7 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
         if (S.uv_curves)
         {
             SmBSplineCurve *pBSplineCurve = smu_CreateSmBSplineCurve2d_ForEdgeuseIndex(
-                *pData->GetContext(), F, sUVCurves, k, F.face_surface_type[sEdgeuseFace[k]], bOrientation
+                *pData->GetContext(), F, sUVCurves, k, FaceHasNurbs(F, sEdgeuseFace[k]), bOrientation
             );
             if (pBSplineCurve != NULL)
             {

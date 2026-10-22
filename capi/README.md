@@ -875,3 +875,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   Gap"), so a full-turn revolve of one line or arc (`sm_CreateAnalyticRotationalSweep`'s cone or
   cylinder face) was refused as made, and passed once copied (the copy builds the trims). Such an
   end is now taken on the period nearest the end it is compared with.
+- **Analytic faces carry their NURBS form** (`SMLIB_FLAT_FACE_NURBS_FORM`). Every SMLib analytic
+  surface is an `SmBSplineSurface`, and its UV trims are in that NURBS's parameters. Export gives a
+  cylinder, cone, sphere or torus face its NURBS block, native range and UV trims; import makes the
+  NURBS the analytic class named by SMLib's own `IsNurbSurface*` test and refuses the B-rep when
+  the analytic surface made has another NURBS. Before, analytic faces lost their trims at the
+  boundary and SMLib rebuilt them from the 3D edges.

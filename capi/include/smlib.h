@@ -231,9 +231,9 @@ int32_t smlib_brep_is_manifold_solid(const smlib_brep *brep, int32_t *out);
  * with their weights alongside (a weights array may also be empty, meaning all 1); knot vectors
  * are full ("flat"): #knots = #points + order.
  *
- * What is not carried: UV trim curves of faces on analytic surfaces (SMLib's are expressed in
- * its internal NURBS form of the analytic surface, which is not the USD parameterisation), so
- * SMLib rebuilds them from the 3D edges on import. Edge curves keep their SMLib class where it
+ * A curved analytic face (cylinder, cone, sphere, torus) is given with its NURBS form
+ * (FACE_NURBS_FORM), and its UV trims are carried in that NURBS's parameters. A plane carries no
+ * UV trims; SMLib rebuilds them from the 3D edges on import. Edge curves keep their SMLib class where it
  * is a line, circle or ellipse (SmLine, SmCircle, SmEllipse); B-splines stay NURBS, and other
  * curve kinds are approximated as NURBS to the B-rep's tolerance; surfaces that are neither
  * analytic nor NURBS are approximated likewise. A line, circle or ellipse edge comes back with
@@ -306,10 +306,12 @@ typedef struct smlib_flat smlib_flat;
 #define SMLIB_FLAT_WIRE_EDGE_NURBS_VERTEX_COUNT 24
 #define SMLIB_FLAT_WIRE_EDGE_NURBS_ORDER 25
 /* Per edgeuse: control point count and order of its UV trim curve, both 0 when it has none.
- * Length n_edgeuses, or 0 when no edgeuse has one. Only faces of type NURBS carry trims. */
+ * Length n_edgeuses, or 0 when no edgeuse has one. Only faces with a NURBS block (type NURBS, or
+ * FACE_NURBS_FORM) carry trims. */
 #define SMLIB_FLAT_EDGEUSE_NURBS_VERTEX_COUNT 26
 #define SMLIB_FLAT_EDGEUSE_NURBS_ORDER 27
-/* Per NURBS face: control point counts and orders in U and V. Length n_nurbs_faces each. */
+/* Per face with a NURBS block (type NURBS, or FACE_NURBS_FORM), in face order: control point counts
+ * and orders in U and V. Length n_nurbs_faces each. */
 #define SMLIB_FLAT_FACE_NURBS_U_VERTEX_COUNT 28
 #define SMLIB_FLAT_FACE_NURBS_V_VERTEX_COUNT 29
 #define SMLIB_FLAT_FACE_NURBS_U_ORDER 30
@@ -317,6 +319,15 @@ typedef struct smlib_flat smlib_flat;
 /* 1 = written by SMLib (import trusts it and skips the healer), 0 = from elsewhere (import
  * heals it). Length 1. */
 #define SMLIB_FLAT_SOURCE 32
+/* Per face: 1 = a cylinder, cone, sphere or torus face also given with its NURBS form, the NURBS
+ * SMLib works on (every SMLib analytic surface is an SmBSplineSurface): its NURBS block follows,
+ * in face order with the NURBS faces' blocks; its FACE_RANGE and its edgeuses' UV trims are in
+ * that NURBS's parameters; its canonical entry stays. 0 = otherwise. Length n_faces, or 0 (no
+ * face has one). Export gives every such face its form. Import makes the face the analytic class
+ * named, by SMLib's own test of the NURBS (SmCylinder::IsNurbSurfaceCylinder and its siblings),
+ * and refuses the B-rep (SMLIB_ERR_INVALID_INPUT) when that test says no or the analytic surface
+ * it makes has another NURBS. */
+#define SMLIB_FLAT_FACE_NURBS_FORM 33
 
 /* --- double arrays --- */
 /* The B-rep's intersection tolerance (twice its largest face/edge/vertex tolerance). Length 1. */
@@ -326,7 +337,8 @@ typedef struct smlib_flat smlib_flat;
 /* Per face: u_min, v_min, u_max, v_max. NURBS: the face's native UV domain. Analytic: the
  * STEP parameterisation, angles in radians: plane (u, v) distances along the placement's
  * x and y axes; sphere (longitude, latitude); cylinder and cone (angle, distance along the
- * axis); torus (major angle, minor angle). Length 4 * n_faces. */
+ * axis); torus (major angle, minor angle). A face with FACE_NURBS_FORM: its NURBS form's native UV
+ * domain. Length 4 * n_faces. */
 #define SMLIB_FLAT_FACE_RANGE 103
 /* Per edge: start and end curve parameter (radians for circle and ellipse curves).
  * Length 2 * n_edges. */
