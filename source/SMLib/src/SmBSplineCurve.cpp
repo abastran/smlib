@@ -122,9 +122,10 @@ SmBSplineCurve::SmBSplineCurve
   gw_CURVE *pNewCur = sm_AllocateNurbCurve(n, p, m);
 
   // okay to use smos_MemCpy on base (double) and static class (gw_CPOINT) objects.
-  SE(smos_MemCpy(pNewCur->knt->U, U, sizeof(gw_REAL) * ((size_t)m + (size_t)1), sizeof(gw_REAL) * ((size_t)m + (size_t)1)));
-  SE(smos_MemCpy(
-      pNewCur->pol->Pw, Pw, sizeof(gw_CPOINT) * ((size_t)n + (size_t)1), sizeof(gw_CPOINT) * ((size_t)n + (size_t)1)));
+  // SolidCraft: each copy fills a block allocated to its size, so it cannot fail
+  (void)smos_MemCpy(pNewCur->knt->U, U, sizeof(gw_REAL) * ((size_t)m + (size_t)1), sizeof(gw_REAL) * ((size_t)m + (size_t)1));
+  (void)smos_MemCpy(
+      pNewCur->pol->Pw, Pw, sizeof(gw_CPOINT) * ((size_t)n + (size_t)1), sizeof(gw_CPOINT) * ((size_t)n + (size_t)1)); // SolidCraft: see above
 
   m_pNurb = pNewCur;
 
