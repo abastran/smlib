@@ -156,12 +156,16 @@ static SmStatus sm_RefineCCSolutions( SmSolutionArray &rSolutions )
           if ( bFound && dDev < rSol.m_vStart.m_dSolutionValue )
           {
               // Do not allow big shifts.  [140915b]
-              SER( sSolIvl1.Inversion( dNew1, dFrac1 ) );
-              SER( sSolIvl2.Inversion( dNew2, dFrac2 ) );
+              // SolidCraft: a refined parameter outside the range is an answer: Inversion still
+              // gives its fraction (with SM_ERR), and the shift limit judges it. Only a
+              // zero-length range gives no fraction (SM_UNDEF_DOUBLE), and then no shift is taken.
+              (void)sSolIvl1.Inversion( dNew1, dFrac1 );
+              (void)sSolIvl2.Inversion( dNew2, dFrac2 );
+              SmBoolean bHaveFracs = ( dFrac1 != SM_UNDEF_DOUBLE && dFrac2 != SM_UNDEF_DOUBLE );
               if ( bReverse1 ) { dFrac1 = 1.0 - dFrac1; }
               if ( bReverse2 ) { dFrac2 = 1.0 - dFrac2; }
 
-              if ( smos_Fabs( dFrac1 ) < dShiftLimit  &&  smos_Fabs( dFrac2 ) < dShiftLimit )
+              if ( bHaveFracs && smos_Fabs( dFrac1 ) < dShiftLimit  &&  smos_Fabs( dFrac2 ) < dShiftLimit )
               {
                   rSol.m_vStart.m_dSolutionValue  = dDev;
                   rSol.m_vStart.m_adParameters[0] = dNew1;
@@ -185,12 +189,16 @@ static SmStatus sm_RefineCCSolutions( SmSolutionArray &rSolutions )
           if ( bFound && dDev < rSol.m_vEnd.m_dSolutionValue )
           {
               // Do not allow big shifts.  [140915b]
-              SER( sSolIvl1.Inversion( dNew1, dFrac1 ) );
-              SER( sSolIvl2.Inversion( dNew2, dFrac2 ) );
+              // SolidCraft: a refined parameter outside the range is an answer: Inversion still
+              // gives its fraction (with SM_ERR), and the shift limit judges it. Only a
+              // zero-length range gives no fraction (SM_UNDEF_DOUBLE), and then no shift is taken.
+              (void)sSolIvl1.Inversion( dNew1, dFrac1 );
+              (void)sSolIvl2.Inversion( dNew2, dFrac2 );
+              SmBoolean bHaveFracs = ( dFrac1 != SM_UNDEF_DOUBLE && dFrac2 != SM_UNDEF_DOUBLE );
               if ( bReverse1 ) { dFrac1 = 1.0 - dFrac1; }
               if ( bReverse2 ) { dFrac2 = 1.0 - dFrac2; }
 
-              if ( smos_Fabs( dFrac1 ) < dShiftLimit  &&  smos_Fabs( dFrac2 ) < dShiftLimit )
+              if ( bHaveFracs && smos_Fabs( dFrac1 ) < dShiftLimit  &&  smos_Fabs( dFrac2 ) < dShiftLimit )
               {
                   rSol.m_vEnd.m_dSolutionValue  = dDev;
                   rSol.m_vEnd.m_adParameters[0] = dNew1;
