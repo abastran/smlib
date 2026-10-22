@@ -105,6 +105,11 @@ enum : int64_t
 
 // A face whose arrays carry a NURBS surface block: a NURBS face, or an analytic face given with
 // its SMLib NURBS form (FACE_NURBS_FORM), whose range and UV trims are in that NURBS's parameters.
+bool EdgeHasForm(const std::vector<int64_t> &form, size_t iEdge)
+{
+    return !form.empty() && iEdge < form.size() && form[iEdge] == 1;
+}
+
 bool FaceHasNurbs(const FlatBrep &F, size_t iFace)
 {
     return F.face_surface_type[iFace] == kSurfaceNurbs || (!F.face_nurbs_form.empty() && F.face_nurbs_form[iFace] == 1);
@@ -602,7 +607,7 @@ SmBSplineCurve *smu_CreateSmBSplineCurve2d_ForEdgeuseIndex(
     const size_t iEdge = static_cast<size_t>(F.edgeuse_edge[iEdgeuseIndex]);
     double dTargetMin = F.edge_range[2 * iEdge];
     double dTargetMax = F.edge_range[2 * iEdge + 1];
-    if (F.edge_curve_type[iEdge] == kCurveCircle || F.edge_curve_type[iEdge] == kCurveEllipse)
+    if ((F.edge_curve_type[iEdge] == kCurveCircle || F.edge_curve_type[iEdge] == kCurveEllipse) && !EdgeHasForm(F.edge_nurbs_form, iEdge))
     {
         dTargetMin = UsdRadiansToSMLibDegrees(dTargetMin);
         dTargetMax = UsdRadiansToSMLibDegrees(dTargetMax);
@@ -1211,12 +1216,18 @@ struct EdgeArraysOut
     std::vector<double> &circleCenter, &circleAxis, &circleRef, &circleRadius;
     std::vector<double> &lineOrigin, &lineDirection;
     std::vector<double> &ellipseCenter, &ellipseAxis, &ellipseRef, &ellipseX, &ellipseY;
+    // Per edge: 1 = its NURBS form follows (EDGE_NURBS_FORM).
+    std::vector<int64_t> &form;
 };
 
 // Writes one edge's curve kind, range and geometry.
 SmStatus WriteEdgeCurve(EdgeArraysOut &o, const EdgeExport &e, SmCurve *pCurve, const SmExtent1d &ivl, SmApproxTol3d sApproxTol3d)
 {
     o.type.push_back(e.type);
+    // A circle is also given with its NURBS form, the SmBSplineCurve SMLib holds it as: its
+    // range is that NURBS's, and the trims on it keep their parameter.
+    const bool bForm = e.type == kCurveCircle;
+    o.form.push_back(bForm ? 1 : 0);
     if (e.type == kCurveNurbs)
     {
         o.range.push_back(ivl.GetMin());
@@ -1229,8 +1240,8 @@ SmStatus WriteEdgeCurve(EdgeArraysOut &o, const EdgeExport &e, SmCurve *pCurve, 
         }
         return smu_AddSmBSplineCurve3d(*pBSplineCurve, o.nurbsCount, o.nurbsOrder, o.nurbsCvs, o.nurbsKnots, o.nurbsWeights);
     }
-    o.range.push_back(e.lo);
-    o.range.push_back(e.hi);
+    o.range.push_back(bForm ? ivl.GetMin() : e.lo);
+    o.range.push_back(bForm ? ivl.GetMax() : e.hi);
     if (e.type == kCurveLine)
     {
         Push3(o.lineOrigin, e.center.x, e.center.y, e.center.z);
@@ -1242,6 +1253,13 @@ SmStatus WriteEdgeCurve(EdgeArraysOut &o, const EdgeExport &e, SmCurve *pCurve, 
         Push3(o.circleAxis, e.axis.x, e.axis.y, e.axis.z);
         Push3(o.circleRef, e.ref.x, e.ref.y, e.ref.z);
         o.circleRadius.push_back(e.r1);
+        // Every SMLib conic is an SmBSplineCurve: its own NURBS, in edge order with the NURBS
+        // edges' curves.
+        SmStatus s = smu_AddSmBSplineCurve3d(*SM_REINTERPRET_CAST(SmBSplineCurve *, pCurve), o.nurbsCount, o.nurbsOrder, o.nurbsCvs, o.nurbsKnots, o.nurbsWeights);
+        if (s != SM_SUCCESS)
+        {
+            return s;
+        }
     }
     else
     {
@@ -1378,12 +1396,12 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
     EdgeArraysOut sEdgeOut{F.edge_curve_type, F.edge_range, F.edge_nurbs_vertex_count, F.edge_nurbs_order, F.edge_nurbs_cvs,
                            F.edge_nurbs_knots, F.edge_nurbs_weights, F.edge_circle_center, F.edge_circle_axis, F.edge_circle_ref_direction,
                            F.edge_circle_radius, F.edge_line_origin, F.edge_line_direction, F.edge_ellipse_center, F.edge_ellipse_axis,
-                           F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius};
+                           F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius, F.edge_nurbs_form};
     EdgeArraysOut sWireEdgeOut{F.wire_edge_curve_type, F.wire_edge_range, F.wire_edge_nurbs_vertex_count, F.wire_edge_nurbs_order,
                                F.wire_edge_nurbs_cvs, F.wire_edge_nurbs_knots, F.wire_edge_nurbs_weights, F.wire_edge_circle_center,
                                F.wire_edge_circle_axis, F.wire_edge_circle_ref_direction, F.wire_edge_circle_radius, F.wire_edge_line_origin,
                                F.wire_edge_line_direction, F.wire_edge_ellipse_center, F.wire_edge_ellipse_axis, F.wire_edge_ellipse_ref_direction,
-                               F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius};
+                               F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius, F.wire_edge_nurbs_form};
 
     // Regions
     for (uint32_t jj = 0; jj < lNumRegions; ++jj)
@@ -1853,7 +1871,8 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         // the edge's (SMLib then rebuilds it from the 3D edge, as for analytic faces).
         double sRemap[4];
         const double *pRemap = nullptr;
-        if (pBSplineCurve2d != NULL && rEUData.m_lEdge < sEdgeExports.size() && sEdgeExports[rEUData.m_lEdge].type != kCurveNurbs)
+        if (pBSplineCurve2d != NULL && rEUData.m_lEdge < sEdgeExports.size() && sEdgeExports[rEUData.m_lEdge].type != kCurveNurbs &&
+            sEdgeExports[rEUData.m_lEdge].type != kCurveCircle)
         {
             const EdgeExport &rE = sEdgeExports[rEUData.m_lEdge];
             const SmExtent1d &rIvl = pBrepData_ii->m_vEdges[rEUData.m_lEdge].m_vInterval;
@@ -2084,18 +2103,32 @@ bool GoodEdges(
     const std::vector<double> &ellipseAxis,
     const std::vector<double> &ellipseRef,
     const std::vector<double> &ellipseX,
-    const std::vector<double> &ellipseY
+    const std::vector<double> &ellipseY,
+    const std::vector<int64_t> &form
 )
 {
+    // A NURBS form is given for circles only, one flag per edge, or for none.
+    if (!form.empty() && (form.size() != n || !Bits(form)))
+    {
+        return false;
+    }
+    for (size_t i = 0; i < form.size(); ++i)
+    {
+        if (form[i] == 1 && type[i] != kCurveCircle)
+        {
+            return false;
+        }
+    }
     if (type.size() != n || vertices.size() != 2 * n || range.size() != 2 * n || !InRange(type, kCurveNurbs, kCurveEllipse) ||
         !InRange(vertices, 0, static_cast<int64_t>(nVertices) - 1))
     {
         return false;
     }
     size_t nN = 0, nC = 0, nL = 0, nE = 0;
-    for (int64_t t : type)
+    for (size_t i = 0; i < type.size(); ++i)
     {
-        nN += t == kCurveNurbs;
+        const int64_t t = type[i];
+        nN += t == kCurveNurbs || EdgeHasForm(form, i);
         nC += t == kCurveCircle;
         nL += t == kCurveLine;
         nE += t == kCurveEllipse;
@@ -2142,7 +2175,7 @@ bool GoodEdges(
         {
             return false;
         }
-        if (type[i] == kCurveNurbs)
+        if (type[i] == kCurveNurbs || EdgeHasForm(form, i))
         {
             int64_t c = nurbs.count[iNurbs], o = nurbs.order[iNurbs];
             double k0 = nurbs.knots[knot + o - 1], k1 = nurbs.knots[knot + c];
@@ -2365,14 +2398,14 @@ bool Validate(const FlatBrep &F, Shape &S)
             F.edge_curve_type, F.edge_vertices, F.edge_range, S.edges, S.vertices,
             CurveArrays{F.edge_nurbs_vertex_count, F.edge_nurbs_order, F.edge_nurbs_cvs, F.edge_nurbs_knots, F.edge_nurbs_weights}, F.edge_circle_center,
             F.edge_circle_axis, F.edge_circle_ref_direction, F.edge_circle_radius, F.edge_line_origin, F.edge_line_direction, F.edge_ellipse_center,
-            F.edge_ellipse_axis, F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius
+            F.edge_ellipse_axis, F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius, F.edge_nurbs_form
         ) ||
         !GoodEdges(
             F.wire_edge_curve_type, F.wire_edge_vertices, F.wire_edge_range, S.wire_edges, S.vertices,
             CurveArrays{F.wire_edge_nurbs_vertex_count, F.wire_edge_nurbs_order, F.wire_edge_nurbs_cvs, F.wire_edge_nurbs_knots, F.wire_edge_nurbs_weights},
             F.wire_edge_circle_center, F.wire_edge_circle_axis, F.wire_edge_circle_ref_direction, F.wire_edge_circle_radius, F.wire_edge_line_origin,
             F.wire_edge_line_direction, F.wire_edge_ellipse_center, F.wire_edge_ellipse_axis, F.wire_edge_ellipse_ref_direction,
-            F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius
+            F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius, F.wire_edge_nurbs_form
         ))
     {
         return false;
@@ -2699,6 +2732,46 @@ SmStatus Placement(const SmPoint3d &origin, const SmVector3d &zAxis, const SmVec
 // The 3D curve of one edge (or wire edge), as SmuConvert builds it for its curve type.
 // dMin/dMax are the edge range already converted to SMLib units (degrees for circles and
 // ellipses).
+// Whether two B-spline curves are the same NURBS: equal counts and orders, knots and weights equal
+// to within rounding, control points within rounding of the curve's size.
+bool SameNurbsCurve(SmBSplineCurve &rA, SmBSplineCurve &rB)
+{
+    std::vector<int64_t> ac, ao, bc, bo;
+    std::vector<double> ap, ak, aw, bp, bk, bw;
+    if (smu_AddSmBSplineCurve3d(rA, ac, ao, ap, ak, aw) != SM_SUCCESS || smu_AddSmBSplineCurve3d(rB, bc, bo, bp, bk, bw) != SM_SUCCESS ||
+        ac != bc || ao != bo || ap.size() != bp.size() || ak.size() != bk.size() || aw.size() != bw.size())
+    {
+        return false;
+    }
+    double size = 1.0;
+    for (double x : ap)
+    {
+        size = std::max(size, std::fabs(x));
+    }
+    for (size_t i = 0; i < ap.size(); ++i)
+    {
+        if (!(std::fabs(ap[i] - bp[i]) <= 1e-12 * size))
+        {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < ak.size(); ++i)
+    {
+        if (!(std::fabs(ak[i] - bk[i]) <= 1e-12 * std::max(1.0, std::fabs(ak[i]))))
+        {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < aw.size(); ++i)
+    {
+        if (!(std::fabs(aw[i] - bw[i]) <= 1e-12 * std::max(1.0, std::fabs(aw[i]))))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 SmStatus MakeEdgeCurve(
     const SmContext &ctx,
     int64_t type,
@@ -2717,10 +2790,28 @@ SmStatus MakeEdgeCurve(
     const std::vector<double> &ellipseRef,
     const std::vector<double> &ellipseX,
     const std::vector<double> &ellipseY,
+    bool bForm,
     SmCurve *&out
 )
 {
     out = NULL;
+    if (bForm)
+    {
+        // A circle given with its NURBS form: that NURBS, as the SmCircle SMLib's own test
+        // makes of it (its canonical entry is passed over); the trims on the edge are in that
+        // NURBS's parameter, so the circle must keep it.
+        c.circle++;
+        SmBSplineCurve *pNurbs = smu_CreateSmBSplineCurve3d(ctx, nurbs, c);
+        SmObjDelete sNurbsCleanup(pNurbs);
+        SmCircle *pCircle = NULL;
+        if (pNurbs == NULL || SmCircle::IsNurbCurveCircle(ctx, pNurbs, pCircle) != TRUE || pCircle == NULL || !SameNurbsCurve(*pNurbs, *pCircle))
+        {
+            delete pCircle;
+            return SM_ERR_INVALID_INPUT;
+        }
+        out = pCircle;
+        return SM_SUCCESS;
+    }
     if (type == kCurveNurbs)
     {
         out = smu_CreateSmBSplineCurve3d(ctx, nurbs, c);
@@ -3258,7 +3349,10 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             double dEdgeMin = F.edge_range[2 * iLocal];
             double dEdgeMax = F.edge_range[2 * iLocal + 1];
             // circle/ellipse edge range is radians; SMLib SmCircle/SmEllipse use degrees
-            EdgeRangeToSMLib(F.edge_curve_type[iLocal], dEdgeMin, dEdgeMax);
+            if (!EdgeHasForm(F.edge_nurbs_form, iLocal))
+            {
+                EdgeRangeToSMLib(F.edge_curve_type[iLocal], dEdgeMin, dEdgeMax);
+            }
             if (rEdgeData.m_vInterval.SetMinMax(dEdgeMin, dEdgeMax) != SM_SUCCESS)
             {
                 prSmBrepData_ii = NULL;
@@ -3276,7 +3370,7 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             SmStatus stat = MakeEdgeCurve(
                 *pData->GetContext(), F.edge_curve_type[iLocal], dEdgeMin, dEdgeMax, nurbs, c, F.edge_circle_center, F.edge_circle_axis,
                 F.edge_circle_ref_direction, F.edge_circle_radius, F.edge_line_origin, F.edge_line_direction, F.edge_ellipse_center, F.edge_ellipse_axis,
-                F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius, pCurve
+                F.edge_ellipse_ref_direction, F.edge_ellipse_x_radius, F.edge_ellipse_y_radius, EdgeHasForm(F.edge_nurbs_form, iLocal), pCurve
             );
             if (stat != SM_SUCCESS)
             {
@@ -3299,7 +3393,10 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             rWireEdgeData.m_sZoneTol3d = sZoneTol3d;
             double dWireMin = F.wire_edge_range[2 * w];
             double dWireMax = F.wire_edge_range[2 * w + 1];
-            EdgeRangeToSMLib(F.wire_edge_curve_type[w], dWireMin, dWireMax);
+            if (!EdgeHasForm(F.wire_edge_nurbs_form, w))
+            {
+                EdgeRangeToSMLib(F.wire_edge_curve_type[w], dWireMin, dWireMax);
+            }
             if (rWireEdgeData.m_vInterval.SetMinMax(dWireMin, dWireMax) != SM_SUCCESS)
             {
                 prSmBrepData_ii = NULL;
@@ -3317,7 +3414,8 @@ SmStatus FlatToBrepData(const FlatBrep &F, const Shape &S, const SmContext &crSm
             SmStatus stat = MakeEdgeCurve(
                 *pData->GetContext(), F.wire_edge_curve_type[w], dWireMin, dWireMax, nurbs, c, F.wire_edge_circle_center, F.wire_edge_circle_axis,
                 F.wire_edge_circle_ref_direction, F.wire_edge_circle_radius, F.wire_edge_line_origin, F.wire_edge_line_direction, F.wire_edge_ellipse_center,
-                F.wire_edge_ellipse_axis, F.wire_edge_ellipse_ref_direction, F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius, pCurve
+                F.wire_edge_ellipse_axis, F.wire_edge_ellipse_ref_direction, F.wire_edge_ellipse_x_radius, F.wire_edge_ellipse_y_radius,
+                EdgeHasForm(F.wire_edge_nurbs_form, w), pCurve
             );
             if (stat != SM_SUCCESS)
             {

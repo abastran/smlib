@@ -328,6 +328,15 @@ typedef struct smlib_flat smlib_flat;
  * and refuses the B-rep (SMLIB_ERR_INVALID_INPUT) when that test says no or the analytic surface
  * it makes has another NURBS. */
 #define SMLIB_FLAT_FACE_NURBS_FORM 33
+/* Per edge (and per wire edge): 1 = a circle edge also given with its NURBS form, the
+ * SmBSplineCurve SMLib holds it as (every SMLib conic is one): its NURBS block follows, in edge
+ * order with the NURBS edges' blocks; its EDGE_RANGE and the UV trims on it are in that NURBS's
+ * parameter; its canonical entry stays. 0 = otherwise. Length n_edges (n_wire_edges), or 0.
+ * Export gives every circle edge its form. Import makes the edge an SmCircle by SMLib's own test
+ * of the NURBS (SmCircle::IsNurbCurveCircle) and refuses the B-rep (SMLIB_ERR_INVALID_INPUT) when
+ * that test says no or the circle it makes has another NURBS. */
+#define SMLIB_FLAT_EDGE_NURBS_FORM 34
+#define SMLIB_FLAT_WIRE_EDGE_NURBS_FORM 35
 
 /* --- double arrays --- */
 /* The B-rep's intersection tolerance (twice its largest face/edge/vertex tolerance). Length 1. */
