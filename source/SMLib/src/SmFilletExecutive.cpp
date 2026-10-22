@@ -25,6 +25,10 @@
 #include <SmAttribute.h>
 #include <SmCrvOnSurf.h>
 
+#include <memory>
+#include <utility>
+#include <vector>
+
 //#define VALIDATE_TOPOLOGY 1
 
 /*******************************************************************//**
@@ -3030,6 +3034,12 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
   SmBoolean         bManifoldSolid = m_pTargetBrep->IsManifoldSolid() ;
   SmTArray<SmRegion*> sRegions;
 
+  // SolidCraft change: a copy of each filleted edge's curve (with the edge's interval on it),
+  // taken before the merge changes the target; each fillet surface names its edge's entry by an
+  // SM_AI_FILLET_EDGECURVE attribute, which the merge's copies of the surface carry along. The
+  // side of a fillet face its edge lies on is the side of the material the fillet removes (or adds).
+  std::vector<std::pair<std::unique_ptr<SmCurve>, SmExtent1d> > sFilletEdgeCurves;
+
   // get list of all current topological edges and vertices - these will remain after the fillets are done
   SM_PTR_ARRAY(sOrigTopoEdges, SmEdge, 16) ;
   SM_PTR_ARRAY(sOrigTopoVerts, SmVertex, 16) ;
@@ -3076,6 +3086,15 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
               SmRegion * pRegion       = pShell->GetRegion();
               SmBoolean  bInsideFillet = pRegion->IsVoid() ; // TRUE  = Adding to the inside
                                                             // FALSE = Adding to the outside
+              SmSurface * pGeomSurf = pFilletGeom->GetFilletSurface();
+              if (pGeomSurf != NULL && pOrigE->GetCurve() != NULL && pGeomSurf->FindAttribute(SM_AI_FILLET_EDGECURVE) == NULL)
+                {
+                  SmCurve * pEdgeCurve = NULL;
+                  SER(pOrigE->GetCurve()->Copy(m_crContext, pEdgeCurve));
+                  NER(pEdgeCurve);
+                  sFilletEdgeCurves.emplace_back(std::unique_ptr<SmCurve>(pEdgeCurve), pOrigE->GetInterval());
+                  pGeomSurf->AddAttribute(new (*cpContext) SmLongAttribute(SM_AI_FILLET_EDGECURVE, (long)(sFilletEdgeCurves.size() - 1), SM_AB_REFERENCE));
+                }
               // for both rails
               for (kk=0; kk<2; kk++)
                 {
@@ -3158,6 +3177,10 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
   SmTArray<SmFace*> sFaces;
   m_pTargetBrep->GetFaces(sFaces);
 
+  // SolidCraft change: whether some fillet face was found between the region it removes (or
+  // adds) and the rest: with none, nothing of the target changes and the merge failed.
+  SmBoolean bSidesFound = FALSE;
+
   // increment and lock an unlocked mark
   SmNewMarkAndLock sMarkLock( m_pTargetBrep->GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
   SmMarkType eMarkType = sMarkLock.GetMarkType() ;
@@ -3170,24 +3193,42 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
       if (!pAtt) { continue; }
       SmVector3d sNorm;
       SER(pSurf->EvaluateNormal(pF->GetUVDomain().Evaluate(0.5,0.5),TRUE,TRUE,sNorm));
-      SmPoint3d sPnt, sDU, sDV, sDUV, sDUU, sDVV;
-      SER(pSurf->Evaluate2ndDerivatives(pF->GetUVDomain().Evaluate(0.5,0.5),TRUE,TRUE,
-                                        sPnt,sDU,sDV,sDUV,sDUU,sDVV));
+      SmPoint3d sPnt;
+      SER(pSurf->EvaluatePoint(pF->GetUVDomain().Evaluate(0.5,0.5),sPnt));
 
       SmBoolean   bInsideFillet = pAtt->GetValue();
       SmFaceuse * pFU           = pF->GetUpwardFaceuse();
 
-      // See if the top Faceuse on the inside of the fillet
-      if (sDVV.Length() < SM_EFF_ZERO) 
+      // See if the top Faceuse on the inside of the fillet.
+      // SolidCraft change: by the side of the face its filleted edge lies on, the side of the
+      // wedge between the fillet and the edge. Upstream took the side away from the cross
+      // section's centre of curvature (the surface's second derivative across the fillet), the
+      // same side on a round, and skipped a chamfer's flat face, whose wedge then kept its
+      // material: the chamfer was merged in and removed again, the body unchanged, no error.
+      SmLongAttribute * pEdgeAtt = (SmLongAttribute*)pSurf->FindAttribute(SM_AI_FILLET_EDGECURVE);
+      if (pEdgeAtt == NULL || pEdgeAtt->GetValue() < 0 || (size_t)pEdgeAtt->GetValue() >= sFilletEdgeCurves.size())
+        { continue; }
+      const SmCurve    * pEdgeCurve = sFilletEdgeCurves[(size_t)pEdgeAtt->GetValue()].first.get();
+      const SmExtent1d & sEdgeIvl   = sFilletEdgeCurves[(size_t)pEdgeAtt->GetValue()].second;
+      SmBoolean bDropped = FALSE;
+      double dParam = 0.0, dDist = 0.0;
+      SER(pEdgeCurve->DropPoint(sEdgeIvl, sPnt, NULL, SM_BIG_DOUBLE, NULL, bDropped, dParam, dDist));
+      if (!bDropped)
+        { continue; }
+      SmPoint3d sOnEdge;
+      SER(pEdgeCurve->EvaluatePoint(dParam, sOnEdge));
+      SmVector3d sFromEdge = sPnt - sOnEdge;
+      if (sFromEdge.Length() < SM_EFF_ZERO) 
         { continue; }
 
-      if (sNorm.Dot(sDVV) > 0.0) 
+      if (sNorm.Dot(sFromEdge) > 0.0) 
         { pFU = pFU->GetMate(); }
 
       SmRegion *pReg = pFU->GetShell()->GetRegion();
       if (pFU->GetMate()->GetShell()->GetRegion() == pReg) 
         { continue; }
 
+      bSidesFound = TRUE;
       if (pReg->IsMarked(eMarkType)) 
         { continue; }
 
@@ -3211,6 +3252,12 @@ SmBoolean bDebugMe = FALSE;
       else               { pReg->SetIsVoid(FALSE); }
     }
 
+  if (!bSidesFound)
+    {
+      GetFilletErrorInfo()->NoteError(SM_FILERR_BAD_MERGE, _T("piecewise merge: no fillet face bounds the region it changes"));
+      return SM_ERR;
+    }
+
   // Now clean up attributes
   for(ii=0;ii<sFaces.GetSize();ii++) 
     {
@@ -3221,6 +3268,9 @@ SmBoolean bDebugMe = FALSE;
       if (pAtt) { pSurf->RemoveAttribute(pAtt); }
 
       pAtt = (SmLongAttribute*)pSurf->FindAttribute(SM_AI_FILLET_VERTMAP);
+      if (pAtt) { pSurf->RemoveAttribute(pAtt); }
+
+      pAtt = (SmLongAttribute*)pSurf->FindAttribute(SM_AI_FILLET_EDGECURVE);
       if (pAtt) { pSurf->RemoveAttribute(pAtt); }
     }
 

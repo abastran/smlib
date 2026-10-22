@@ -565,3 +565,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   rim was split there into a tiny edge and three spurious vertices, and the shell's difference
   then left partially coincident edges (SmFace test #34). Those mated pairs now count as
   sharing their edge too.
+- **Which side a piecewise-merged fillet removes** (`SmFilletExecutive.cpp`, `DoPiecewiseMerge`;
+  `SmAttribute.h`, `SM_AI_FILLET_EDGECURVE`): after merging the fillet faces into the body, the
+  merge decides which region each fillet face cuts off by the side away from the cross
+  section's centre of curvature, and skipped faces without curvature across them. A chamfer's
+  faces are flat, so its wedge kept its material, the chamfer faces were removed again and the
+  run returned success with the body unchanged (a 9 mm chamfer whose rails cross openings).
+  The side is now the one the filleted edge lies on (a copy of the edge's curve, named from the
+  fillet surface by an attribute the merge's copies carry), the same side on a round; and a
+  merge in which no fillet face separates two regions fails (`SM_FILERR_BAD_MERGE`).

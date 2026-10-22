@@ -71,6 +71,7 @@ enum SmBooleanOperationType ;
 #define SM_AI_REUSE_UVCURVES_ID  122  // JLMCC per FS, modified for consistency
 #define SM_AI_TESSELLATING       124  // used as part of tessellator
 #define SM_AI_REPLACE_COMPOSITES 126  // NonPersistent attribute used to replace CompositeFace tracking with Attribute tracking
+#define SM_AI_FILLET_EDGECURVE   128  // SolidCraft change: a fillet surface's filleted edge, during a piecewise merge
                                       //   after a boolean every AObject with this attribute is a child of the AObject originally marked
                                       //   When tracking one AObject (a face) use SmAttribute, when tracking many faces use 
                                       //   SmLongAttribute or SmPointerAttribute so that children of different parents can be identified.
