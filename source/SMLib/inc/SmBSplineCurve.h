@@ -546,7 +546,7 @@ public:
   SmStatus                 GetNullSegments         (SmTArray<double> & rSegments) const; // rtn: param pairs bounding intervals of zero 1st derivative values
   
   gw_CURVE *               GetGwNurbPointer        () const { return m_pNurb ; }  // retrieve the NLIB NURB struct
-  gw_CURVE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {MakeNurb() ; }
+  gw_CURVE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {(void)MakeNurb() ; } // SolidCraft: an accessor; a curve without its nurb returns NULL, which callers check
                                                               SM_ASSERT(m_pNurb != NULL) ;
                                                               return m_pNurb ;
                                                             }

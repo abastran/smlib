@@ -3113,7 +3113,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyFace::GetPolyLoops(SmTArray<SmPolyLoop*> & rPolyLoops) const
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyLoops)); 
+  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyLoops)); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyLoop inlines
@@ -3146,7 +3146,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyLoop::GetPolyEdges(SmTArray<SmPolyEdge*> & rPolyEdges) const
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyEdges)); 
+  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyEdges)); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyShell inlines
@@ -3177,7 +3177,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyShell::GetPolyFaces(SmTArray<SmPolyFace*> & rPolyFaces) const
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyFaces)); 
+  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyFaces)); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyRegion inlines
@@ -3197,7 +3197,7 @@ inline SmPolyRegion::SmPolyRegion(SmPolyBrep *pPolyBrep)
   // m_pLast      = NULL ;   = LastRegion or this when only one region in pPolyBrep ;
 
   if(pPolyBrep)
-    { pPolyBrep->PostInsert(this); }
+    { (void)pPolyBrep->PostInsert(this); } // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 
 } // end SmPolyRegion::SmPolyRegion constructor
 
@@ -3208,7 +3208,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyRegion::GetPolyShells( SmTArray<SmPolyShell*> & rPolyShells ) const
 {
-  GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyShells ) );
+  (void)GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyShells ) ); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyBrep inlines
@@ -3220,7 +3220,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyBrep::GetPolyRegions( SmTArray<SmPolyRegion*> & rPolyRegions ) const
 {
-  GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyRegions ) );
+  (void)GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyRegions ) ); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 /*******************************************************************//**
@@ -3230,7 +3230,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyBrep::GetPolyVertices( SmTArray<SmPolyVertex*> & rPolyVertices ) const
 {
-  m_pPolyVertexListHead->GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyVertices ) );
+  (void)m_pPolyVertexListHead->GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyVertices ) ); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 /*******************************************************************//**
@@ -3256,7 +3256,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyBrep::GetCPolyFaces( SmTArray<SmCPolyFace*> & rCPolyFaces ) const
 {
-  m_pCPolyFaceListHead->GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rCPolyFaces ) );
+  (void)m_pCPolyFaceListHead->GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rCPolyFaces ) ); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 

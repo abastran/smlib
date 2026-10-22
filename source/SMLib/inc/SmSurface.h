@@ -2049,7 +2049,7 @@ public:
                  m_bUVSet( FALSE ),
                  m_bNormalSet( FALSE ),
                  m_bSectDirSet( FALSE)
-               { SetUV( dU, dV ) ; } 
+               { (void)SetUV( dU, dV ) ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   SmSurfaceEval( const SmSurface *pSurf,  double dU, double dV, const SmVector3d &rSectDir )    
                : m_bNonZeroTangents(TRUE),
@@ -2059,7 +2059,7 @@ public:
                  m_bUVSet( FALSE ),
                  m_bNormalSet( FALSE ),
                  m_bSectDirSet( FALSE)
-               { SetUV( dU, dV ) ; SetSectDir( rSectDir) ; } 
+               { (void)SetUV( dU, dV ) ; (void)SetSectDir( rSectDir) ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   // Assignment operator
   SmSurfaceEval & operator=( const SmSurfaceEval &crOther )
@@ -2184,27 +2184,27 @@ public:
 
   // use FailsEval() when evaluating outside the DomainBoundary and possible failures are expected and handled
   SmBoolean FailsEval(SmBoolean bSignalFails=FALSE)    
-                     { Eval(bSignalFails) ; return m_bFailsEval ; }
+                     { (void)Eval(bSignalFails) ; return m_bFailsEval ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   // gwc: design flaw - when FailsEval() == TRUE, these methods return uninitialized values, check FailsEval().
   SmPoint3d    & Pos()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Pos() returning uninit value because m_pSrf->Evaluate() failed")) ; 
-                                   Eval() ; return m_sPVV[0][0] ; }
+                                   (void)Eval() ; return m_sPVV[0][0] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Su ()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Su () returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[1][0] ; }
+                                   (void)Eval() ; return m_sPVV[1][0] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Sv ()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Sv () returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[0][1] ; }
+                                   (void)Eval() ; return m_sPVV[0][1] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Suu()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Suu() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[2][0] ; }
+                                   (void)Eval() ; return m_sPVV[2][0] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Suv()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Suv() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[1][1] ; }
+                                   (void)Eval() ; return m_sPVV[1][1] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Svv()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Svv() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[0][2] ; }
+                                   (void)Eval() ; return m_sPVV[0][2] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Normal()        { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Normal() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   EvalNormal() ; return m_sPVV[2][2] ; }
+                                   (void)EvalNormal() ; return m_sPVV[2][2] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & SectTangent()   { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::SectTangent() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   EvalNormalSection() ; return m_sSectTangent ; }
+                                   (void)EvalNormalSection() ; return m_sSectTangent ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   double         SectCurvature() { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::SectCurvature() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   EvalNormalSection() ; return m_dSectCurvature ; }
+                                   (void)EvalNormalSection() ; return m_dSectCurvature ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   // pretty print
   void Dump() ;

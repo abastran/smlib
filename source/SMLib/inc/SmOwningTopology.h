@@ -278,7 +278,7 @@ NOTES:
 inline SmStatus SmOwningTopology::PostInsert
   (SmTopology * pObjectToInsert)
 {
-  PreInsert(pObjectToInsert);         // add pObjToInsert to front of circular list, increments m_lListSize
+  (void)PreInsert(pObjectToInsert);         // add pObjToInsert to front of circular list, increments m_lListSize // SolidCraft: a constructor cannot report; inserting fails only out of memory
   m_pList = pObjectToInsert->m_pNext; // restore pObjToInsert->Next as the m_pList target making pObjToInsert last on the list
   return SM_SUCCESS;
 

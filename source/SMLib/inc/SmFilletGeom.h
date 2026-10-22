@@ -726,8 +726,8 @@ public:
   virtual ~SmFilletBrep();
 
   // modifiers
-  void AddEdge   (SmFilletEdge *pFilletEdge) { m_pEdgeListHead->PostInsert(pFilletEdge); }
-  void RemoveEdge(SmFilletEdge *pFilletEdge) { m_pEdgeListHead->Remove(pFilletEdge); }
+  void AddEdge   (SmFilletEdge *pFilletEdge) { (void)m_pEdgeListHead->PostInsert(pFilletEdge); } // SolidCraft: a void list edit; it fails only on a missing or duplicate entry
+  void RemoveEdge(SmFilletEdge *pFilletEdge) { (void)m_pEdgeListHead->Remove(pFilletEdge); } // SolidCraft: a void list edit; it fails only on a missing or duplicate entry
 
   // utilities
   virtual SmBoolean AssertValid(SmAssertArray    * pAList=NULL,           // i/o: Accumulating list of failed Asserts, NULL to ignore

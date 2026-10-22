@@ -590,7 +590,7 @@ public:
   void DeleteUVCurve2() { SetUVCurve2( NULL, TRUE ) ; } 
 
   void SetFace               (const SmFace          * cpFace)               { m_cpFace            = cpFace ; }   
-  void SetInterval           (const SmExtent1d      & vIvl)                 { m_vInterval.SetMinMax( vIvl.GetMin(), vIvl.GetMax() ) ; }
+  void SetInterval           (const SmExtent1d      & vIvl)                 { (void)m_vInterval.SetMinMax( vIvl.GetMin(), vIvl.GetMax() ) ; } // SolidCraft: a void setter; an inverted interval is left as it was
   void SetIgnoreTangency     (SmBoolean               bIgnoreTangency)      { m_bIgnoreTangency   = bIgnoreTangency; }
   void SetIsCurveOwned       (SmBoolean               bIsCurveOwned)        { m_bIsCurveOwned     = bIsCurveOwned; }
   void SetDoingCrossHatch    (SmBoolean               bDoingCrossHatch)     { m_bDoingCrossHatch  = bDoingCrossHatch ; }

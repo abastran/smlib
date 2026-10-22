@@ -278,10 +278,10 @@ class SM_EXPORT SmTransform : public SmVolume
    {
      SmTransform sFrom( cpContext, crFromOrigin, crFromXAxis, crFromYAxis, &crFromZAxis );
      SmTransform sTo( cpContext, crToOrigin, crToXAxis, crToYAxis, &crToZAxis );
-     sFrom.InvertSimple();
+     (void)sFrom.InvertSimple(); // SolidCraft: a constructor cannot report
      this->Init();
-     this->ConcatTransform( sFrom );
-     this->ConcatTransform( sTo );
+     (void)this->ConcatTransform( sFrom ); // SolidCraft: a constructor cannot report
+     (void)this->ConcatTransform( sTo ); // SolidCraft: a constructor cannot report
    }
 
   // matrix constructor = set 4x4 matrix directly

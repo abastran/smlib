@@ -42,10 +42,28 @@ if(NOT SMLIB_RAND_SEED STREQUAL "")
   list(APPEND SMLIB_DEFINES SM_RAND_SEED=${SMLIB_RAND_SEED}u)
 endif()
 
+option(SMLIB_DROPPED_STATUS "Warn on every status SMLib's own code drops (clang)" OFF)
 if(MSVC)
   set(SMLIB_WARNINGS /w /bigobj /EHsc)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  # -Wno-everything rather than -w, which would also silence the error below for the files
+  # SMLIB_STATUS_CLEAN lists. With SMLIB_DROPPED_STATUS, every status SMLib's own code drops
+  # (SmTypes.h marks SmStatus and SmApiStatus on clang) is a warning: the list still to go.
+  if(SMLIB_DROPPED_STATUS)
+    set(SMLIB_WARNINGS -Wno-everything -Wunused-value)
+  else()
+    set(SMLIB_WARNINGS -Wno-everything)
+  endif()
 else()
   set(SMLIB_WARNINGS -w)
+endif()
+
+# SMLib files in which no status is dropped any more: each call's status is passed on or
+# written (void) with its reason. On clang a new dropped status in them fails the build.
+set(SMLIB_STATUS_CLEAN
+)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")
 endif()
 
 # SMLib/inc and SM_API/inc each have a StdAfx.h; each part must find its own first.
@@ -69,6 +87,10 @@ if(MSVC)
   target_compile_options(smlib PRIVATE /W3 /EHsc)
 else()
   target_compile_options(smlib PRIVATE -Wall -Wextra)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # A shim never drops a status SMLib returns (SmTypes.h marks the type on clang).
+    target_compile_options(smlib PRIVATE -Werror=unused-value)
+  endif()
 endif()
 # A C program linking the archive needs the C++ runtime; tell CMake consumers so.
 set_target_properties(smlib PROPERTIES LINKER_LANGUAGE CXX)

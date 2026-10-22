@@ -1637,7 +1637,7 @@ class SmLockBrepBox
  public:
   // constructor/destructor
   SmLockBrepBox(SmBrep *pBrep) { m_pBrep = pBrep;
-                                 m_pBrep->LockBoundingBox() ;
+                                 (void)m_pBrep->LockBoundingBox() ; // SolidCraft: a guard constructor cannot report; locking only caches the box
                                } ;
  ~SmLockBrepBox()              { m_pBrep->UnLockBoundingBox() ;
                                  m_pBrep = NULL;

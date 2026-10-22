@@ -579,7 +579,10 @@ bool closed_nonmanifold(const SmBrep &r)
             return false;
         }
         SmTArray<SmEdgeuse *> uses;
-        e->GetEdgeuses(uses);
+        if (e->GetEdgeuses(uses) != SM_SUCCESS)
+        {
+            return false;
+        }
         if (uses.GetSize() < 4 || uses.GetSize() % 4 != 0)
         {
             return false;

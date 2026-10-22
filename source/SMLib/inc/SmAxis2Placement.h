@@ -126,7 +126,7 @@ class SM_EXPORT SmAxis2Placement
   // orient constructor(vecs) = map Current XYZ coords to SmAxis2Placement coords 
   SmAxis2Placement(const SmPoint3d  & rOrigin,        
                    const SmVector3d & rXAxis,         
-                   const SmVector3d & rYAxis) { SetCanonical(rOrigin, rXAxis, rYAxis) ; }
+                   const SmVector3d & rYAxis) { (void)SetCanonical(rOrigin, rXAxis, rYAxis) ; } // SolidCraft: a constructor cannot report; a degenerate frame stays as given
   
   // Orient constructor(coords) = map Current XYZ coords to SmAxis2Placement coords
   SmAxis2Placement(double dOriginX, double dOriginY, double dOriginZ,    
@@ -134,7 +134,7 @@ class SM_EXPORT SmAxis2Placement
                    double dYAxisX,  double dYAxisY,  double dYAxisZ) { SmPoint3d  sOrigin(dOriginX,dOriginY,dOriginZ) ;
                                                                        SmVector3d sX(dXAxisX, dXAxisY, dXAxisZ) ;
                                                                        SmVector3d sY(dYAxisX, dYAxisY, dYAxisZ) ;
-                                                                       SetCanonical(sOrigin, sX, sY) ;                                                 
+                                                                       (void)SetCanonical(sOrigin, sX, sY) ; // SolidCraft: a constructor cannot report; a degenerate frame stays as given
                                                                      }
    // plane constructor - make plane: dot(N,x) + D = 0
   SmAxis2Placement(const SmVector3d & crNormal,        
@@ -160,7 +160,7 @@ class SM_EXPORT SmAxis2Placement
   SmVector3d        GetXAxis    (void)                       const { return m_vXAxis ; }
   SmVector3d        GetYAxis    (void)                       const { return m_vYAxis ; }
   SmVector3d        GetZAxis    (void)                       const { SmVector3d sZ = m_vXAxis * m_vYAxis ; 
-                                                                     sZ.Unitize() ; 
+                                                                     (void)sZ.Unitize() ; // SolidCraft: a constructor cannot report; a zero axis stays zero
                                                                      return sZ ;
                                                                    }
   void              GetMatrix      (double * const * padMat) const ;
