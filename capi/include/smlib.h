@@ -592,6 +592,16 @@ int32_t smlib_draft(const smlib_brep *brep, const double *points, int64_t n_poin
  * sheet's open edges. */
 int32_t smlib_thicken(const smlib_brep *brep, double thickness, int32_t symmetric, smlib_brep **out);
 
+/* A new body: `brep` with its topological edges and vertices removed (SMLib's
+ * SmBrep::RemoveTopologicalEdgesAndVertices): an edge between two faces on one surface (or on
+ * surfaces that coincide over the other face) goes, its faces becoming one, and a vertex where
+ * only two edges on one curve meet goes, its edges becoming one. The edges under `keep` (each
+ * point takes the nearest edge, as the operations above pick them; none when `n_keep` is 0) stay,
+ * so faces split along them on purpose stay apart. The shape is unchanged; a solid stays a
+ * closed manifold solid (SMLIB_ERR_NOT_SOLID otherwise). */
+int32_t smlib_merge_faces(const smlib_brep *brep, const double *keep, int64_t n_keep, double tolerance, smlib_brep **out,
+                          int64_t *out_failed_point);
+
 /* ---- Surface/surface intersection (src/smlib_ssi.cpp) ------------------------------------
  *
  * Two surfaces described in plain C, intersected by one of SMLib's SSI entry points, with each

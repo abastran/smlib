@@ -80,6 +80,13 @@ whose law curve carries the radius as x and, as SMLib's own laws do, the paramet
 Where the law has a corner the round turns and is split into faces there; a law whose radius is
 zero inside the edge (the round would pinch to a point) is `SMLIB_ERR_UNSUPPORTED`.
 
+`smlib_merge_faces` removes a body's topological edges and vertices
+(`SmBrep::RemoveTopologicalEdgesAndVertices`): faces on one surface that meet along an edge
+become one, and two edges on one curve meeting at a vertex nothing else uses become one; the
+edges under the given points stay, so faces split on purpose stay apart. SMLib's booleans do the
+same at their end (`SmMerge::BooleanPostProcess`); this is it for any other body. History tags
+follow the merge (a merged face carries both faces' tags).
+
 `tests/ops.c` checks them from C, `tests/ops_kernel.cpp` with SM_API-made cylinders and SMLib's
 regression cases, both against analytic volumes and `smlib_brep_check` level 2.
 
