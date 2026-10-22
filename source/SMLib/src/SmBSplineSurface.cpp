@@ -1620,7 +1620,7 @@ SmBoolean bDebugMe = FALSE;
       SmExtent1d sTrimIvl =   eSurfParam == SM_SP_U
                             ? sUVDomain.GetVInterval()
                             : sUVDomain.GetUInterval() ;
-      SER( rpNewIsoCurve->Trim(sTrimIvl)  );  // may snap sIvl by tol to existing knots
+      SER_DELETE( rpNewIsoCurve->Trim(sTrimIvl), rpNewIsoCurve );  // may snap sIvl by tol to existing knots
     }
   
   // all done
@@ -2620,7 +2620,7 @@ SmStatus SmBSplineSurface::CreateHelicalSweep
   rpNewBSplineSurface = new (crContext) SmBSplineSurface(&Sur, FALSE, &crContext) ;
 
   // place the Surface back at its intended position
-  SER( rpNewBSplineSurface->Transform(crReferenceFrame)  );
+  SER_DELETE( rpNewBSplineSurface->Transform(crReferenceFrame), rpNewBSplineSurface );
 
   rpNewBSplineSurface->m_eBSplineSurfaceForm = SM_SF_HELICAL_SWEEP ;
 
