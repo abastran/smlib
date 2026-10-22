@@ -459,6 +459,10 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 /* An inward offset leaves no room inside the body: no point of it lies farther than the wall
  * from every face that is offset (smlib_shell, smlib_offset_faces). */
 #define SMLIB_ERR_NO_ROOM (-1103)
+/* SMLib reported success but the operation did nothing: a blend (smlib_fillet, smlib_chamfer,
+ * smlib_blend, smlib_fillet_variable, smlib_chamfer_sides) that made no face, a face move or draft (smlib_offset_faces, smlib_draft) that left no face on the
+ * surface it was moved onto. The call's log line names it. */
+#define SMLIB_ERR_NO_EFFECT (-1107)
 
 /* Selecting edges and faces. Operations that act on some edges or faces take them as points
  * (`points`: x, y, z for each of `n_points`, at most 4096). Each point selects the edge (face)
