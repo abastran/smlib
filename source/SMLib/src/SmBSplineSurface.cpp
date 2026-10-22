@@ -1620,7 +1620,20 @@ SmBoolean bDebugMe = FALSE;
       SmExtent1d sTrimIvl =   eSurfParam == SM_SP_U
                             ? sUVDomain.GetVInterval()
                             : sUVDomain.GetUInterval() ;
-      SER( rpNewIsoCurve->Trim(sTrimIvl)  );  // may snap sIvl by tol to existing knots
+      // A domain of no length along the curve (a sliver cell at a double knot) leaves of the iso
+      // curve only a point, which is what it is over that interval: a degenerate curve there, as
+      // SmSurfaceCache::GetIsoBoundaryCurves expects of degenerate domains. (SolidCraft change:
+      // Trim refuses an interval this short, SM_ERR_INVALID_INPUT; the curve was then dropped,
+      // and SmSphere's override, given none, dereferenced it.)
+      if (sTrimIvl.GetMax() - sTrimIvl.GetMin() < SM_EFF_ZERO)
+        {
+          SmPoint3d sPoint ;
+          SER_DELETE( rpNewIsoCurve->EvaluatePoint(sTrimIvl.GetMin(), sPoint), rpNewIsoCurve );
+          delete rpNewIsoCurve ; rpNewIsoCurve = NULL ;
+          SER( SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sPoint, rpNewIsoCurve) );
+        }
+      else
+        { SER_DELETE( rpNewIsoCurve->Trim(sTrimIvl), rpNewIsoCurve ); }  // may snap sIvl by tol to existing knots
     }
   
   // all done
@@ -2620,7 +2633,7 @@ SmStatus SmBSplineSurface::CreateHelicalSweep
   rpNewBSplineSurface = new (crContext) SmBSplineSurface(&Sur, FALSE, &crContext) ;
 
   // place the Surface back at its intended position
-  SER( rpNewBSplineSurface->Transform(crReferenceFrame)  );
+  SER_DELETE( rpNewBSplineSurface->Transform(crReferenceFrame), rpNewBSplineSurface );
 
   rpNewBSplineSurface->m_eBSplineSurfaceForm = SM_SF_HELICAL_SWEEP ;
 

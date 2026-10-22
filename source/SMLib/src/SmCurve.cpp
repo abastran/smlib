@@ -4194,9 +4194,9 @@ void SmCurve::GetEnds
 {
   SmExtent1d sIvl = this->GetNaturalInterval();
 
-  // SolidCraft: an end that can't be evaluated is undefined (SmVector3d::IsUndef)
-  if ( this->EvaluatePoint( sIvl.GetMin(), rStartPoint ) != SM_SUCCESS ) { rStartPoint.Set( SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE ) ; }
-  if ( this->EvaluatePoint( sIvl.GetMax(), rEndPoint   ) != SM_SUCCESS ) { rEndPoint.Set(   SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE ) ; }
+  // SolidCraft: an end that can't be evaluated is left uninitialised (SmVector3d::IsInitialized)
+  if ( this->EvaluatePoint( sIvl.GetMin(), rStartPoint ) != SM_SUCCESS ) { rStartPoint.SetUninitialized() ; }
+  if ( this->EvaluatePoint( sIvl.GetMax(), rEndPoint   ) != SM_SUCCESS ) { rEndPoint.SetUninitialized() ; }
 
   if ( pdStartW != NULL ) *pdStartW = 1.0;
   if ( pdEndW   != NULL ) *pdEndW   = 1.0;
@@ -5057,7 +5057,7 @@ SmBoolean bDebugMe = FALSE ;
       SmExtent3d sBBox = pCurveNode1->m_sBBox;
       sBBox.ExpandAbsolute(m_d3dTolerance);
       SmExtent3d sResult;
-      SER( sBBox.Intersect(pCurveNode2->m_sBBox,sResult) );
+      if ( sBBox.Intersect(pCurveNode2->m_sBBox,sResult) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: disjoint boxes, no intersection in this branch
 
       // GWC: should there be a test on sResult - if empty then no solution?
       //      guess we asssume if the pseudo boxes intersect, the regular boxes will intersect as well.
@@ -5162,7 +5162,7 @@ SmBoolean bDebugMe = FALSE ;
     }
 
   if (!sIvl1.IsContainedBy(m_crInterval1, SM_EFF_ZERO))
-    { SER( sIvl1.Intersect(m_crInterval1,sIvl1) );
+    { if ( sIvl1.Intersect(m_crInterval1,sIvl1) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // Check for zero length intervals
       if (SM_ARE_SAME(sIvl1.GetMax(),sIvl1.GetMin()))
         { return SM_SUCCESS; }
@@ -5182,7 +5182,7 @@ SmBoolean bDebugMe = FALSE ;
     { aeConts2[1] = SM_CT_DISCONTINUOUS;
     }
   if (!sIvl2.IsContainedBy(m_crInterval2, SM_EFF_ZERO))
-    { SER( sIvl2.Intersect(m_crInterval2,sIvl2) );
+    { if ( sIvl2.Intersect(m_crInterval2,sIvl2) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // Check for zero length intervals
       if (SM_ARE_SAME(sIvl2.GetMax(),sIvl2.GetMin())) { return SM_SUCCESS; }
     }
@@ -7220,10 +7220,8 @@ CombineDecided:
           // check for overlap between Interval SolSpan and Point SubDivisionSpan
           SmExtent1d sXSect1 ;
           SmExtent1d sXSect2 ;
-          // SolidCraft: SM_ERR from Intersect says the spans are disjoint, leaving the result
-          // Init(); that is an answer, read just below
-          (void)sPtIvl1.Intersect(sInvSpan1, sXSect1);
-          (void)sPtIvl2.Intersect(sInvSpan2, sXSect2);
+          (void)sPtIvl1.Intersect(sInvSpan1, sXSect1) ; // SolidCraft: disjoint spans leave the result uninitialised, which is tested next
+          (void)sPtIvl2.Intersect(sInvSpan2, sXSect2) ; // SolidCraft: disjoint spans leave the result uninitialised, which is tested next
 
           if ( sXSect1.IsInit() || sXSect2.IsInit() )
             { continue; }
@@ -8593,7 +8591,7 @@ static constexpr SmBoolean  bDebugMe = FALSE;
   // clip node1 interval to curve1 process interval - quit for zero length intervals
   if (!sIvl1.IsContainedBy(m_crInterval1, SM_EFF_ZERO))
     {
-      SER(sIvl1.Intersect(m_crInterval1,sIvl1));
+      if ( sIvl1.Intersect(m_crInterval1,sIvl1) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       if (SM_ARE_SAME(sIvl1.GetMax(),sIvl1.GetMin())) { return SM_SUCCESS; }
     } // end not node not completely contained in curve interval check
 
@@ -8604,7 +8602,7 @@ static constexpr SmBoolean  bDebugMe = FALSE;
   // clip node2 interval to curve2 process interval - quit for zero length intervals
   if (!sIvl2.IsContainedBy(m_crInterval2, SM_EFF_ZERO))
     {
-      SER(sIvl2.Intersect(m_crInterval2,sIvl2));
+      if ( sIvl2.Intersect(m_crInterval2,sIvl2) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       if (SM_ARE_SAME(sIvl2.GetMax(),sIvl2.GetMin())) { return SM_SUCCESS; }
     }
 
@@ -10989,7 +10987,7 @@ SmStatus SmCPGlobalSolver::LocalSolve
   // trim sBezIvl to m_crInterval
   if (!sBezIvl.IsContainedBy(m_crInterval, SM_EFF_ZERO))
     {
-      SER( sBezIvl.Intersect(m_crInterval,sBezIvl) );
+      if ( sBezIvl.Intersect(m_crInterval,sBezIvl) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // no work - zero length trimmed interval
       if (SM_ARE_SAME(sBezIvl.GetMax(),sBezIvl.GetMin()))
         { return SM_SUCCESS; }
@@ -12581,7 +12579,7 @@ static constexpr SmBoolean  bDebugMe = FALSE;
 
   if (!sIvl.IsContainedBy(m_crInterval, SM_EFF_ZERO))
     {
-      SER( sIvl.Intersect(m_crInterval,sIvl) );
+      if ( sIvl.Intersect(m_crInterval,sIvl) != SM_SUCCESS ) { return SM_SUCCESS ; } // SolidCraft: a branch outside the interval of interest has no answers
       // Check for zero length intervals
       if (SM_ARE_SAME(sIvl.GetMax(),sIvl.GetMin()))
         { return SM_SUCCESS; }

@@ -6405,7 +6405,7 @@ SmStatus SmBSplineCurve::SubdivideAtDiscontinuity
 
           // trim it to the interval between discontinuities (may be the whole curve)
           SmExtent1d sTrim(dStart,dCurrent);
-          SER( pCopy->Trim(sTrim)  ); // may snap sIvl by tol to existing knots
+          SER_DELETE( pCopy->Trim(sTrim), pCopy ); // may snap sIvl by tol to existing knots
 
           // add trimmed copy to output
           rResultingCurves.Add(pCopy);
