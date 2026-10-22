@@ -84,7 +84,7 @@ SmApiStatus SmApiChamferFillet
 
     pFS->SetFilletSurfaceGenerator( &sFSGLinear );
 
-    sFilExec.LoadFilletSolver( pFS );
+    SER( sFilExec.LoadFilletSolver( pFS ) );
   }
 
   SER( sFilExec.CreateFilletCorners() );
@@ -166,7 +166,7 @@ SmApiStatus SmApiCircularFillet
 
     pFS->SetFilletSurfaceGenerator( &sFSGCircular );
 
-    sFilExec.LoadFilletSolver( pFS );
+    SER( sFilExec.LoadFilletSolver( pFS ) );
   }
 
   SER( sFilExec.CreateFilletCorners() );
@@ -175,7 +175,7 @@ SmApiStatus SmApiCircularFillet
 
   // This operation requires stitching for some reason
   // DoFilleting should be examined so that it results in a valid brep
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_CHECK_VALIDITY
   SM_ASSERT_VALID( pBrep );
@@ -315,7 +315,7 @@ static SmStatus sm_DefeatureFillets(SmBrep* pBrep)
     if (eReplaceStat == SM_SUCCESS)
         eReplaceStat = pBrep->MergeBrep(*pWork);
     if (eReplaceStat != SM_SUCCESS && pBrep->RemoveAllTopology() == SM_SUCCESS)
-        pBrep->MergeBrep(*pBackup);
+        (void)pBrep->MergeBrep(*pBackup); // best effort: the replace's own failure is returned
     return eReplaceStat;
 }
 

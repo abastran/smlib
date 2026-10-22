@@ -674,10 +674,10 @@ SmBlendSurface::SmBlendSurface
     SE(pTopRail->Evaluate(1.0,4,sPnt,pRightProfile->m_vEndCrossDerivs));
 
 
-    pTopRail->ComputeLocalStartEndInFrame();
-    pBottomRail->ComputeLocalStartEndInFrame();
-    pLeftProfile->ComputeLocalStartEndInFrame();
-    pRightProfile->ComputeLocalStartEndInFrame();
+    (void)pTopRail->ComputeLocalStartEndInFrame(); // SolidCraft: a constructor cannot report
+    (void)pBottomRail->ComputeLocalStartEndInFrame(); // SolidCraft: a constructor cannot report
+    (void)pLeftProfile->ComputeLocalStartEndInFrame(); // SolidCraft: a constructor cannot report
+    (void)pRightProfile->ComputeLocalStartEndInFrame(); // SolidCraft: a constructor cannot report
 
     m_vProfiles.ReSet();
     m_vCrossCurves.ReSet();
@@ -735,7 +735,7 @@ SmStatus SmBlendSurface::ApproximateBoundaryCurves(const SmContext & crContext,
     // Grab points from the profile curves.
     for (ULONG k=0; k<=lNumberSteps; k++) {
         double dParam = (k*1.0) / lNumberSteps;
-        pSec1->Evaluate(dParam,0,sPnt,sDerivs);
+        SER( pSec1->Evaluate(dParam,0,sPnt,sDerivs) );
         sPoints.Add(sPnt);
     }
     if (lNumberSteps > 4) {
@@ -823,7 +823,7 @@ SmStatus SmBlendSurface::ApproximateSectionBoundaryCurves(const SmContext & crCo
     SmCrvOnSurf sCrv((SmCurve&)*(pSec2->m_pUVCurve),(SmSurface&)*(pSec2->m_pSurface),NULL,0,&crContext);
     SmExtent1d sIvl = sCrv.GetNaturalInterval();
     SmTArray<double> sKnots;
-    rpSec1Curve->GetKnots(sKnots);
+    SER( rpSec1Curve->GetKnots(sKnots) );
     for (ULONG ii=0; ii<sKnots.GetSize(); ii++) {
         double dParam = sKnots[ii];
         SmPoint3d sPnt;
@@ -843,8 +843,8 @@ SmStatus SmBlendSurface::ApproximateSectionBoundaryCurves(const SmContext & crCo
         if (bAdjustPlane) {
             SER(rpSec1Curve->Evaluate(dParam,1,TRUE,sPV2));
             SmVector3d sPP = sPV[0] - sPV2[0];
-            sPV[1].Unitize();
-            sPV2[1].Unitize();
+            (void)sPV[1].Unitize(); // SolidCraft: a zero vector stays zero
+            (void)sPV2[1].Unitize(); // SolidCraft: a zero vector stays zero
             SmVector3d sAv = (sPV[1] + sPV2[1]) / 2.0;
             sNorm = sPP * sAv * sPP;
         }
@@ -976,9 +976,9 @@ SmBoolean bDebugMe = FALSE;
     // Grab points from the profile curves.
     for (ULONG k=0; k<sCutT.GetSize(); k++) {
         double dParam = sCutT[k];
-        pSec1->Evaluate(dParam,0,sPnt,sDerivs);
+        SER( pSec1->Evaluate(dParam,0,sPnt,sDerivs) );
         sPoints.Add(sPnt);
-        pSec1->EvaluateUV(dParam,0,sPnt,sDerivs);
+        SER( pSec1->EvaluateUV(dParam,0,sPnt,sDerivs) );
         sUVPoints.Add(sPnt);
     }
 //    if (lNumberSteps > 4) {
@@ -1274,7 +1274,7 @@ SmStatus SmBlendSurface::CreateOrientedSweepProfileCurves(const SmContext & crCo
     SmTArray<double> sKnots;
     SmBSplineCurve *pBotRail = m_vCrossCurves[0];
     SmBSplineCurve *pTopRail = m_vCrossCurves[1];
-    pBotRail->GetKnots(sKnots);
+    SER( pBotRail->GetKnots(sKnots) );
 
     SmTArray<SmPoint3d> sPoints;
     SmTArray<SmVector3d> sTangents;
@@ -1299,9 +1299,9 @@ SmStatus SmBlendSurface::CreateOrientedSweepProfileCurves(const SmContext & crCo
             for (ULONG kk=0; kk<lNumCP; kk++) {
                 double dWeight=1.0;
                 SmPoint3d sCPnt;
-                pCopy->GetControlPoint(eForm,kk,sCPnt,dWeight);
+                SER( pCopy->GetControlPoint(eForm,kk,sCPnt,dWeight) );
                 dWeight = 1.0;
-                pCopy->SetControlPoint(eForm,kk,sP1,dWeight);
+                SER( pCopy->SetControlPoint(eForm,kk,sP1,dWeight) );
             }
             m_vProfiles.Add(pCopy);
             continue;
@@ -1312,9 +1312,9 @@ SmStatus SmBlendSurface::CreateOrientedSweepProfileCurves(const SmContext & crCo
         sHigher.ReSet();
         if (bAdjustNormal) {
             SmPoint3d sPVB[2], sPVT[2];
-            pBotRail->Evaluate(dParam,1,TRUE,sPVB);
+            SER( pBotRail->Evaluate(dParam,1,TRUE,sPVB) );
             SmPoint3d sTanBot = sPVB[1];
-            pTopRail->Evaluate(dParam,1,TRUE,sPVT);
+            SER( pTopRail->Evaluate(dParam,1,TRUE,sPVT) );
             SmPoint3d sTanTop = sPVT[1];
             SER(sTanBot.Unitize());
             SER(sTanTop.Unitize());
@@ -1440,7 +1440,7 @@ SmStatus SmBlendSurface::CreateIsoSteppingProfileCurves(const SmContext & crCont
     SmTArray<double> sKnots;
     SmBSplineCurve *pBotRail = m_vCrossCurves[0];
     SmBSplineCurve *pTopRail = m_vCrossCurves[1];
-    pBotRail->GetKnots(sKnots);
+    SER( pBotRail->GetKnots(sKnots) );
 
     SmTArray<SmPoint3d> sPoints;
     SmTArray<SmVector3d> sTangents;
@@ -1450,7 +1450,7 @@ SmStatus SmBlendSurface::CreateIsoSteppingProfileCurves(const SmContext & crCont
     for (ULONG j=0; j<sKnots.GetSize(); j++) {
         double dParam = sKnots[j];
         double dNormalizedParameter;
-        sIvl.Inversion(dParam,dNormalizedParameter);
+        SER( sIvl.Inversion(dParam,dNormalizedParameter) );
         SmBSplineCurve *pProfile = NULL;
         SmPoint3d sP1, sP2;
         SER(pBotRail->EvaluatePoint(dParam,sP1));
@@ -1469,9 +1469,9 @@ SmStatus SmBlendSurface::CreateIsoSteppingProfileCurves(const SmContext & crCont
             for (ULONG kk=0; kk<lNumCP; kk++) {
                 double dWeight=1.0;
                 SmPoint3d sCPnt;
-                pCopy->GetControlPoint(eForm,kk,sCPnt,dWeight);
+                SER( pCopy->GetControlPoint(eForm,kk,sCPnt,dWeight) );
                 dWeight = 1.0;
-                pCopy->SetControlPoint(eForm,kk,sP1,dWeight);
+                SER( pCopy->SetControlPoint(eForm,kk,sP1,dWeight) );
             }
             m_vProfiles.Add(pCopy);
             continue;
@@ -1623,7 +1623,7 @@ SmStatus SmBlendSurface::CreateCrossCurves(const SmContext & crContext)
         // Grab points from the profile curves.
         for (ULONG k=0; k<m_vProfiles.GetSize(); k++) {
             SmPoint3d sPnt;
-            m_vProfiles[k]->EvaluatePoint(dParam,sPnt);
+            SER( m_vProfiles[k]->EvaluatePoint(dParam,sPnt) );
             sPoints.Add(sPnt);
         }
 
@@ -1654,7 +1654,7 @@ SmStatus SmBlendSurface::CreateIsoSteppingBlend(const SmContext & crContext,
     }
 
     SmTArray<double> sKnots;
-    m_vCrossCurves[0]->GetKnots(sKnots);
+    SER( m_vCrossCurves[0]->GetKnots(sKnots) );
     SmBSplineSurface * pDerivSurfs[2] = { NULL, NULL };
     SER(SmBSplineSurface::CreateSkinnedSurface(crContext,m_vProfiles,TRUE,SM_SP_U,
         m_d3DTolerance,m_vCrossCurves[0],m_vCrossCurves[1],FALSE,&sKnots,
@@ -1686,7 +1686,7 @@ SmStatus SmBlendSurface::CreateTangentOrientedSweep(const SmContext & crContext,
     }
 
     SmTArray<double> sKnots;
-    m_vCrossCurves[0]->GetKnots(sKnots);
+    SER( m_vCrossCurves[0]->GetKnots(sKnots) );
     SmBSplineSurface * pDerivSurfs[2] = { NULL, NULL };
     SER(SmBSplineSurface::CreateSkinnedSurface(crContext,m_vProfiles,TRUE,SM_SP_U,
         m_d3DTolerance,m_vCrossCurves[0],m_vCrossCurves[1],FALSE,&sKnots,pDerivSurfs,rpBlendingSurface));
@@ -1752,7 +1752,7 @@ SmDisplayList *SmBlendSection::Draw(void) const
   sCrv.Draw();
  
   // start point
-  Evaluate(0.0,0,sPnt,sDerivs);
+  (void)Evaluate(0.0,0,sPnt,sDerivs); // SolidCraft: drawing only
   sPnt.Draw();
 
   // start cross-derivs
@@ -1762,7 +1762,7 @@ SmDisplayList *SmBlendSection::Draw(void) const
     }
 
   // end point
-  Evaluate(1.0,0,sPnt,sDerivs);
+  (void)Evaluate(1.0,0,sPnt,sDerivs); // SolidCraft: drawing only
   sPnt.Draw();
 
   // end cross-derivs

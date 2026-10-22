@@ -141,10 +141,10 @@ SmStatus SmCurveFilletExecutive::DoFillet( SmBSplineCurve *& rpNewFilletCurve )
 
   // To get Left/Right we need the normal at the intersection.
   SmVector3d sEvals[2];
-  m_pCurve1->Evaluate( dT1, 1, !bHiSide1,  sEvals );
+  SER( m_pCurve1->Evaluate( dT1, 1, !bHiSide1,  sEvals ) );
   SmPoint3d  sPt1  = sEvals[0];
   SmVector3d sTan1 = sEvals[1];
-  m_pCurve2->Evaluate( dT2, 1, !bHiSide2,  sEvals );
+  SER( m_pCurve2->Evaluate( dT2, 1, !bHiSide2,  sEvals ) );
   SmPoint3d  sPt2  = sEvals[0];
   SmVector3d sTan2 = sEvals[1];
 
@@ -182,21 +182,21 @@ SmStatus SmCurveFilletExecutive::DoFillet( SmBSplineCurve *& rpNewFilletCurve )
 
   // Get start, end, and center points.
   SmPoint3d sCrv1Pt, sCrv2Pt, sCenter;
-  m_pCurve1->EvaluatePoint( dOffT1, sCrv1Pt );
-  m_pCurve2->EvaluatePoint( dOffT2, sCrv2Pt );
-  pOffCrv1->EvaluatePoint( dOffT1, sCenter );
+  SER( m_pCurve1->EvaluatePoint( dOffT1, sCrv1Pt ) );
+  SER( m_pCurve2->EvaluatePoint( dOffT2, sCrv2Pt ) );
+  SER( pOffCrv1->EvaluatePoint( dOffT1, sCenter ) );
 
   // Just to be safe:
   SmPoint3d sTempPt;
-  pOffCrv2->EvaluatePoint( dOffT2, sTempPt );
+  SER( pOffCrv2->EvaluatePoint( dOffT2, sTempPt ) );
   SM_ASSERT( sCenter.DistanceBetween( sTempPt ) <= dTol );
   sCenter = ( sCenter + sTempPt ) / 2;  // Midpoint.
 
   // Create the circle.  Use SmBSplineCurve::CreateArcFromPoints().
   // Use the context and dimension of pCurve1.
   ULONG lDim = m_pCurve1->GetDim();
-  SmBSplineCurve::CreateArcFromPoints( *pCtxt, lDim,
-     sCenter, sCrv1Pt, sCrv2Pt, SM_CO_QUADRATIC, m_pResult );
+  SER( SmBSplineCurve::CreateArcFromPoints( *pCtxt, lDim,
+     sCenter, sCrv1Pt, sCrv2Pt, SM_CO_QUADRATIC, m_pResult ) );
 
   // Check result
   NER( m_pResult );
@@ -211,16 +211,16 @@ SmStatus SmCurveFilletExecutive::DoFillet( SmBSplineCurve *& rpNewFilletCurve )
         { WARN( _T("Warning: Curve Fillet Join requested without Trim: Trimming input curves.") ); }
 
       if ( bHiSide1 )
-        { sDom1.SetMinMax( dOffT1, sDom1.GetMax() ); }
+        { SER( sDom1.SetMinMax( dOffT1, sDom1.GetMax() ) ); }
       else
-        { sDom1.SetMinMax( sDom1.GetMin(), dOffT1 ); }
-      m_pCurve1->Trim( sDom1 ); // may snap sIvl by tol to existing knots
+        { SER( sDom1.SetMinMax( sDom1.GetMin(), dOffT1 ) ); }
+      SER( m_pCurve1->Trim( sDom1 ) ); // may snap sIvl by tol to existing knots
 
       if ( bHiSide2 )
-        { sDom2.SetMinMax( dOffT2, sDom2.GetMax() ); }
+        { SER( sDom2.SetMinMax( dOffT2, sDom2.GetMax() ) ); }
       else
-        { sDom2.SetMinMax( sDom2.GetMin(), dOffT2 ); }
-      m_pCurve2->Trim( sDom2 );  // may snap sIvl by tol to existing knots
+        { SER( sDom2.SetMinMax( sDom2.GetMin(), dOffT2 ) ); }
+      SER( m_pCurve2->Trim( sDom2 ) );  // may snap sIvl by tol to existing knots
   }
 
   // Join the three curves into one if requested.
@@ -233,7 +233,7 @@ SmStatus SmCurveFilletExecutive::DoFillet( SmBSplineCurve *& rpNewFilletCurve )
       ULONG bFilletEnd = 0; // Fillet starts at pCurve1.
 
       ULONG bOtherEnd = ( bHiSide1 ) ? 0 : 1;
-      m_pResult->JoinWith( bFilletEnd, pBSpline, bOtherEnd );
+      SER( m_pResult->JoinWith( bFilletEnd, pBSpline, bOtherEnd ) );
 
 
       pBSpline = SM_CAST_PTR( SmBSplineCurve, m_pCurve2 );
@@ -241,7 +241,7 @@ SmStatus SmCurveFilletExecutive::DoFillet( SmBSplineCurve *& rpNewFilletCurve )
 
       bFilletEnd = 1;
       bOtherEnd = ( bHiSide2 ) ? 0 : 1;
-      m_pResult->JoinWith( bFilletEnd, pBSpline, bOtherEnd );
+      SER( m_pResult->JoinWith( bFilletEnd, pBSpline, bOtherEnd ) );
   }
 
   rpNewFilletCurve = m_pResult;

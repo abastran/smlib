@@ -65,6 +65,14 @@ endif()
 set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmFilletExecutive.cpp
   ${SRC}/SMLib/src/SmFilletGeom.cpp
+  ${SRC}/SMLib/src/SmFilletSolver.cpp
+  ${SRC}/SMLib/src/SmFilletCorner.cpp
+  ${SRC}/SMLib/src/SmFilletStandardSolver.cpp
+  ${SRC}/SMLib/src/SmFilletCustomSolver.cpp
+  ${SRC}/SMLib/src/SmFilletIntersector.cpp
+  ${SRC}/SMLib/src/SmCurveFilletExecutive.cpp
+  ${SRC}/SMLib/src/SmBlendSurface.cpp
+  ${SRC}/SM_API/src/SmApiFillets.cpp
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set_source_files_properties(${SMLIB_STATUS_CLEAN} PROPERTIES COMPILE_OPTIONS "-Werror=unused-value")

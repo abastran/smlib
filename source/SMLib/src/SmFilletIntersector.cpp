@@ -1217,7 +1217,7 @@ static void sm_FindGuessMidTsectPnt
   pMidPnt->CrvDeriv() =  dF1 * pCurrPnt->CrvDeriv() + dF0 * pNextPnt->CrvDeriv();
   double dLen         =  dF1 * pCurrPnt->CrvDeriv().Length()
                        + dF0 * pNextPnt->CrvDeriv().Length();
-  pMidPnt->CrvDeriv().Unitize();
+  (void)pMidPnt->CrvDeriv().Unitize(); // SolidCraft: a zero vector stays zero
   pMidPnt->CrvDeriv() = pMidPnt->CrvDeriv() * dLen;
 
   // Surface uv points:
@@ -1807,7 +1807,7 @@ static constexpr SmBoolean bTempTrySelfIntHandler = FALSE ;
 
               // check for a self-intersecting surface 
               //   - warning not implemented yet (bSelfIntersecting always FALSE)
-              pSelfIntHandler->IsSelfIntersecting(*m_cpContext,
+              SER( pSelfIntHandler->IsSelfIntersecting(*m_cpContext,
                                                   pFilletSurface,
                                                   pFilletGeom->GetFilletSolver()->GetThisApproxTol3d(),
                                                   pCenterLine,
@@ -1816,7 +1816,7 @@ static constexpr SmBoolean bTempTrySelfIntHandler = FALSE ;
                                                   dFilletRadius,
                                                   bSelfIntersecting,  // in the future - use this when needed
                                                   sStartPoint,
-                                                  sEndPoint) ;
+                                                  sEndPoint)  );
 
               // split topology of pFilletGeom into 3 connected neighbors, pFilletGeom => pBlendFilletGeom => pNewFilletGeom  
               //    (geometry is not yet set)

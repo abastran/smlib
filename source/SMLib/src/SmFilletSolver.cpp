@@ -112,11 +112,11 @@ SmStatus SmFilletSolver::FinishConstruction()
 
           // SmOffsetSurface::Copy() returns an SmSurface*, not SmOffsetSurface*
           SmSurface *pSrfCopy = NULL;
-          pOurOffSrf->Copy( *(pOurOffSrf->GetContext()), pSrfCopy );
+          SER( pOurOffSrf->Copy( *(pOurOffSrf->GetContext()), pSrfCopy ) );
           SmOffsetSurface *pOffsetCopy = SM_CAST_PTR(SmOffsetSurface, pSrfCopy);
           if ( pOffsetCopy != NULL )
           {
-              m_vFilletGeoms[lWhichFG]->SetOffsetSurface( lWhichSrf, pOffsetCopy );
+              SER( m_vFilletGeoms[lWhichFG]->SetOffsetSurface( lWhichSrf, pOffsetCopy ) );
           }
       }
   }
@@ -155,7 +155,7 @@ void SmFilletSolver::SetSurface(
 {
     if ( m_pFGForSurfaces != NULL )
     {
-        m_pFGForSurfaces->SetOffsetSurface( lRailIndex, pNewOffsetSurface );
+        (void)m_pFGForSurfaces->SetOffsetSurface( lRailIndex, pNewOffsetSurface ); // SolidCraft: a void setter cannot report
     }
     else
     {
@@ -402,14 +402,19 @@ static SmBoolean sm_CheckEdgeCurveDomains( const SmContext * pContext,        //
   if ( bTrim )
   {
       SmCurve *pCopyCurve = NULL;
-      pCurve->Copy( *pContext, pCopyCurve );
+      (void)pCurve->Copy( *pContext, pCopyCurve ); // SolidCraft: a failed copy is NULL, checked next
       if ( pCopyCurve != NULL )
       {
           SmExtent1d sTrimIvl( dT0, dT1 );
-          pCopyCurve->Trim( sTrimIvl );
-          pCurve = pCopyCurve;
-          sDelCurve.SetObj( pCurve );
-          bRet = TRUE;
+          // SolidCraft change: a copy that could not be trimmed is no trimmed curve.
+          if ( pCopyCurve->Trim( sTrimIvl ) == SM_SUCCESS )
+          {
+              pCurve = pCopyCurve;
+              sDelCurve.SetObj( pCurve );
+              bRet = TRUE;
+          }
+          else
+          { delete pCopyCurve; }
       }
   }
 
@@ -593,7 +598,7 @@ SmStatus SmFilletSolver::CalcCylinderFilletGeom
 
   // CreateConePatch() makes a STEP-parameterized cone,
   // we go the other way: u along the edge, v around the fillet surface.
-  pConePatch->SwapUV();
+  SER( pConePatch->SwapUV() );
 
   // copy that into a Cylinder
   SmSurface * pCylinder = NULL;
@@ -774,9 +779,9 @@ SmStatus SmFilletSolver::CalcConeFilletGeom
     SmExtent2d sSTEPDomain = pCone->GetSTEPUVDomain();
     SmPoint2d sUVMax = sSTEPDomain.GetMax();
     sUVMax.x = dAngle;
-    sSTEPDomain.SetMinMax(sSTEPDomain.GetMin(),sUVMax);
+    SER( sSTEPDomain.SetMinMax(sSTEPDomain.GetMin(),sUVMax) );
     SER(pCone->AdjustSTEPUVDomain(sSTEPDomain));
-    pCone->SwapUV();
+    SER( pCone->SwapUV() );
 
     if (pFilletGeom == NULL) {
         pFilletGeom = m_vFilletGeoms[0];
@@ -969,7 +974,7 @@ SmStatus SmFilletSolver::CalcSphereFilletGeom
   SmExtent2d sSTEPDomain = pSphere->GetSTEPUVDomain();
   SmPoint2d  sUVMax      = sSTEPDomain.GetMax();
   sUVMax.x = SM_RAD2DEG( dTurn );
-  sSTEPDomain.SetMinMax( sSTEPDomain.GetMin(), sUVMax );
+  SER( sSTEPDomain.SetMinMax( sSTEPDomain.GetMin(), sUVMax ) );
   SER(pSphere->AdjustSTEPUVDomain( sSTEPDomain ));
 
   if (pFilletGeom == NULL)
@@ -1230,7 +1235,7 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
     { sEndVec = sEndP1 - sOrigin; }
 
   double dSpanAng=0;
-  sAxisOfRevolution.CCWAngleBetween( sVec, sEndVec, dSpanAng );
+  SER( sAxisOfRevolution.CCWAngleBetween( sVec, sEndVec, dSpanAng ) );
   if ( dSpanAng < SM_ANG_TOL_RAD )
     { dSpanAng += 2*SM_PI; }
 
@@ -1372,7 +1377,7 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
       sCS.RotateAboutAxis( SM_PI, sRefFrame.GetZAxis() );
       sCS.Translate(   sRefFrame.GetOrigin() );
 
-      pArc->Transform( sCS );
+      SER( pArc->Transform( sCS ) );
 
 #ifdef SM_DEBUG_CODE
       if ( DebugLevel() > 0 ) 
@@ -1395,7 +1400,7 @@ SmStatus SmFilletSolver::CalcTorusFilletGeom
   SmExtent2d sSTEPDomain = pTorus->GetSTEPUVDomain();
   SmPoint2d  sUVMax      = sSTEPDomain.GetMax();
   sUVMax.x = dAngleSpan;
-  sSTEPDomain.SetMinMax(sSTEPDomain.GetMin(),sUVMax);
+  SER( sSTEPDomain.SetMinMax(sSTEPDomain.GetMin(),sUVMax) );
   SER(pTorus->AdjustSTEPUVDomain(sSTEPDomain));
 
   // Z-Rotate the torus by dAngleExtendBefore
@@ -1945,7 +1950,7 @@ static int sbDumpFVUs=0;
           SmFilletEdge * pThisRail= pFilletGeom0->GetRail( lWhichRail );
           NER(pThisRail);
           SmTArray<SmEdgeuse*> sFilEdgeuses;
-          pThisRail->GetEdgeuses(sFilEdgeuses);
+          SER( pThisRail->GetEdgeuses(sFilEdgeuses) );
           if (sFilEdgeuses.GetSize() != 2) { SER(SM_ERR); }
 
           // for both Rail->edgeuses
@@ -2121,8 +2126,8 @@ static int sbDumpFVUs=0;
   if ( lTotalTsects > 2 )
     {
       SmPoint3d sPnt1, sPnt2;
-      pOffsetSrf1->EvaluatePoint( sTsectPnts[lTotalTsects-1]->UVPos(0), sPnt1 );
-      pOffsetSrf1->EvaluatePoint( sTsectPnts[lTotalTsects-2]->UVPos(0), sPnt2 );
+      SER( pOffsetSrf1->EvaluatePoint( sTsectPnts[lTotalTsects-1]->UVPos(0), sPnt1 ) );
+      SER( pOffsetSrf1->EvaluatePoint( sTsectPnts[lTotalTsects-2]->UVPos(0), sPnt2 ) );
       SmVector3d sV = sPnt1 - sPnt2;
       double dLen = sV.Length();
 
@@ -2140,8 +2145,8 @@ static int sbDumpFVUs=0;
   if ( lTotalTsects > 2 )
     {
       SmPoint3d sPnt1, sPnt2;
-      pOffsetSrf1->EvaluatePoint( sTsectPnts[0]->UVPos(0), sPnt1 );
-      pOffsetSrf1->EvaluatePoint( sTsectPnts[1]->UVPos(0), sPnt2 );
+      SER( pOffsetSrf1->EvaluatePoint( sTsectPnts[0]->UVPos(0), sPnt1 ) );
+      SER( pOffsetSrf1->EvaluatePoint( sTsectPnts[1]->UVPos(0), sPnt2 ) );
       SmVector3d sV = sPnt1 - sPnt2;
       double dLen = sV.Length();
 
@@ -2789,9 +2794,9 @@ static int sbDumpFVUs=0;
                 {
                   SER(pBaseSrf2->EvaluatePoint(sUV,sPnt));
                 }
-              sTrimIvl.SetMinMax(sTrimIvl.GetMin(),dSplitAtParam);
+              SER( sTrimIvl.SetMinMax(sTrimIvl.GetMin(),dSplitAtParam) );
               SER(pRailCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
-              sNewTrimIvl.SetMinMax(dSplitAtParam,sNewTrimIvl.GetMax());
+              SER( sNewTrimIvl.SetMinMax(dSplitAtParam,sNewTrimIvl.GetMax()) );
               SER(pNewRailCurve->Trim(sNewTrimIvl));  // may snap sIvl by tol to existing knots
               SmFilletVertex * pNewVert = (SmFilletVertex*)pNewRail->GetStartVertex();
               pNewVert->SetPoint(sPnt);
@@ -2878,7 +2883,7 @@ static int sbDumpFVUs=0;
               SmEdgeuse      * pPrimEU  = pRail->GetPrimaryEdgeuse();
               SmEdgeuse      * pMateEU  = pPrimEU->GetMate();
               SmBSplineCurve * pUVCurve = NULL ;
-              pMateEU->GetOrCreateUVTrimCurve(pUVCurve);
+              SER( pMateEU->GetOrCreateUVTrimCurve(pUVCurve) );
               NER(pUVCurve);
               SmExtent1d       sIvl1    = p3DCrv->GetNaturalInterval();
               SER(p3DCrv->ReverseParameterization(sIvl1,sIvl1));
@@ -3743,7 +3748,7 @@ SmStatus SmFilletSolver::ComputeSurfaceValues
           if (sNorm.LengthSquared() < SM_EFF_ZERO_SQ)
             { SER(SM_ERR); }
         }
-      sNorm.Unitize();
+      (void)sNorm.Unitize(); // SolidCraft: a zero normal stays zero
       rTsectPnt.SrfNorm(lSrf) = sNorm;
       rTsectPnt.UVPos(lSrf)   = aUVValues[lSrf];  // Assign UV point values
 
@@ -3998,7 +4003,7 @@ static double sdStaticStep =   (rTsectPnt.m_ePointType == SM_IP_TANGENT_POINT)
   rTsectPnt.m_ePointType = SM_IP_CROSSING;
 
   // use center-curve tangent to compute surface uvTangents
-  ComputeUVVectors( rTsectPnt );
+  SER( ComputeUVVectors( rTsectPnt ) );
 
   return SM_SUCCESS;
 
@@ -4732,10 +4737,10 @@ SmBoolean bDebug_VUs=FALSE;
     SmOffsetSurface *pOffSurf = NULL;
     SmOffsetSurface *pOrigOffSurf = pFilletGeom->GetOffsetSurface( 1-lRailIdx );
     if ( pOrigOffSurf != NULL ) {
-        pOrigOffSurf->Copy( m_crContext, pSurf );
+        SER( pOrigOffSurf->Copy( m_crContext, pSurf ) );
         pOffSurf = SM_CAST_PTR( SmOffsetSurface, pSurf );
     }
-    pNewFilletGeom->SetOffsetSurface( 1-lRailIdx, pOffSurf );
+    SER( pNewFilletGeom->SetOffsetSurface( 1-lRailIdx, pOffSurf ) );
 
     if ( lWhichEnd == 0 )
     {
@@ -4744,11 +4749,11 @@ SmBoolean bDebug_VUs=FALSE;
         pSurf = pOffSurf = NULL;
         pOrigOffSurf = pFilletGeom->GetOffsetSurface( lRailIdx );
         if ( pOrigOffSurf != NULL ) {
-            pOrigOffSurf->Copy( m_crContext, pSurf );
+            SER( pOrigOffSurf->Copy( m_crContext, pSurf ) );
             pOffSurf = SM_CAST_PTR( SmOffsetSurface, pSurf );
         }
-        pNewFilletGeom->SetOffsetSurface( lRailIdx, pOffSurf );
-        pFilletGeom->   SetOffsetSurface( lRailIdx, pAdjOffSurf );
+        SER( pNewFilletGeom->SetOffsetSurface( lRailIdx, pOffSurf ) );
+        SER( pFilletGeom->   SetOffsetSurface( lRailIdx, pAdjOffSurf ) );
     }
     else
     {
@@ -4756,7 +4761,7 @@ SmBoolean bDebug_VUs=FALSE;
         pNewFilletGeom->SetFilletGeomType( SM_FG_TANGENT_ROLLOVER );
         pNewFilletGeom->GetRail(lRailIdx)->SetOriginalFace( pAdjFace );
 
-        pNewFilletGeom->SetOffsetSurface( lRailIdx, pAdjOffSurf );
+        SER( pNewFilletGeom->SetOffsetSurface( lRailIdx, pAdjOffSurf ) );
     }
 
     m_vFilletGeoms.Add( pNewFilletGeom );
@@ -5047,8 +5052,8 @@ SmStatus SmFilletSolver::SplitAndTrimFilletSurface
         if (!rCIvl1.m_vInterval.AreDisjoint(rCIvl2.m_vInterval)) {
             // multiple segments.
             if (eTrimType == SM_BT_MINIMAL) {
-                rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl1);
-                rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl2);
+                SER( rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl1) );
+                SER( rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl2) );
             }
             else if (eTrimType == SM_BT_MAXIMAL) {
                 rCIvl1.m_vInterval.Union(rCIvl2.m_vInterval,sIvl1);
@@ -5121,8 +5126,8 @@ SmStatus SmFilletSolver::SplitAndTrimFilletSurface
         if (!rCIvl1.m_vInterval.AreDisjoint(rCIvl2.m_vInterval)) {
             bFoundIntersection = TRUE;
             if (eTrimType == SM_BT_MINIMAL) {
-                rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl1);
-                rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl2);
+                SER( rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl1) );
+                SER( rCIvl1.m_vInterval.Intersect(rCIvl2.m_vInterval,sIvl2) );
             }
             else if (eTrimType == SM_BT_MAXIMAL) {
                 rCIvl1.m_vInterval.Union(rCIvl2.m_vInterval,sIvl1);
@@ -5867,8 +5872,8 @@ SmStatus sm_RefineRailCurveClassification (
         }
 
         // Get the RailCurve local end points 
-        pRailCurve->EvaluatePoint( sIvl.GetMin(), s3DPntMin);
-        pRailCurve->EvaluatePoint( sIvl.GetMax(), s3DPntMax);
+        SER( pRailCurve->EvaluatePoint( sIvl.GetMin(), s3DPntMin) );
+        SER( pRailCurve->EvaluatePoint( sIvl.GetMax(), s3DPntMax) );
 
         // Locals
         SmExtent1d   sEdgeIvl   = pEdge->GetInterval();
@@ -5902,8 +5907,8 @@ SmStatus sm_RefineRailCurveClassification (
         SE( pFilletSolver->RailEdgeuseIntersect( lRailIndex, pSideEU, dGuessParam, bFoundIntersection, sTsectPntMax, dEUParamMax ) );
 
         // Evaluate the params so we can check if the points are within tolerance
-        pEdgeCurve->EvaluatePoint( dEUParamMin, s3DPntMin );
-        pEdgeCurve->EvaluatePoint( dEUParamMax, s3DPntMax );
+        SER( pEdgeCurve->EvaluatePoint( dEUParamMin, s3DPntMin ) );
+        SER( pEdgeCurve->EvaluatePoint( dEUParamMax, s3DPntMax ) );
 
         // Can't squeeze the interval if it's not smaller than tolerance
         if ( s3DPntMin.DistanceBetween( s3DPntMax ) > sZoneTol3d )
@@ -5916,8 +5921,8 @@ SmStatus sm_RefineRailCurveClassification (
         double dNewParam = (dEUParamMax + dEUParamMin) / 2.;
         SmExtent1d sMaxSideIvl = rRailCurveClassification[ii + 1].GetInterval();
         SmExtent1d sMinSideIvl = rRailCurveClassification[ii - 1].GetInterval();
-        sMaxSideIvl.SetMin( dNewParam );
-        sMinSideIvl.SetMax( dNewParam );
+        SER( sMaxSideIvl.SetMin( dNewParam ) );
+        SER( sMinSideIvl.SetMax( dNewParam ) );
         rRailCurveClassification[ii + 1].SetInterval( sMaxSideIvl );
         rRailCurveClassification[ii - 1].SetInterval( sMinSideIvl );
 
@@ -6087,7 +6092,7 @@ static SmStatus sm_CalcRailXEdge
     SmFace * pRailFace = pRail->GetOriginalFace();
     SmEdgeuse * pSideEU = NULL;
     SmTArray<SmEdgeuse*> sEUs;
-    pSideEdge->GetEdgeuses(sEUs);
+    SER( pSideEdge->GetEdgeuses(sEUs) );
     for (ULONG i=0; i<sEUs.GetSize(); i++) {
         if (sEUs[i]->GetFace() == pRailFace) {
             pSideEU = sEUs[i];  // Note, for a seam, all are on pRailFace. [B398]
@@ -6264,7 +6269,7 @@ static SmStatus sm_SplitRail
   // Create a new vertex in the middle of the rail
   ((SmFilletEdgeuse*)pEU)->SetUVCurve(NULL, TRUE) ; // TRUE = delete preExisting m_pUVTrimCurve
 
-  pEndVert->Remove(pVU);
+  SER( pEndVert->Remove(pVU) );
   rpNewVert = new (pPseudoBrep) SmFilletVertex();
   SER(rpNewVert->PostInsert(pVU));
 
@@ -6311,7 +6316,7 @@ SmBoolean sm_TestSideEdgeConvexity
    SmBoolean bIsTangentialSideEdge)
 {
     SmTArray<SmEdgeuse*> sEUs;
-    pSideEdge->GetEdgeuses(sEUs);
+    (void)pSideEdge->GetEdgeuses(sEUs); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
     for (ULONG ii=0; ii<sEUs.GetSize(); ii++) {
         SmEdgeuse * pEU = sEUs[ii];
         SmShell *pShell = pEU->GetShell();
@@ -6717,9 +6722,9 @@ static SmStatus sm_ComputeSupportEdge
 
   SmBoolean bReverseCurves = FALSE;
   if (dParam1 > dParam2) { bReverseCurves = TRUE;
-                           sTrimIvl.SetMinMax(dParam2,dParam1);
+                           (void)sTrimIvl.SetMinMax(dParam2,dParam1); // SolidCraft: ordered by the test, it cannot fail
                          }
-  else                   { sTrimIvl.SetMinMax(dParam1,dParam2);
+  else                   { (void)sTrimIvl.SetMinMax(dParam1,dParam2); // SolidCraft: ordered by the test, it cannot fail
                          }
 
   SER(p3DCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
@@ -6901,19 +6906,19 @@ SmBoolean bDebugMe0=FALSE;
       if (bSuccess) // GWC: should bSuccess != TRUE be a bug?
         {
           // order the desired CrossSection->Ivl params
-          if (dParam1 > dParam2) { sTrimIvl.SetMinMax(dParam2,dParam1); }
-          else                   { sTrimIvl.SetMinMax(dParam1,dParam2); }
+          if (dParam1 > dParam2) { (void)sTrimIvl.SetMinMax(dParam2,dParam1); } // SolidCraft: ordered by the test, it cannot fail
+          else                   { (void)sTrimIvl.SetMinMax(dParam1,dParam2); } // SolidCraft: ordered by the test, it cannot fail
 
           // Set CrossSection->Curve Ivl
-          pCurve->Trim(sTrimIvl);  // may snap sIvl by tol to existing knots
+          SER( pCurve->Trim(sTrimIvl) );  // may snap sIvl by tol to existing knots
 
           // Set CrossSection->UVTrimCurves Ivls
           SmEdgeuse      * pPrimEU   = pCrossSection->GetPrimaryEdgeuse();
           SmEdgeuse      * pMateEU   = pPrimEU->GetMate();
           SmBSplineCurve * pUVCurve1 = pPrimEU->GetUVTrimCurvePointer();
           SmBSplineCurve * pUVCurve2 = pMateEU->GetUVTrimCurvePointer();
-          if (pUVCurve1) { pUVCurve1->Trim(sTrimIvl); }   // may snap sIvl by tol to existing knots
-          if (pUVCurve2) { pUVCurve2->Trim(sTrimIvl); }   // may snap sIvl by tol to existing knots
+          if (pUVCurve1) { SER( pUVCurve1->Trim(sTrimIvl) ); }   // may snap sIvl by tol to existing knots
+          if (pUVCurve2) { SER( pUVCurve2->Trim(sTrimIvl) ); }   // may snap sIvl by tol to existing knots
 
         } // end DropPoint success check
       else
@@ -7681,7 +7686,7 @@ iDebugLevel = DebugLevel();
                   pNewOffSrf = new (m_crContext) SmOffsetSurface(
                           dOffsetDist, *pAdjSurface );
                   pNewOffSrf->SetAllowExtension(TRUE);
-                  pCurrFilletGeom->SetOffsetSurface( lWhichRail, pNewOffSrf );
+                  SER( pCurrFilletGeom->SetOffsetSurface( lWhichRail, pNewOffSrf ) );
                 }
               pCurrFilletGeom->SetFilletGeomType( eFGType );
             } // end if mid UNKNOWN (hanging ouside face)
@@ -7822,11 +7827,11 @@ iDebugLevel = DebugLevel();
 
                   // SmOffsetSurface::Copy() returns an SmSurface*, not SmOffsetSurface*
                   SmSurface *pSrfCopy = NULL;
-                  sOrigOffsets.m_pSurfaces[ii]->Copy( m_crContext, pSrfCopy );
+                  SER( sOrigOffsets.m_pSurfaces[ii]->Copy( m_crContext, pSrfCopy ) );
                   SmOffsetSurface *pOffsetCopy = SM_CAST_PTR(SmOffsetSurface, pSrfCopy);
                   if ( pOffsetCopy != NULL )
                     {
-                      pNewFilletGeom->SetOffsetSurface( ii, pOffsetCopy );
+                      SER( pNewFilletGeom->SetOffsetSurface( ii, pOffsetCopy ) );
                     }
                 }
 
@@ -8471,7 +8476,7 @@ SmBoolean bDebugMe3 = FALSE;
       // Use this little half interval trick to eliminate the possibility of
       // finding closed intersections.  It may be a little dangerous.
       SmExtent1d sHalfInterval = pPrevUVCurve->GetNaturalInterval();
-      sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax());
+      (void)sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax()); // SolidCraft: from the middle to the end, it cannot fail
 
       // intersect prev UVTrimCurve piece with next piece
       SER(pPrevUVCurve->GlobalCurveIntersect(sHalfInterval,
@@ -8527,8 +8532,8 @@ SmBoolean bDebugMe3 = FALSE;
             }
 
           // adjust the Prev and Next curve intervals to the step back/forward points
-          if (dPrevStep < sPrevTrimIvl.GetMax()) { sPrevTrimIvl.SetMinMax(sPrevTrimIvl.GetMin(),dPrevStep); }
-          if (dNextStep > sNextTrimIvl.GetMin()) { sNextTrimIvl.SetMinMax(dNextStep,sNextTrimIvl.GetMax()); }
+          if (dPrevStep < sPrevTrimIvl.GetMax()) { (void)sPrevTrimIvl.SetMinMax(sPrevTrimIvl.GetMin(),dPrevStep); } // SolidCraft: ordered by the test, it cannot fail
+          if (dNextStep > sNextTrimIvl.GetMin()) { (void)sNextTrimIvl.SetMinMax(dNextStep,sNextTrimIvl.GetMax()); } // SolidCraft: ordered by the test, it cannot fail
           bFoundIntersection = TRUE;
           
         } // end iter (jj) every next/prev UVtrimCurve intersection solution
@@ -8551,7 +8556,7 @@ SmBoolean bDebugMe3 = FALSE;
           // Use this little half interval trick to eliminate the possibility of
           // finding closed intersections.  It may be a little dangerous.
           SmExtent1d sHalfInterval = pPrevRailCurve->GetNaturalInterval();
-          sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax());
+          (void)sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax()); // SolidCraft: from the middle to the end, it cannot fail
 
           // find closest point between prev and Next rail curve pieces
           SER(pPrevRailCurve->GlobalCurveSolve(sHalfInterval,
@@ -8636,8 +8641,8 @@ SmBoolean bDebugMe4 = FALSE;
         }
 
       // Now see if we are actually close enough to do this
-      if (dPrevStep < sPrevTrimIvl.GetMax()) { sPrevTrimIvl.SetMinMax(sPrevTrimIvl.GetMin(),dPrevStep); }
-      if (dNextStep > sNextTrimIvl.GetMin()) { sNextTrimIvl.SetMinMax(dNextStep,sNextTrimIvl.GetMax()); }
+      if (dPrevStep < sPrevTrimIvl.GetMax()) { (void)sPrevTrimIvl.SetMinMax(sPrevTrimIvl.GetMin(),dPrevStep); } // SolidCraft: ordered by the test, it cannot fail
+      if (dNextStep > sNextTrimIvl.GetMin()) { (void)sNextTrimIvl.SetMinMax(dNextStep,sNextTrimIvl.GetMax()); } // SolidCraft: ordered by the test, it cannot fail
     
     } // end Prev and Next UVTrim curves did not intersect check
 
@@ -8705,7 +8710,7 @@ SmBoolean bDebugMe = FALSE;
   sNewKnots.Add(0.9);
 
   // add internal knots to CenterBlend curve
-  pCenterBlend->InsertKnots(sNewKnots);
+  SER( pCenterBlend->InsertKnots(sNewKnots) );
 
   double dBlendArcLeng = 0.0;
   SmObjDelete sClean21(pCenterBlend);
@@ -8768,7 +8773,7 @@ SmBoolean bDebugMe = FALSE;
                                                    sVectors,
                                                    NULL,TRUE,
                                                    pUVBlend));
-      pUVBlend->InsertKnots(sNewKnots);
+      SER( pUVBlend->InsertKnots(sNewKnots) );
 
       // add rail(ii) blend UVCurve to array
       sUVBlends.Add(pUVBlend);
@@ -8800,7 +8805,7 @@ SmBoolean bDebugMe = FALSE;
 
   // replace Prev CenterLine piece Nurb with joint Nurb curve
   gw_CURVE *pNurb = pCenterBlend->GetOrCreateGwNurbPointer();
-  pPrevCenterLine->SetFromGwNurb(0, pNurb);
+  SER( pPrevCenterLine->SetFromGwNurb(0, pNurb) );
 
   // for both rail curves
   for (ULONG iii=0; iii<2; iii++) 
@@ -8834,7 +8839,7 @@ SmBoolean bDebugMe = FALSE;
 
       // replace PrevUVCurve with pUVBlend NURB definition
       gw_CURVE *pUVNurb = pUVBlend->GetOrCreateGwNurbPointer();
-      pPrevUVCurve->SetFromGwNurb(0, pUVNurb);
+      SER( pPrevUVCurve->SetFromGwNurb(0, pUVNurb) );
 
       // add to sNewCurves array
       sNewCurves.Add(pPrevUVCurve);
@@ -8862,7 +8867,7 @@ SmBoolean bDebugMe = FALSE;
       SmObjDelete sClean10(p3DLift);
 
       gw_CURVE *p3DNurb = p3DLift->GetOrCreateGwNurbPointer();
-      pPrevRailCurve->SetFromGwNurb(0, p3DNurb);
+      SER( pPrevRailCurve->SetFromGwNurb(0, p3DNurb) );
 
       r3DCurves.Add(pPrevRailCurve);
       sNewCurves.Add(pPrevRailCurve);
@@ -8894,7 +8899,7 @@ SmBoolean bDebugMe2 = FALSE;
   for (ULONG kk=0; kk<sNewCurves.GetSize(); kk++) 
     {
       SmBSplineCurve *pBSC = sNewCurves[kk];
-      pBSC->DampenKnotSpacing(2.0,3);
+      SER( pBSC->DampenKnotSpacing(2.0,3) );
     }
 
   // restore FilletSolver offsets
@@ -9153,7 +9158,7 @@ SmBoolean bDebugMe3 = FALSE;
       // Use this little half interval trick to eliminate the possibility of
       // finding closed intersections.  It may be a little dangerous.
       SmExtent1d sHalfInterval = pCurve1->GetNaturalInterval();
-      sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax());
+      (void)sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax()); // SolidCraft: from the middle to the end, it cannot fail
 
       // look for self-intersections
       SER(pCurve1->GlobalCurveIntersect(sHalfInterval,
@@ -9189,7 +9194,7 @@ SmBoolean bDebugMe3 = FALSE;
           // finding closed intersections.  It may be a little dangerous.
           NER( pRailCurve );  //cbi NO:  SER(!pRailCurve);  // RCLxx
           SmExtent1d sHalfInterval = pRailCurve->GetNaturalInterval();
-          sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax());
+          (void)sHalfInterval.SetMinMax(sHalfInterval.Evaluate(0.5),sHalfInterval.GetMax()); // SolidCraft: from the middle to the end, it cannot fail
 
           // search for self intersections
           SER(pRailCurve->GlobalCurveSolve(sHalfInterval,
@@ -9299,8 +9304,8 @@ SmBoolean bDebugMe4 = FALSE;
     }
 
   // Now Trim Back all curves with new intervals
-  if (dT1Step < sTrimIvl1.GetMax()) { sTrimIvl1.SetMinMax(sTrimIvl1.GetMin(),dT1Step); }
-  if (dT2Step > sTrimIvl2.GetMin()) { sTrimIvl2.SetMinMax(dT2Step,sTrimIvl2.GetMax()); }
+  if (dT1Step < sTrimIvl1.GetMax()) { (void)sTrimIvl1.SetMinMax(sTrimIvl1.GetMin(),dT1Step); } // SolidCraft: ordered by the test, it cannot fail
+  if (dT2Step > sTrimIvl2.GetMin()) { (void)sTrimIvl2.SetMinMax(dT2Step,sTrimIvl2.GetMax()); } // SolidCraft: ordered by the test, it cannot fail
 
   // Trim both CenterLine and pOrigCenterLIne to new Interval1 and Interval2
   // GWC:??? pCenterLine and pOrigCenterLine need to be different

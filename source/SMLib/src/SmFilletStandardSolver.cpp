@@ -64,7 +64,7 @@ SmConstantRadiusFS::SmConstantRadiusFS
     m_pSurfaces[0]->SetAllowExtension(TRUE);
     m_pSurfaces[1]->SetAllowExtension(TRUE);
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 } // end SmConstantRadiusFS::SmConstantRadiusFS constructor
 
@@ -150,7 +150,7 @@ SmConstantRadiusFS::SmConstantRadiusFS
     m_pSurfaces[0]->SetAllowExtension( TRUE );
     m_pSurfaces[1]->SetAllowExtension( TRUE );
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 } // end SmConstantRadiusFS::SmConstantRadiusFS constructor
 
@@ -502,7 +502,7 @@ SmBoolean bDebugFVUs=FALSE;
 
       SmFilletEdge *pRail = pFG->GetRail( lRailIndex );
       SmTArray< SmEdgeuse * > sAllEUs;
-      pRail->GetEdgeuses( sAllEUs );
+      SER( pRail->GetEdgeuses( sAllEUs ) );
       for ( ULONG ii=0; ii< sAllEUs.GetSize(); ii++ )
       {
           SmEdgeuse         *pEU  = sAllEUs[ ii ];
@@ -1206,7 +1206,7 @@ SmBoolean bDebugMe = FALSE;
                   SER(SM_ERR);
               }
           }
-          sNorm.Unitize();
+          (void)sNorm.Unitize(); // SolidCraft: a zero vector stays zero
           rTsectPnt.SrfNorm(lSrf) = sNorm;
 
         } // end iter both surfaces
@@ -1312,7 +1312,7 @@ SmConstantDistanceFS::SmConstantDistanceFS
     m_pSurfaces[0]->SetAllowExtension(TRUE);
     m_pSurfaces[1]->SetAllowExtension(TRUE);
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE;
@@ -1969,7 +1969,7 @@ SmVariableRadiusFS::SmVariableRadiusFS
     m_pSurfaces[0]->SetAllowExtension(TRUE);
     m_pSurfaces[1]->SetAllowExtension(TRUE);
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE;
@@ -2165,7 +2165,7 @@ SmBoolean bDebugMe0=FALSE;
         for (ULONG kk=0; kk<sAllRails.GetSize(); kk++) {
             SmFilletEdge * pRail= sAllRails[kk]; NER(pRail);
             SmTArray<SmEdgeuse*> sFilEUs;
-            pRail->GetEdgeuses(sFilEUs);
+            SER( pRail->GetEdgeuses(sFilEUs) );
             if (sFilEUs.GetSize() != 2) SER(SM_ERR);
             for (ULONG jjj=0; jjj<2; jjj++) {
                 SmEdgeuse * pEU = sFilEUs[jjj];
@@ -3467,11 +3467,11 @@ SmBoolean bDebugMe=FALSE;
       double dStep = (sKnots[1]-sKnots[0])/3.0;
       double dNew1 = sKnots[0] + dStep;
       double dNew2 = dNew1 + dStep;
-      rRail1Curve.InsertOneKnot(dNew1,1);
-      rRail2Curve.InsertOneKnot(dNew1,1);
-      rRail1Curve.InsertOneKnot(dNew2,1);
-      rRail2Curve.InsertOneKnot(dNew2,1);
-      rRail1Curve.GetKnots(sKnots);
+      SER( rRail1Curve.InsertOneKnot(dNew1,1) );
+      SER( rRail2Curve.InsertOneKnot(dNew1,1) );
+      SER( rRail1Curve.InsertOneKnot(dNew2,1) );
+      SER( rRail2Curve.InsertOneKnot(dNew2,1) );
+      SER( rRail1Curve.GetKnots(sKnots) );
     }
 
   ULONG nKnotsOld = sKnots.GetSize();
@@ -3492,9 +3492,9 @@ SmBoolean bDebugMe=FALSE;
         }
 
       double dMid = (sKnots[lMaxSpan] + sKnots[lMaxSpan-1])/2.0;
-      rRail1Curve.InsertOneKnot(dMid,1);
-      rRail2Curve.InsertOneKnot(dMid,1);
-      rRail1Curve.GetKnots(sKnots);
+      SER( rRail1Curve.InsertOneKnot(dMid,1) );
+      SER( rRail2Curve.InsertOneKnot(dMid,1) );
+      SER( rRail1Curve.GetKnots(sKnots) );
 
       ULONG nKnotsNew = sKnots.GetSize();
 
@@ -4042,7 +4042,7 @@ SmBoolean bDebugMe2 = FALSE;
               SmExtent1d sCrvIvl = pGenCurve->GetNaturalInterval();
               SmPoint2d  sUVMin  = SmPoint2d(sCrvIvl.GetMin(),0.0);
               SmPoint2d  sUVMax  = SmPoint2d(sCrvIvl.GetMax(),1.0);
-              pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax));
+              SER( pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax)) );
 #ifdef SM_DEBUG_CODE
 //                    pSurf->Dump();
 #endif
@@ -4054,15 +4054,15 @@ SmBoolean bDebugMe2 = FALSE;
           // add a new knot in the NewSurface start/end intervals
           // to allow the newSurface to interpolate the computed crossTangent values
           SmTArray<double> sKnts;
-          rRail1Curve.GetKnots(sKnts);
+          SER( rRail1Curve.GetKnots(sKnts) );
 
           double dStartKnotMid = (sKnts[0] + sKnts[1]) / 2.0;
-          rRail1Curve.InsertOneKnot(dStartKnotMid,1);
-          rRail2Curve.InsertOneKnot(dStartKnotMid,1);
+          SER( rRail1Curve.InsertOneKnot(dStartKnotMid,1) );
+          SER( rRail2Curve.InsertOneKnot(dStartKnotMid,1) );
 
           double dEndKnotMid = (sKnts[sKnts.GetSize()-2] + sKnts.GetLast()) / 2.0;
-          rRail1Curve.InsertOneKnot(dEndKnotMid,1);
-          rRail2Curve.InsertOneKnot(dEndKnotMid,1);
+          SER( rRail1Curve.InsertOneKnot(dEndKnotMid,1) );
+          SER( rRail2Curve.InsertOneKnot(dEndKnotMid,1) );
 
         } // end need G1 continuity check
 
@@ -4098,14 +4098,14 @@ SmBoolean bDebugMe2 = FALSE;
           double dW1, dW2;
           SmZoneTol3d dTol = SmTol::GetZoneTol3d( pFilletSurface );
           ULONG lIdxU = 1;  // First interior row.
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 );
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 ) );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 ) );
           if ( sPt2.CloserThan( dTol, sPt1 ) )
             {
               sPt1 = ( sPt1 + sPt2 ) / 2;  // Make sure they're exactly the same.
               dW1  = ( dW1  + dW2  ) / 2;
               for ( ii=0; ii<lNumV; ii++ )
-                { pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ); }
+                { SER( pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ) ); }
             }
         }
       if ( lSing & SM_SS_UMAX )
@@ -4116,14 +4116,14 @@ SmBoolean bDebugMe2 = FALSE;
           double dW1, dW2;
           SmZoneTol3d dTol = SmTol::GetZoneTol3d( pFilletSurface );
           ULONG lIdxU = lNumU-2;  // First interior row.
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 );
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 ) );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 ) );
           if ( sPt2.CloserThan( dTol, sPt1 ) )
             {
               sPt1 = ( sPt1 + sPt2 ) / 2;  // Make sure they're exactly the same.
               dW1  = ( dW1  + dW2  ) / 2;
               for ( ii=0; ii<lNumV; ii++ )
-                { pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ); }
+                { SER( pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ) ); }
             }
         }
 
@@ -4247,11 +4247,11 @@ SmBoolean bDebugMe=FALSE;
         double dStep = (sKnots[1]-sKnots[0])/3.0;
         double dNew1 = sKnots[0] + dStep;
         double dNew2 = dNew1 + dStep;
-        rRail1Curve.InsertOneKnot(dNew1,1);
-        rRail2Curve.InsertOneKnot(dNew1,1);
-        rRail1Curve.InsertOneKnot(dNew2,1);
-        rRail2Curve.InsertOneKnot(dNew2,1);
-        rRail1Curve.GetKnots(sKnots);
+        SER( rRail1Curve.InsertOneKnot(dNew1,1) );
+        SER( rRail2Curve.InsertOneKnot(dNew1,1) );
+        SER( rRail1Curve.InsertOneKnot(dNew2,1) );
+        SER( rRail2Curve.InsertOneKnot(dNew2,1) );
+        SER( rRail1Curve.GetKnots(sKnots) );
     }
     while (sKnots.GetSize() < 4) {
         ULONG lMaxSpan = 0;
@@ -4265,9 +4265,9 @@ SmBoolean bDebugMe=FALSE;
         }
 
         double dMid = (sKnots[lMaxSpan] + sKnots[lMaxSpan-1])/2.0;
-        rRail1Curve.InsertOneKnot(dMid,1);
-        rRail2Curve.InsertOneKnot(dMid,1);
-        rRail1Curve.GetKnots(sKnots);
+        SER( rRail1Curve.InsertOneKnot(dMid,1) );
+        SER( rRail2Curve.InsertOneKnot(dMid,1) );
+        SER( rRail1Curve.GetKnots(sKnots) );
     }
 
     //ULONG lMaxNumUniqueKnots = 0;
@@ -4641,20 +4641,20 @@ SmBoolean bDebugMe4 = FALSE;
                     SmExtent1d sCrvIvl = pGenCurve->GetNaturalInterval();
                     SmPoint2d sUVMin = SmPoint2d(sCrvIvl.GetMin(),0.0);
                     SmPoint2d sUVMax = SmPoint2d(sCrvIvl.GetMax(),1.0);
-                    pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax));
+                    SER( pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax)) );
 #ifdef SM_DEBUG_CODE
 //                    pSurf->Dump();
 #endif
                     pDerivSurfs[i] = pSurf;
                 }
                 SmTArray<double> sKnts;
-                rRail1Curve.GetKnots(sKnts);
+                SER( rRail1Curve.GetKnots(sKnts) );
                 double dStartKnotMid = (sKnts[0] + sKnts[1]) / 2.0;
-                rRail1Curve.InsertOneKnot(dStartKnotMid,1);
-                rRail2Curve.InsertOneKnot(dStartKnotMid,1);
+                SER( rRail1Curve.InsertOneKnot(dStartKnotMid,1) );
+                SER( rRail2Curve.InsertOneKnot(dStartKnotMid,1) );
                 double dEndKnotMid = (sKnts[sKnts.GetSize()-2] + sKnts.GetLast()) / 2.0;
-                rRail1Curve.InsertOneKnot(dEndKnotMid,1);
-                rRail2Curve.InsertOneKnot(dEndKnotMid,1);
+                SER( rRail1Curve.InsertOneKnot(dEndKnotMid,1) );
+                SER( rRail2Curve.InsertOneKnot(dEndKnotMid,1) );
             }
             if (rRail1Curve.IsClosed(rRail1Curve.GetNaturalInterval()) &&
                 rRail2Curve.IsClosed(rRail2Curve.GetNaturalInterval()) ) {
