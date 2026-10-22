@@ -2460,6 +2460,163 @@ SmStatus SmMerge::NonManifoldBoolean
 } // end SmMerge::NonManifoldBoolean
 
 /*******************************************************************//**
+PURPOSE: Whether every sample of a Face lies on another Face within a tolerance: five points
+         along each of its edges (their ends included) and an internal point, each classified
+         onto the other Face (on it, on its edges or on its vertices) within dTol.
+***********************************************************************/
+static SmBoolean sm_FaceLiesOnFace(const SmFace *pFace, const SmFace *pOther, SmZoneTol3d dTol)
+{
+  // A Face lies on another only inside that one's box (grown by the tolerance).
+  SmExtent3d sBox, sOtherBox;
+  if (pFace->CalculateBoundingBox(sBox) != SM_SUCCESS || pOther->CalculateBoundingBox(sOtherBox) != SM_SUCCESS)
+    { return FALSE; }
+  if (!sBox.IsContainedBy(sOtherBox, dTol))
+    { return FALSE; }
+  SmTArray<SmPoint3d> sSamples;
+  SmTArray<SmEdge*> sEdges;
+  pFace->GetEdges(sEdges);
+  for (ULONG ii = 0; ii < sEdges.GetSize(); ii++)
+    {
+      const SmCurve *pCurve = sEdges[ii]->GetCurve();
+      if (pCurve == NULL)
+        { return FALSE; }
+      SmExtent1d sIvl = sEdges[ii]->GetInterval();
+      for (int kk = 0; kk <= 4; kk++)
+        {
+          SmPoint3d sPnt;
+          if (pCurve->EvaluatePoint(sIvl.Evaluate(kk / 4.0), sPnt) != SM_SUCCESS)
+            { return FALSE; }
+          sSamples.Add(sPnt);
+        }
+    }
+  SmPoint3d sInside;
+  if (pFace->CalculateAnInternalPoint(sInside) != SM_SUCCESS)
+    { return FALSE; }
+  sSamples.Add(sInside);
+  const SmSurface *pSurface      = pFace->GetSurface();
+  const SmSurface *pOtherSurface = pOther->GetSurface();
+  if (pSurface == NULL || pOtherSurface == NULL)
+    { return FALSE; }
+  SmPoint2d sOtherUV;
+  for (ULONG ii = 0; ii < sSamples.GetSize(); ii++)
+    {
+      SmSolutionArray sSolutions;
+      if (   pOtherSurface->GlobalPointSolve(pOther->GetUVDomain(), SM_SO_MINIMIZE, sSamples[ii], dTol, NULL, SM_SR_SINGLE, sSolutions) != SM_SUCCESS
+          || sSolutions.GetSize() < 1
+          || !(sSolutions[0].m_vStart.m_dSolutionValue <= dTol))
+        { return FALSE; }
+      sOtherUV = SmPoint2d(sSolutions[0].m_vStart[0], sSolutions[0].m_vStart[1]);
+    }
+  // Facing each other: the Faces' outward normals point opposite ways at the internal point. Two Faces lying on one surface the same way
+  // round (a face split along an edge) bound material between them on one side, not nothing.
+  SmSolutionArray sOwn;
+  if (   pSurface->GlobalPointSolve(pFace->GetUVDomain(), SM_SO_MINIMIZE, sInside, dTol, NULL, SM_SR_SINGLE, sOwn) != SM_SUCCESS
+      || sOwn.GetSize() < 1)
+    { return FALSE; }
+  SmVector3d sNormal, sOtherNormal;
+  if (   pSurface->EvaluateNormal(SmPoint2d(sOwn[0].m_vStart[0], sOwn[0].m_vStart[1]), TRUE, TRUE, sNormal) != SM_SUCCESS
+      || pOtherSurface->EvaluateNormal(sOtherUV, TRUE, TRUE, sOtherNormal) != SM_SUCCESS)
+    { return FALSE; }
+  // A Face's normal is its surface's along its upward Faceuse; it points out of the material
+  // where that Faceuse looks into a void.
+  auto outward = [](const SmFace *pF) -> double
+    {
+      const SmFaceuse *pFU = pF->GetUpwardFaceuse();
+      const SmShell   *pSh = pFU ? pFU->GetShell() : NULL;
+      const SmRegion  *pRg = pSh ? pSh->GetRegion() : NULL;
+      return (pRg != NULL && !pRg->IsVoid()) ? -1.0 : 1.0;
+    };
+  return outward(pFace) * outward(pOther) * sNormal.Dot(sOtherNormal) < 0.0 ? TRUE : FALSE;
+} // end sm_FaceLiesOnFace
+
+/*******************************************************************//**
+PURPOSE: Remove the pairs of Faces that bound no material within the Brep's tolerance.
+
+NOTES: The contacts a boolean builds are exact (a tangency is an edge, a crossing a vertex).
+  Exact contacts within tolerance of one another can bound a solid thinner than the tolerance:
+  a box whose corner edge lies 3e-8 from a cylinder tangent to its face 0.0003 away leaves,
+  between the tangency and that edge, a strip of the face and a strip of the cylinder bounding
+  a 3e-8 sliver, and the caps across it hold loops of no area. Such a pair of Faces, adjacent
+  and each lying on the other within tolerance over all of it, bounds nothing a Brep at that
+  tolerance can hold: both are removed (and the Edges left with no Face with them), the Edges
+  left on one Face are stitched to their coincident partners, and an Edge one Loop then runs
+  along both ways, a lobe of no area, is deleted. A representability step, run after the
+  result's geometry is exact; it changes no contact.
+***********************************************************************/
+static SmStatus sm_RemoveFacePairsBoundingNothing(SmBrep *pBrep)
+{
+  if (pBrep == NULL)
+    { return SM_SUCCESS; }
+  SmZoneTol3d dTol = SmTol::GetZoneTol3d(pBrep);
+  SmTemporaryChangeValue<SmBoolean> sEditing(pBrep->m_bEditingEnabled, TRUE);
+  SmBoolean bRemoved = FALSE;
+  for (ULONG lPass = 0; lPass < 64; lPass++)
+    {
+      SmTArray<SmFace*> sFaces;
+      pBrep->GetFaces(sFaces);
+      SmFace *apPair[2] = { NULL, NULL };
+      for (ULONG ii = 0; ii < sFaces.GetSize() && apPair[0] == NULL; ii++)
+        {
+          SmTArray<SmEdge*> sEdges;
+          sFaces[ii]->GetEdges(sEdges);
+          for (ULONG jj = 0; jj < sEdges.GetSize() && apPair[0] == NULL; jj++)
+            {
+              SmTArray<SmFace*> sEdgeFaces;
+              sEdges[jj]->GetFaces(sEdgeFaces);
+              for (ULONG kk = 0; kk < sEdgeFaces.GetSize() && apPair[0] == NULL; kk++)
+                {
+                  SmFace *pOther = sEdgeFaces[kk];
+                  if (   pOther != sFaces[ii]
+                      && sm_FaceLiesOnFace(sFaces[ii], pOther, dTol)
+                      && sm_FaceLiesOnFace(pOther, sFaces[ii], dTol))
+                    {
+                      apPair[0] = sFaces[ii];
+                      apPair[1] = pOther;
+                    }
+                }
+            }
+        }
+      if (apPair[0] == NULL)
+        { break; }
+      SmTArray<SmFace*> sPair;
+      sPair.Add(apPair[0]);
+      sPair.Add(apPair[1]);
+      SER(pBrep->RemoveFaces(sPair));
+      bRemoved = TRUE;
+    }
+  if (!bRemoved)
+    { return SM_SUCCESS; }
+
+  // The Edges the pairs shared with the rest are left on one Face each: stitch them to their
+  // coincident partners.
+  ULONG  lStitched = 0, lLamina = 0;
+  double dMaxVertexGap = 0.0, dMaxEdgeGap = 0.0;
+  SER(pBrep->StitchFaces(2.0 * dTol, lStitched, lLamina, dMaxVertexGap, dMaxEdgeGap));
+
+  // An Edge whose two uses lie in one Loop is a lobe of no area: delete it.
+  for (ULONG lPass = 0; lPass < 1024; lPass++)
+    {
+      SmTArray<SmEdge*> sEdges;
+      pBrep->GetEdges(sEdges);
+      SmEdge *pLobe = NULL;
+      for (ULONG ii = 0; ii < sEdges.GetSize() && pLobe == NULL; ii++)
+        {
+          SmTArray<SmEdgeuse*> sUses;
+          SER(sEdges[ii]->GetEdgeuses(sUses));
+          if (   sUses.GetSize() == 2
+              && sUses[0]->GetLoopuse() != NULL
+              && sUses[0]->GetLoopuse() == sUses[1]->GetLoopuse())
+            { pLobe = sEdges[ii]; }
+        }
+      if (pLobe == NULL)
+        { break; }
+      SER(pBrep->DeleteEdge(pLobe));
+    }
+  return SM_SUCCESS;
+} // end sm_RemoveFacePairsBoundingNothing
+
+
+/*******************************************************************//**
 PURPOSE: Perform a manifold solid volumetric Boolean operation on
    the two breps.  It also performs a general merge operation which
    combines the topology of two breps.
@@ -5094,6 +5251,8 @@ SmBoolean bDebugRadialEdges = FALSE ;
     } // end eOperation == SM_BO_EXTRACT_SEPARATE check
   else
     {
+      // Faces the exact contacts left bounding nothing within tolerance go.
+      SER( sm_RemoveFacePairsBoundingNothing( m_vTI.m_pBrep ) );
       rpResult = m_vTI.m_pBrep;
     }
 

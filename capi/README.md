@@ -750,3 +750,13 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   curves running close) is the point where they come nearest, not a range between the spans'
   ends. Contact is what the geometry gives exactly: crossings and tangencies are points, a
   coincidence range only where the curves are the same.
+- **Faces that bound nothing within tolerance are removed after a boolean** (`SmMerge.cpp`,
+  `sm_RemoveFacePairsBoundingNothing`, at the end of `SmMerge::ManifoldBoolean`): the
+  contacts are exact (a tangency is an edge), and exact contacts within tolerance of each
+  other can leave a solid thinner than tolerance. A box cut by a cylinder tangent to its face
+  0.0003 from its corner edge, the edge 3e-8 off the cylinder, kept a 3e-8 sliver between a
+  strip of the face and a strip of the cylinder, its caps loops of no area (solidcore#429). Two
+  adjacent Faces that each lie on the other within tolerance (five points along every edge and
+  an internal point within tolerance of the other's surface, inside its box) and face opposite
+  ways are removed; the Edges left on one Face are stitched, and an Edge one Loop then runs
+  along both ways is deleted. A representability step; it changes no contact.
