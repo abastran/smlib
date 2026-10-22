@@ -729,7 +729,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   of a cone, whose spans are laid out so each seam lies in one). Every seam and UV curve is checked
   on its walls. A corner whose curves do not meet, a wall that closes before the far end, or a
   corner of a curve that is neither a line nor an arc is refused with its point
-  (`SM_TCR_APART`, `SM_TCR_WALL_CLOSES`, `SM_TCR_NOT_EXACT`). Composite offsets
+  (`SM_TCR_APART`, `SM_TCR_WALL_CLOSES`, `SM_TCR_NOT_EXACT`). For a profile of lines and arcs
+  `SM_OC_LINEAR_EXTENSION` runs through the same construction, an arc's end continued by a flat
+  piece along its tangent where a corner opens a gap: upstream's corner pieces were faces of their
+  own ruled to the corner even beside a line, so two lines met through two flat triangles (a
+  rectangle drafted came out with 14 faces, 6 now). Composite offsets
   (`CreateOffsetsOfManyCurves`) refuse the new type. `smlib_extrude` takes the rule
   (`SMLIB_DRAFT_CORNER_*`) and writes a refused corner's point.
 - **A loop closed through its vertex** (`SmTrimmingTools.cpp`, `SmTrimmingTools::CheckLoop`,

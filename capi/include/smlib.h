@@ -807,8 +807,10 @@ int32_t smlib_ssi_point(const smlib_ssi_result *r, int32_t i, double xyz[3], dou
  * inward (the far end smaller), negative outward; a drafted profile is one closed loop, its
  * curves in order, and its direction must be the profile's normal (either way round). `corner`
  * (one of SMLIB_DRAFT_CORNER_*, read only with a draft) closes its sharp corners. With
- * SMLIB_DRAFT_CORNER_CURVATURE every curve at a corner must be a line or an arc (the walls of
- * other curves have no exact continuation: SMLIB_ERR_NOT_EXACT); a corner it cannot close is
+ * SMLIB_DRAFT_CORNER_CURVATURE every curve of a profile with a sharp corner must be a line or an
+ * arc (the walls of other curves have no exact continuation: SMLIB_ERR_NOT_EXACT, with that
+ * curve's start); SMLIB_DRAFT_CORNER_TANGENT continues lines' and arcs' walls as their tangent
+ * planes (two lines meet at a corner edge) and other curves' walls as approximate offsets; a corner it cannot close is
  * SMLIB_ERR_CORNER_APART or SMLIB_ERR_WALL_CLOSES, or SMLIB_ERR_NOT_EXACT, and when `out_corner`
  * is not NULL that corner's point on the profile is written there (for SMLIB_ERR_WALL_CLOSES of an
  * arc that shrinks to its centre, the arc's middle). */
