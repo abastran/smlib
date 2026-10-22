@@ -746,7 +746,12 @@ public:
 
   // rtn TRUE When A Seam is missing or an Edge crosses a Seam without a vertex
   // note: HasSeamProblem() output is made to be used as SplitAtSeam() input.
-  SmBoolean HasSeamProblem 
+  // SolidCraft change: returns the status of the classification (it returned SmBoolean, and
+  // SM_SUCCESS from one path); the face has a seam problem when HasSeamProblem(reCrossedSeam,
+  // reMissingSeam) below is TRUE. The outputs are SM_SP_NEITHER unless set.
+  static SmBoolean HasSeamProblem(SmSurfParamType eCrossedSeam, SmSurfParamType eMissingSeam)
+    { return eCrossedSeam != SM_SP_NEITHER || eMissingSeam != SM_SP_NEITHER ; }
+  SmStatus HasSeamProblem 
   (
     SmCurveClassification & rCrvClassU,     // i/o: SeamConstU/Face Classification, const U isoParameterCurve 
     SmCurveClassification & rCrvClassV,     // i/o: SeamConstV/Face Classification, const V isoParameterCurve 

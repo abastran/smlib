@@ -80,6 +80,7 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmSurfaceIntersector.cpp
   ${SRC}/SMLib/src/SmProtoTopology.cpp
   ${SRC}/SMLib/src/SmBrep.cpp
+  ${SRC}/SMLib/src/SmFace.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp

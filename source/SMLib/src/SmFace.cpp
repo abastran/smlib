@@ -15954,7 +15954,7 @@ NOTES:   This method is helpful when reading in models from other systems that
          Pass the output from HasSeamProblem to those methods to save a
          little time by avoiding calling HasSeamProblem() twice.
 ***********************************************************************/
-SmBoolean SmFace::HasSeamProblem
+SmStatus SmFace::HasSeamProblem // SolidCraft change: returns a status (SmFace.h)
 (
   SmCurveClassification & rCrvClassU,     // i/o: ConstU_Seam/Face Classification, const U isoParameterCurve 
   SmCurveClassification & rCrvClassV,     // i/o: ConstV_Seam/Face Classification, const V isoParameterCurve
@@ -16008,9 +16008,14 @@ static ULONG lCount      = 1 ; lCount++ ;
   reMissingSeam  = SM_SP_UNKNOWN ;
   reNearMissSeam = SM_SP_UNKNOWN ;
 
+  // SolidCraft change: the outputs say "no problem" until the classification finds one
+  reCrossedSeam  = SM_SP_NEITHER ;
+  reMissingSeam  = SM_SP_NEITHER ;
+  reNearMissSeam = SM_SP_NEITHER ;
+
   // no work - no surface - return Okay
   if(GetSurface() == NULL)
-    { return FALSE ; }
+    { return SM_SUCCESS ; }
 
   // classify periodic surface and prepare for upcoming classifications
   SmSurface       * pSurface   = GetSurface() ;
@@ -16028,7 +16033,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       reCrossedSeam  = SM_SP_NEITHER ;
       reMissingSeam  = SM_SP_NEITHER ;
       reNearMissSeam = SM_SP_NEITHER ;
-      return FALSE ; 
+      return SM_SUCCESS ; 
     }
 
   // locals
@@ -16054,7 +16059,7 @@ static ULONG lCount      = 1 ; lCount++ ;
   if(pFaceProps->m_ePropStage < SM_PROPSTAGE_2a)
     {
       // run FaceProps->SetProps_Stage2: This is a recursive call after which HasSeamProblem has already run
-      pFaceProps->SetProps_Stage2(this, pFaceProps->m_lFaceIndx == SM_UNDEF_ULONG ? 0 : pFaceProps->m_lFaceIndx, SM_HO_ALL) ;
+      SER( pFaceProps->SetProps_Stage2(this, pFaceProps->m_lFaceIndx == SM_UNDEF_ULONG ? 0 : pFaceProps->m_lFaceIndx, SM_HO_ALL) ) ;
 
       // set output and return
       rCrvClassU     = *pFaceProps->m_pCrvClassU ;
@@ -16075,7 +16080,9 @@ static ULONG lCount      = 1 ; lCount++ ;
       // Build SeamConstU curve
       SmCrvOnSurf * pSeamConstU = NULL ;
 
-      pSurface->CreateSeamCurve(*pContext, SM_SP_U, pSeamConstU, bPeriodicU) ;
+      // SolidCraft change: a seam curve that was not made cannot be classified (it was used NULL)
+      SER( pSurface->CreateSeamCurve(*pContext, SM_SP_U, pSeamConstU, bPeriodicU) ) ;
+      NER( pSeamConstU ) ;
 
       // build SeamU classification object
       SmCurveInterval         aDataU[20] ;
@@ -16106,7 +16113,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       rCrvClassU.SetIsCurveOwned(TRUE) ;
 
       // classify the SeamCurve3d against this face
-      CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
+      SER( CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
                                             //      FALSE=classify such points as unknown. (good when Curve is known to be InFace)
                       rCrvClassU,           // i/o: contains m_cpCurve to classify, accumulates ivls as they are found.
                       bHasBigGaps_TRUE,     // in : TRUE = m_cpCurve and Face->Edges connect to Face where Edge/Face gaps are suspected to exceed XSectTol3d.
@@ -16125,11 +16132,11 @@ static ULONG lCount      = 1 ; lCount++ ;
                                             //      If this is the only classification call, then CrvClassif is complete
                                             //      and may be used as returned.
                                             //      NULL to ignore, default:[NULL]
-                      bUVSpaceOkay_FALSE) ; // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
+                      bUVSpaceOkay_FALSE)  ); // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
                                             //      FALSE= don't use UVSpace because UVTrimCurves are not known to be valid, default:[TRUE]
 
       // How many times is the U Seam crossed by loop (can be crossed by an Edge or Edge->Vertex->Edge complex)
-      rCrvClassU.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListU, &pFaceProps->m_sDoneTouchListU) ;
+      SER( rCrvClassU.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListU, &pFaceProps->m_sDoneTouchListU)  );
 
       // Find and Fix False SeamEdge EndPoint Classifications for CrvClassifies that start and stop on a SeamEdge
       //  this cleanup stops predicate SmCurveClassification::IsCrossedByEdge() from returning false positives
@@ -16142,7 +16149,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       SmPointClassification * pFirstOnEdge, * pLastOnEdge ;
       SmEdgeuse             * pFirstEdgeuseOnEdge, * pLastEdgeuseOnEdge ;
       ULONG                   lFalseEdgeClassifyCnt ;
-      sms_ReviewStartAndStopOnSeamCrvClassifies
+      SER( sms_ReviewStartAndStopOnSeamCrvClassifies
         (rCrvClassU,                              // in : Tgt CrvClassification
          *(SmCurve *)(pSeamConstU->GetUVCurve()), // in : UVTrimLine associated with ClassifyCrv
          pFirstOnEdge,                            // out: NotNULL = ClassifyCrv First PtClassify on an EdgeSide part of FaceBndry, NULL = Not on an Edge
@@ -16150,7 +16157,7 @@ static ULONG lCount      = 1 ; lCount++ ;
          pFirstEdgeuseOnEdge,                     // out: The Edgeuse that bounds the FirstPtClassify when it classifies to an Edge
          pLastEdgeuseOnEdge,                      // out: The Edgeuse that bounds the LastPtClassify  when it classifies to an Edge
          lFalseEdgeClassifyCnt,                   // out: number of PtClassify Edge to UNKNOWN changes made to CrvClassification
-         pOptFaceProps) ;                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
+         pOptFaceProps)  );                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
 
       // analyze rCrvClassU for problems (Crossing or Missing)
       bCrossedU  = rCrvClassU.IsCrossedByEdge() ;    // only count seam crossings by an Edge
@@ -16217,7 +16224,8 @@ static ULONG lCount      = 1 ; lCount++ ;
     {
       // Build SeamConstV curve
       SmCrvOnSurf * pSeamConstV = NULL ;
-      pSurface->CreateSeamCurve(*pContext, SM_SP_V, pSeamConstV, bPeriodicV) ;
+      SER( pSurface->CreateSeamCurve(*pContext, SM_SP_V, pSeamConstV, bPeriodicV) ) ;
+      NER( pSeamConstV ) ;
      // SmObjDelete sObjCleapupCrv(pSeamConstV); // JLMCC added to attempt to address memory leak
 
       // build SeamV classification object
@@ -16252,7 +16260,7 @@ static ULONG lCount      = 1 ; lCount++ ;
 
 
       // classify the SeamCurve3d against this face (works for composites)
-      CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
+      SER( CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
                                             //      FALSE=classify such points as unknown. (good when Curve is known to be InFace)
                       rCrvClassV,           // i/o: contains m_cpCurve to classify, accumulates ivls as they are found.
                       bHasBigGaps_TRUE,     // in : TRUE = m_cpCurve and Face->Edges connect to Face where Edge/Face gaps are suspected to exceed XSectTol3d.
@@ -16271,11 +16279,11 @@ static ULONG lCount      = 1 ; lCount++ ;
                                             //      If this is the only classification call, then CrvClassif is complete
                                             //      and may be used as returned.
                                             //      NULL to ignore, default:[NULL]
-                      bUVSpaceOkay_FALSE) ; // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
+                      bUVSpaceOkay_FALSE)  ); // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
                                             //      FALSE= don't use UVSpace because UVTrimCurves are not known to be valid, default:[TRUE]
 
       // How many times is the V Seam crossed (Can be crossed by an Edge or and Edge->Vertex->Edge complex
-      rCrvClassV.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListV, &pFaceProps->m_sDoneTouchListV) ;
+      SER( rCrvClassV.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListV, &pFaceProps->m_sDoneTouchListV)  );
 
       // Find and Fix False SeamEdge EndPoint Classifications for CrvClassifies that start and stop on a SeamEdge
       //  this cleanup stops predicate SmCurveClassification::IsCrossedByEdge() from returning false positives
@@ -16288,7 +16296,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       SmPointClassification * pFirstOnEdge, * pLastOnEdge ;
       SmEdgeuse             * pFirstEdgeuseOnEdge, * pLastEdgeuseOnEdge ;
       ULONG                   lFalseEdgeClassifyCnt ;
-      sms_ReviewStartAndStopOnSeamCrvClassifies
+      SER( sms_ReviewStartAndStopOnSeamCrvClassifies
         (rCrvClassV,                              // in : Tgt CrvClassification
          *(SmCurve *)(pSeamConstV->GetUVCurve()), // in : UVTrimLine associated with ClassifyCrv
          pFirstOnEdge,                            // out: NotNULL = ClassifyCrv First PtClassify on an EdgeSide part of FaceBndry, NULL = Not on an Edge
@@ -16296,7 +16304,7 @@ static ULONG lCount      = 1 ; lCount++ ;
          pFirstEdgeuseOnEdge,                     // out: The Edgeuse that bounds the FirstPtClassify when it classifies to an Edge
          pLastEdgeuseOnEdge,                      // out: The Edgeuse that bounds the LastPtClassify  when it classifies to an Edge
          lFalseEdgeClassifyCnt,                   // out: number of PtClassify Edge to UNKNOWN changes made to CrvClassification
-         pOptFaceProps) ;                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
+         pOptFaceProps)  );                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
 
       // analyze rCrvClassV for problems (Crossing or Missing)
       bCrossedV  = rCrvClassV.IsCrossedByEdge() ;    // only count seam crossings by an Edge
@@ -16816,7 +16824,7 @@ static ULONG lCount      = 1 ; lCount++ ;
                    :                             SM_SP_NEITHER ;
 
   // all done
-  return(bCrossedU || bCrossedV || bMissingU || bMissingV) ;
+  return SM_SUCCESS ;
 
 } // end SmFace::HasSeamProblem
 
@@ -18118,11 +18126,12 @@ static ULONG     lDebugCnt     = 0 ;
       SmTArray<SmVertex*> sTheseSeamVertices ;
 
       // When the Face still has SeamProblems
-      if(HasSeamProblem(rCrvClassU,        // or after FaceChange - If Face still has Seam problems (rebuilds CrvClassU and CrvClassV)
-                        rCrvClassV,        
-                        eCrossedSeam,
-                        eMissingSeam,
-                        eNearMissSeam))
+      SER( HasSeamProblem(rCrvClassU,        // or after FaceChange - If Face still has Seam problems (rebuilds CrvClassU and CrvClassV)
+                          rCrvClassV,        
+                          eCrossedSeam,
+                          eMissingSeam,
+                          eNearMissSeam) ) ;
+      if(HasSeamProblem(eCrossedSeam, eMissingSeam))
         {
           // Fix remaining SeamProblems by Splitting SeamCrossingEdges and inserting MissingSeam Intervals (may split faces - usually doesn't)
           SER( SplitAtSeam( rCrvClassU, 
@@ -18150,7 +18159,8 @@ static ULONG     lDebugCnt     = 0 ;
       SmCurveClassification sDbgCrvClassU ;
       SmCurveClassification sDbgCrvClassV ;
       SmSurfParamType eDbgCrossedSeam, eDbgMissingSeam, eDbgNearMissSeam ;
-      SmBoolean bIsCrossing = HasSeamProblem(sDbgCrvClassU, sDbgCrvClassV, eDbgCrossedSeam, eDbgMissingSeam, eDbgNearMissSeam) ;
+      SER( HasSeamProblem(sDbgCrvClassU, sDbgCrvClassV, eDbgCrossedSeam, eDbgMissingSeam, eDbgNearMissSeam) ) ;
+      SmBoolean bIsCrossing = HasSeamProblem(eDbgCrossedSeam, eDbgMissingSeam) ;
       SM_ASSERT_MSG(bIsCrossing==FALSE, _T("SmFace::MoveSeam - running MoveSeam() did not fix the seam problem"));
 
       if(bDebugMe)
@@ -18435,12 +18445,12 @@ static constexpr SmBoolean bUseJGU = FALSE ;
     {                                                                                     
       pCrvClassU->SetTgtLoopsOnly(FALSE) ;                                                                
       pCrvClassV->SetTgtLoopsOnly(FALSE) ;                                                                
-      HasSeamProblem(rCrvClassU,                                                       
+      SER( HasSeamProblem(rCrvClassU,                                                       
                      rCrvClassV,                                                       
                      eCrossedSeam,                                  
                      eMissingSeam,                                                  
                      eNearMissSeam,                                                 
-                     FALSE) ;          // FALSE = classify against all Face->Loops
+                     FALSE) ) ;        // FALSE = classify against all Face->Loops
     }
 
   // arrive here when SeamProb enums are set - when pOptCrvClassU && pOptCrvClassV are given these must also be given
@@ -18523,7 +18533,8 @@ static constexpr SmBoolean bUseJGU = FALSE ;
       sThisNewVertices.ReSet() ;
 
       // Is there still a problem?
-      bHasSeamProblem = HasSeamProblem(*pCrvClassU, *pCrvClassV, eCrossedSeam, eMissingSeam, eNearMissSeam) ;
+      SER( HasSeamProblem(*pCrvClassU, *pCrvClassV, eCrossedSeam, eMissingSeam, eNearMissSeam) ) ;
+      bHasSeamProblem = HasSeamProblem(eCrossedSeam, eMissingSeam) ;
 
       // no work - no seam problems
       if(bHasSeamProblem == FALSE)
@@ -18598,11 +18609,12 @@ static constexpr SmBoolean bUseJGU = FALSE ;
           SmSurfParamType       eThisCrossedSeam, eThisMissingSeam, eThisNearMissSeam ;
            
           // look for remaining Seam problems - should be no more problems in U
-          bHasSeamProblem = pTgtFace->HasSeamProblem(sThisCrvClassU, 
-                                                     sThisCrvClassV, 
-                                                     eThisCrossedSeam, 
-                                                     eThisMissingSeam, 
-                                                     eThisNearMissSeam) ;
+          SER( pTgtFace->HasSeamProblem(sThisCrvClassU, 
+                                        sThisCrvClassV, 
+                                        eThisCrossedSeam, 
+                                        eThisMissingSeam, 
+                                        eThisNearMissSeam) ) ;
+          bHasSeamProblem = HasSeamProblem(eThisCrossedSeam, eThisMissingSeam) ;
 
           // check that CrvClassU and CrvClassV share common endpoints
           SM_ASSERT_MSG(   pCrvClassU->GetPointClassByIndex(0)->GetPointClass() == pCrvClassV->GetPointClassByIndex(0)->GetPointClass()
@@ -21586,11 +21598,13 @@ SmBoolean bDebugMe = FALSE;
   SmSurfParamType eNearMissSeam;
 
   // Test = FALSE when pFace->Edges intersects pFace->PeriodicSurface->Seam
-  HasSeamProblem(sCrvClassU, 
-                 sCrvClassV, 
-                 eCrossedSeam, 
-                 eMissingSeam, 
-                 eNearMissSeam) ;
+  // SolidCraft change: a classification that fails is a check that fails
+  if (HasSeamProblem(sCrvClassU, 
+                     sCrvClassV, 
+                     eCrossedSeam, 
+                     eMissingSeam, 
+                     eNearMissSeam) != SM_SUCCESS)
+    { bRtn = FALSE ; }
 
   /* 29 */ // Face OuterLoop boundaries cannot cross a periodic surface seam
   bRtn &= SM_ASSERT_BOOLEAN_REPORT(29, SM_LEVEL_2, eCrossedSeam == SM_SP_NEITHER, _T("")) ;
