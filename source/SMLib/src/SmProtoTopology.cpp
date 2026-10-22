@@ -2018,6 +2018,12 @@ static constexpr double cbiFudge = 10.0;  //cbiTol: this is not working right.  
   NER( pNewED) ;
   sCleanVD.Clear();
 
+  // SolidCraft change: the copy is the upper child, owned by no ProtoEdge until pTopPE takes it.
+  // The copy constructor hands it this one's owner, the lower ProtoEdge, whose list holds this
+  // EdgeDefinition, not the copy: AddEdgeDefinition would remove the copy from an owner that
+  // never listed it, which fails.
+  pNewED->SetProtoEdge( NULL );
+
   // Get the parameterizations set correctly before calling AddEdgeDefinition().
 
   SER( this  ->m_pXSectInterval.SetMax( dParamPE)  );
