@@ -27,18 +27,10 @@
 #include <memory>
 #include <set>
 
-struct smlib_surface
+smlib_surface::~smlib_surface()
 {
-    SmSurface *s = nullptr;
-    SmExtent2d domain;
-    // The description in the SSI corpus case format, for dumps and the log.
-    std::string json;
-
-    ~smlib_surface()
-    {
-        delete s;
-    }
-};
+    delete s;
+}
 
 namespace
 {

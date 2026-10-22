@@ -228,6 +228,22 @@ intersection (SMLib's boolean with `SM_BO_IMPRINT`, the tool kept), leaving one 
 are the pieces. Trim and Split Face build on it and choose which pieces to keep; a tool that
 meets nothing is `SMLIB_ERR_NO_CUT`.
 
+## Split
+
+`smlib_split_faces(body, faces, n, tools, n_tools, &out, made)` cuts the chosen faces where
+each tool surface (an `smlib_surface`, over its whole domain) meets them, as SMLib's plane cutter
+cuts a subset of faces (`SmPlaneCutter::MergeIntersection`): each face's surface is intersected
+with the tool over the face's UV domain (`CreatePlanarSectionCurves` for a plane,
+`GlobalSurfaceIntersect` otherwise) and the curves go to `SmBrep::MergeCurvesOnSurface` with the
+tool as the intersecting surface, which trims them to the face and splits it. Unlike the plane
+cutter, a failed merge fails the call. `made[i]` counts the faces face `faces[i]` became besides
+itself; a call that splits nothing is `SMLIB_ERR_NO_CUT`.
+
+`smlib_split_body(body, tool, &back, &front)` slices a manifold solid with a one-face sheet on
+the tool surface (`SM_BO_SLICE`), once as it is and once turned over (`SwapUV`; the slice reads
+the side from the surface's normal, not from the face's use), giving the part behind the surface
+and the part in front of it. A tool that misses leaves both parts the whole body.
+
 ## Extend
 
 `smlib_extend_sheet(sheet, point, tol, distance, mode, &out)` continues a one-face sheet past the

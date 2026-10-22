@@ -871,6 +871,29 @@ int32_t smlib_sweep_stations(const int64_t *kinds, int64_t n_kinds, const double
  * keep. */
 int32_t smlib_imprint(const smlib_brep *body, const smlib_brep *tool, smlib_brep **out);
 
+/* ---- Split (src/smlib_split.cpp) --------------------------------------------------------- */
+
+#define SMLIB_SPLIT_MAX_FACES 100000
+#define SMLIB_SPLIT_MAX_TOOLS 4096
+
+/* A new body: `body` with its faces `faces` (`n_faces` distinct indices in its face order) cut
+ * where each tool surface (over its whole domain) meets them, the tools taken in turn, each one
+ * cutting the pieces the earlier ones left. The curves are SMLib's intersections of each face's
+ * surface with the tool (a plane's sections exactly), trimmed to the face; the edges they end on
+ * are cut in every face that uses them. `made[i]` (n_faces of them) is how many faces face
+ * `faces[i]` became besides itself: 0 where no tool split it. No face split at all is
+ * SMLIB_ERR_NO_CUT. The input is left unchanged. */
+int32_t smlib_split_faces(const smlib_brep *body, const int64_t *faces, int64_t n_faces, const smlib_surface *const *tools,
+                          int64_t n_tools, smlib_brep **out, int64_t *made);
+
+/* The manifold solid `body` cut in two by the tool surface (over its whole domain, which must
+ * reach past the body): `back` the part on the side the surface's normal points away from,
+ * `front` the part it points into, each closed by the tool's piece inside the body (SMLib's
+ * slice). A part may hold several solids. A tool that misses the body leaves each part the whole
+ * body, with no face of the tool (tag the body, smlib_history_tag, to tell); one that leaves a side
+ * empty is SMLIB_ERR_NO_CUT; a body that is no manifold solid SMLIB_ERR_NOT_SOLID. */
+int32_t smlib_split_body(const smlib_brep *body, const smlib_surface *tool, smlib_brep **back, smlib_brep **front);
+
 /* ---- Extend (src/smlib_extend.cpp) -------------------------------------------------------- */
 
 /* The input is a shape the call does not take (here: a sheet that is not one face bounded by

@@ -14,6 +14,7 @@
 #include <SmApiGeneral.h>
 #include <SmApiImportExport.h>
 #include <SmBrep.h>
+#include <SmExtent2d.h>
 
 #include <algorithm>
 #include <atomic>
@@ -30,6 +31,18 @@
 struct smlib_brep
 {
     SmBrep *p;
+};
+
+// A surface with its UV domain (src/smlib_ssi.cpp makes them; src/smlib_split.cpp cuts with them).
+struct smlib_surface
+{
+    SmSurface *s = nullptr;
+    SmExtent2d domain;
+    // The description in the SSI corpus case format, for dumps and the log.
+    std::string json;
+
+    // In src/smlib_ssi.cpp, where SmSurface is complete.
+    ~smlib_surface();
 };
 
 namespace smlib_shim
