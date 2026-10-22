@@ -499,6 +499,13 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 int32_t smlib_boolean(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out);
 int32_t smlib_boolean_with(const smlib_brep *a, const smlib_brep *b, int32_t op, int32_t flags, smlib_brep **out);
 
+/* A new sheet: `a` and `b`, sheets of planar faces on one plane (smlib_planar_faces), combined as
+ * regions of that plane by `op` (SMLIB_BOOLEAN_*: union, `a` less `b`, intersection), with
+ * SM_API's 2D boolean (SmApiBoolean2d). The result's edges are the inputs' own curves, split where
+ * they cross; both inputs are left unchanged. Faces off the plane of the others are
+ * SM_ERR_INVALID_INPUT; an input or a result without faces is SMLIB_ERR_EMPTY. */
+int32_t smlib_boolean2d(const smlib_brep *a, const smlib_brep *b, int32_t op, smlib_brep **out);
+
 /* The number of separate solid regions of `brep` (voids not counted). */
 int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
 
@@ -815,6 +822,12 @@ int32_t smlib_loft(const int64_t *kinds, int64_t n_kinds, const double *reals, i
  * of lines in order, closes the base, and each line spans a triangle to `apex`. A section with a
  * curve, or an apex in its plane, is SMLIB_ERR_ARG. */
 int32_t smlib_loft_to_point(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double apex[3], smlib_brep **out);
+
+/* A sheet of planar faces bounded by the curve list's closed loops, all in one plane and in any
+ * order (SmBrep::CreatePlanarFacesWith3DCurves): each outer loop one face, the loops directly
+ * inside it its holes, a loop inside a hole the outer loop of another face. The loops must not
+ * cross; loops meeting at an end point (SMLib's spine points) are SM_ERR. */
+int32_t smlib_planar_faces(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, smlib_brep **out);
 
 /* The profile carried by a screw motion about the axis through `origin` along `direction`:
  * `turns` (0.001 to SMLIB_SCREW_MAX_TURNS) turns right-handed about the axis, rising `pitch`
