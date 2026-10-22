@@ -663,3 +663,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   at a guess that was evaluated, a failed start without an interval returns its status, and the
   N-D step takes its equations, Jacobian and found flag from the one evaluation it uses (or
   stops when none succeeded).
+- **A radius of curvature never read** (`SmBSplineCurve.cpp`, `SmBSplineCurve::AssertValid`,
+  tests 13 and 14): the level-2 check ran the minimum-radius-of-curvature analysis and then
+  compared the radius it had not yet read (still `SM_BIG_DOUBLE`) with the tolerance, so a curve
+  with a vanishing radius of curvature was never reported and the analysis was wasted. The
+  smallest radius among the analysis' solutions is now compared.
