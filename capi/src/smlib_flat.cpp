@@ -17,6 +17,7 @@
 
 #include "smlib_flat.h"
 
+#include <array>
 #include <SmApiGeneral.h>
 #include <SmAttribute.h>
 #include <SmBSplineCurve.h>
@@ -700,7 +701,7 @@ SmBSplineSurface *smu_CreateSmBSplineSurface3d(const SmContext &crContext, const
  PURPOSE: append SmBSplineCurve2d data (Edgeuse->UVTrimCurves); NULL appends an empty curve.
           Port of smu_AddSmBSplineCurve2d_ToBrepArrayData.
  ***********************************************************************/
-SmStatus smu_AddSmBSplineCurve2d(SmBSplineCurve *pBSplineCurve2d, SmBoolean bSameOrientation, FlatBrep &F, const double *pRemap = nullptr)
+SmStatus smu_AddSmBSplineCurve2d(SmBSplineCurve *pBSplineCurve2d, SmBoolean bSameOrientation, FlatBrep &F, const double *pRemap = nullptr, const double *pAffine = nullptr)
 {
     // For NULL UVTrimCurves
     if (pBSplineCurve2d == NULL)
@@ -762,6 +763,14 @@ SmStatus smu_AddSmBSplineCurve2d(SmBSplineCurve *pBSplineCurve2d, SmBoolean bSam
             x /= cpts[i].w;
             y /= cpts[i].w;
             sWeight = cpts[i].w;
+        }
+        if (pAffine != nullptr)
+        {
+            // An affine map of the face's parameters (a plane's NURBS (u, v) onto the arrays'):
+            // exact for a B-spline, its weights unchanged.
+            const double dX = pAffine[0] + pAffine[1] * x + pAffine[2] * y;
+            y = pAffine[3] + pAffine[4] * x + pAffine[5] * y;
+            x = dX;
         }
         F.edgeuse_nurbs_cvs.push_back(x);
         F.edgeuse_nurbs_cvs.push_back(y);
@@ -1325,6 +1334,9 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
     uint32_t lNumEdges = pBrepData_ii->m_vEdges.GetSize();
     uint32_t lNumVertices = pBrepData_ii->m_vVertices.GetSize();
     std::vector<SmBoolean> sLoopExportsUVCurves(lNumLoops, FALSE);
+    // Per loop: the affine map of its plane face's NURBS (u, v) onto the arrays' plane (u, v), or none.
+    std::vector<std::array<double, 6>> sLoopPlaneMap(lNumLoops);
+    std::vector<SmBoolean> sLoopHasPlaneMap(lNumLoops, FALSE);
 
     // The arrays store the tolerance needed to preserve the source topology: the largest
     // effective face, edge, or vertex tolerance.
@@ -1511,6 +1523,25 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
         // SMLib works on: its range and UV trims are in that NURBS's parameters, as SMLib holds
         // them. A plane's are in its own (u, v), which carries no trims.
         const bool bNurbsForm = tFaceSurfaceType != kSurfaceNurbs && tFaceSurfaceType != kSurfacePlane;
+        // A plane's trims are in its NURBS (u, v); the arrays' plane (u, v) are distances along
+        // its unit axes (its STEP parameters scaled by GetUVScale), an affine image of them.
+        std::array<double, 6> sPlaneMap{};
+        SmBoolean bPlaneMap = FALSE;
+        if (tFaceSurfaceType == kSurfacePlane)
+        {
+            const SmSurface *pPlaneSurface = pFace->GetSurface();
+            const SmVector2d sScale = static_cast<const SmPlane *>(pPlaneSurface)->GetUVScale();
+            SmPoint2d q[3];
+            const SmPoint2d at[3] = {SmPoint2d(0.0, 0.0), SmPoint2d(1.0, 0.0), SmPoint2d(0.0, 1.0)};
+            bPlaneMap = TRUE;
+            for (int k = 0; k < 3 && bPlaneMap; ++k)
+            {
+                SmPoint2d st;
+                bPlaneMap = pPlaneSurface->ConvertUVFromNURBSToSTEP(at[k], st) == SM_SUCCESS ? TRUE : FALSE;
+                q[k] = SmPoint2d(st.x * sScale.x, st.y * sScale.y);
+            }
+            sPlaneMap = {q[0].x, q[1].x - q[0].x, q[2].x - q[0].x, q[0].y, q[1].y - q[0].y, q[2].y - q[0].y};
+        }
         for (uint32_t kk = 0; kk < rFaceData.m_lNumLoops; ++kk)
         {
             const uint32_t lLoopIndex = rFaceData.m_lStartLoop + kk;
@@ -1518,7 +1549,9 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             {
                 return SM_ERR; // "face loop index is out of bounds"
             }
-            sLoopExportsUVCurves[lLoopIndex] = tFaceSurfaceType == kSurfaceNurbs || bNurbsForm;
+            sLoopExportsUVCurves[lLoopIndex] = tFaceSurfaceType == kSurfaceNurbs || bNurbsForm || bPlaneMap;
+            sLoopPlaneMap[lLoopIndex] = sPlaneMap;
+            sLoopHasPlaneMap[lLoopIndex] = bPlaneMap;
         }
 
         // face range - must match the UV conventions declared by each surface API's schema:
@@ -1838,7 +1871,7 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
             }
         }
         const size_t lCountBefore = F.edgeuse_nurbs_vertex_count.size();
-        const SmStatus sUvCurveStatus = smu_AddSmBSplineCurve2d(pBSplineCurve2d, rEUData.m_bOrientation, F, pRemap);
+        const SmStatus sUvCurveStatus = smu_AddSmBSplineCurve2d(pBSplineCurve2d, rEUData.m_bOrientation, F, pRemap, sLoopHasPlaneMap[rEUData.m_lLoop] ? sLoopPlaneMap[rEUData.m_lLoop].data() : nullptr);
         if (sUvCurveStatus != SM_SUCCESS && F.edgeuse_nurbs_vertex_count.size() == lCountBefore)
         {
             // UV trims are optional. Preserve the edgeuse/UV-curve one-to-one record alignment
