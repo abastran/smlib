@@ -2238,8 +2238,8 @@ bool Validate(const FlatBrep &F, Shape &S)
             return false;
         }
         // Angular parameters (radians): at most one turn, near the principal range; a sphere's
-        // latitude within [-pi/2, pi/2].
-        const int64_t t = F.face_surface_type[i];
+        // latitude within [-pi/2, pi/2]. A face given with its NURBS form has a NURBS range.
+        const int64_t t = FaceHasNurbs(F, i) ? kSurfaceNurbs : F.face_surface_type[i];
         const bool uAngle = t == kSurfaceSphere || t == kSurfaceTorus || t == kSurfaceCylinder || t == kSurfaceCone;
         const bool vAngle = t == kSurfaceSphere || t == kSurfaceTorus;
         const double turn = 2.0 * SM_PI * (1.0 + 1e-9), far = 4.0 * SM_PI;
