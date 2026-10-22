@@ -3603,16 +3603,15 @@ NOTES:
 static const SmSurface * sm_GetOriginalSurface
   (const SmTreeNode & crSurfaceNode)        // in : TreeNode from SurfaceCache
 {
+  // SolidCraft: a node whose tree is not a surface cache's has no original surface: NULL, which
+  // every caller checks (it went on to cast the owner and call through it)
   SmTree *pTree = crSurfaceNode.m_pTree;
-  if (!pTree->GetOwner()->IsKindOf(SmSurfaceCache_TYPE))
+  if (pTree == NULL || pTree->GetOwner() == NULL || !pTree->GetOwner()->IsKindOf(SmSurfaceCache_TYPE))
     {
       SE(SM_ERR);  // should never happen
+      return NULL;
     }
   SmSurfaceCache *pSurfaceCache = (SmSurfaceCache*)pTree->GetOwner();
-  if (pSurfaceCache == NULL)
-    {
-      SE(SM_ERR); // should never happen
-    }
   return pSurfaceCache->GetSurface();
 
 } // end sm_GetOriginalSurface
@@ -4549,6 +4548,7 @@ static SmStatus sm_SpLocalSolve
 
   // Get exact surface to use in solve loop
   const SmSurface *pSrfEval = sm_GetSurfaceToEvaluate(pSurfaceNode, &sBSP);
+  NER(pSrfEval); // SolidCraft: no original surface for this node
 
   // when asked to find Surface/Point solutions
   if ( bSolveForSurface )
@@ -4844,6 +4844,7 @@ static SmStatus sm_SCLocalSolve
   const SmSurface &sBSS = *pBezPatch->mBA_pSurface ;
 
   const SmSurface *pSrfEval = sm_GetSurfaceToEvaluate(pSurfaceNode,&sBSS);
+  NER(pSrfEval); // SolidCraft: no original surface for this node
 
   // for two passes
   for (ULONG j=0; j<2; j++)
@@ -13967,6 +13968,7 @@ SmStatus SmCSIGlobalSolver::LocalSolve
   SmBezierSpan  *pBezSpan     = (SmBezierSpan*)pCurveNode->m_pData; NER(pBezSpan);
 
   const SmSurface *pParentSurf  = sm_GetOriginalSurface(*pSurfaceNode);
+  NER(pParentSurf); // SolidCraft: no original surface for this node
   const SmCurve   *pParentCurve = (SmCurve *)pCurveNode->GetOwnerObject() ;
   //const SmContext *pContext     = pParentSurf->GetContext();
 
@@ -13975,6 +13977,7 @@ SmStatus SmCSIGlobalSolver::LocalSolve
 
   // Use BezierPatch when it is exact - else use Original Surface when it is approximate
   const SmSurface *pSrfEval = sm_GetSurfaceToEvaluate(pSurfaceNode,&sBSS);
+  NER(pSrfEval); // SolidCraft: no original surface for this node
 
   // get U and V surface intervals
   SmExtent2d sSurfUVDomain = pBezPatch->GetUVDomain() ;
@@ -17488,12 +17491,14 @@ SmStatus SmCSGlobalSolver::LocalSolve
     }
 
   const SmSurface * pSurf = sm_GetOriginalSurface(*pSurfaceNode);
+  NER(pSurf); // SolidCraft: no original surface for this node
   const SmContext *pContext = pSurf->GetContext(); NER(pContext);
 
   const SmSurface &sBSS = *pBezPatch->mBA_pSurface ;
 
   SmExtent2d       sUVDomain = pBezPatch->GetUVDomain();
   const SmSurface *pSrfEval  = sm_GetSurfaceToEvaluate(pSurfaceNode,&sBSS);
+  NER(pSrfEval); // SolidCraft: no original surface for this node
 
   SmExtent1d     sIvl ;
   const SmCurve *pCurve ;
@@ -18151,6 +18156,7 @@ SmStatus SmLSIGlobalSolver::LocalSolve
 
   SmBezierPatch   * pBezPatch    = (SmBezierPatch*)pSurfaceNode->m_pData; NER(pBezPatch);
   const SmSurface * pParentSurf  = sm_GetOriginalSurface(*pSurfaceNode);
+  NER(pParentSurf); // SolidCraft: no original surface for this node
   const SmContext * pContext     = pParentSurf->GetContext(); NER(pContext);
 
   // Make BSplineSurface from Bezier patch
@@ -18160,6 +18166,7 @@ SmStatus SmLSIGlobalSolver::LocalSolve
 
   // Use BezierPatch when it is exact - else use Original Surface when it is approximate
   const SmSurface *pSrfEval     = sm_GetSurfaceToEvaluate(pSurfaceNode, &sBSS);
+  NER(pSrfEval); // SolidCraft: no original surface for this node
 
   // no work - This SurfaceNode is classified outside its face.
   if (!sm_IsNodeValid(*pSurfaceNode))
@@ -19747,6 +19754,7 @@ SmStatus SmSPGlobalSolver::LocalSolve
   
 #ifdef SM_DEBUG_CODE
   const SmSurface * pSurf    = sm_GetOriginalSurface(*pSurfaceNode);
+  NER(pSurf); // SolidCraft: no original surface for this node
   const SmContext * pContext = pSurf->GetContext();
 #endif
 
@@ -21111,6 +21119,7 @@ SmStatus SmSSGlobalSolver::LocalSolve
     const SmSurface & sBSS1      = *pBezPatch1->mBA_pSurface ;
 
     const SmSurface * pSrfEval1  = sm_GetSurfaceToEvaluate(pSurfaceNode1,&sBSS1);
+    NER(pSrfEval1); // SolidCraft: no original surface for this node
     SmExtent2d        sUVDomain1 = pBezPatch1->GetUVDomain();
 
     //const SmSurface & rSurf2     = sm_GetOriginalSurface(*pSurfaceNode2);
@@ -21120,6 +21129,7 @@ SmStatus SmSSGlobalSolver::LocalSolve
 
     SmExtent2d        sUVDomain2 = pBezPatch2->GetUVDomain();
     const SmSurface  *pSrfEval2  = sm_GetSurfaceToEvaluate(pSurfaceNode2,&sBSS2);
+    NER(pSrfEval2); // SolidCraft: no original surface for this node
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE;
@@ -21208,7 +21218,9 @@ SmBoolean bDebugMe = FALSE;
             SmBoolean bFoundIntersection;
             SmSolution sSolution;
             const SmSurface * cpSurf1 = sm_GetOriginalSurface(*pSurfaceNode1);
+            NER(cpSurf1); // SolidCraft: no original surface for this node
             const SmSurface * cpSurf2 = sm_GetOriginalSurface(*pSurfaceNode2);
+            NER(cpSurf2); // SolidCraft: no original surface for this node
             SER(cpSurf1->LocalSurfaceIntersect(cpSurf1->GetNaturalUVDomain(),
                                                *cpSurf2,
                                                cpSurf2->GetNaturalUVDomain(),
