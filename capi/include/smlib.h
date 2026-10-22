@@ -885,6 +885,12 @@ int32_t smlib_project_curves(const smlib_brep *brep, const double face_point[3],
                              int64_t n_kinds, const double *reals, int64_t n_reals, const double direction[3], double tolerance,
                              smlib_curves **out);
 
+/* The section of the face of `brep` that `face_point` picks by the plane through `plane_point`
+ * square to `plane_normal` (non-zero): SmBrep::CreatePlanarSectionCurves' curves on that face,
+ * within `tolerance`, as SMLib made them. No curve is SMLIB_ERR_EMPTY. */
+int32_t smlib_face_section(const smlib_brep *brep, const double face_point[3], double pick_tolerance, const double plane_point[3],
+                           const double plane_normal[3], double tolerance, smlib_curves **out);
+
 /* The sizes of `curves`: its curve list's arrays and its number of curves (two intervals
  * numbers each). */
 int32_t smlib_curves_size(const smlib_curves *curves, int64_t *n_kinds, int64_t *n_reals, int64_t *n_curves);

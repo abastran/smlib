@@ -112,7 +112,8 @@ base and a triangle from each of its lines to the apex, stitched and oriented as
 `smlib_project_curves` projects a curve list onto one picked face along a direction
 (`SmBrep::CreateParallelProjectionCurves` restricted to that face, as `SmApiProjectCurve` runs it
 on all of them) and hands back the projected curves as the B-splines SMLib made
-(`smlib_curves`), with their intervals.
+(`smlib_curves`), with their intervals. `smlib_face_section` gives one face's section by a plane
+(`SmBrep::CreatePlanarSectionCurves`, the curves on that face), also as `smlib_curves`.
 Profiles, paths and sections cross as curve lists (lines, circular arcs, NURBS; `include/smlib.h`
 gives the layout), checked before SMLib sees them and built into SMLib curves inside the call.
 With `cap` the result must be a closed manifold solid (`SMLIB_ERR_NOT_SOLID` otherwise).

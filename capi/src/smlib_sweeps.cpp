@@ -1317,6 +1317,70 @@ extern "C" int32_t smlib_project_curves(const smlib_brep *brep, const double fac
     );
 }
 
+extern "C" int32_t smlib_face_section(const smlib_brep *brep, const double face_point[3], double pick_tolerance, const double plane_point[3],
+                                      const double plane_normal[3], double tolerance, smlib_curves **out)
+{
+    if (brep == nullptr || brep->p == nullptr || face_point == nullptr || !finite(face_point, 3) || plane_point == nullptr ||
+        !finite(plane_point, 3) || plane_normal == nullptr || !finite(plane_normal, 3) || out == nullptr || !std::isfinite(pick_tolerance) ||
+        !(pick_tolerance > 0.0 && pick_tolerance < 1e6) || !std::isfinite(tolerance) || !(tolerance >= 1e-9 && tolerance < 1e3))
+    {
+        return SMLIB_ERR_ARG;
+    }
+    SmVector3d n(plane_normal[0], plane_normal[1], plane_normal[2]);
+    if (!(n.Length() > 1e-12) || n.Unitize() != SM_SUCCESS)
+    {
+        return SMLIB_ERR_ARG;
+    }
+    Call c("smlib_face_section", handle(brep) + ", face_point=" + vec(face_point, 3) + ", pick_tolerance=" + num(pick_tolerance) +
+                                     ", plane_point=" + vec(plane_point, 3) + ", plane_normal=" + vec(plane_normal, 3) + ", tolerance=" + num(tolerance));
+    c.input("brep", brep);
+    return c.run(
+        [&]
+        {
+            std::vector<SmFace *> picked;
+            int32_t s = smlib_pick::pick_faces(brep->p, face_point, 1, pick_tolerance, picked, nullptr);
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            const SmContext &ctx = *SmApiGetOrCreateContext();
+            const SmApproxTol3d tol = SM_CAST_APPROXTOL3D(tolerance);
+            SmTArray<SmCurve *> made, uv;
+            SmTArray<SmFace *> faces;
+            SmObjsDelete<SmCurve *> clean(&made);
+            SmObjsDelete<SmCurve *> clean_uv(&uv);
+            s = status(brep->p->CreatePlanarSectionCurves(ctx, SmPoint3d(plane_point[0], plane_point[1], plane_point[2]), n, &tol, nullptr, &made,
+                                                          &uv, &faces));
+            if (s != SMLIB_OK)
+            {
+                return s;
+            }
+            if (faces.GetSize() != made.GetSize())
+            {
+                return SMLIB_ERR_UNSUPPORTED;
+            }
+            auto result = std::make_unique<smlib_curves>();
+            for (ULONG i = 0; i < made.GetSize(); ++i)
+            {
+                if (faces[i] == picked.front())
+                {
+                    s = put_curve(made[i], *result);
+                    if (s != SMLIB_OK)
+                    {
+                        return s;
+                    }
+                }
+            }
+            if (result->intervals.empty())
+            {
+                return SMLIB_ERR_EMPTY;
+            }
+            *out = result.release();
+            return SMLIB_OK;
+        }
+    );
+}
+
 extern "C" int32_t smlib_curves_size(const smlib_curves *curves, int64_t *n_kinds, int64_t *n_reals, int64_t *n_curves)
 {
     if (curves == nullptr || n_kinds == nullptr || n_reals == nullptr || n_curves == nullptr)
