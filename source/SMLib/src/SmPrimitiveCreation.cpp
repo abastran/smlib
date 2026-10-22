@@ -3407,48 +3407,60 @@ SmStatus SmPrimitiveCreation::CreateDraftSweep
 
 /*****************************************************************
 PURPOSE:  Used by CreateTaperExtrude (below)
-  Return the joint point location between two links in a curve chain known to connect.
+  Return the joint point location between two links in a curve chain known to connect,
+  the joint a corner's offset curve was made round.
 
 NOTES: 
-  for 2 bspline curves that intersect at one start/end (which?)...return common intersection
-  point....we cannot rely on orientation being head-tail....we ignore directions.
+  for 2 bspline curves that meet at a start/end...return the common point....we cannot rely on
+  orientation being head-tail....we ignore directions.
+  Two links can meet at both their ends (a loop of two curves: a half disc's diameter and arc,
+  a lens of two arcs), so each has two corners between the same two links: of the joints, the
+  one nearest the corner's offset curve is its pivot. (Taking the first joint found gave both
+  corners the same pivot, and an outward draft of such a loop came out open.)
 
 *****************************************************************/
 static void sm_FindPivotPoint
  (SmBSplineCurve * pCrv1,       // in : one link in a chain of curve
   SmBSplineCurve * pCrv2,       // in : adjacent line in same chain
+  const SmCurve  * pCornerCrv,  // in : the corner's offset curve, made round the joint sought
   double           dTol,        // in : Same point tol
   SmPoint3d      & PivotPoint)  // out: 3D location of the join point between the two links
 {
   // locals 
   SmExtent1d sDomain1 = pCrv1->GetNaturalInterval();
   SmExtent1d sDomain2 = pCrv2->GetNaturalInterval();
-  SmPoint3d  sEndPoint1, sStartPoint1;
-  SmPoint3d  sEndPoint2, sStartPoint2;
+  SmPoint3d  sEnds1[2], sEnds2[2];
+  pCrv1->EvaluatePoint(sDomain1.GetMin(), sEnds1[0]);
+  pCrv1->EvaluatePoint(sDomain1.GetMax(), sEnds1[1]);
+  pCrv2->EvaluatePoint(sDomain2.GetMin(), sEnds2[0]);
+  pCrv2->EvaluatePoint(sDomain2.GetMax(), sEnds2[1]);
 
-  // Curve start points
-  pCrv1->EvaluatePoint(sDomain1.GetMin(), sStartPoint1);
-  pCrv2->EvaluatePoint(sDomain2.GetMin(), sStartPoint2);
+  // a point of the corner's offset curve, to tell two joints apart
+  SmPoint3d  sCorner;
+  pCornerCrv->EvaluatePoint(pCornerCrv->GetNaturalInterval().GetMid(), sCorner);
 
-  // coincident start points
-  if ((sStartPoint1 - sStartPoint2).LengthSquared() < dTol)
+  // the coincident end pairs, nearest the corner first
+  SmBoolean bFound = FALSE;
+  double    dBest  = 0.0;
+  for (int i=0; i<2; i++)
     {
-      PivotPoint = sStartPoint2;
-      return;
+      for (int j=0; j<2; j++)
+        {
+          if ((sEnds1[i] - sEnds2[j]).LengthSquared() >= dTol)
+            { continue; }
+          double dDist = (sEnds2[j] - sCorner).LengthSquared();
+          if (!bFound || dDist < dBest)
+            {
+              bFound     = TRUE;
+              dBest      = dDist;
+              PivotPoint = sEnds2[j];
+            }
+        }
     }
 
-  // Curve1 end point
-  pCrv1->EvaluatePoint(sDomain1.GetMax(), sEndPoint1);
-
-  // Coincident Curve1EndPoint and Curve2StartPoint
-  if ((sEndPoint1  -sStartPoint2).LengthSquared() < dTol)
-    {
-      PivotPoint = sStartPoint2;
-      return;
-    }
-  
-  // Must be Curve2 end Point 
-  pCrv2->EvaluatePoint(sDomain2.GetMax(), PivotPoint);
+  // no coincident ends within the tolerance: Curve2's end, as before
+  if (!bFound)
+    { PivotPoint = sEnds2[1]; }
 
   // all done
   return;
@@ -3563,6 +3575,7 @@ static SmStatus sm_CreateRuledSurfaceFromOffsetCurve
       SmPoint3d sPivotPoint;
       sm_FindPivotPoint(pRuleCurve2 ,          // in : one link in a chain of curve
                          pRuleCurveOther ,     // in : adjacent line in same chain
+                         pOffsetCrv ,          // in : the corner's offset curve
                          dSamePointTolerance , // in : Same point tol
                          sPivotPoint);         // out: 3D location of the join point between the two links
 

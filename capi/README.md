@@ -584,3 +584,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   it through. Each shell found inside another's region (by a ray from one of its vertices) is
   now moved into the region of the shell directly around it, turned round where it bounds a
   void, and the regions' void flags are set from the nesting. A partial turn was right already.
+- **A draft extrusion's corner pivots round its own joint** (`SmPrimitiveCreation.cpp`,
+  `sm_FindPivotPoint`, used by `SmPrimitiveCreation::CreateTaperExtrude`): a corner the offset goes
+  round is filled by a ruled face from its offset curve to the joint of the two profile curves it
+  lies between, and the joint was the first pair of coincident ends found. A loop of two curves
+  (a half disc's diameter and arc, a lens of two arcs) has two joints between the same two
+  curves, so both corners took the same pivot and an outward draft came out open
+  (`SMLIB_ERR_NOT_SOLID` from the shim). Of the joints, the one nearest the corner's offset curve is
+  now its pivot: a half disc r20 drafted 3° outward over 10 is a valid solid of 6555.914 mm³
+  (6555.908 by quadrature; the same loop with its diameter split in two gave that already).
