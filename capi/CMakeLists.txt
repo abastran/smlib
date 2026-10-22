@@ -86,6 +86,11 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmEdge.cpp
   ${SRC}/SMLib/src/SmEdgeuse.cpp
   ${SRC}/SMLib/src/SmFaceProps.cpp
+  ${SRC}/SMLib/src/SmShell.cpp
+  ${SRC}/SMLib/src/SmVertexuse.cpp
+  ${SRC}/SMLib/src/SmLoopuse.cpp
+  ${SRC}/SMLib/src/SmFaceuse.cpp
+  ${SRC}/SMLib/src/SmTopologyTraverser.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp

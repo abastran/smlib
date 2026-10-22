@@ -85,7 +85,7 @@ SmStatus SmShell::CalculateBoundingBox
       case SmEdgeuse_TYPE:
         { 
           SmTArray< SmEdge* > sEdges;
-          GetWireEdges( sEdges );
+          SER( GetWireEdges( sEdges ) );
           ULONG lNumEdges = sEdges.GetSize();
           for ( i = 0; i < lNumEdges; i++ )
           {
@@ -455,7 +455,7 @@ SmStatus SmShell::TransferChildrenTo
   else 
     {
       // get all shell->Brep wire edges owned by this shell 
-      GetWireEdges(sTargetWireEdges);
+      SER( GetWireEdges(sTargetWireEdges) );
     }
 
   // when ThisShell has WireEdges to move
@@ -467,14 +467,14 @@ SmStatus SmShell::TransferChildrenTo
           SmEdgeuse *pEU           = sTargetWireEdges[0]->GetPrimaryEdgeuse() ;
           pRecipient->m_pList      = (SmTopology*)pEU ; 
           pRecipient->m_tShellType = SmEdgeuse_TYPE;
-          pRecipient->UpdateListSize() ;
+          SER( pRecipient->UpdateListSize()  );
         }
 
       // Set every TargetWireEdge->Edgeuse owner to pRecipient Shell
       for(ii=0; ii<sTargetWireEdges.GetSize(); ii++) 
         {
           SmEdge *pWireEdge = (SmEdge*)sTargetWireEdges[ii];
-          pWireEdge->GetEdgeuses(sEdgeuses);
+          SER( pWireEdge->GetEdgeuses(sEdgeuses) );
           for (ULONG j=0; j<sEdgeuses.GetSize(); j++) 
             {
               SmEdgeuse *pEU = (SmEdgeuse*)sEdgeuses[j];
@@ -841,10 +841,10 @@ SmBoolean SmShell::IsInnerShellOf
       if(pOptOuterShell->IsFaceuseShell())
         { 
           SmNewMarkAndLock sMarkLock(GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
-          sTopologyTraverser.ClosureTraversal(pOptOuterShell->GetFirstFaceuse(), // in : target faceuse (gets marked)
+          if ( sTopologyTraverser.ClosureTraversal(pOptOuterShell->GetFirstFaceuse(), // in : target faceuse (gets marked) // SolidCraft change: without the closure of the outer shell, containment is not known
                                               bIsClosed,                         // out: TRUE=faceuse connects to closed faceuse set, FALSE=doesn't                                                                         
                                               NULL,                              // out: List of all connected faces (get marked), NULL to ignore.
-                                              sMarkLock) ;                       // in : specify mark for target objects (incremented)
+                                              sMarkLock)  != SM_SUCCESS ) { return UNSURE ; }                       // in : specify mark for target objects (incremented)
         }
 
       if(bIsClosed == FALSE)
@@ -853,7 +853,7 @@ SmBoolean SmShell::IsInnerShellOf
 
   // get size based on Approx Brep bounding box
   SmExtent3d sBBox ;
-  pBrep->CalculateBoundingBox(sBBox, TRUE) ;
+  if ( pBrep->CalculateBoundingBox(sBBox, TRUE)  != SM_SUCCESS ) { return UNSURE ; } // SolidCraft change: without the box no ray can be cast
   sBBox.ExpandAbsolute(1.0) ;
   double dSize = 2.0 * sBBox.GetSize().Length() ;
   double dTol  = SM_EFF_ZERO * (1.0 + dSize) ;
@@ -870,7 +870,7 @@ SmBoolean SmShell::IsInnerShellOf
   SmTArray<SmEdge *> sInnerWireEdges ;
   SmVertex *pInnerShellVertex = GetVertex() ; 
   GetFaceuses(sInnerFaceuses) ;
-  GetWireEdges(sInnerWireEdges) ; 
+  (void)GetWireEdges(sInnerWireEdges) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
   SmBoolean bFoundSolution = FALSE ;
 
@@ -882,7 +882,7 @@ SmBoolean SmShell::IsInnerShellOf
 
       // sPV[0,2,4,...] = point to start ray for each SmpPoint,
       // sPV[1,3,5,...] = direction to run ray for each SmpPoint
-      if(IsFaceuseShell())     { pInnerFaceuse->GetPointsInFace(lSmpCnt, sSmpUV, sSmpPV) ; }
+      if(IsFaceuseShell())     { if ( pInnerFaceuse->GetPointsInFace(lSmpCnt, sSmpUV, sSmpPV)  != SM_SUCCESS ) { return UNSURE ; } } // SolidCraft change: without sample points no ray can be cast
       else if(IsWireShell())   { SmExtent1d sIvl = pInnerWireEdge->GetInterval() ;
                                  SmPoint3d sPoint, sDir ;
                                  srand(SM_RAND_SEED) ;
@@ -890,12 +890,12 @@ SmBoolean SmShell::IsInnerShellOf
                                    {
                                      SmCurve *pCurve = pInnerWireEdge->GetCurve() ;
                                      // sample the curve and pick varying directions for the vector
-                                     pCurve->EvaluatePoint(sIvl.Evaluate((double)(jj + 1) / (double)(lSmpCnt + 1)),
-                                                           sPoint) ;
+                                     if ( pCurve->EvaluatePoint(sIvl.Evaluate((double)(jj + 1) / (double)(lSmpCnt + 1)), // SolidCraft change: without sample points no ray can be cast
+                                                           sPoint)  != SM_SUCCESS ) { return UNSURE ; }
                                      sDir.Set( 2.0*(((double)rand()) / ((double)RAND_MAX)) - 1.0 ,
                                                2.0*(((double)rand()) / ((double)RAND_MAX)) - 1.0 ,
                                                2.0*(((double)rand()) / ((double)RAND_MAX)) - 1.0) ;
-                                     sDir.Unitize() ;
+                                     (void)sDir.Unitize() ; // SolidCraft: a zero vector stays zero
                                      sSmpPV.Add(sPoint) ;
                                      sSmpPV.Add(sDir) ;
                                    }
@@ -909,7 +909,7 @@ SmBoolean SmShell::IsInnerShellOf
                                      sDir.Set( 2.0*(((double)rand()) / ((double)RAND_MAX)) - 1.0 ,
                                                2.0*(((double)rand()) / ((double)RAND_MAX)) - 1.0 ,
                                                2.0*(((double)rand()) / ((double)RAND_MAX)) - 1.0) ;
-                                     sDir.Unitize() ;
+                                     (void)sDir.Unitize() ; // SolidCraft: a zero vector stays zero
                                      sSmpPV.Add(sPoint) ;
                                      sSmpPV.Add(sDir) ;
                                    }
@@ -944,7 +944,7 @@ SmBoolean bDebugMe = FALSE ;
 
           // intersect line with Brep
           SmSolutionArray sSolutions ;
-          SmTopologySolver::BrepCurveSolve(pBrep,
+          if ( SmTopologySolver::BrepCurveSolve(pBrep, // SolidCraft change: a ray the solver could not cast decides nothing; the next one is tried
                                            sLine,
                                            sLine.GetNaturalInterval(),
                                            SM_SO_INTERSECT,
@@ -952,7 +952,7 @@ SmBoolean bDebugMe = FALSE ;
                                            dTol,
                                            0.0,
                                            NULL,
-                                           sSolutions) ;
+                                           sSolutions)  != SM_SUCCESS ) { continue ; }
 #ifdef SM_DEBUG_CODE
           // draw 
           if(bDebugMe)
@@ -1018,7 +1018,7 @@ SmBoolean bDebugMe = FALSE ;
 
           // load solution into a CurveClassification
           SmCurveClassification sCurveClass(&sLine, sLine.GetNaturalInterval(), NULL, dTol) ;
-          sCurveClass.InsertTopologyIntersections(sSolutions, 0) ;
+          if ( sCurveClass.InsertTopologyIntersections(sSolutions, 0)  != SM_SUCCESS ) { continue ; } // SolidCraft change: a ray whose crossings cannot be classified decides nothing; the next one is tried
 
 #ifdef SM_DEBUG_CODE
           // draw 
@@ -1104,8 +1104,8 @@ SmBoolean bDebugMe = FALSE ;
 
               SmSurface *pSurface = pFace->GetSurface() ;
               SmPoint3d sPV[2] ;
-              pSurface->EvaluatePoint (sUV, sPV[0]) ;
-              pSurface->EvaluateNormal(sUV, TRUE, TRUE, sPV[1]) ;
+              if ( pSurface->EvaluatePoint (sUV, sPV[0])  != SM_SUCCESS ) { return UNSURE ; } // SolidCraft change: without the crossing face normal the ray cannot order the shells
+              if ( pSurface->EvaluateNormal(sUV, TRUE, TRUE, sPV[1])  != SM_SUCCESS ) { return UNSURE ; } // SolidCraft change: without the crossing face normal the ray cannot order the shells
 
               // figure out which shell is being exited and which shell is being entered
               SmShell *pOrdered[2] ;
@@ -1178,7 +1178,7 @@ const
   SmExtent3d sBBox ;
 
   // Do expensive check
-  CalculateBoundingBox(sBBox) ;
+  if ( CalculateBoundingBox(sBBox)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without a box the shell is not shown degenerate
   SmBoolean bRtn = sBBox.IsPointSized(d3DTol) ;
 
   // all done
@@ -1249,10 +1249,10 @@ SmDisplayList * SmShell::Draw
 
   // for all Shell types - output wireEdges
   SmTArray<SmEdge*> sWireEdges;
-  GetWireEdges(sWireEdges);
+  (void)GetWireEdges(sWireEdges); // SolidCraft: drawing only
   for (ULONG i=0; i<sWireEdges.GetSize(); i++) 
     {
-      sWireEdges[i]->OutputGraphics(rDisp, pOptGfxSet);
+      (void)sWireEdges[i]->OutputGraphics(rDisp, pOptGfxSet); // SolidCraft: drawing only
     }
 
   // when drawing FaceuseShells
@@ -1282,7 +1282,7 @@ SmDisplayList * SmShell::Draw
           rDisp.m_pFaceuse      = pFU ;
 
           // draw surface normal
-          pFace->OutputGraphics(rDisp, bReverseNormals, NULL, pOptGfxSet) ;
+          (void)pFace->OutputGraphics(rDisp, bReverseNormals, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
           // clear global display parameter DrawFaceuse data
           rDisp.m_bDrawFaceuse  = FALSE ;
@@ -1306,7 +1306,7 @@ SmDisplayList * SmShell::Draw
     {
       // output vertex graphics
       SmVertex *pV = this->GetVertex();
-      pV->OutputGraphics(pOptGfxSet);
+      (void)pV->OutputGraphics(pOptGfxSet); // SolidCraft: drawing only
     }
 
   // restore the global display parameters to previous drawing mode
@@ -1346,11 +1346,11 @@ SmPoint3d SmShell::GetGraphicsPoint() const
   else if(this->IsWireShell())
     {
       SmTArray<SmEdge*> sWireEdges;
-      GetWireEdges(sWireEdges);
+      (void)GetWireEdges(sWireEdges); // SolidCraft: drawing only
       SmEdge  *pEdge  = sWireEdges.GetAt(0) ;
       SmCurve *pCurve = pEdge->GetCurve() ;
 
-      pCurve->EvaluatePoint(pEdge->GetInterval().Evaluate(.7), sGraphicsPoint) ;
+      (void)pCurve->EvaluatePoint(pEdge->GetInterval().Evaluate(.7), sGraphicsPoint) ; // SolidCraft: drawing only
     }
     
   // FaceuseShell
@@ -1363,7 +1363,7 @@ SmPoint3d SmShell::GetGraphicsPoint() const
 
       SmTArray<SmPoint2d> sUV ;
       SmTArray<SmPoint3d> sXYZ ;
-      pFaceuse->GetFace()->GetPointsInFace(1, sUV, sXYZ) ;
+      (void)pFaceuse->GetFace()->GetPointsInFace(1, sUV, sXYZ) ; // SolidCraft: drawing only
       sGraphicsPoint = sXYZ[0] ;
     }
 
@@ -1432,7 +1432,7 @@ void SmShell::GetFaceuses(SmTArray<SmFaceuse*> & rFaceuses) const
   if(m_tShellType != SmFaceuse_TYPE) { rFaceuses.ReSet() ;
                                        return ; 
                                      }
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rFaceuses)); 
+  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rFaceuses)); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 
 } // end SmShell::GetFaceuses
 
@@ -1613,9 +1613,9 @@ SmBoolean SmShell::AssertValid
   SmTArray<SmEdge *>  sWireEdges ;
   SmTArray<SmFaceuse *> sShellFaceuses ;
 
-  sm_GetShellVertices(this, sShellVertices) ;
-  GetWireEdges(sWireEdges) ;
-  sm_GetShellFaceuses(this, sShellFaceuses) ;
+  (void)sm_GetShellVertices(this, sShellVertices) ; // SolidCraft: a validity check reads what it computed
+  (void)GetWireEdges(sWireEdges) ; // SolidCraft: a validity check reads what it computed
+  (void)sm_GetShellFaceuses(this, sShellFaceuses) ; // SolidCraft: a validity check reads what it computed
 
   // check for pointer/geometric consistency
   switch(m_tShellType)
@@ -1652,7 +1652,7 @@ SmBoolean SmShell::AssertValid
               SmNewMarkAndLock sMarkLock( pEu1->GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
               SmMarkType eMarkType = sMarkLock.GetMarkType() ;
 
-              pEu1->GetConnectedEdgeuses(sEdgeuses1, eMarkType) ; // uses without incrementing eMarkType value
+              (void)pEu1->GetConnectedEdgeuses(sEdgeuses1, eMarkType) ; // uses without incrementing eMarkType value // SolidCraft: a validity check reads what it computed
             }
 
           // there should be no ShellVertices nor ShellFaceuses
@@ -1663,7 +1663,7 @@ SmBoolean SmShell::AssertValid
           ULONG ii ;
           for(ii=0;ii<sWireEdges.GetSize();ii++)
             {
-              sWireEdges[ii]->GetEdgeuses(sEus) ;
+              (void)sWireEdges[ii]->GetEdgeuses(sEus) ; // SolidCraft: a validity check reads what it computed
               sEdgeuses2.Append(sEus) ; 
             }
 
@@ -1719,7 +1719,7 @@ SmBoolean SmShell::AssertValid
             {
               SmTopologyTraverser sTT;
               SmNewMarkAndLock sMarkLock(GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
-              sTT.ShellTraversal(pEU->GetVertexuse()->GetVertex(),  // in : target vertex
+              (void)sTT.ShellTraversal(pEU->GetVertexuse()->GetVertex(),  // in : target vertex // SolidCraft: a validity check reads what it computed
                                  (SmShell *)this,                   // in : target shell
                                  NULL,                              // out: optional list of edges in shell (not marked)
                                  &sFaceuses2,                       // out: optional list of faces in shell (get marked)
@@ -1899,7 +1899,7 @@ void SmShell::Dump(void) const
 
   // Get the lists of things contained in this shell
   SmTArray<SmFaceuse*> sFaceuses ;  GetFaceuses(sFaceuses) ;
-  SmTArray<SmEdge*>    sWireEdges ; GetWireEdges(sWireEdges) ;
+  SmTArray<SmEdge*>    sWireEdges ; (void)GetWireEdges(sWireEdges) ; // SolidCraft: dump only
   SmVertex            *pVertex    = GetVertex() ;
 
   // write Shell ePointerValue and Type
@@ -1962,7 +1962,7 @@ void SmShell::Dump(void) const
     {
       SmTArray<SmEdgeuse*> sEdgeuses ;
       SmEdge *pWireEdge = sWireEdges[i] ;
-      pWireEdge->GetEdgeuses(sEdgeuses) ;
+      (void)pWireEdge->GetEdgeuses(sEdgeuses) ; // SolidCraft: dump only
       SM_ASSERT(sEdgeuses.GetSize() == 2) ;
       SmShell *pShell1 = sEdgeuses[0]->GetShell() ;
       SmShell *pShell2 = sEdgeuses[1]->GetShell() ;
@@ -2024,7 +2024,7 @@ void SmShell::DumpTopology
 
   // count the number of things directly connected to this shell
   SmTArray<SmFaceuse*>   sFaceuses ;  GetFaceuses(sFaceuses) ;
-  SmTArray<SmEdge*>      sWireEdges ; GetWireEdges(sWireEdges) ;
+  SmTArray<SmEdge*>      sWireEdges ; (void)GetWireEdges(sWireEdges) ; // SolidCraft: dump only
   SmTArray<SmVertexuse*> sVertexuses ; 
   SmVertex *pVertex = GetVertex() ;
 
