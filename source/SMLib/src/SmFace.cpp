@@ -7847,10 +7847,6 @@ SmStatus sm_FixUVTrimCurves
   SER( pSurface->EvaluatePoint(sUVVertex, sSurfVertex)  );
   SER( pSurface->EvaluateNormal(sUVVertex, TRUE, TRUE, sSurfVertexNormal)  ); 
 
-  // UVGap sizes
-  double dUVCurrEdgeGap = sUVVertex3d.DistanceBetween(sUVCurr) ;
-  double dUVPrevEdgeGap = sUVVertex3d.DistanceBetween(sUVPrev) ;
-
   // edge end points
   SmPoint3d  sCurrEdgePoint ;    // sCurrEdgePoint = CurrEdgeuse->Edge->EndPoint,
   SmPoint3d  sPrevEdgePoint ;    // sPrevEdgePoint = PrevEdgeuse->Edge->EndPoint,
@@ -7904,88 +7900,10 @@ SmBoolean bDebugMe = FALSE;
 
   // arrive here after the corner geometry has been checked
   // next move UVTrimCurve endpoints to sUVVertex location.
-  //    To prevent introducing hooks and dog legs, drop the point to the curve and trim appropriatly
-
-  // drop sUVVertex to each UVTrimCurve
-  SmBoolean bCurrSuccess, bPrevSuccess ;
-  double dTCurrNew, dTPrevNew ;
-  double dCurrUVDistToCurve, dPrevUVDistToCurve ;
-  SER( pCurrUVCurve->DropPoint
-    (sCurrIvl,                               // in : target curve allowed domain 
-     sUVVertex3d,                            // in : Point to drop to curve 
-     NULL,                                   // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
-                                             //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
-                                             //      Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-     1.1 * (SM_EFF_ZERO + dUVCurrEdgeGap),   // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-                                             //      sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-                                             //      sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
-                                             //      sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
-    &dTCurr,                                 // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve() 
-     bCurrSuccess,                           // out: TRUE = found a drop point 
-     dTCurrNew,                              // out: found drop curve param 
-     dCurrUVDistToCurve,                     // out: found drop distance 
-     SM_SO_INTERSECT)  );                      // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
-                                             //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
-                                             //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints 
-                                             //      default:[SM_SO_MINIMIZE] to preserve original behavior 
-                                              
-  SER( pPrevUVCurve->DropPoint
-    (sPrevIvl,                               // in : target curve allowed domain 
-     sUVVertex3d,                            // in : Point to drop to curve 
-     NULL,                                   // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
-                                             //    when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
-                                             //    Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-     1.1 * (SM_EFF_ZERO + dUVPrevEdgeGap),   // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-                                             //    sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-                                             //    sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
-                                             //    sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
-    &dTPrev,                                 // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve() 
-     bPrevSuccess,                           // out: TRUE = found a drop point 
-     dTPrevNew,                              // out: found drop curve param 
-     dPrevUVDistToCurve,                     // out: found drop distance 
-     SM_SO_INTERSECT)  );                      // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
-                                             //    SM_SO_INTERSECT= like Minimize but point must be within dDistTol
-                                             //    SM_SO_NORMALIZE= exclude nonNormal drops near endPoints 
-                                             //    default:[SM_SO_MINIMIZE] to preserve original behavior                                              
-  // Trim pCurrUVCurve when needed
-  if ( bCurrSuccess == FALSE)
-    {
-      dTCurrNew = dTCurr ;
-    }
-  else if(!SM_ARE_SAME(dTCurr,dTCurrNew) )
-    {
-      // set the desired trim interval
-      SmExtent1d sTrimIvl;
-      if (pEUCurrent->GetOrientation() == SM_OT_SAME) { SER( sTrimIvl.SetMinMax(dTCurrNew,sCurrIvl.GetMax()) ); }
-      else                                            { SER( sTrimIvl.SetMinMax(sCurrIvl.GetMin(),dTCurrNew) ); }
-
-      // for nonDegenerate intervals - trim the curve and restore the original parameter range
-      if (!SM_ARE_SAME(sTrimIvl.GetMin(),sTrimIvl.GetMax()))
-        {
-          SER(pCurrUVCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
-          SER(pCurrUVCurve->EditParameterization(sCurrIvl));
-        }
-    } // end need to trim ThisCurve check
-
-  // Trim pPrevUVCurve when needed
-  if ( bPrevSuccess == FALSE)
-    {
-      dTPrevNew = dTPrev ;
-    }
-  else if(!SM_ARE_SAME(dTPrev,dTPrevNew) )
-    {
-      // set the desired trim interval
-      SmExtent1d sTrimIvl;
-      if (pEUPrevious->GetOrientation() == SM_OT_SAME) { SER( sTrimIvl.SetMinMax(sPrevIvl.GetMin(),dTPrevNew) ); }
-      else                                             { SER( sTrimIvl.SetMinMax(dTPrevNew,sPrevIvl.GetMax()) ); }
-
-      // for nonDegenerate intervals - trim the curve and restore the original parameter range
-      if (!SM_ARE_SAME(sTrimIvl.GetMin(),sTrimIvl.GetMax()))
-        {
-          SER(pPrevUVCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
-          SER(pPrevUVCurve->EditParameterization(sPrevIvl));
-        }
-    } // end need to trim ThisCurve check
+  //    SolidCraft: the curves are not trimmed at the vertex's drop point and stretched back over
+  //    the edge interval (Trim + EditParameterization): that moves every interior parameter of
+  //    the UVTrimCurve off its edge's by the trimmed length, so the curve no longer follows its
+  //    edge at the same parameter. Only the end control points move (below), by the UV gap.
 
   // get current edgeuse->EndWeights
   SmPoint3d sStart, sEnd;
