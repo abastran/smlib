@@ -1224,9 +1224,9 @@ struct EdgeArraysOut
 SmStatus WriteEdgeCurve(EdgeArraysOut &o, const EdgeExport &e, SmCurve *pCurve, const SmExtent1d &ivl, SmApproxTol3d sApproxTol3d)
 {
     o.type.push_back(e.type);
-    // A circle is also given with its NURBS form, the SmBSplineCurve SMLib holds it as: its
-    // range is that NURBS's, and the trims on it keep their parameter.
-    const bool bForm = e.type == kCurveCircle;
+    // A circle or ellipse is also given with its NURBS form, the SmBSplineCurve SMLib holds it
+    // as: its range is that NURBS's, and the trims on it keep their parameter.
+    const bool bForm = e.type == kCurveCircle || e.type == kCurveEllipse;
     o.form.push_back(bForm ? 1 : 0);
     if (e.type == kCurveNurbs)
     {
@@ -1268,6 +1268,11 @@ SmStatus WriteEdgeCurve(EdgeArraysOut &o, const EdgeExport &e, SmCurve *pCurve, 
         Push3(o.ellipseRef, e.ref.x, e.ref.y, e.ref.z);
         o.ellipseX.push_back(e.r1);
         o.ellipseY.push_back(e.r2);
+        SmStatus s = smu_AddSmBSplineCurve3d(*SM_REINTERPRET_CAST(SmBSplineCurve *, pCurve), o.nurbsCount, o.nurbsOrder, o.nurbsCvs, o.nurbsKnots, o.nurbsWeights);
+        if (s != SM_SUCCESS)
+        {
+            return s;
+        }
     }
     return SM_SUCCESS;
 }
@@ -1866,13 +1871,14 @@ SmStatus FlatFromBrep(const SmBrep &crBrep, FlatBrep &F)
                                 ? pBrepData_ii->m_vUVCurves[rEUData.m_lUVCurve]
                                 : NULL;
         SmBSplineCurve *pBSplineCurve2d = (pUVCurve != NULL && pUVCurve->IsKindOf(SmBSplineCurve_TYPE)) ? SM_REINTERPRET_CAST(SmBSplineCurve *, pUVCurve) : NULL;
-        // SolidCraft: on an edge exported as an analytic curve, the trim's knots follow the
-        // imported curve's parameter, or the trim is dropped when that is not an affine image of
-        // the edge's (SMLib then rebuilds it from the 3D edge, as for analytic faces).
+        // SolidCraft: on an edge exported as a line, the trim's knots follow the imported line's
+        // parameter, or the trim is dropped when that is not an affine image of the edge's
+        // (SMLib then rebuilds it from the 3D edge). Circles and ellipses go out on their NURBS
+        // form, whose parameter the trims are already in.
         double sRemap[4];
         const double *pRemap = nullptr;
         if (pBSplineCurve2d != NULL && rEUData.m_lEdge < sEdgeExports.size() && sEdgeExports[rEUData.m_lEdge].type != kCurveNurbs &&
-            sEdgeExports[rEUData.m_lEdge].type != kCurveCircle)
+            sEdgeExports[rEUData.m_lEdge].type != kCurveCircle && sEdgeExports[rEUData.m_lEdge].type != kCurveEllipse)
         {
             const EdgeExport &rE = sEdgeExports[rEUData.m_lEdge];
             const SmExtent1d &rIvl = pBrepData_ii->m_vEdges[rEUData.m_lEdge].m_vInterval;
@@ -2107,14 +2113,14 @@ bool GoodEdges(
     const std::vector<int64_t> &form
 )
 {
-    // A NURBS form is given for circles only, one flag per edge, or for none.
+    // A NURBS form is given for circles and ellipses only, one flag per edge, or for none.
     if (!form.empty() && (form.size() != n || !Bits(form)))
     {
         return false;
     }
     for (size_t i = 0; i < form.size(); ++i)
     {
-        if (form[i] == 1 && type[i] != kCurveCircle)
+        if (form[i] == 1 && type[i] != kCurveCircle && type[i] != kCurveEllipse)
         {
             return false;
         }
@@ -2795,6 +2801,67 @@ SmStatus MakeEdgeCurve(
 )
 {
     out = NULL;
+    if (bForm && type == kCurveEllipse)
+    {
+        // An ellipse given with its NURBS form: an SmEllipse that keeps that NURBS (the trims on
+        // the edge are in its parameter), its analytic domain the eccentric angles of the
+        // NURBS's ends. Taken only when every control point's curve point lies on the ellipse.
+        size_t idx = c.ellipse++;
+        SmBSplineCurve *pNurbs = smu_CreateSmBSplineCurve3d(ctx, nurbs, c);
+        SmObjDelete sNurbsCleanup(pNurbs);
+        if (pNurbs == NULL || idx >= ellipseX.size() || idx >= ellipseY.size())
+        {
+            return SM_ERR_INVALID_INPUT;
+        }
+        const SmPoint3d o = Get3(ellipseCenter, idx);
+        SmVector3d z = GetVec3(ellipseAxis, idx), x = GetVec3(ellipseRef, idx);
+        const double rx = ellipseX[idx], ry = ellipseY[idx];
+        if (z.Unitize(FALSE) != SM_SUCCESS || x.Unitize(FALSE) != SM_SUCCESS || !(rx > 0.0 && ry > 0.0))
+        {
+            return SM_ERR_INVALID_INPUT;
+        }
+        const SmVector3d y = z * x;
+        const SmExtent1d sIvl = pNurbs->GetNaturalInterval();
+        auto angle = [&](double t, double &deg) -> bool {
+            SmPoint3d p;
+            if (pNurbs->EvaluatePoint(t, p) != SM_SUCCESS)
+            {
+                return false;
+            }
+            const SmVector3d d = p - o;
+            deg = std::atan2(d.Dot(y) / ry, d.Dot(x) / rx) * 180.0 / M_PI;
+            return std::fabs(std::hypot(d.Dot(x) / rx, d.Dot(y) / ry) - 1.0) <= 1e-9 && std::fabs(d.Dot(z)) <= 1e-9 * (1.0 + rx + ry);
+        };
+        double a0 = 0.0, a1 = 0.0;
+        for (int k = 0; k <= 16; ++k)
+        {
+            double a = 0.0;
+            if (!angle(sIvl.GetMin() + (sIvl.GetMax() - sIvl.GetMin()) * k / 16.0, a))
+            {
+                return SM_ERR_INVALID_INPUT;
+            }
+            if (k == 0)
+            {
+                a0 = a;
+            }
+            if (k == 16)
+            {
+                a1 = a;
+            }
+        }
+        double sweep = std::fmod(a1 - a0 + 720.0, 360.0);
+        if (sweep <= 1e-9)
+        {
+            sweep = 360.0;
+        }
+        SmExtent1d sDomain(a0, a0 + sweep);
+        if (a0 + sweep > 360.0)
+        {
+            sDomain = SmExtent1d(a0 - 360.0, a0 - 360.0 + sweep);
+        }
+        out = new (ctx) SmEllipse(o, x, y, sDomain, rx, ry, 3, &ctx, pNurbs);
+        return out != NULL ? SM_SUCCESS : SM_ERR;
+    }
     if (bForm)
     {
         // A circle given with its NURBS form: that NURBS, as the SmCircle SMLib's own test
