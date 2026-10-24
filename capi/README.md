@@ -901,3 +901,9 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   and keeps the trims on it as they are; import makes the NURBS an `SmCircle` by SMLib's own
   `IsNurbCurveCircle` and refuses the B-rep when the circle has another NURBS. Before, trims on
   circle edges were dropped and rebuilt.
+- **Parallel cylinders cut to their faces** (`SmCone.cpp`, `SmCone::IntersectWithCone`): 1.0.1
+  sends cylinder/cylinder intersections here (`GlobalSurfaceIntersect`), and for two parallel
+  cylinders the lines' span along the axis came from the whole cylinders, not the faces'
+  intersection domains. A wall trimmed along its axis (a hole through a plate, shorter than its
+  tool) got lines that started outside it, which the domain check then dropped, so a second
+  overlapping hole failed its boolean. The span is now the faces' own.

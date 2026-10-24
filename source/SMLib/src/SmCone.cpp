@@ -2800,11 +2800,25 @@ SmBoolean bDebugMe = FALSE;
 
       // get the axis intervals for both cylinders
       // Recall, these are not our v-parameters, they are based on 0 to Height.
-      double dMin      = 0.0;        // Our current bottom and top.
-      double dMax      = dHeight;
-      double dMinOther = smos_Min(dParam,dParam2); // Other's bottom and top project on us.
+      // SolidCraft: the intervals the two faces cover, from the intersection domains
+      // (crUVDomain, crOtherUVDomain), not the whole cylinders. A face trimmed along its axis
+      // (a hole cut through a plate is shorter than the tool cylinder it came from) otherwise
+      // gets lines that start outside it, and the domain check below drops them all.
+      SmExtent2d sThisStepDom, sOtherStepDom;
+      SER( ConvertDomainFromNURBSToSTEP( crUVDomain, sThisStepDom ) );
+      SER( crOtherCone.ConvertDomainFromNURBSToSTEP( crOtherUVDomain, sOtherStepDom ) );
+      double dMin      = sThisStepDom.GetVMin() - m_vAnalUVDomain.GetVMin(); // Our face's bottom and top.
+      double dMax      = sThisStepDom.GetVMax() - m_vAnalUVDomain.GetVMin();
+      SER( smgu_LineClosestPoint( sCenterBot, sConeAxis, rOBasePt + sOtherStepDom.GetVMin() * sOConeAxis, dParam ));
+      SER( smgu_LineClosestPoint( sCenterBot, sConeAxis, rOBasePt + sOtherStepDom.GetVMax() * sOConeAxis, dParam2 ));
+      double dMinOther = smos_Min(dParam,dParam2); // Other face's bottom and top project on us.
       double dMaxOther = smos_Max(dParam,dParam2);
       SM_ASSERT( dMinOther <= dMaxOther );
+
+      // no work: the faces are disjoint along the parallel axis
+      if ( dMinOther > dMax + dTol || dMaxOther < dMin - dTol )
+        { return SM_SUCCESS;
+        }
 
       // shorten interval to point when cylinder ends touch on same plane (to tolerance) 
       if (dMinOther > dMax-dTol) { dMin = dMax; }

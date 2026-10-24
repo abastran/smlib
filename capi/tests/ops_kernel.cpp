@@ -1207,6 +1207,27 @@ int main()
     CHECK(smlib_thicken(nullptr, 1.0, 0, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_thicken(cube, NAN, 0, &r) == SMLIB_ERR_ARG);
 
+    // Two holes 6 apart cut one after the other through a disc: the second hole's wall meets the
+    // first's (trimmed to the disc) in two lines. Parallel cylinders are intersected by
+    // SmCone::IntersectWithCone, which once took the lines' span from the whole cylinders, so
+    // the lines started below the trimmed wall and were dropped (the boolean failed, 1001).
+    {
+        smlib_brep *disc = cylinder(0, 0, 0, 20, 10);
+        smlib_brep *first = cylinder(6, 0, -1, 5, 12);
+        smlib_brep *second = cylinder(3, 3 * std::sqrt(3.0), -1, 5, 12);
+        smlib_brep *one = nullptr;
+        smlib_brep *two = nullptr;
+        CHECK(smlib_boolean(disc, first, SMLIB_BOOLEAN_SUBTRACT, &one) == SMLIB_OK && sound(one));
+        CHECK(smlib_boolean(one, second, SMLIB_BOOLEAN_SUBTRACT, &two) == SMLIB_OK && sound(two));
+        // The union of two r5 discs 6 apart: twice a disc less their lens.
+        const double lens = 2.0 * 25.0 * std::acos(0.6) - 3.0 * 8.0;
+        CHECK(near(volume_of(two), (PI * 400.0 - (2.0 * PI * 25.0 - lens)) * 10.0, 1e-6));
+        for (smlib_brep *b : {disc, first, second, one, two})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     for (smlib_brep *b : {cube, rod, holed, pin, round, cut, big, far, touching})
     {
         smlib_brep_free(b);
