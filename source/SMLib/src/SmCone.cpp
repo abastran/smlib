@@ -4894,10 +4894,21 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
   SmVector3d sYAxis = sStepZAxis * rXAxis;
 
   // when top and bot radius values are nearly equal
-  if (smos_Fabs(dBotRad-dTopRad) < SM_EFF_ZERO*(1.0+dBotRad)) 
+  if (smos_Fabs(dBotRad-dTopRad) < SM_EFF_ZERO*(1.0+dBotRad))
     {
       // make them exactly equal - Try to eliminate some numerical inaccurracies
-      dTopRad = dBotRad; 
+      dTopRad = dBotRad;
+    }
+  // SolidCraft: an SmCylinder has one radius (its semi-angle is zero by its type, which
+  // AssertValid holds it to). Radii read back from its NURBS (after SwapUV, as
+  // OrientTrimmedSurfaces turns a face) differ by rounding, more than SM_EFF_ZERO allows: within
+  // the rounding a NURBS carries (SM_EFF_ZERO_SQRT, as the height test above) they are its one
+  // radius; a NURBS modified further than that is no longer a cylinder.
+  else if (IsKindOf(SmCylinder_TYPE))
+    {
+      if (!(smos_Fabs(dBotRad-dTopRad) < SM_EFF_ZERO_SQRT*(1.0+dBotRad)))
+        { SER_MSG(SM_ERR, _T("Modified Nurb SmCylinder: Top and Bot radii differ")) ; }
+      dBotRad = dTopRad = 0.5 * (dBotRad + dTopRad);
     }
 
   // arrive here when surface has passed all not-a-cone filters

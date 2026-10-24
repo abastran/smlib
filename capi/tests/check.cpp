@@ -123,6 +123,39 @@ int main()
         }
     }
 
+    // A ring r10/r9 drawn as 256 arcs each, extruded 3: StitchAndOrient turns the hole's walls
+    // over (SwapUV), and each SmCylinder's analytic form is rebuilt from its NURBS, whose radii
+    // read back differ by rounding; they once gave the cylinders a semi-angle of -4e-10 degrees,
+    // which their own check (Zero SemiAngle) refuses.
+    {
+        std::vector<int64_t> kinds;
+        std::vector<double> reals;
+        const int arcs = 256;
+        const double pi = std::acos(-1.0);
+        for (double radius : {10.0, 9.0})
+        {
+            const double turn = radius == 10.0 ? 1.0 : -1.0;
+            for (int i = 0; i < arcs; ++i)
+            {
+                kinds.push_back(SMLIB_CURVE_ARC);
+                const double a0 = 2.0 * pi * i / arcs;
+                const double r[12] = {0, 0, 0, 0, 0, turn, 1, 0, 0, radius, a0, a0 + 2.0 * pi / arcs};
+                reals.insert(reals.end(), r, r + 12);
+            }
+        }
+        const double up[3] = {0, 0, 1};
+        smlib_brep *ring = nullptr;
+        CHECK(smlib_extrude(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), up, 3.0,
+                            0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &ring, nullptr) == SMLIB_OK);
+        Report r = check(ring, 2);
+        if (r.failures != 0)
+        {
+            std::fprintf(stderr, "ring of arcs, level 2: %lld failures\n%s", static_cast<long long>(r.failures), r.text.substr(0, 400).c_str());
+        }
+        CHECK(r.status == SMLIB_OK && r.failures == 0);
+        smlib_brep_free(ring);
+    }
+
     // A box with one corner pulled 1 mm off its three edges and faces.
     smlib_brep *broken = make(box);
     SmTArray<SmVertex *> vertices;

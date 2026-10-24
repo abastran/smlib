@@ -907,3 +907,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   intersection domains. A wall trimmed along its axis (a hole through a plate, shorter than its
   tool) got lines that started outside it, which the domain check then dropped, so a second
   overlapping hole failed its boolean. The span is now the faces' own.
+- **A cylinder keeps one radius when its NURBS is reset** (`SmCone.cpp`,
+  `SmCone::RebuildSTEPFromNURBParameters`): after `SwapUV` (as `OrientTrimmedSurfaces` turns a
+  face over) an `SmCylinder`'s analytic form was rebuilt from its NURBS, whose two radii differ by
+  rounding (2e-11 on r9), so it got a semi-angle its own check (Zero SemiAngle) refuses. Radii
+  within `SM_EFF_ZERO_SQRT` are its one radius, their mean; further apart it is refused.
