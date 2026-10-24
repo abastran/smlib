@@ -164,18 +164,24 @@ if ensure_binary_or_handle "brep_geometry_validator Python tests" "${PWD}/_build
     fi
 fi
 
-echo "Running heal_file Python tests"
-apply_runtime_lib_path
-OMNISOLID_PLUGIN_PATH="${PWD}/_build/schema/omniSolid/resources" \
-PYTHONPATH="${PWD}/_build/target-deps/usd/release/lib/python:${PWD}/_build/${platform}/release" \
-"$(repo_python)" -m unittest discover -s source/SmPyLib/tests_usd -p "test_*.py"
-status=$?
-if [ $status -ne 0 ]; then
-    echo "heal_file Python tests failed with exit code $status, aborting"
-    exit $status
+smpylib_so=$(find "${PWD}/_build/${platform}/release" -maxdepth 1 -name '_omni_solid*' 2>/dev/null | head -1)
+
+# The heal_file tests import _omni_solid, which a build without OpenUSD does not make.
+if [ -n "$smpylib_so" ]; then
+    echo "Running heal_file Python tests"
+    apply_runtime_lib_path
+    OMNISOLID_PLUGIN_PATH="${PWD}/_build/schema/omniSolid/resources" \
+    PYTHONPATH="${PWD}/_build/target-deps/usd/release/lib/python:${PWD}/_build/${platform}/release" \
+    "$(repo_python)" -m unittest discover -s source/SmPyLib/tests_usd -p "test_*.py"
+    status=$?
+    if [ $status -ne 0 ]; then
+        echo "heal_file Python tests failed with exit code $status, aborting"
+        exit $status
+    fi
+else
+    echo "Skipping heal_file Python tests (_omni_solid module not found in _build/${platform}/release)"
 fi
 
-smpylib_so=$(find "${PWD}/_build/${platform}/release" -maxdepth 1 -name '_omni_solid*' 2>/dev/null | head -1)
 if [ -n "$smpylib_so" ]; then
     echo "Running SmPyLib (Python bindings) tests"
     apply_runtime_lib_path
@@ -193,14 +199,16 @@ else
     echo "Skipping SmPyLib tests (_omni_solid module not found in _build/${platform}/release)"
 fi
 
-if compgen -G "${PWD}/_build/${platform}/release/_smlib_dev*.so" > /dev/null; then
+# The SmPyDevLib tests import _omni_solid too (BUILDING.md: _smlib_dev imports only in a build
+# with OpenUSD).
+if [ -n "$smpylib_so" ] && compgen -G "${PWD}/_build/${platform}/release/_smlib_dev*.so" > /dev/null; then
     echo "Running SmPyDevLib tests"
     apply_runtime_lib_path
     OMNISOLID_PLUGIN_PATH="${PWD}/_build/schema/omniSolid/resources" \
     PYTHONPATH="${PWD}/_build/${platform}/release" \
     "$(repo_python)" -m unittest discover -s source/SmPyDevLib/tests -p "test_*.py" -v || exit $?
 else
-    echo "Skipping SmPyDevLib tests (_smlib_dev module not built)"
+    echo "Skipping SmPyDevLib tests (_smlib_dev or _omni_solid module not built)"
 fi
 
 if ensure_binary_or_handle "brep_validator Python unittests" "${PWD}/_build/${platform}/release/usd_test_app"; then

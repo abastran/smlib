@@ -1994,7 +1994,7 @@ SmStatus SmTess::MakePolygon
               if (   !sExpandedDomain.ContainsPoint2d(sStartUV.Get2dXY())
                   || !sExpandedDomain.ContainsPoint2d(sEndUV.Get2dXY()))
               {
-                  TCHAR sBuff[SM_MAXSIZE];
+                  TCHAR sBuff[SM_TBLOCK_SIZE]; // SM_SPRINTF writes up to SM_TBLOCK_SIZE characters
                   SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
                   SM_SPRINTF(sBuff, _T("\n UV domain: [%f, %f] X [%f, %f], StartUV: (%f, %f), EndUV: (%f, %f)"),
                                 sDomain.GetMin().x, sDomain.GetMax().x,

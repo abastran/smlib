@@ -11,7 +11,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 cd "${REPO_ROOT}"
 
 USD_ROOT="${SMLIB_USD_ROOT:-${HOME}/opt/usd-25.11-py312}"
-PM_PYTHON_ROOT="${SMLIB_PYTHON_ROOT:-${HOME}/Library/Application Support/packman-cache/python/3.12.13-macos-aarch64}"
+PM_PYTHONS="${HOME}/Library/Application Support/packman-cache/python"
+# The newest Packman host Python 3.12: Packman updates its patch release.
+PM_PYTHON_DEFAULT="$(ls -d "${PM_PYTHONS}"/3.12.*-macos-aarch64 2>/dev/null | sort -t. -k3 -n | tail -1)"
+PM_PYTHON_ROOT="${SMLIB_PYTHON_ROOT:-${PM_PYTHON_DEFAULT}}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "setup-macos-local-deps.sh is for macOS only." >&2

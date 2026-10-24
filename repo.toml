@@ -55,6 +55,11 @@ fetch.packman_target_files_to_pull = [
 fetch."platform:macos-universal".packman_target_files_to_pull = [
     "${root}/deps/target-deps-python-macos.packman.xml",
 ]
+# repo_man applies "platform:" filters by the host platform, which on Apple Silicon is
+# macos-aarch64, so the override is given for that name too.
+fetch."platform:macos-aarch64".packman_target_files_to_pull = [
+    "${root}/deps/target-deps-python-macos.packman.xml",
+]
 
 msbuild.sln_file = "usd-brep.sln"
 

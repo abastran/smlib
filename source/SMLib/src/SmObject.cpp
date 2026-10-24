@@ -143,7 +143,8 @@ void SmObject::Notify                  // expected calls: caller->Notify(Event, 
   #endif // no SM_ECHO_NOTIFY
 
   TCHAR sBuff[SM_TBLOCK_SIZE], sBuffForFile[SM_TBLOCK_SIZE] ;
-  TCHAR sOpLabel[64], sData1Label[64], sData2Label[64], sData3Label[64] ;
+  // SM_SPRINTF writes up to SM_TBLOCK_SIZE characters, so each buffer it fills has that size.
+  TCHAR sOpLabel[SM_TBLOCK_SIZE], sData1Label[SM_TBLOCK_SIZE], sData2Label[SM_TBLOCK_SIZE], sData3Label[SM_TBLOCK_SIZE] ;
 
   if(bDebugMe)
     {

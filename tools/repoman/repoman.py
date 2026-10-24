@@ -16,7 +16,17 @@ THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 REPO_ROOT = os.path.join(THIS_DIR, "../..")
 REPO_DEPS_FILE = os.path.join(REPO_ROOT, "deps/repo-deps.packman.xml")
 
-_MACOS_PYTHON = Path.home() / "Library/Application Support/packman-cache/python/3.12.13-macos-aarch64"
+_PACKMAN_PYTHONS = Path.home() / "Library/Application Support/packman-cache/python"
+
+
+def _macos_python():
+    """The newest Packman host Python 3.12 for Apple Silicon: Packman updates its patch release."""
+    def patch_release(path):
+        part = path.name.split("-")[0].split(".")[-1]
+        return int(part) if part.isdigit() else -1
+
+    found = sorted(_PACKMAN_PYTHONS.glob("3.12.*-macos-aarch64"), key=patch_release)
+    return found[-1] if found else _PACKMAN_PYTHONS / "3.12-macos-aarch64"
 
 
 def bootstrap():
@@ -94,7 +104,7 @@ MAKE_PLATFORMS = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch6
 
 def _ensure_macos_python_deps(repo_root):
     """Symlink host Packman Python when the macos-universal target package is unavailable."""
-    host_python = Path(os.environ["SMLIB_PYTHON_ROOT"]) if "SMLIB_PYTHON_ROOT" in os.environ else _MACOS_PYTHON
+    host_python = Path(os.environ["SMLIB_PYTHON_ROOT"]) if "SMLIB_PYTHON_ROOT" in os.environ else _macos_python()
     if not (host_python / "include/python3.12").is_dir():
         return
 

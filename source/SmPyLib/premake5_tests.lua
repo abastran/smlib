@@ -40,9 +40,10 @@ project "_smlib_tests"
         buildoptions { "-fPIC", "-fvisibility=hidden" }
     filter { "system:macosx" }
         externalincludedirs { root.."/_build/target-deps/python/include/python3.12" }
-        libdirs { root.."/_build/target-deps/python/lib" }
-        links { "python3.12" }
+        -- An extension module takes Python's symbols from the interpreter that loads it, as
+        -- pybind11 and setuptools build them on macOS; linking libpython would also tie each
+        -- slice of the universal module to a libpython of that architecture.
         targetextension ".cpython-312-darwin.so"
         buildoptions (concat_arrays({"-fPIC", "-fvisibility=hidden"}, macos_common_buildoptions()))
-        linkoptions (concat_arrays({"-rpath @loader_path"}, macos_common_linkoptions()))
+        linkoptions (concat_arrays({"-rpath @loader_path", "-undefined dynamic_lookup"}, macos_common_linkoptions()))
     filter {}

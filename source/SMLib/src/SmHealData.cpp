@@ -41,9 +41,10 @@ NOTES: To Debug One Target Face through the heal sequence: (same for Target Edge
   static constexpr ULONG lDebugVertexIndx = SM_UNDEF_ULONG ; // SM_UNDEF_ULONG = No VertexIndx   DebugBlock entries, else VertexIndx = enter debugBlocks automatically for VertexIndx cases
 
  ULONG GWC_SET_NEXT_3_LINES_TO___FALSE___BEFORE_RELEASE ;
-  static constexpr SmBoolean bDebugAllFaceIndxCalls   = FALSE ;
-  static constexpr SmBoolean bDebugAllEdgeIndxCalls   = FALSE ;
-  static constexpr SmBoolean bDebugAllVertexIndxCalls = FALSE ;
+  // Not constexpr: set from a debugger, and clang rejects || with a constant operand (-Wconstant-logical-operand).
+  static SmBoolean bDebugAllFaceIndxCalls   = FALSE ;
+  static SmBoolean bDebugAllEdgeIndxCalls   = FALSE ;
+  static SmBoolean bDebugAllVertexIndxCalls = FALSE ;
   
 /*******************************************************************/
 SmBoolean SmDebugThisFaceIndex(ULONG lFaceIndx, SmBoolean bDebugThisIndxCall)     { if(lFaceIndx   == lDebugFaceIndx   && (bDebugThisIndxCall || bDebugAllFaceIndxCalls))
