@@ -591,6 +591,15 @@ public:
   SmStatus DeleteEdge(SmEdge    * pEdgeToDelete,
                       SmSurface * pOptSurfaceToKeep=NULL) ;
 
+  // SolidCraft change: remove the inner loops of no area where solids touch along a curve inside a
+  // face (each edge used twice by the loop, each also bounding another face), then split the
+  // shells joined only through them. A volumetric boolean's last step.
+  SmStatus RemoveSlitLoopsWhereSolidsTouch() ;
+
+  // SolidCraft change: split each shell into its connected parts, a part of a solid's or a void's
+  // shell into a region of its own, a part of the infinite region's shell staying there.
+  SmStatus SplitDisconnectedShells() ;
+
   // remove face from topoogy graph and delete it and its geometry, leaving bounding edges and vertices behind
   SmStatus DeleteFace(SmFace                 * pFaceToDelete,                   // in : target face 
                       SmBoolean                bDeleteEdgesVertices = FALSE,    // in : TRUE = delete connected edges and vertices, 

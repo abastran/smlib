@@ -28186,6 +28186,156 @@ SmStatus SmBrep::TestClosureSplitRegion
 }  // end TestClosureSplitRegion( SmEdge verison )
 
 /*******************************************************************//**
+PURPOSE: Split each shell into its connected parts: a part of a solid's or a
+   void's shell gets a region of its own, a part of the infinite region's shell
+   stays in the infinite region.
+
+NOTES: As SmBrep::DeleteFace splits a shell a removed face leaves in pieces:
+   the faceuses reached from one vertex through the shell stay, the rest move.
+***********************************************************************/
+SmStatus SmBrep::SplitDisconnectedShells()
+{
+  SmBrep *pBrep = this;
+  SmTArray<SmRegion*> sRegions;
+  pBrep->GetRegions(sRegions);
+  for (ULONG ii = 0; ii < sRegions.GetSize(); ii++)
+    {
+      SmTArray<SmShell*> sShells;
+      sRegions[ii]->GetShells(sShells);
+      for (ULONG jj = 0; jj < sShells.GetSize(); jj++)
+        {
+          SmShell *pShell = sShells[jj];
+          for (ULONG lPass = 0; lPass < 1024; lPass++)
+            {
+              SmTArray<SmFaceuse*> sAll;
+              pShell->GetFaceuses(sAll);
+              if (sAll.GetSize() < 2)
+                { break; }
+              SmTArray<SmVertex*> sVertices;
+              sAll[0]->GetFace()->GetVertices(sVertices);
+              if (sVertices.GetSize() == 0)
+                { break; }
+              SmNewMarkAndLock sMarkLock((SmContext *)pBrep->GetContext());
+              SmTopologyTraverser sTT;
+              SmTArray<SmFaceuse*> sReached;
+              SER(sTT.ShellTraversal(sVertices[0], pShell, NULL, &sReached, sMarkLock));
+              if (sReached.GetSize() >= sAll.GetSize())
+                { break; }
+
+              // the faceuses not reached go to a new shell, in the infinite region or a region of their own
+              SmShell  *pNewShell  = new (pBrep) SmShell(); NER(pNewShell);
+              pNewShell->SetShellType(SmFaceuse_TYPE);
+              SmRegion *pRegion    = sRegions[ii];
+              if (pRegion == pBrep->GetInfiniteRegion())
+                { SER(pRegion->PostInsert(pNewShell)); }
+              else
+                {
+                  SmRegion *pNewRegion = new (pBrep) SmRegion(); NER(pNewRegion);
+                  pNewRegion->SetIsVoid(pRegion->IsVoid());
+                  SER(pNewRegion->PostInsert(pNewShell));
+                  SER(pBrep->PostInsert(pNewRegion));
+                }
+              for (ULONG kk = 0; kk < sAll.GetSize(); kk++)
+                {
+                  if (sAll[kk]->IsMarked(sMarkLock.GetMarkType()))
+                    { continue; }
+                  SER(pShell->Remove(sAll[kk]));
+                  SER(pNewShell->PostInsert(sAll[kk]));
+                }
+              // the new shell may have parts of its own: it is split in its turn
+              sShells.Add(pNewShell);
+            }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmBrep::SplitDisconnectedShells
+
+/*******************************************************************//**
+PURPOSE: Remove the inner loops of no area a volumetric boolean leaves where
+   solids touch along a curve inside a face (a cylinder resting on the top of
+   a box, united), and split the shells and regions joined only through them.
+
+NOTES: Imprinting a tangent contact curve that lies inside a face gives the face
+   an inner loop that runs along the curve and back, each edge used twice.
+   SmTrimmingTools::CheckFace rejects it (a loop of zero area), and it bounds
+   nothing: the regularized result is the solids touching there, each whole.
+   A loop is removed only where each of its edges also bounds another face,
+   which keeps it; its uses go as SmBrep::DeleteFace removes a face's. The
+   solids then share no topology, and their shells are split. (SolidCraft
+   change: the face failed SMLib's check; tangency-labs/solidcore#746.)
+***********************************************************************/
+SmStatus SmBrep::RemoveSlitLoopsWhereSolidsTouch()
+{
+  SmBrep *pBrep = this;
+  SmTemporaryChangeValue<SmBoolean> sEditing(pBrep->m_bEditingEnabled, TRUE);
+  SmBoolean bRemoved = FALSE;
+  SmTArray<SmFace*> sFaces;
+  pBrep->GetFaces(sFaces);
+  for (ULONG ii = 0; ii < sFaces.GetSize(); ii++)
+    {
+      SmFace *pFace = sFaces[ii];
+      SmTArray<SmLoop*> sLoops;
+      pFace->GetLoops(sLoops);
+      for (ULONG jj = 1; jj < sLoops.GetSize(); jj++) // inner loops only
+        {
+          SmLoop *pLoop = sLoops[jj];
+          SmTArray<SmEdgeuse*> sUses;
+          pLoop->GetEdgeuses(sUses);
+          if (sUses.GetSize() < 2)
+            { continue; }
+          // every edge used twice by the loop, and bounding another face too
+          SmBoolean bSlit = TRUE;
+          for (ULONG kk = 0; kk < sUses.GetSize() && bSlit; kk++)
+            {
+              SmEdge *pEdge = sUses[kk]->GetEdge();
+              ULONG lInLoop = 0;
+              for (ULONG mm = 0; mm < sUses.GetSize(); mm++)
+                { if (sUses[mm]->GetEdge() == pEdge) { lInLoop++; } }
+              SmTArray<SmFace*> sEdgeFaces;
+              pEdge->GetFaces(sEdgeFaces);
+              SmBoolean bOther = FALSE;
+              for (ULONG mm = 0; mm < sEdgeFaces.GetSize(); mm++)
+                { if (sEdgeFaces[mm] != pFace) { bOther = TRUE; } }
+              bSlit = (lInLoop == 2 && bOther);
+            }
+          if (!bSlit)
+            { continue; }
+
+          // take the loop off its face, then its edgeuses and vertexuses off their edges and vertices
+          SmLoopuse *pLU = NULL, *pOtherLU = NULL;
+          pLoop->GetLoopuses(pLU, pOtherLU);
+          NER(pLU); NER(pOtherLU);
+          SER(pFace->RemoveLoop(pLoop));
+          SmTArray<SmEdgeuse*> sLUUses;
+          pLU->GetEdgeuses(sLUUses);
+          for (ULONG kk = 0; kk < sLUUses.GetSize(); kk++)
+            {
+              SmEdgeuse *pEU     = sLUUses[kk];
+              SmEdgeuse *pEUMate = pEU->GetMate(); NER(pEUMate);
+              SmEdge    *pE      = pEU->GetEdge(); NER(pE);
+              SER(pE->Remove(pEU));
+              SER(pE->Remove(pEUMate));
+              SmVertexuse *pVU1 = pEU->GetVertexuse();     NER(pVU1);
+              SmVertexuse *pVU2 = pEUMate->GetVertexuse(); NER(pVU2);
+              SER(pVU1->GetVertex()->Remove(pVU1));
+              SER(pVU2->GetVertex()->Remove(pVU2));
+              delete pEU;
+              delete pEUMate;
+              delete pVU1;
+              delete pVU2;
+            }
+          delete pLoop;
+          delete pLU;
+          delete pOtherLU;
+          bRemoved = TRUE;
+        }
+    }
+  if (bRemoved)
+    { SER(SplitDisconnectedShells()); }
+  return SM_SUCCESS;
+} // end SmBrep::RemoveSlitLoopsWhereSolidsTouch
+
+/*******************************************************************//**
 PURPOSE: This method tests for closure relative to a faceuse and
     splits the region if closure is found, creating and returning
     a new shell and a new region.

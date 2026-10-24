@@ -2616,6 +2616,7 @@ static SmStatus sm_RemoveFacePairsBoundingNothing(SmBrep *pBrep)
 } // end sm_RemoveFacePairsBoundingNothing
 
 
+
 /*******************************************************************//**
 PURPOSE: Perform a manifold solid volumetric Boolean operation on
    the two breps.  It also performs a general merge operation which
@@ -5253,6 +5254,11 @@ SmBoolean bDebugRadialEdges = FALSE ;
     {
       // Faces the exact contacts left bounding nothing within tolerance go.
       SER( sm_RemoveFacePairsBoundingNothing( m_vTI.m_pBrep ) );
+      // Loops a contact inside a face left bounding nothing go, in a volumetric boolean.
+      if (   eOperation == SM_BO_UNION
+          || eOperation == SM_BO_INTERSECTION
+          || eOperation == SM_BO_DIFFERENCE )
+        { SER( m_vTI.m_pBrep->RemoveSlitLoopsWhereSolidsTouch() ); }
       rpResult = m_vTI.m_pBrep;
     }
 
