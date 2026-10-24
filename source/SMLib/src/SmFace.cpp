@@ -6210,8 +6210,14 @@ SmBoolean bDebugMe = FALSE;
 #endif // SM_DEBUG_CODE
             yscale[0] = dEstimatedArea/10.0;
             // Scale volume and moment errors by a length per extra dimension. sqrt(area) is
-            // a tenth of the body size; grow it once the origin is farther than the body.
-            const double dLength = smos_Max(smos_Sqrt(dEstimatedArea), dOriginDistance/10.0);
+            // a tenth of the body size, so the length is ten times it: each component is then
+            // held to the same fraction of its own size as the area (yscale[0] is a thousandth
+            // of size^2, the volume's a thousandth of size^3, ...). Grow it once the origin is
+            // farther than the body. (SolidCraft change: with a tenth of the body size, each
+            // extra power of length held a component ten times tighter, so a sphere's second
+            // moments were asked, at a relative accuracy of 1e-8, for about 1e-14 of their size,
+            // below roundoff, and the integration could not converge.)
+            const double dLength = smos_Max(10.0 * smos_Sqrt(dEstimatedArea), dOriginDistance);
             const ULONG aPowers[8] = { 1, 2, 2, 2, 2, 3, 3, 3 };
             if (sLayout.m_lVolume) yscale[sLayout.m_lVolume-1] = yscale[0] * dLength;
             for (ULONG kk=0; kk<8; ++kk) {
