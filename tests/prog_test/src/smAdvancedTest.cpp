@@ -5004,6 +5004,8 @@ if ( cbiJavaOnly )
 
     MYPRINTF(_T("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& - Curve Properties\n"));
     PT_RUN(sResult, my_test_curve_properties());
+    MYPRINTF(_T("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& - Curves CoPlanar\n"));
+    PT_RUN(sResult, my_test_curves_coplanar());
     MYPRINTF(_T("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& - Curve/Curve Angle Minimize\n"));
     PT_RUN(sResult, my_test_crv_angle_min());
     MYPRINTF(_T("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& - Curve/Curve Directed Maximize\n"));
