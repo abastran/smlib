@@ -2154,18 +2154,18 @@ SmBrepData::SmBrepData
   m_bIsGeomBorrowed(FALSE),
   m_lHealerVersion(0),
 
-  m_vRegions (*(new (*GetContext()) SmTArray<SmRegionData>(*GetContext()))),
-  m_vShells  (*(new (*GetContext()) SmTArray<SmShellData>(*GetContext()))),
+  m_vRegions (*(new SmTObjArray<SmRegionData>())),
+  m_vShells  (*(new SmTObjArray<SmShellData>())),
   m_vCFaces  (*(new (*GetContext()) SmTArray<ULONG>(*GetContext()))),
 
-  m_vFaceuses(*(new (*GetContext()) SmTArray<SmFaceuseData>(*GetContext()))),
-  m_vFaces   (*(new (*GetContext()) SmTArray<SmFaceData>(*GetContext()))),
-  m_vLoops   (*(new (*GetContext()) SmTArray<SmLoopData>(*GetContext()))),
+  m_vFaceuses(*(new SmTObjArray<SmFaceuseData>())),
+  m_vFaces   (*(new SmTObjArray<SmFaceData>())),
+  m_vLoops   (*(new SmTObjArray<SmLoopData>())),
 
   m_vCEdges  (*(new (*GetContext()) SmTArray<ULONG>(*GetContext()))),
-  m_vEdgeuses(*(new (*GetContext()) SmTArray<SmEUData>(*GetContext()))),
-  m_vEdges   (*(new (*GetContext()) SmTArray<SmEdgeData>(*GetContext()))),
-  m_vVertices(*(new (*GetContext()) SmTArray<SmVertexData>(*GetContext()))),
+  m_vEdgeuses(*(new SmTObjArray<SmEUData>())),
+  m_vEdges   (*(new SmTObjArray<SmEdgeData>())),
+  m_vVertices(*(new SmTObjArray<SmVertexData>())),
 
   m_vUVCurves(*(new (*GetContext()) SmTArray<SmCurve*>(*GetContext()))),
   m_v3DCurves(*(new (*GetContext()) SmTArray<SmCurve*>(*GetContext()))),
@@ -2223,24 +2223,13 @@ NOTES:
 ***********************************************************************/
 SmBrepData::~SmBrepData()
 {
-  // locals
-  ULONG ii ;
-
-  // clean up memory within the items of the internal arrays
-  for(ii=0;ii<m_vRegions.GetSize();ii++)  { m_vRegions[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vShells.GetSize();ii++)   { m_vShells[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vFaceuses.GetSize();ii++) { m_vFaceuses[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vFaces.GetSize();ii++)    { m_vFaces[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vLoops.GetSize();ii++)    { m_vLoops[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vEdgeuses.GetSize();ii++) { m_vEdgeuses[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vVertices.GetSize();ii++) { m_vVertices[ii].m_sAttributes.SetSize(0) ; }
   if(m_bIsGeomBorrowed == FALSE)
     { SmObjsDelete<SmCurve*>   sDelUVCurves(&m_vUVCurves) ;
       SmObjsDelete<SmCurve*>   sDel3DCurves(&m_v3DCurves) ;
       SmObjsDelete<SmSurface*> sDelSurfaces(&m_vSurfaces) ;
     } // end scope that forces all items within internal arrays to be deleted
 
-  // delete the internal arrays
+  // delete the internal arrays (the topology data arrays destroy their elements)
   delete &m_vRegions ;
   delete &m_vShells ;
   delete &m_vCFaces ;
@@ -2759,6 +2748,7 @@ SmStatus SmBrepData::FromBrep
                                           : FALSE ;
           SmShell * pShell              = pEdgeuse->GetShell();
           m_vEdgeuses[i].m_lShell       = GET_MAP(pShell);
+          m_vEdgeuses[i].m_lUVCurve     = SM_NO_OBJECT;  // a wire edgeuse has no UV curve; WriteToDB writes this index
         }
       else
         { // SmLoopuse_TYPE edgeuse connects an edge in a loop connecting edges to a face

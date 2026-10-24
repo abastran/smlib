@@ -881,8 +881,8 @@ NOTES: 1. helper for BrepAppend_SMLibToUsd() function.
        3. returns NULL ptr when pEdge is not found in vEdges
 ***********************************************************************/
 static SmEdgeData * smu_FindEdgeDataObj_ForSmEdge
- (SmEdge               * pEdge,  // in : Tgt SmEdge to find within desired SmEdgeData 
-  SmTArray<SmEdgeData> & vEdges) // in : Array of SmEdgeData objs to search
+ (SmEdge                  * pEdge,  // in : Tgt SmEdge to find within desired SmEdgeData 
+  SmTObjArray<SmEdgeData> & vEdges) // in : Array of SmEdgeData objs to search
 {
   // linear search - yuck
   for(uint32_t ii=0;ii<vEdges.GetSize();ii++)

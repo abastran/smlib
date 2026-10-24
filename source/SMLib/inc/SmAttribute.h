@@ -129,11 +129,11 @@ enum SmBooleanOperationType ;
 PURPOSE: 
 
 NOTES:
- static class object - don't add virtual methods to SmAttributeData.  
- Virtual methods conflict with the methods in SmTArray<SmAttributeData>
- that use memset() to clear memory - with SmAttributeData virtual methods the
- virtual pointer tables get corrupted by SmTArray<SmAttributeData>::ReSet() 
- calls and the like.
+ m_sAttributes is an SmTArray, whose base SmObject has a virtual destructor,
+ so SmAttributeData and the classes derived from it must be constructed and
+ destroyed: store them in an SmTObjArray, never in an SmTArray, which
+ calloc()s, memset()s and memcpy()s its elements without running constructors
+ or destructors.
 
 ***********************************************************************/
 class SM_EXPORT SmAttributeData
