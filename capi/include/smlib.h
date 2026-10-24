@@ -332,9 +332,11 @@ typedef struct smlib_flat smlib_flat;
  * SmBSplineCurve SMLib holds it as (every SMLib conic is one): its NURBS block follows, in edge
  * order with the NURBS edges' blocks; its EDGE_RANGE and the UV trims on it are in that NURBS's
  * parameter; its canonical entry stays. 0 = otherwise. Length n_edges (n_wire_edges), or 0.
- * Export gives every circle edge its form. Import makes the edge an SmCircle by SMLib's own test
- * of the NURBS (SmCircle::IsNurbCurveCircle) and refuses the B-rep (SMLIB_ERR_INVALID_INPUT) when
- * that test says no or the circle it makes has another NURBS. */
+ * Export gives every circle edge its form. Import makes the edge an SmCircle in its canonical
+ * entry's frame that keeps that NURBS, once SMLib's own test of the NURBS
+ * (SmCircle::IsNurbCurveCircle) says it is a circle, and refuses the B-rep
+ * (SMLIB_ERR_INVALID_INPUT) when that test says no, the NURBS is off the canonical circle or runs
+ * clockwise about its axis, or the circle made has another NURBS. */
 #define SMLIB_FLAT_EDGE_NURBS_FORM 34
 #define SMLIB_FLAT_WIRE_EDGE_NURBS_FORM 35
 

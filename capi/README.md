@@ -898,9 +898,20 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
 - **Circle edges carry their NURBS form** (`SMLIB_FLAT_EDGE_NURBS_FORM`, `..._WIRE_EDGE_...`), the edge
   mirror of `FACE_NURBS_FORM`. Every SMLib conic is an `SmBSplineCurve` and the trims on an edge are in
   its parameter, which is not the angle. Export gives a circle edge its NURBS block and native range
-  and keeps the trims on it as they are; import makes the NURBS an `SmCircle` by SMLib's own
-  `IsNurbCurveCircle` and refuses the B-rep when the circle has another NURBS. Before, trims on
+  and keeps the trims on it as they are; import makes the NURBS an `SmCircle` in the canonical
+  entry's frame once SMLib's own `IsNurbCurveCircle` says it is a circle (that test's own circle
+  has its x axis towards the NURBS's start, a frame other than the one SMLib held), and refuses
+  the B-rep when the NURBS is off that circle or the circle has another NURBS. Before, trims on
   circle edges were dropped and rebuilt.
+- **A rebuilt conic converts angles on its own NURBS** (`smlib_flat.cpp`,
+  `BuildAnalyticEdgeCurve`): a circle or ellipse is made over its angle interval and its NURBS
+  parameter then set to that interval with `EditParameterization`, which SmuConvert calls with
+  `bNotify = FALSE`. The conic's angle <-> NURBS table (`SmEllipse`'s polar converter) is rebuilt
+  only by `SmEllipse::Notify`, so it stayed on the knots the curve was made with ([0, 1]) and
+  converted angles off the new interval: an arc over [180, 360] degrees put 360 at NURBS 1, outside
+  [180, 360]. Export's check of the analytic rebuild then failed and every SmCircle rim and one of
+  the inclined cut's SmEllipse arcs went out as NURBS; an import of a canonical-only circle or
+  ellipse kept the stale table. `EditParameterization` now notifies (the new curve has no owner).
 - **Parallel cylinders cut to their faces** (`SmCone.cpp`, `SmCone::IntersectWithCone`): 1.0.1
   sends cylinder/cylinder intersections here (`GlobalSurfaceIntersect`), and for two parallel
   cylinders the lines' span along the axis came from the whole cylinders, not the faces'

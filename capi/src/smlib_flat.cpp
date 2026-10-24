@@ -954,6 +954,12 @@ SmBSplineCurve *EdgeCurveAsBSpline(SmCurve *pCurve, const SmExtent1d &crInterval
 // P + s * V, or a circle or ellipse over [dMin, dMax] degrees whose NURBS parameter is then set
 // to that same interval (EditParameterization). dMin/dMax are the edge range in SMLib units.
 // Export uses it too, to check what an import will rebuild.
+//
+// EditParameterization runs with its notification: the conic's angle <-> NURBS parameter table
+// (SmEllipse's polar converter) holds the NURBS knots and is rebuilt only by SmEllipse::Notify,
+// so without it the curve keeps converting angles onto the knots it was made with ([0, 1]), off
+// its new NURBS interval. (SmuConvert passes FALSE here, with that effect.) The new curve has no
+// owner, so nothing else is told.
 SmStatus BuildAnalyticEdgeCurve(
     const SmContext &ctx,
     int64_t type,
@@ -998,7 +1004,7 @@ SmStatus BuildAnalyticEdgeCurve(
             delete pCircle;
             return stat != SM_SUCCESS ? stat : SM_ERR;
         }
-        stat = pCircle->EditParameterization(sDegreeInterval, FALSE);
+        stat = pCircle->EditParameterization(sDegreeInterval);
         if (stat != SM_SUCCESS)
         {
             delete pCircle;
@@ -1014,7 +1020,7 @@ SmStatus BuildAnalyticEdgeCurve(
         delete pEllipse;
         return stat != SM_SUCCESS ? stat : SM_ERR;
     }
-    stat = pEllipse->EditParameterization(sDegreeInterval, FALSE);
+    stat = pEllipse->EditParameterization(sDegreeInterval);
     if (stat != SM_SUCCESS)
     {
         delete pEllipse;
@@ -2778,6 +2784,66 @@ bool SameNurbsCurve(SmBSplineCurve &rA, SmBSplineCurve &rB)
     return true;
 }
 
+// The analytic domain, in degrees, of the conic with center o, axis z, reference direction x and
+// radii rx (along x) and ry that the NURBS traces: the eccentric angles of its ends, its sweep
+// counter-clockwise about z. z and x are made an orthonormal frame (x projected off z, the STEP
+// axis2_placement rule). False when a point of the NURBS at its ends or along it is off that
+// conic, or the NURBS turns clockwise about z at some step: then it is not that conic run that way.
+bool ConicDomainOfNurbs(const SmBSplineCurve &rNurbs, const SmPoint3d &o, SmVector3d &z, SmVector3d &x, double rx, double ry, SmExtent1d &rDomain)
+{
+    if (z.Unitize(FALSE) != SM_SUCCESS)
+    {
+        return false;
+    }
+    x = x - z * x.Dot(z);
+    if (x.Unitize(FALSE) != SM_SUCCESS || !(rx > 0.0 && ry > 0.0))
+    {
+        return false;
+    }
+    const SmVector3d y = z * x;
+    const SmExtent1d sIvl = rNurbs.GetNaturalInterval();
+    auto angle = [&](double t, double &deg) -> bool {
+        SmPoint3d p;
+        if (rNurbs.EvaluatePoint(t, p) != SM_SUCCESS)
+        {
+            return false;
+        }
+        const SmVector3d d = p - o;
+        deg = std::atan2(d.Dot(y) / ry, d.Dot(x) / rx) * 180.0 / M_PI;
+        return std::fabs(std::hypot(d.Dot(x) / rx, d.Dot(y) / ry) - 1.0) <= 1e-9 && std::fabs(d.Dot(z)) <= 1e-9 * (1.0 + rx + ry);
+    };
+    const int n = 16;
+    double a0 = 0.0, prev = 0.0;
+    for (int k = 0; k <= n; ++k)
+    {
+        double a = 0.0;
+        if (!angle(sIvl.GetMin() + (sIvl.GetMax() - sIvl.GetMin()) * k / n, a))
+        {
+            return false;
+        }
+        if (k == 0)
+        {
+            a0 = a;
+        }
+        else if (!(std::remainder(a - prev, 360.0) > 0.0))
+        {
+            return false;
+        }
+        prev = a;
+    }
+    double sweep = std::fmod(prev - a0 + 720.0, 360.0);
+    if (sweep <= 1e-9)
+    {
+        sweep = 360.0;
+    }
+    rDomain = SmExtent1d(a0, a0 + sweep);
+    if (a0 + sweep > 360.0)
+    {
+        rDomain = SmExtent1d(a0 - 360.0, a0 - 360.0 + sweep);
+    }
+    return true;
+}
+
 SmStatus MakeEdgeCurve(
     const SmContext &ctx,
     int64_t type,
@@ -2801,83 +2867,53 @@ SmStatus MakeEdgeCurve(
 )
 {
     out = NULL;
-    if (bForm && type == kCurveEllipse)
+    if (bForm)
     {
-        // An ellipse given with its NURBS form: an SmEllipse that keeps that NURBS (the trims on
-        // the edge are in its parameter), its analytic domain the eccentric angles of the
-        // NURBS's ends. Taken only when every control point's curve point lies on the ellipse.
-        size_t idx = c.ellipse++;
+        // A circle or ellipse given with its NURBS form: an SmCircle or SmEllipse in the frame and
+        // radii of its canonical entry that keeps that NURBS (the trims on the edge are in its
+        // parameter), as SMLib held it. A circle's NURBS must pass SMLib's own test
+        // (SmCircle::IsNurbCurveCircle); that test's circle has a frame of its own (its x axis
+        // towards the NURBS's start), so it is not the one kept.
+        const bool bCircle = type == kCurveCircle;
+        const size_t idx = bCircle ? c.circle++ : c.ellipse++;
         SmBSplineCurve *pNurbs = smu_CreateSmBSplineCurve3d(ctx, nurbs, c);
         SmObjDelete sNurbsCleanup(pNurbs);
-        if (pNurbs == NULL || idx >= ellipseX.size() || idx >= ellipseY.size())
+        if (pNurbs == NULL || (bCircle ? idx >= circleRadius.size() : idx >= ellipseX.size() || idx >= ellipseY.size()))
         {
             return SM_ERR_INVALID_INPUT;
         }
-        const SmPoint3d o = Get3(ellipseCenter, idx);
-        SmVector3d z = GetVec3(ellipseAxis, idx), x = GetVec3(ellipseRef, idx);
-        const double rx = ellipseX[idx], ry = ellipseY[idx];
-        if (z.Unitize(FALSE) != SM_SUCCESS || x.Unitize(FALSE) != SM_SUCCESS || !(rx > 0.0 && ry > 0.0))
+        if (bCircle)
+        {
+            SmCircle *pTest = NULL;
+            const SmBoolean bIsCircle = SmCircle::IsNurbCurveCircle(ctx, pNurbs, pTest);
+            delete pTest;
+            if (bIsCircle != TRUE)
+            {
+                return SM_ERR_INVALID_INPUT;
+            }
+        }
+        const SmPoint3d o = Get3(bCircle ? circleCenter : ellipseCenter, idx);
+        SmVector3d z = GetVec3(bCircle ? circleAxis : ellipseAxis, idx), x = GetVec3(bCircle ? circleRef : ellipseRef, idx);
+        const double rx = bCircle ? circleRadius[idx] : ellipseX[idx], ry = bCircle ? circleRadius[idx] : ellipseY[idx];
+        SmExtent1d sDomain;
+        if (!ConicDomainOfNurbs(*pNurbs, o, z, x, rx, ry, sDomain))
         {
             return SM_ERR_INVALID_INPUT;
         }
         const SmVector3d y = z * x;
-        const SmExtent1d sIvl = pNurbs->GetNaturalInterval();
-        auto angle = [&](double t, double &deg) -> bool {
-            SmPoint3d p;
-            if (pNurbs->EvaluatePoint(t, p) != SM_SUCCESS)
-            {
-                return false;
-            }
-            const SmVector3d d = p - o;
-            deg = std::atan2(d.Dot(y) / ry, d.Dot(x) / rx) * 180.0 / M_PI;
-            return std::fabs(std::hypot(d.Dot(x) / rx, d.Dot(y) / ry) - 1.0) <= 1e-9 && std::fabs(d.Dot(z)) <= 1e-9 * (1.0 + rx + ry);
-        };
-        double a0 = 0.0, a1 = 0.0;
-        for (int k = 0; k <= 16; ++k)
+        if (bCircle)
         {
-            double a = 0.0;
-            if (!angle(sIvl.GetMin() + (sIvl.GetMax() - sIvl.GetMin()) * k / 16.0, a))
+            SmCircle *pCircle = new (ctx) SmCircle(o, x, y, sDomain, rx, 3, &ctx, pNurbs);
+            if (pCircle == NULL || !SameNurbsCurve(*pNurbs, *pCircle))
             {
+                delete pCircle;
                 return SM_ERR_INVALID_INPUT;
             }
-            if (k == 0)
-            {
-                a0 = a;
-            }
-            if (k == 16)
-            {
-                a1 = a;
-            }
-        }
-        double sweep = std::fmod(a1 - a0 + 720.0, 360.0);
-        if (sweep <= 1e-9)
-        {
-            sweep = 360.0;
-        }
-        SmExtent1d sDomain(a0, a0 + sweep);
-        if (a0 + sweep > 360.0)
-        {
-            sDomain = SmExtent1d(a0 - 360.0, a0 - 360.0 + sweep);
+            out = pCircle;
+            return SM_SUCCESS;
         }
         out = new (ctx) SmEllipse(o, x, y, sDomain, rx, ry, 3, &ctx, pNurbs);
         return out != NULL ? SM_SUCCESS : SM_ERR;
-    }
-    if (bForm)
-    {
-        // A circle given with its NURBS form: that NURBS, as the SmCircle SMLib's own test
-        // makes of it (its canonical entry is passed over); the trims on the edge are in that
-        // NURBS's parameter, so the circle must keep it.
-        c.circle++;
-        SmBSplineCurve *pNurbs = smu_CreateSmBSplineCurve3d(ctx, nurbs, c);
-        SmObjDelete sNurbsCleanup(pNurbs);
-        SmCircle *pCircle = NULL;
-        if (pNurbs == NULL || SmCircle::IsNurbCurveCircle(ctx, pNurbs, pCircle) != TRUE || pCircle == NULL || !SameNurbsCurve(*pNurbs, *pCircle))
-        {
-            delete pCircle;
-            return SM_ERR_INVALID_INPUT;
-        }
-        out = pCircle;
-        return SM_SUCCESS;
     }
     if (type == kCurveNurbs)
     {

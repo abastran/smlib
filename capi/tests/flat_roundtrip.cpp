@@ -47,11 +47,11 @@ std::string dir = ".";
         }                                                                                          \
     } while (0)
 
-// Every id: int64 ids 1..32, double ids 101..163.
+// Every id: int64 ids 1..35, double ids 101..165.
 std::vector<int32_t> IntIds()
 {
     std::vector<int32_t> v;
-    for (int32_t id = SMLIB_FLAT_REGION_SHELL_COUNT; id <= SMLIB_FLAT_SOURCE; ++id)
+    for (int32_t id = SMLIB_FLAT_REGION_SHELL_COUNT; id <= SMLIB_FLAT_WIRE_EDGE_NURBS_FORM; ++id)
     {
         v.push_back(id);
     }
@@ -200,20 +200,20 @@ Facts Measure(const smlib_brep *b)
 }
 
 // Expected curve kinds per solid (nurbs, line, circle, ellipse). Export keeps SMLib's own curve
-// classes: SmApiCreateCylinder, SmApiCreateCone and SmApiCreateTorus build their rims and seam
-// circles as plain SmBSplineCurves (exactly circular, but not SmCircles), so those stay NURBS,
-// as do a boolean's intersection curves.
+// classes: SmApiCreateCylinder, SmApiCreateCone and SmApiCreateTorus make their rims and seam
+// circles SmCircles, and so does a boolean that cuts a cylinder with a plane square to its axis;
+// a boolean's other intersection curves are B-splines.
 const std::map<std::string, std::vector<int64_t>> g_kinds = {
     {"box", {0, 12, 0, 0}},      // twelve SmLines
-    {"cylinder", {2, 1, 0, 0}},  // B-spline rims, a line seam
-    {"cone", {2, 1, 0, 0}},      // B-spline rims, a line seam
+    {"cylinder", {0, 1, 2, 0}},  // SmCircle rims, a line seam
+    {"cone", {0, 1, 2, 0}},      // SmCircle rims, a line seam
     {"sphere", {0, 0, 1, 0}},    // the seam: an SmCircle half circle
-    {"torus", {2, 0, 0, 0}},     // B-spline seam circles
+    {"torus", {0, 0, 2, 0}},     // SmCircle seam circles
     {"fillet", {0, 24, 24, 0}},  // the box's trimmed lines, the fillets' SmCircle arcs
     {"blend", {48, 0, 0, 0}},    // blend-curve fillets: all B-splines
     {"blend1", {4, 11, 0, 0}},   // the blend face's four B-spline edges, the box's eleven lines
-    {"boolean", {2, 13, 0, 0}},  // the hole's intersection curves are B-splines
-    {"incline", {1, 1, 0, 2}},   // B-spline bottom rim, line seam, two SmEllipse arcs
+    {"boolean", {0, 13, 2, 0}},  // the hole's rims: SmCircles
+    {"incline", {0, 1, 1, 2}},   // SmCircle bottom rim, line seam, two SmEllipse arcs
 };
 
 size_t g_analyticTrims = 0;
@@ -858,6 +858,12 @@ int main(int argc, char **argv)
     // the torus with its major, minor or both ranges moved on by 2 pi is the same torus. Its
     // tube circle was once rebuilt over a clamped, empty parameter interval, which gave NaN
     // knots, an overflow in N_IgesClampSrf (#427) and then a refused import.
+    //
+    // The angles are the range of a face given without its NURBS form (as SolidCraft designs and
+    // other producers write a torus); export gives every torus face its form, whose range is in the
+    // NURBS's parameters, where a turn on is off the surface. So the face goes in as such a
+    // producer writes it: canonical only, its range the STEP angles that start at its seam vertex,
+    // no UV trims (SMLib makes them from the edges). Shift 0 is that face as it is.
     for (auto &e : exports)
     {
         if (std::strcmp(e.first, "torus") != 0)
@@ -865,29 +871,50 @@ int main(int argc, char **argv)
             continue;
         }
         const double pi = 3.14159265358979323846;
-        for (int shift = 1; shift <= 3; ++shift)
+        Arrays canonical = Snapshot(e.second);
+        CHECK(canonical.i[SMLIB_FLAT_FACE_SURFACE_TYPE] == std::vector<int64_t>{SMLIB_FLAT_SURFACE_TORUS});
+        CHECK(canonical.f[SMLIB_FLAT_VERTEX_POSITION].size() == 3);
+        if (canonical.i[SMLIB_FLAT_FACE_SURFACE_TYPE].size() != 1 || canonical.f[SMLIB_FLAT_VERTEX_POSITION].size() != 3)
         {
-            Arrays a = Snapshot(e.second);
-            const std::vector<int64_t> &type = a.i[SMLIB_FLAT_FACE_SURFACE_TYPE];
+            continue;
+        }
+        {
+            // The seam vertex's angles in the torus's frame.
+            const std::vector<double> &o = canonical.f[SMLIB_FLAT_FACE_TORUS_ORIGIN], &z = canonical.f[SMLIB_FLAT_FACE_TORUS_AXIS],
+                                      &x = canonical.f[SMLIB_FLAT_FACE_TORUS_REF_DIRECTION], &p = canonical.f[SMLIB_FLAT_VERTEX_POSITION];
+            const double R = canonical.f[SMLIB_FLAT_FACE_TORUS_MAJOR_RADIUS][0];
+            const double y[3] = {z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]};
+            const double d[3] = {p[0] - o[0], p[1] - o[1], p[2] - o[2]};
+            auto dot = [](const double *a, const double *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+            const double u0 = std::atan2(dot(d, y), dot(d, x.data()));
+            const double radial[3] = {std::cos(u0) * x[0] + std::sin(u0) * y[0], std::cos(u0) * x[1] + std::sin(u0) * y[1],
+                                      std::cos(u0) * x[2] + std::sin(u0) * y[2]};
+            const double q[3] = {d[0] - R * radial[0], d[1] - R * radial[1], d[2] - R * radial[2]};
+            const double v0 = std::atan2(dot(q, z.data()), dot(q, radial));
+            canonical.f[SMLIB_FLAT_FACE_RANGE] = {u0, v0, u0 + 2.0 * pi, v0 + 2.0 * pi};
+        }
+        for (int32_t id : {SMLIB_FLAT_FACE_NURBS_FORM, SMLIB_FLAT_FACE_NURBS_U_VERTEX_COUNT, SMLIB_FLAT_FACE_NURBS_V_VERTEX_COUNT, SMLIB_FLAT_FACE_NURBS_U_ORDER,
+                           SMLIB_FLAT_FACE_NURBS_V_ORDER, SMLIB_FLAT_EDGEUSE_NURBS_VERTEX_COUNT, SMLIB_FLAT_EDGEUSE_NURBS_ORDER})
+        {
+            canonical.i[id].clear();
+        }
+        for (int32_t id : {SMLIB_FLAT_FACE_NURBS_CVS, SMLIB_FLAT_FACE_NURBS_U_KNOTS, SMLIB_FLAT_FACE_NURBS_V_KNOTS, SMLIB_FLAT_FACE_NURBS_WEIGHTS,
+                           SMLIB_FLAT_EDGEUSE_NURBS_CVS, SMLIB_FLAT_EDGEUSE_NURBS_KNOTS, SMLIB_FLAT_EDGEUSE_NURBS_WEIGHTS})
+        {
+            canonical.f[id].clear();
+        }
+        for (int shift = 0; shift <= 3; ++shift)
+        {
+            Arrays a = canonical;
             std::vector<double> &range = a.f[SMLIB_FLAT_FACE_RANGE];
-            int moved = 0;
-            for (size_t k = 0; k < type.size() && 4 * k + 3 < range.size(); ++k)
+            for (int c = 0; c < 2; ++c)
             {
-                if (type[k] != SMLIB_FLAT_SURFACE_TORUS)
+                if (shift & (1 << c))
                 {
-                    continue;
-                }
-                moved++;
-                for (int c = 0; c < 2; ++c)
-                {
-                    if (shift & (1 << c))
-                    {
-                        range[4 * k + c] += 2.0 * pi;
-                        range[4 * k + 2 + c] += 2.0 * pi;
-                    }
+                    range[c] += 2.0 * pi;
+                    range[2 + c] += 2.0 * pi;
                 }
             }
-            CHECK(moved == 1);
             smlib_flat *f = FromArrays(a);
             smlib_brep *b = nullptr;
             int32_t s = smlib_brep_import(f, &b);
@@ -900,8 +927,8 @@ int main(int argc, char **argv)
                 v = Measure(b).volume;
                 CHECK(smlib_brep_check(b, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK);
             }
-            std::printf("torus, %s range a turn on: import %d, volume %.12g (want %.12g), failed checks %lld %s\n",
-                        shift == 1 ? "major" : shift == 2 ? "minor" : "both", static_cast<int>(s), v, want, static_cast<long long>(bad), buf);
+            std::printf("torus, canonical, %s range a turn on: import %d, volume %.12g (want %.12g), failed checks %lld %s\n",
+                        shift == 0 ? "no" : shift == 1 ? "major" : shift == 2 ? "minor" : "both", static_cast<int>(s), v, want, static_cast<long long>(bad), buf);
             CHECK(s == SMLIB_OK && std::fabs(v - want) <= 1e-7 * want && bad == 0);
             smlib_brep_free(b);
             smlib_flat_free(f);
@@ -918,7 +945,7 @@ int main(int argc, char **argv)
         int64_t n = 0;
         const int64_t one = 1;
         const double half = 0.5;
-        for (int32_t id : {0, 33, 100, 166, -1, 1000})
+        for (int32_t id : {0, 36, 100, 166, -1, 1000})
         {
             CHECK(smlib_flat_get_i64(f, id, &pi, &n) == SMLIB_ERR_ARG);
             CHECK(smlib_flat_get_f64(f, id, &pf, &n) == SMLIB_ERR_ARG);
