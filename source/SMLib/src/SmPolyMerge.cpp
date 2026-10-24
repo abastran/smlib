@@ -1259,6 +1259,13 @@ SmBoolean bDebugMe1 = FALSE;
       if ( eStat == SM_SUCCESS && bModifiedTopology )
         {
           bTryReintersect = FALSE;
+        }
+      // FixGaps can combine vertices, deleting PolyEdges, and fail afterwards while connecting
+      // the dots; its relations are kept up to date as it goes, but the lists gathered before it
+      // still hold the deleted PolyEdges. Gather them again whenever it changed the topology.
+      // (SolidCraft change)
+      if ( bModifiedTopology )
+        {
           m_vPI.GetCommonEdges(sEdges,sOtherEdges);
           m_vPI.GetCommonVertices(sVertices,sOtherVertices);
           sMarkLock.NewMark();  // new mark for both m_pBrep and m_pOther

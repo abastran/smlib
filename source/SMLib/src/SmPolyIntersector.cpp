@@ -1134,6 +1134,13 @@ SmBoolean bDebugMe = FALSE;
             
             crSingleVertices[ii] = NULL;
             crSingleVertices[lFound] = NULL;
+            // Each Brep's deletions leave the relations as soon as they are made, so that a failure
+            // of the second combine leaves no relation to a deleted PolyVertex or PolyEdge; the
+            // deleted pointers are only looked up, never followed. (SolidCraft change: the
+            // relations of the Other's deleted PolyEdges were kept, and those of the Brep's when
+            // the Other's combine failed.)
+            ULONG kk;
+            rbModifiedTopology = TRUE;
             SER(m_pBrep->CombineCoincidentVertices (pV1,               // in : PolyVertex to remain after combining
                                                     pV2,               // in : PolyVertex to delete after combining - stale after this call
                                                     sDeletedEdges,     // out: List of stale deleted PolyEdge pointers
@@ -1141,6 +1148,14 @@ SmBoolean bDebugMe = FALSE;
                                                                        //        these PolyEdges are 1st created and then deleted in this method)
                                                     sFaces));          // out: List of PolyFaces attached to deleted PolyEdges
                                                                        //       (some of these may be stale)
+            RemoveRelationship(pV2,pOtherV2);
+            for (kk=0; kk<sDeletedEdges.GetSize(); kk++) {
+                SmPolyEdge *pOtherE = (SmPolyEdge*)GetOtherMate(sDeletedEdges[kk]); // m_pBToO
+                if (pOtherE) {
+                    RemoveRelationship(sDeletedEdges[kk],pOtherE);
+                }
+            }
+
             SER(m_pOther->CombineCoincidentVertices(pOtherV1,          // in : PolyVertex to remain after combining
                                                     pOtherV2,          // in : PolyVertex to delete after combining - stale after this call
                                                     sDeletedOtherEdges,// out: List of stale deleted PolyEdge pointers
@@ -1148,17 +1163,12 @@ SmBoolean bDebugMe = FALSE;
                                                                        //        these PolyEdges are 1st created and then deleted in this method)
                                                     sFaces));          // out: List of PolyFaces attached to deleted PolyEdges
                                                                        //       (some of these may be stale)
-            RemoveRelationship(pV2,pOtherV2);
-            
-            ULONG kk, lNumDelEdges = sDeletedEdges.GetSize();
-            for (kk=0; kk<lNumDelEdges; kk++) {
-                SmPolyEdge *pOtherE = (SmPolyEdge*)GetOtherMate(sDeletedEdges[kk]); // m_pBToO
-                if (pOtherE) {
-                    RemoveRelationship(sDeletedEdges[kk],pOtherE);
+            for (kk=0; kk<sDeletedOtherEdges.GetSize(); kk++) {
+                SmPolyEdge *pBrepE = (SmPolyEdge*)GetBrepMate(sDeletedOtherEdges[kk]); // m_pOToB
+                if (pBrepE) {
+                    RemoveRelationship(pBrepE,sDeletedOtherEdges[kk]);
                 }
             }
-            
-            rbModifiedTopology = TRUE;
 
         } // end if pV2Found, a close vertex.
     } // end outer loop on single vertices
