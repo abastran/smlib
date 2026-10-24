@@ -38745,7 +38745,7 @@ void SmBrep::GetEdges
   ULONG             * pOptAttributeId  // [in]  : Opt. Include objects containing an attribute with this id
 ) const
 {
-  (void)m_pEdgeListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rEdges), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+  (void)m_pEdgeListHead->GetAll(rEdges, pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 // Remove Composites
@@ -38828,7 +38828,7 @@ void SmBrep::GetFaces
   ULONG             * pOptAttributeId   // [in]  : Opt. Include objects containing an attribute with this id
 ) const 
 { 
-  (void)m_pFaceListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rFaces), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+  (void)m_pFaceListHead->GetAll(rFaces, pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 /*******************************************************************//**
@@ -38920,7 +38920,7 @@ void SmBrep::GetRegions
   ULONG               * pOptAttributeId   // [in]  : Opt. Include objects containing an attribute with this id
 ) const 
 { 
-  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&, rRegions), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+  (void)GetAll(rRegions, pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 /*******************************************************************//**
@@ -38934,7 +38934,7 @@ void SmBrep::GetVertices
   ULONG              * pOptAttributeId   // [in]  : Opt. Include objects containing an attribute with this id
 ) const 
 { 
-  (void)m_pVertexListHead->GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rVertices), pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+  (void)m_pVertexListHead->GetAll(rVertices, pOptAttributeId); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 }
 
 /*******************************************************************//**

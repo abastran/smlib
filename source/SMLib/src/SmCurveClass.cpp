@@ -11705,7 +11705,10 @@ SmBoolean bDebugMe = FALSE;
     { // begin scope - Build Raw Touch List
 
       // Init pRawTouchDirList with one TouchEntry per ClassifyCrv->PtClassification connected to any TgtLoop (it's going to have two entries per touch)
-      SER( GetPointClassifiesConnectedTo((SmTArray<SmTopology*>&)crLoops, *pRawTouchDirList)  );
+      // SolidCraft: the loops as topologies in an array of that type; an SmTArray<SmLoop*> is not an SmTArray<SmTopology*>
+      SmTArray<SmTopology*> sTgtLoops(crLoops.GetSize()) ;
+      for(ULONG lLoop=0; lLoop<crLoops.GetSize(); lLoop++) { sTgtLoops.Add(crLoops[lLoop]) ; }
+      SER( GetPointClassifiesConnectedTo(sTgtLoops, *pRawTouchDirList)  );
       lTouch_Cnt = pRawTouchDirList->GetSize() ;
 
       // no work - ClassifyCrv does not touch any TgtLoop - output already initialized

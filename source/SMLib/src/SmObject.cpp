@@ -84,7 +84,8 @@ SmObject::SmObject
   // overloaded new method - its already been set
 
   if(bCheckBeenThroughNew && SmThreadLocalStorage::GetBeenThroughNew(this))
-    { SmThreadLocalStorage::SetBeenThroughNew(FALSE, this) ; } // FALSE = forget this, TRUE = remember this
+    { m_cpContext = SmThreadLocalStorage::GetBeenThroughNewContext() ;
+      SmThreadLocalStorage::SetBeenThroughNew(FALSE, this) ; } // FALSE = forget this, TRUE = remember this
   else
     { m_cpContext = NULL ; }
 
@@ -102,7 +103,8 @@ NOTES:
 SmObject::SmObject(const SmObject &rObj)                              
 { 
   if(SmThreadLocalStorage::GetBeenThroughNew(this))
-    { SmThreadLocalStorage::SetBeenThroughNew(FALSE, this) ; } // FALSE = forget this, TRUE = remember this
+    { m_cpContext = SmThreadLocalStorage::GetBeenThroughNewContext() ;
+      SmThreadLocalStorage::SetBeenThroughNew(FALSE, this) ; } // FALSE = forget this, TRUE = remember this
   else // have not been through new and need to set a Context value - try copying the context
     { m_cpContext = rObj.m_cpContext ; }
 
@@ -287,7 +289,6 @@ void *SmObject::operator new
   SM_REF1(pThreadLocalStorage) ; 
   // okay to use smos_Calloc in overloaded new operators for base classes
   SmObject *pRet    = (SmObject*)smos_Calloc(1,size); 
-  pRet->m_cpContext = NULL;
   return (void*)pRet;
 
 } // SmObject::operator new with size
@@ -306,7 +307,6 @@ void *SmObject::operator new(size_t size)
 { 
   // okay to use smos_Calloc in overloaded new operators for base classes
   SmObject *pRet    = (SmObject*)smos_Calloc(1,size); 
-  pRet->m_cpContext = NULL;
   return (void*)pRet;
 
 } // SmObject::operator new with size
@@ -342,12 +342,11 @@ void *SmObject::operator new
 { 
   // okay to use smos_Calloc in overloaded new operators for base classes
   SmObject *pRet    = (SmObject*)smos_Calloc(1,size);
-  pRet->m_cpContext = &crContext;
 
   // set SmThreadLocalStorage::m_bBeenThroughNew to tell SmObject::Constructor
   // that m_cpContext has been initialized.
   SM_ASSERT(SmThreadLocalStorage::GetBeenThroughNew(pRet) == FALSE) ;
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember pRet, FALSE = forget pRet
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, &crContext) ; // TRUE = remember pRet, FALSE = forget pRet
 
   // all done
   return (void*)pRet;
@@ -389,7 +388,6 @@ void *SmObject::operator new
 
   // Alloc SmObject memory - okay to use smos_Calloc in overloaded new operators for base classes
   SmObject * pRet     = (SmObject*)smos_Calloc(1,size) ; 
-  pRet->m_cpContext   = cpContext ;
 
   // Hack workaround for SMLib design flaw - overloaded new should never have set a m_cpContext value.
   // That is a violation of the ANSI C++ standard. Overloaded new operators should only allocate
@@ -428,7 +426,7 @@ void *SmObject::operator new
   // set m_bBeenThroughNew bit to tell SmObject::Constructor that this overloaded operator new method 
   // has been run for the pRet object so that it can know that the pRet::m_cpContext value has been set 
   // and is not uninitialized.
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
 
   // all done
   return (void*)pRet ;

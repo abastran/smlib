@@ -365,7 +365,7 @@ NOTES:
 ***********************************************************************/
 void SmAssembly::GetAssemblyInstances(SmTArray<SmAssemblyInstance*> & rInstances) const
 {
-    GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rInstances)); 
+    GetAll(rInstances); 
 }
 
 /*******************************************************************//**

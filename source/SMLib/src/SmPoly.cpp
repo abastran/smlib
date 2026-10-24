@@ -27065,10 +27065,9 @@ void *SmPolyVertex::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmPolyVertex::operator new
@@ -27088,10 +27087,9 @@ void *SmPolyEdge::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmPolyEdge::operator new
@@ -27111,10 +27109,9 @@ void *SmPolyLoop::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmPolyLoop::operator new
@@ -27134,10 +27131,9 @@ void *SmPolyFace::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmPolyFace::operator new
@@ -27157,10 +27153,9 @@ void *SmCPolyFace::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmCPolyFace::operator new
@@ -27180,10 +27175,9 @@ void *SmPolyShell::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmPolyShell::operator new
@@ -27203,10 +27197,9 @@ void *SmPolyRegion::operator new
 
   // local management to mimic SmObject::operator new
   const SmContext * cpContext = pPBrep->GetContext();
-  pRet->m_cpContext           = cpContext;
 
   // hack to talk to SmObject constructor
-  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet) ; // TRUE = remember this, FALSE = forget this
+  SmThreadLocalStorage::SetBeenThroughNew(TRUE, pRet, cpContext) ; // TRUE = remember this, FALSE = forget this
   return (void*)pRet;
 
 } // end *SmPolyRegion::operator new

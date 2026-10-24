@@ -10421,18 +10421,18 @@ void SmFace::GetLoops
   // locals
   ULONG ii ;
 
-  // memory hack - use rLoops first as SmTArray<SmLoopuse*> then as SmTArray<SmLoop*>
+  // Loopuses for this one Faceuse (SolidCraft: in an array of their own; an
+  // SmTArray<SmLoop*> is not an SmTArray<SmLoopuse*>)
+  SmTArray<SmLoopuse*> sLoopuses ;
+  if(m_pFU) m_pFU->GetLoopuses(sLoopuses, bTgtLoopsOnly, pOptTgtLoops) ;
 
-  // Loopuses for this one Faceuse
-  if(m_pFU) m_pFU->GetLoopuses(SM_REINTERPRET_CAST(SmTArray<SmLoopuse*>&,rLoops), bTgtLoopsOnly, pOptTgtLoops) ;
-
-  ULONG lCnt = rLoops.GetSize() ; 
+  ULONG lCnt = sLoopuses.GetSize() ; 
   rLoops.SetSize(lCnt) ;
 
   // for every Loopuse - get assoc Loop
   for(ii=0; ii<lCnt; ii++)
     {
-      SmLoopuse *pLU = (SmLoopuse*)rLoops[ii] ; SM_ASSERT(pLU!=NULL) ;
+      SmLoopuse *pLU = sLoopuses[ii] ; SM_ASSERT(pLU!=NULL) ;
       rLoops[ii] = pLU->m_pL;
     }
 } // end SmFace::GetLoops

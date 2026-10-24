@@ -1432,7 +1432,7 @@ void SmShell::GetFaceuses(SmTArray<SmFaceuse*> & rFaceuses) const
   if(m_tShellType != SmFaceuse_TYPE) { rFaceuses.ReSet() ;
                                        return ; 
                                      }
-  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rFaceuses)); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+  (void)GetAll(rFaceuses); // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
 
 } // end SmShell::GetFaceuses
 

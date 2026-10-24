@@ -47,6 +47,13 @@ public:
                                ULONG                 * pOptAttributeId=NULL,
                                const SmTopology      * pOptTgtObject=NULL) 
                               const;
+    // SolidCraft: the same for an array of the members' own type TYPE (SmVertexuse, SmShell, ...),
+    // each member converted to TYPE*; an SmTArray<TYPE*> is not an SmTArray<SmTopology*>.
+    template <class TYPE>
+    inline SmStatus     GetAll(SmTArray<TYPE*>       & rArray,
+                               ULONG                 * pOptAttributeId=NULL,
+                               const SmTopology      * pOptTgtObject=NULL) 
+                              const;
 
     // walk m_pList->Next circular list making sure all backptrs are set, fix m_lListSize if needed
     SmStatus FixBackPointers(SmTArray<SmTopology*> & rChanges, SmBoolean &bMadeChanges) ;
@@ -388,7 +395,17 @@ PURPOSE: Get a list of all SmTopology objects owned by
 NOTES: rArray is ReSet prior to being loaded with m_pList elements
 ***********************************************************************/
 inline SmStatus SmOwningTopology::GetAll
-  (SmTArray<SmTopology*> & rArray,      // out: array of all elements
+  (SmTArray<SmTopology*> & rArray,
+   ULONG *pOptAttributeId,
+   const SmTopology *pOptTarget)
+ const
+{
+  return GetAll<SmTopology>(rArray, pOptAttributeId, pOptTarget) ;
+}
+
+template <class TYPE>
+inline SmStatus SmOwningTopology::GetAll
+  (SmTArray<TYPE*>       & rArray,      // out: array of all elements
                                         //      under m_pList doublyLinked list
                                         //      of m_pNext and m_pLast pointers
    ULONG *pOptAttributeId,              // in : only include objects containing an attribute with this id
@@ -415,7 +432,7 @@ inline SmStatus SmOwningTopology::GetAll
           // add each elem to rArray
           do{ 
               // add elem and step to Next object
-              rArray.Add(pElem);
+              rArray.Add(static_cast<TYPE*>(pElem));
               pElem = pElem->m_pNext;
 
               // check m_lListSize
@@ -432,7 +449,7 @@ inline SmStatus SmOwningTopology::GetAll
           do{ 
               if(   pElem->FindAttribute(*pOptAttributeId)
                  && (pOptTarget == NULL || pOptTarget == pElem)) 
-                { rArray.Add(pElem) ; }
+                { rArray.Add(static_cast<TYPE*>(pElem)) ; }
               
               pElem = pElem->m_pNext;
 
@@ -444,7 +461,7 @@ inline SmStatus SmOwningTopology::GetAll
           // add each elem that matches the target
           do{ 
               if(pElem == pOptTarget)
-                { rArray.Add(pElem) ; }
+                { rArray.Add(static_cast<TYPE*>(pElem)) ; }
               
               pElem = pElem->m_pNext;
 

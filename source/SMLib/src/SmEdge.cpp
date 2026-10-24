@@ -3547,14 +3547,10 @@ void SmEdge::Notify                    // expected calls: caller->Notify(Event, 
     {
       case SM_NO_PRE_EDIT              : break ;
                                        
-      case SM_NO_CHANGE_GEOMETRY       : {                        
-                                           SmBrep *pBrep = ( pData2 != NULL ) ? SM_CAST_PTR( SmBrep, pData2 ) : GetBrep();
-                                           if ( pBrep != NULL )
-                                             {
-                                               pBrep->Notify( SM_NO_RM_FROM_BREP, pData3, pBrep, this->GetCurve() );
-                                               pBrep->Notify( SM_NO_ADD_TO_BREP , pData1, pBrep, this->GetCurve() );
-                                             }                    
-                                         }                        
+      case SM_NO_CHANGE_GEOMETRY       : // SolidCraft: the Brep's spatial tree is updated by SetCurve, which sends
+                                         // SM_NO_RM_FROM_BREP and SM_NO_ADD_TO_BREP with this edge round the change.
+                                         // This case used to send them too, with the old and new curves where the
+                                         // Brep takes a topology object (a no-op behind a curve cast to SmTopology).
       case SM_NO_POST_EDIT             : 
       case SM_NO_SPLIT_IN_BREP         : 
       case SM_NO_MERGE_IN_BREP         : // pass the notify call along to all Vertexuses, Edgeuses, and Edgeuse->Vertexuses

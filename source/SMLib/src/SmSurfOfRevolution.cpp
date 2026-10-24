@@ -1014,12 +1014,9 @@ SmBoolean bDebugMe = FALSE ;
                                                sSurfSweepStepIvl.GetLength(),
                                                pTmp, m_bSwapUV, pOptSweepCurve));
   SmObjDelete sClean2(pTmp);
-  SmSurfOfRevolution *pTmpSurfOfRevo = (SmSurfOfRevolution*)pTmp;
 
   // Swap nurbs so that the old m_pNurb is deallocated when we go out of scope
-  gw_SURFACE *pTmpNurb    = m_pNurb;
-  m_pNurb                 = pTmp->GetGwNurbPointer();
-  pTmpSurfOfRevo->m_pNurb = pTmpNurb;
+  SwapNurbPointers(pTmp);
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)

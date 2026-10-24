@@ -398,6 +398,29 @@ bool knots(const double *k, int64_t count, int32_t n, int32_t p)
     return k[p] < k[n];
 }
 
+// A knot vector `knots` accepted is clamped: its first and its last value each p + 1 times.
+bool clamped(const double *k, int64_t count, int32_t p)
+{
+    return k[0] == k[p] && k[count - 1] == k[count - 1 - p];
+}
+
+// Unique values and their multiplicities, the form SmBSplineSurface::CreateCanonical takes.
+void unique_knots(const double *k, int64_t count, SmTArray<double> &values, SmTArray<ULONG> &mults)
+{
+    for (int64_t i = 0; i < count; ++i)
+    {
+        if (values.GetSize() != 0 && values[values.GetSize() - 1] == k[i])
+        {
+            mults[mults.GetSize() - 1] += 1;
+        }
+        else
+        {
+            values.Add(k[i]);
+            mults.Add(1);
+        }
+    }
+}
+
 } // namespace
 
 extern "C" int32_t smlib_surface_nurbs(int32_t degree_u, int32_t degree_v, int32_t nu, int32_t nv, const double *knots_u,
@@ -456,37 +479,64 @@ extern "C" int32_t smlib_surface_nurbs(int32_t degree_u, int32_t degree_v, int32
         [&]
         {
             const SmContext &ctx = *SmApiGetOrCreateContext();
-            // What the runner does: allocate NLib's surface and fill it directly (homogeneous
-            // control points), sidestepping SmBSplineSurface's component constructor.
-            gw_SURFACE *gs = sm_AllocateNurbSurface(nu - 1, nv - 1, static_cast<gw_DEGREE>(degree_u), static_cast<gw_DEGREE>(degree_v),
-                                                    static_cast<gw_INDEX>(n_knots_u - 1), static_cast<gw_INDEX>(n_knots_v - 1));
-            if (gs == nullptr)
-            {
-                return static_cast<int32_t>(SM_ERR);
-            }
-            for (int64_t i = 0; i < n_knots_u; ++i)
-            {
-                gs->knu->U[i] = knots_u[i];
-            }
-            for (int64_t i = 0; i < n_knots_v; ++i)
-            {
-                gs->knv->U[i] = knots_v[i];
-            }
-            for (int32_t i = 0; i < nu; ++i)
-            {
-                for (int32_t k = 0; k < nv; ++k)
-                {
-                    const double *P = points + 3 * (static_cast<size_t>(i) * nv + k);
-                    const double w = weights ? weights[static_cast<size_t>(i) * nv + k] : 1.0;
-                    gs->net->Pw[i][k].x = P[0] * w;
-                    gs->net->Pw[i][k].y = P[1] * w;
-                    gs->net->Pw[i][k].z = P[2] * w;
-                    gs->net->Pw[i][k].w = w;
-                }
-            }
             std::unique_ptr<smlib_surface> s(new smlib_surface);
             s->json = j;
-            s->s = new (ctx) SmBSplineSurface(gs, FALSE, &ctx);
+            if (!clamped(knots_u, n_knots_u, degree_u) || !clamped(knots_v, n_knots_v, degree_v))
+            {
+                // NLib's surfaces are clamped (sm_DecomposeSrf, which every surface cache runs,
+                // reads past the control net otherwise). SMLib's component constructor clamps
+                // the surface to its domain [k[p], k[n]] (N_Iges128Srf), the same surface there.
+                SmTArray<SmPoint3d> cpts;
+                SmTArray<double> wts, ku, kv;
+                SmTArray<ULONG> mu, mv;
+                for (int i = 0; i < n; ++i)
+                {
+                    cpts.Add(SmPoint3d(points[3 * i], points[3 * i + 1], points[3 * i + 2]));
+                    wts.Add(weights ? weights[i] : 1.0);
+                }
+                unique_knots(knots_u, n_knots_u, ku, mu);
+                unique_knots(knots_v, n_knots_v, kv, mv);
+                SmBSplineSurface *bs = NULL;
+                const SmStatus st = SmBSplineSurface::CreateCanonical(ctx, static_cast<ULONG>(degree_u), static_cast<ULONG>(degree_v), cpts,
+                                                                      SM_SF_UNSPECIFIED, mu, mv, ku, kv, SM_KT_UNSPECIFIED, &wts, NULL, bs);
+                s->s = bs;
+                if (st != SM_SUCCESS)
+                {
+                    return static_cast<int32_t>(st);
+                }
+            }
+            else
+            {
+                // What the runner does: allocate NLib's surface and fill it directly (homogeneous
+                // control points), sidestepping SmBSplineSurface's component constructor.
+                gw_SURFACE *gs = sm_AllocateNurbSurface(nu - 1, nv - 1, static_cast<gw_DEGREE>(degree_u), static_cast<gw_DEGREE>(degree_v),
+                                                        static_cast<gw_INDEX>(n_knots_u - 1), static_cast<gw_INDEX>(n_knots_v - 1));
+                if (gs == nullptr)
+                {
+                    return static_cast<int32_t>(SM_ERR);
+                }
+                for (int64_t i = 0; i < n_knots_u; ++i)
+                {
+                    gs->knu->U[i] = knots_u[i];
+                }
+                for (int64_t i = 0; i < n_knots_v; ++i)
+                {
+                    gs->knv->U[i] = knots_v[i];
+                }
+                for (int32_t i = 0; i < nu; ++i)
+                {
+                    for (int32_t k = 0; k < nv; ++k)
+                    {
+                        const double *P = points + 3 * (static_cast<size_t>(i) * nv + k);
+                        const double w = weights ? weights[static_cast<size_t>(i) * nv + k] : 1.0;
+                        gs->net->Pw[i][k].x = P[0] * w;
+                        gs->net->Pw[i][k].y = P[1] * w;
+                        gs->net->Pw[i][k].z = P[2] * w;
+                        gs->net->Pw[i][k].w = w;
+                    }
+                }
+                s->s = new (ctx) SmBSplineSurface(gs, FALSE, &ctx);
+            }
             s->domain = s->s->GetNaturalUVDomain();
             const double d[4] = {s->domain.GetMin().x, s->domain.GetMax().x, s->domain.GetMin().y, s->domain.GetMax().y};
             if (!finite(d, 4) || !(d[0] < d[1]) || !(d[2] < d[3]))

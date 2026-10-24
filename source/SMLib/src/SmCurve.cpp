@@ -10976,7 +10976,9 @@ SmStatus SmCPGlobalSolver::LocalSolve
   SmBezierSpan         * pBezSpan   = (SmBezierSpan*)pCurveNode->m_pData; NER(pBezSpan);
   SmExtent1d             sBezIvl    = pBezSpan->GetInterval();
   SmPoint3d              sTestPnt   = pPointNode->m_sBBox.GetMin();
-  const SmBSplineCurve * pCurve     = (const SmBSplineCurve *)((SmCurveCache *)pCurveNode->m_pTree->GetOwner())->GetCurve() ;
+  // SolidCraft: the cached curve is any SmCurve (an SmCrvOnSurf, for one), used here only through
+  // SmCurve's virtual methods; it was cast to SmBSplineCurve, which it need not be.
+  const SmCurve        * pCurve     = ((SmCurveCache *)pCurveNode->m_pTree->GetOwner())->GetCurve() ;
   SM_ASSERT(pCurveNode->m_eAuxDataType == SM_AD_BEZIER_CURVE);
 
   // Do interval tests
@@ -11111,7 +11113,7 @@ SmStatus SmCPGlobalSolver::LocalSolve
           sSolution.m_vStart.m_dSolutionValue = dDist;
           sSolution.m_vStart[0]               = sBezIvl.GetMin();
           sSolution.m_lNumObjects             = 1 ;
-          sSolution.m_apObjects[0]            = (SmBSplineCurve *)pCurve ;
+          sSolution.m_apObjects[0]            = const_cast<SmCurve *>(pCurve) ;
 
           // add solution to sSolution array in proper order
           if (   (m_eSolverOperation == SM_SO_MINIMIZE)
@@ -11500,7 +11502,7 @@ static constexpr SmBoolean  bDebugMe = FALSE;
       sSolution.m_apNodes[1] = apBranch[1];  // Curve node
       sSolution.m_lNumVariables = 1;
       sSolution.m_lNumObjects   = 1 ;
-      sSolution.m_apObjects[0]  = (SmBSplineCurve *)pCurve ;
+      sSolution.m_apObjects[0]  = const_cast<SmCurve *>(pCurve) ;
 
       // add solution to sorted sSolution array
       if (   (m_eSolverOperation == SM_SO_MINIMIZE)
@@ -11536,7 +11538,7 @@ static constexpr SmBoolean  bDebugMe = FALSE;
           saCoinSolutions[i].m_apNodes[1]    = apBranch[1];  // Curve node
           saCoinSolutions[i].m_lNumVariables = 1;
           saCoinSolutions[i].m_lNumObjects   = 1 ;
-          saCoinSolutions[i].m_apObjects[0]  = (SmBSplineCurve *)pCurve ;
+          saCoinSolutions[i].m_apObjects[0]  = const_cast<SmCurve *>(pCurve) ;
 
           // add sol to sol array
           if (   (m_eSolverOperation == SM_SO_MINIMIZE)
@@ -11594,7 +11596,7 @@ static constexpr SmBoolean  bDebugMe = FALSE;
           sIvlSolution.m_lNumVariables = 1;
           sIvlSolution.m_eSolutionType = SM_ST_RANGE_OF_VALUES;
           sIvlSolution.m_lNumObjects   = 1 ;
-          sIvlSolution.m_apObjects[0]  = (SmBSplineCurve *)pCurve ;
+          sIvlSolution.m_apObjects[0]  = const_cast<SmCurve *>(pCurve) ;
 
           if (   (m_eSolverOperation == SM_SO_MINIMIZE)
               || (m_eSolverOperation == SM_SO_MAXIMIZE)

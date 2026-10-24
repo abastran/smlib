@@ -88,7 +88,7 @@ void SmFaceuse::GetLoopuses
     } // end TgtLoopsOnly is TRUE check
   else // include all loopuses branch              
     { 
-      (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rLoopuses)) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+      (void)GetAll(rLoopuses) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
     }
 
 } // end SmFaceuse::GetLoopuses

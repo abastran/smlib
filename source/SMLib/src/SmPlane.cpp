@@ -3027,13 +3027,10 @@ SmStatus SmPlane::MakeNurb
   SER(SmBSplineSurface::CreateCanonical(*GetContext(),lUDeg,lVDeg,
                                         sCtrlPts,SM_SF_PLANE_SURF,sUKnotMult,sVKnotMult,
                                         sUKnots,sVKnots,SM_KT_UNSPECIFIED,NULL,NULL,pTmp));
-  SmPlane *pTmpPlane = (SmPlane*)pTmp;
   SmObjDelete sClean(pTmp);
 
   // Swap nurbs - old nurb is deleted when temporary pTmp goes out of scope
-  gw_SURFACE *pTmpNurb = m_pNurb;
-  m_pNurb              = pTmp->GetGwNurbPointer();
-  pTmpPlane->m_pNurb   = pTmpNurb;
+  SwapNurbPointers(pTmp);
   return SM_SUCCESS;
 
 } // end SmPlane::MakeNurb

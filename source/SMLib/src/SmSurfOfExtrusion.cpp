@@ -3769,10 +3769,7 @@ SmBoolean bDebugMe = FALSE;
   SmObjDelete sClean(pTmp);
 
   // swap NewNurbSurface m_pNurb with this surface old m_pNurb pointer
-  SmSurfOfExtrusion *pTmpSurfOfExtru = (SmSurfOfExtrusion*)pTmp;
-  gw_SURFACE *pTmpNurb     = m_pNurb;
-  m_pNurb                  = pTmp->GetGwNurbPointer();
-  pTmpSurfOfExtru->m_pNurb = pTmpNurb;
+  SwapNurbPointers(pTmp);
 
 #ifdef SM_DEBUG_CODE
   if (bDebugMe)

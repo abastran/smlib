@@ -18,6 +18,7 @@
 //  replace #include <SmTArray.h> with a local array definition supporting only
 //   AddUnique(), FindElement(), and RemoveAt()
 class SmObject ;
+class SmContext ;
 
 /*******************************************************************//**
 PURPOSE: Global access to ThreadLocalStorage index unique to 
@@ -110,11 +111,13 @@ public:
 
   // Simple Data Access - these are static to be used as 'global' access to these thread specific values
   static void      SetBeenThroughNew(SmBoolean  bBeenThroughNew,      // in : TRUE = remember pObject, FALSE = forget pObject
-                                     SmObject * pObject) ;            // NotUsed: in : used only to communicate state between 
+                                     SmObject * pObject,              // NotUsed: in : used only to communicate state between 
+                                     const SmContext * cpContext = NULL) ; // in : with TRUE, the context the SmObject constructor gives the object
   static void      SetErrCallbackFunction(SmErrorCallbackFunctionPtr  // in : Callback function ptr to store 
                                           pfErrCallbackFunction) ;    //      Called in smos_ErrorMessage()
 
   static SmBoolean                  GetBeenThroughNew(SmObject * pObject) ; // get: been through overloaded SmObject::new state value from SmObject constructors, // NotUsed: in : pObject 
+  static const SmContext *          GetBeenThroughNewContext() ;            // get: the context the last SmObject::operator new was given
   static SmErrorCallbackFunctionPtr GetErrCallbackFunction() ;              // get: Callback function ptr called by smos_ErrorMessage()
 
   static ULONG                      GetSERDepth() ;         // get: thread's SER() call depth value

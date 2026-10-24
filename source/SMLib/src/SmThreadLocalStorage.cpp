@@ -32,8 +32,10 @@ NOTES:  This number is unique to each thread.
 
 #ifdef _WIN32
 static __declspec(thread) bool s_sBeenThroughNew;
+static __declspec(thread) const SmContext *s_cpBeenThroughNewContext;
 #else
 static __thread bool s_sBeenThroughNew;
+static __thread const SmContext *s_cpBeenThroughNewContext;
 #endif
 
 #if defined(_WIN32) && defined(SM_USE_THREADS)
@@ -207,10 +209,13 @@ NOTES:
 void SmThreadLocalStorage::SetBeenThroughNew
   (SmBoolean bBeenThroughNew, // in : TRUE = remember pObject has been through new
                               //      FALSE = clear memory of pObject
-   SmObject *pObject)         // NotUsed: in : Object to remember of forget
+   SmObject *pObject,         // NotUsed: in : Object to remember of forget
+   const SmContext *cpContext) // in : with TRUE, the context the SmObject constructor gives the object
 {
   SM_REF1(pObject) ;
 	s_sBeenThroughNew = bBeenThroughNew;
+  // SolidCraft: the context travels here, not in the object's memory before its constructor ran.
+  s_cpBeenThroughNewContext = bBeenThroughNew ? cpContext : NULL;
   /*
 #if defined(SM_USE_WIN_THREADS)
 
@@ -325,6 +330,15 @@ SmBoolean SmThreadLocalStorage::GetBeenThroughNew
 #endif // end switch on thread type
 */
 } // end SmThreadLocalStorage::GetBeenThroughNew
+
+/*******************************************************************//**
+PURPOSE: Get the context SmObject::operator new was given for the object
+    the SmObject constructor is about to build (NULL when none).
+***********************************************************************/
+const SmContext * SmThreadLocalStorage::GetBeenThroughNewContext()
+{
+  return s_cpBeenThroughNewContext;
+} // end SmThreadLocalStorage::GetBeenThroughNewContext
 
 // for no SM_USE_WIN_THREADS, SM_USE_PTHREADS - define global callback pointer
 #if !defined(SM_USE_WIN_THREADS) && !defined(SM_USE_PTHREADS)

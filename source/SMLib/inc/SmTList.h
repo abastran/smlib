@@ -55,8 +55,11 @@ PURPOSE: This object is templated container class which manages a linked list.
 
 NOTES: This object is highly optimized because it is heavily
     used.  
+    SolidCraft: not an SmObject and without virtual methods. SmTLists are members of the
+    objects SmMemBlockMgr hands out (SmBezierAux2d, SmBezierPatch), which are never
+    constructed, only Init()-ed; a vptr in them would be uninitialized memory.
 ***********************************************************************/
-template<class TYPE> class SmTList : public SmObject
+template<class TYPE> class SmTList
 {
   // Implementation
 protected:
@@ -73,7 +76,7 @@ public:
                        m_lSize     = 0 ;
 #endif                       
                      }
-  virtual ~SmTList() { }
+  ~SmTList() { }
   void Init()        { m_pListHead = NULL; 
 #ifdef SM_DEBUG_CODE
                        m_lSize     = 0 ;
@@ -97,7 +100,7 @@ public:
   inline void      RemoveLast(); // remove last element from list. Don't call delete on removed element.
   inline void      ReSet() ;     // calls delete on each list member - sets m_pListHead == NULL
 
-  virtual void     Dump() const ;
+  void             Dump() const ;
 
 } ; // end template class SmTList
 
@@ -418,9 +421,6 @@ inline void SmTList<TYPE>::Dump() const
   smos_sprintf( sBuffer, _T("\n   Debug Check Length : [%ld] (should be the same as List Length)\n  "), m_lSize);
   smos_WriteBuffer(sBuffer) ;
 #endif 
-  
-  // dump inherited data                    
-  SmObject::Dump();
   
   // members
   for (ULONG i = 0; i < sAllNodesInList.GetSize(); i++) 

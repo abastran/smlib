@@ -3308,7 +3308,7 @@ void SmVertex::GetVertexuses
   ULONG                  * pOptAttributeId) // in : only include objects containing an attribute with this id
  const                                      //      NULL to ignore, default:[NULL]
 { 
-  (void)GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&, rVertexuses), pOptAttributeId) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
+  (void)GetAll(rVertexuses, pOptAttributeId) ; // SolidCraft: a void list getter: GetAll fails only out of memory, the list then partial
   
 } // end SmVertex::GetVertexuses
 
