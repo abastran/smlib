@@ -4562,22 +4562,32 @@ static ULONG lDebugCount = 0 ;
         }
 #endif // obsolete code if face = plane
 
+      // get offsetSurface and origFace domains
+      SmExtent2d sOffsetDomain = pOffsetSurf->GetNaturalUVDomain();
+      SmExtent2d sFaceDomain   = pFU->GetFace()->GetUVDomain();
+      SmBoolean  bFaceFits     = (   sFaceDomain.IsContainedBy(sOffsetDomain, SM_EFF_ZERO)
+                                  || m_eOffsetOperation == SM_OO_LOCAL_OPERATION) ;
+
       // face is not a plane
-      // copy face->UVTrimCurves and vertexLoop points 
+      // copy face->UVTrimCurves and vertexLoop points
+      // SolidCraft change: a face that does not fit the offset surface's domain is clipped to it
+      // by a 2D boolean (below) of planar faces made from its UV loops, and a planar face needs
+      // its loops counterclockwise, as the face's SM_OT_SAME faceuse runs them. The loops of an
+      // inset's faceuse (SM_OT_OPPOSITE) run clockwise: the 2D face was inside out and its
+      // intersection with the domain empty, so the face got no offset at all (the bottom of a vase
+      // whose profile meets the axis at a slant, its offset's domain trimmed at the axis,
+      // shelled inward: tangency-labs/solidcraft#4567).
       SER(pFU->GetFace()->CreateCurvesFromFace(*cpContext,             // in : context for new object construction
-                                                pFU->GetOrientation(), // in : use Faceuse whose orientation is the same as eOrientation
+                                                bFaceFits ? pFU->GetOrientation() : SM_OT_SAME,
+                                                                       // in : use Faceuse whose orientation is the same as eOrientation
                                                 sCurveLoops,           // out: number of edges in each edge loop
                                                 NULL,                  // out: optional copies of all 3D loop curves - note: one or both of pOpt3DCurves and
                                                &sUVCurves,             // out: optional copies of all 2D loop curves -         pOptUVCurves must be nonNULL
                                                 sCurveOrients,         // out: Curve orientation in relation to its loop for each curve
-                                                sLoopPoints));         // out: point position of each of face's vertex loops      
-      
-      // get offsetSurface and origFace domains
-      SmExtent2d sOffsetDomain = pOffsetSurf->GetNaturalUVDomain();
-      SmExtent2d sFaceDomain   = pFU->GetFace()->GetUVDomain();
+                                                sLoopPoints));         // out: point position of each of face's vertex loops
 
       // when sOffsetDomain is larger or equal to sFaceDomain or we are doing a local operation
-      if (   sFaceDomain.IsContainedBy(sOffsetDomain, SM_EFF_ZERO) || m_eOffsetOperation == SM_OO_LOCAL_OPERATION) 
+      if (bFaceFits)
       {
           // make a face in m_pOffset which is the offset of pFU
           SmRegion *pNewRegion = NULL;
@@ -4842,7 +4852,8 @@ static ULONG lDebugCount = 0 ;
           for (kkk=0; kkk<s2DFaces.GetSize(); kkk++) 
             {
               SmFace *pF = s2DFaces[kkk];
-              SER(pF->CreateCurvesFromFace(*cpContext, SM_OT_SAME, sCurveLoops,
+              // the loops in the sense of pFU's orientation, which the offset face is made with
+              SER(pF->CreateCurvesFromFace(*cpContext, pFU->GetOrientation(), sCurveLoops,
                                            (SmTArray<SmCurve*>*)&sUVCurves,   // out: optional "3d" Curves, which are actually uv curves
                                            NULL,                              // out: optional UVTrimCurves
                                            sCurveOrients, sLoopPoints));

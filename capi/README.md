@@ -1062,3 +1062,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   about y, shelled inward, rig case shell/4567). The segment now spans the offset's extent along
   the axis both ways, and the part kept is the one on the generatrix's side of the axis (positive
   radius), not the longer one.
+- **An inset face that does not fit its offset surface's domain is clipped right side out**
+  (`SmOffsetExecutive.cpp`, `BuildOffsetOfFaceuse`): such a face (a revolved bottom whose
+  offset is trimmed at the axis) is clipped to the domain by a 2D boolean of planar faces made
+  from its UV loops, and those loops came from the inset's faceuse (`SM_OT_OPPOSITE`), clockwise:
+  the planar face was inside out, the intersection empty, and the face got no offset (the shell
+  failed, 1001). The 2D faces are now made from the face's counterclockwise loops, and the
+  clipped faces' loops are taken in the faceuse's sense for the offset face.

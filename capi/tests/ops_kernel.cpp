@@ -1722,6 +1722,28 @@ int main()
         const double s0 = root([&](double s) { double q[2], dq[2]; off(0, s, q, dq); return q[0]; }, 0.0, 0.5);
         double apex[2], dapex[2];
         off(0, s0, apex, dapex);
+        // pi times the integral of r^2 dy along f from s = a to b (Simpson's rule): the vase, and
+        // the cavity inside the offset from the axis to the open top
+        auto turned = [](const std::function<void(double, double &, double &)> &f, double a, double b)
+        {
+            const int n = 4000;
+            double sum = 0.0;
+            for (int i = 0; i <= n; ++i)
+            {
+                double rr = 0.0, dy = 0.0;
+                f(a + (b - a) * i / n, rr, dy);
+                sum += (i == 0 || i == n ? 1 : (i % 2 ? 4 : 2)) * rr * rr * dy;
+            }
+            return PI * sum * (b - a) / n / 3.0;
+        };
+        const double s1 = root([&](double s) { double q[2], dq[2]; off(5, s, q, dq); return q[1] - top; }, 0.5, 1.0);
+        double vase_volume = 0.0, cavity_volume = 0.0;
+        for (int k = 0; k < 6; ++k)
+        {
+            vase_volume += turned([&](double s, double &rr, double &dy) { double d[3][2]; bez(k, s, d); rr = d[0][0]; dy = d[1][1]; }, 0.0, 1.0);
+            cavity_volume += turned([&](double s, double &rr, double &dy) { double q[2], dq[2]; off(k, s, q, dq); rr = q[0]; dy = dq[1]; },
+                                    k == 0 ? s0 : 0.0, k == 5 ? s1 : 1.0);
+        }
 
         // the profile as curves: the six spans, the rim, the axis
         std::vector<int64_t> kinds;
@@ -1804,6 +1826,22 @@ int main()
             }
             CHECK(bottoms == 1);
 
+            // The shell. The bottom's offset face was clipped to its offset surface's domain,
+            // trimmed at the axis, by a 2D boolean of planar faces made from the face's UV loops,
+            // taken from the inset's faceuse: clockwise, so the face was inside out, the
+            // intersection empty, and the bottom got no offset at all (1001, no closed cavity).
+            // The shell is the vase less the cavity inside the offset, up to the open top.
+            const double rim[3] = {0, top, 3};
+            smlib_brep *cup = nullptr;
+            CHECK(smlib_shell(vase, rim, 1, 0.05, -t, &cup, nullptr) == SMLIB_OK);
+            if (cup != nullptr)
+            {
+                double v = 0.0;
+                CHECK(smlib_brep_volume(cup, 1e-10, &v) == SMLIB_OK);
+                std::printf("vase about %+gy shelled 2 open at the top: %.9f, the profile's quadrature %.9f\n", turn, v, vase_volume - cavity_volume);
+                CHECK(near(v, vase_volume - cavity_volume, 1e-8));
+                done(cup);
+            }
             smlib_brep_free(vase);
         }
     }
