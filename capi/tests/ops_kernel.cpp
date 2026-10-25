@@ -13,6 +13,8 @@
 #include <SmApiQueries.h>
 #include <SmBSplineCurve.h>
 #include <SmCylinder.h>
+#include <SmExtent3d.h>
+#include <SmFace.h>
 #include <SmFilletExecutive.h>
 #include <SmOffsetSurface.h>
 #include <SmVector3d.h>
@@ -1352,7 +1354,10 @@ int main()
     // face is now rebuilt from the stretches of its loops that bound it, and comes apart in two
     // when the hole crosses both sides (D = 8). The cavity is the inner box less the part of the
     // hole's offset disk inside the floor, over the height 10 - t; a hole whose offset only
-    // touches a side's offset is not resolved: SM_ERR_BAD_INTERSECTIONS.
+    // touches a side's offset is not resolved: SM_ERR_BAD_INTERSECTIONS. At x = 4.99 the hole's
+    // offset crosses the side's 0.01 mm deep, at 4.3 degrees: the cut-off rims of that crossing
+    // were welded by the offset's stitch, whose tolerance escalated to the gap between them, and
+    // the shell failed (1001).
     {
         struct Plate
         {
@@ -1368,7 +1373,8 @@ int main()
             };
             return F(b) - F(a);
         };
-        for (Plate p : {Plate{4.5, 20, 40, 1.5}, Plate{4.5, 20, 40, 1.0}, Plate{20, 4, 8, 1.5}, Plate{5, 20, 40, 1.5}})
+        for (Plate p : {Plate{4.5, 20, 40, 1.5}, Plate{4.5, 20, 40, 1.0}, Plate{20, 4, 8, 1.5}, Plate{5, 20, 40, 1.5},
+                        Plate{4.99, 20, 40, 1.5}})
         {
             const double o[3] = {0, 0, 0}, size[3] = {40, p.d, 10}, axis[3] = {p.x, p.y, -1}, lid[3] = {35, p.d / 2, 10};
             smlib_brep *box = nullptr, *pin = nullptr, *plate = nullptr;
@@ -1400,6 +1406,100 @@ int main()
                 smlib_brep_free(b);
             }
         }
+    }
+
+    // SolidCraft's ladder part 09/011 (tests/data/part-chamfers-shell.txt, as smlib_shell was
+    // handed it): a block with a bezier-arched window 1 mm below a round, an M5 hole 0.35 mm from
+    // that round, a chamfer, holes and a slot, shelled 1.5 inward open at the bottom. The round's
+    // offset is tangent to the wall's offset along z = 32 and to the top's along y = 33, so the
+    // window's and the hole's offsets meet them tangentially where they cross: those contacts were
+    // found inside the curves instead of at their ends, and their sliver edges failed the merge.
+    // The result is checked point by point: an inward offset is sharp at every edge, so each face
+    // lies on the part's boundary or 1.5 or more from its faces but the open one, exactly 1.5
+    // except near the mitres of the part's concave edges; sampled at one interior point per face
+    // (where on a face that point falls decides whether it reads 1.5 or more).
+    {
+        smlib_flat *f = nullptr;
+        smlib_brep *part = nullptr;
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/part-chamfers-shell.txt", &f) == SMLIB_OK && smlib_brep_import(f, &part) == SMLIB_OK);
+        smlib_flat_free(f);
+        const double bottom[3] = {40.745625596812403, 30.55585248496563, 0};
+        CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.080157097709407002, -1.5, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            SmBrep *walls = nullptr;
+            CHECK(SmApiBrepCopy(part->p, walls) == SM_SUCCESS && walls != nullptr);
+            walls->m_bEditingEnabled = TRUE;
+            SmTArray<SmFace *> wf;
+            walls->GetFaces(wf);
+            for (ULONG i = 0; i < wf.GetSize(); i++)
+            {
+                SmExtent3d e;
+                CHECK(wf[i]->CalculateBoundingBox(e, TRUE) == SM_SUCCESS);
+                if (std::fabs(e.GetMin(2)) < 1e-9 && std::fabs(e.GetMax(2)) < 1e-9)
+                {
+                    CHECK(walls->DeleteFace(wf[i], TRUE, FALSE) == SM_SUCCESS);
+                }
+            }
+            SmTArray<SmFace *> faces;
+            r->p->GetFaces(faces);
+            int on_part = 0, at_wall = 0, past_wall = 0;
+            for (ULONG i = 0; i < faces.GetSize(); i++)
+            {
+                SmPoint3d p, q;
+                double d_part = -1.0, d_walls = -1.0;
+                CHECK(faces[i]->CalculateAnInternalPoint(p) == SM_SUCCESS);
+                CHECK(SmApiGetClosestPoint(part->p, p, q, d_part) == SM_SUCCESS);
+                CHECK(SmApiGetClosestPoint(walls, p, q, d_walls) == SM_SUCCESS);
+                if (d_part <= 1e-9)
+                {
+                    on_part++;
+                }
+                else
+                {
+                    CHECK(d_walls >= 1.5 - 1e-5);
+                    (std::fabs(d_walls - 1.5) <= 1e-5 ? at_wall : past_wall)++;
+                }
+            }
+            std::printf("part 09/011 shell: %d faces on the part, %d at the wall, %d past it (at a mitre)\n", on_part, at_wall, past_wall);
+            CHECK(on_part == 29 && at_wall + past_wall == 26 && at_wall > past_wall);
+            delete walls;
+            done(r);
+        }
+        smlib_brep_free(part);
+    }
+
+    // SolidCraft's cross-hole cut (tests/data/cross-pin.txt less cross-hole.txt, as SolidCraft
+    // handed them to smlib_boolean): a pin of radius 2 and height 6 about z, a hole of radius 1
+    // through it along y, both seamed at 0.6131 rad. Each intersection loop is a closed curve that
+    // touches the hole's seam line at its start, which is its end: moving that contact to the
+    // loop's other end passed a one-way measurement of the whole turn against the line's one
+    // point, and the cut failed (1001). The cavity is 24 pi less the integral of
+    // 4 sqrt(1 - x^2) sqrt(4 - x^2) over [-1, 1] (x = sin a: 4 cos^2 a sqrt(4 - sin^2 a), smooth,
+    // by Simpson's rule).
+    {
+        smlib_flat *fa = nullptr, *fb = nullptr;
+        smlib_brep *pin = nullptr, *hole = nullptr;
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/cross-pin.txt", &fa) == SMLIB_OK && smlib_brep_import(fa, &pin) == SMLIB_OK);
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/cross-hole.txt", &fb) == SMLIB_OK && smlib_brep_import(fb, &hole) == SMLIB_OK);
+        smlib_flat_free(fa);
+        smlib_flat_free(fb);
+        const int n = 2000;
+        double lens = 0.0;
+        for (int i = 0; i <= n; i++)
+        {
+            const double a = -PI / 2 + PI * i / n, c = std::cos(a), s = std::sin(a);
+            lens += (i == 0 || i == n ? 1.0 : (i % 2 ? 4.0 : 2.0)) * 4.0 * c * c * std::sqrt(4.0 - s * s);
+        }
+        lens *= PI / n / 3.0;
+        CHECK(pin != nullptr && hole != nullptr && smlib_boolean(pin, hole, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 24.0 * PI - lens, 1e-6));
+            done(r);
+        }
+        smlib_brep_free(pin);
+        smlib_brep_free(hole);
     }
 
     // Thicken: a sheet (the cube's top face alone, SMLib's own way of making one is not in the

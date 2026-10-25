@@ -951,3 +951,22 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   gets a face per outer loop (`MakeFaceFromLoopOnFace`, as the healer does). Loops that meet at a
   loop vertex, touch, run along one another or cross three at a point are not resolved: the
   offset fails with `SM_ERR_BAD_INTERSECTIONS` and the reason.
+- **A tangential contact at a curve's end is found at that end** (`SmCurve.cpp`,
+  `GlobalCurveIntersect`): two curves that touch tangentially stay within the intersection
+  tolerance of one another over a stretch, and where in it the point solution lands is set by
+  noise far below the tolerance. An intersection curve that leaves a face's edge tangentially (at
+  a vertex between G1 faces: a window's offset meeting a round's offset, tangent to the wall's)
+  was found touching that edge 3.3e-4 of parameter inside its start, the stretch between became an
+  edge of its own whose ends were one point, and the merge failed on its sliver face. A point
+  solution now moves to the end of either curve when that end lies within tolerance of the other
+  curve and the curves stay within tolerance of one another over the whole stretch between them,
+  measured on each curve (`CurveMaxDistanceBetween` samples only the curve it is given: one way
+  alone passes a closed curve's whole turn against the one point of a line it touches at its
+  start, which is its end).
+- **The offset's protective stitch keeps the body's tolerance** (`SmOffsetExecutive.cpp`,
+  `DoExtendedOffset`): it called `StitchIntoSolid`, which doubles its tolerance until no lamina
+  edge is left (up to a 200th of the body's size). The lamina edges a piecewise merge leaves are
+  the rims of the pieces its intersections cut off, which `MakeManifold` removes next; escalating,
+  the stitch welded two of them 0.12 mm apart (an arc and the chord between its ends) into one
+  edge of tolerance 0.24 mm, and the offset failed (1001; a 0.01 mm deep crossing of a hole's
+  offset with a side's did the same). It now stitches once, at the body's tolerance.

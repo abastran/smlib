@@ -6182,6 +6182,96 @@ SmBoolean bDebugMe = FALSE ;
 } // end SmCurve::AnalyticCurveIntersect
 
 /*******************************************************************//**
+PURPOSE: Static helper for GlobalCurveIntersect: a point solution whose
+   contact runs on to an end of either curve's interval is at that end.
+
+NOTES: SolidCraft fork. Two curves that touch tangentially stay within the
+   intersection tolerance of one another over a stretch around the touch;
+   where along that stretch the point solution lands (where the solver's
+   local minimisation of the separation converged, or SimpleCoincidenceChecker
+   case 3e's nearest point) is set by noise far below the tolerance: an
+   intersection curve that starts where a face's edge leaves it tangentially
+   (at a vertex between tangent faces) was 1.857e-7 from that edge at its
+   start and 1.856e-7 at the minimum the solver found, 3.3e-4 of parameter
+   inside it. A point inside such a stretch and the end the stretch reaches
+   are one contact, and that contact is at the end: the curve stops there.
+   Left inside, the stretch between them became a curve piece of its own whose
+   two ends were one point within tolerance, and the face it bounded a sliver.
+   So a SINGLE_VALUE solution moves to an end of crInterval (or of
+   crOtherInterval) when that end lies within dDistTol of the other curve and
+   the curves stay within dDistTol of one another over the whole stretch from
+   the end to the solution, on both curves (CurveMaxDistanceBetween, measured
+   precisely each way). A
+   crossing moves only when it lies that near an end, where the end is the
+   same point within tolerance.
+***********************************************************************/
+static SmStatus sm_MoveContactsToCurveEnds
+ (const SmCurve    & crCurve,          // in : this curve of the intersection (solution parameter 0)
+  const SmExtent1d & crInterval,       // in : its interval
+  const SmCurve    & crOtherCurve,     // in : other curve (solution parameter 1)
+  const SmExtent1d & crOtherInterval,  // in : its interval
+  double             dDistTol,         // in : the intersection tolerance
+  SmSolutionArray  & rSolutions)       // i/o: solutions; point solutions may move to curve ends
+{
+  for (ULONG ii=0; ii<rSolutions.GetSize(); ii++)
+    {
+      SmSolution & rSol = rSolutions[ii];
+      if (rSol.m_eSolutionType != SM_ST_SINGLE_VALUE) { continue; }
+      double dT1 = rSol.m_vStart[0];
+      double dT2 = rSol.m_vStart[1];
+
+      // iWhich 0: an end of this curve, dropped to the other; 1: an end of the other, dropped to this
+      SmBoolean bMoved = FALSE;
+      for (int iWhich=0; iWhich<2 && !bMoved; iWhich++)
+        {
+          const SmCurve    & rEndCurve  = (iWhich == 0) ? crCurve         : crOtherCurve;
+          const SmCurve    & rDropCurve = (iWhich == 0) ? crOtherCurve    : crCurve;
+          const SmExtent1d & rEndIvl    = (iWhich == 0) ? crInterval      : crOtherInterval;
+          const SmExtent1d & rDropIvl   = (iWhich == 0) ? crOtherInterval : crInterval;
+          double dSolOnEnd  = (iWhich == 0) ? dT1 : dT2;
+          double dSolOnDrop = (iWhich == 0) ? dT2 : dT1;
+          for (int iEnd=0; iEnd<2 && !bMoved; iEnd++)
+            {
+              double dEnd = (iEnd == 0) ? rEndIvl.GetMin() : rEndIvl.GetMax();
+              if (dEnd == dSolOnEnd) { continue; } // already there
+              SmPoint3d sEndPt;
+              SER(rEndCurve.EvaluatePoint(dEnd, sEndPt));
+              SmBoolean bFound = FALSE;
+              double    dDrop = dSolOnDrop, dDist = SM_BIG_DOUBLE;
+              SER(rDropCurve.DropPoint(rDropIvl, sEndPt, NULL, dDistTol, &dSolOnDrop, bFound, dDrop, dDist, SM_SO_MINIMIZE));
+              if (!bFound || !(dDist <= dDistTol)) { continue; }
+              // the curves within dDistTol of one another over the whole stretch from the end to
+              // the solution, on each curve: CurveMaxDistanceBetween samples only the curve it is
+              // given, so it is measured both ways. One way alone passes a stretch the other curve
+              // does not run along: a closed curve's whole turn, from its start to its end at the
+              // same point, against the one point of another curve it touches there.
+              SmExtent1d sStretch(dEnd);
+              sStretch.AddValue(dSolOnEnd);
+              SmExtent1d sDropStretch(dDrop);
+              sDropStretch.AddValue(dSolOnDrop);
+              double dMaxGap    = SM_BIG_DOUBLE;
+              double dLimit     = dDistTol;
+              double dDropAtMin = (dEnd < dSolOnEnd) ? dDrop      : dSolOnDrop;
+              double dDropAtMax = (dEnd < dSolOnEnd) ? dSolOnDrop : dDrop;
+              SER(rEndCurve.CurveMaxDistanceBetween(sStretch, rDropCurve, dDropAtMin, dDropAtMax, 0, &dLimit, dMaxGap));
+              if (!(dMaxGap <= dDistTol)) { continue; }
+              double dEndAtMin = (dDrop < dSolOnDrop) ? dEnd      : dSolOnEnd;
+              double dEndAtMax = (dDrop < dSolOnDrop) ? dSolOnEnd : dEnd;
+              dMaxGap = SM_BIG_DOUBLE;
+              SER(rDropCurve.CurveMaxDistanceBetween(sDropStretch, rEndCurve, dEndAtMin, dEndAtMax, 0, &dLimit, dMaxGap));
+              if (!(dMaxGap <= dDistTol)) { continue; }
+              rSol.m_vStart[0]               = (iWhich == 0) ? dEnd  : dDrop;
+              rSol.m_vStart[1]               = (iWhich == 0) ? dDrop : dEnd;
+              rSol.m_vStart.m_dSolutionValue = dDist;
+              bMoved = TRUE;
+            }
+        }
+    }
+  return SM_SUCCESS;
+
+} // end static sm_MoveContactsToCurveEnds
+
+/*******************************************************************//**
 PURPOSE: Given two curves in Euclidian space determine the corresponding
      intersection points and or coincident segments.
 
@@ -6681,6 +6771,10 @@ static ULONG lDebugCount = 0 ;
 
   // Refine Range solutions.
   SER( sm_RefineCCSolutions( rSolutions ) );
+
+  // SolidCraft change: a point solution whose contact runs on to an end of either curve is at
+  // that end (before the pass below combines solutions that come to one point).
+  SER( sm_MoveContactsToCurveEnds( *this, crInterval, crOtherCurve, crOtherInterval, dDistTol, rSolutions ) );
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)

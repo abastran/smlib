@@ -1908,13 +1908,24 @@ SmBoolean bDebugMe4 = FALSE;
     }
 #endif // SM_DEBUG_CODE
 
-  // Do some stitching to close those unwanted gaps 
+  // Do some stitching to close those unwanted gaps
   //    this is a protective step that would not be needed in an ideal world.
-  ULONG lStitchedEdges;
-  double dVGap, dEGap;
-  SmBoolean bProducesSolid;
-  SmStatus sRtn = SmStitch::StitchIntoSolid(pResult,bProducesSolid,lStitchedEdges,dVGap,dEGap);
-  SM_ASSERT(sRtn == SM_SUCCESS) ;
+  // SolidCraft change: within the merged body's tolerance only. StitchIntoSolid doubles its
+  // tolerance until no lamina edge is left (up to a 200th of the body's size), but the lamina
+  // edges a merge leaves are the rims of the pieces its intersections cut off (an offset face's
+  // part beyond a neighbour's offset), which MakeManifold removes below: escalating, it welded
+  // two of them 0.12 mm apart, an arc and the chord between its ends, into one edge of tolerance
+  // 0.24 mm, and the offset came apart there.
+  {
+    SmStitchCallback sStitchCallback;
+    SmStitch sStitch(sStitchCallback, pResult->GetTolerance(), TRUE, FALSE);
+    sStitch.m_bFastEdgeCompare        = TRUE;
+    sStitch.m_bSplitEdgesWithVertices = FALSE;
+    sStitch.m_bMakingManifoldSolid    = TRUE;
+    ULONG  lStitchedEdges = 0, lLaminaEdges = 0;
+    double dVGap = 0.0, dEGap = 0.0;
+    SER(sStitch.DoStitching(pResult, NULL, NULL, lStitchedEdges, lLaminaEdges, dVGap, dEGap));
+  }
 
 #ifdef SM_DEBUG_CODE
   SmBoolean bDrawFaces = FALSE;
