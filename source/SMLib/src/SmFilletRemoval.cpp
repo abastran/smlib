@@ -20,6 +20,7 @@
 
 #include <SmBSplineSurface.h>
 #include <SmBSplineCurve.h>
+#include <SmPlane.h>
 #include <SmEdgeuse.h>
 #include <SmSolutionArray.h>
 #include <SmAssertArray.h>
@@ -79,6 +80,8 @@ SmFilletRemoval::SmFilletRemoval( SmFace *pFaceToDelete, double d3dTolerance )
   m_aNewEdgeCurveUVs[0] = m_aNewEdgeCurveUVs[1] = NULL;
 
   m_dNewEdgeDeviation = -1;
+  m_bExactOnly = FALSE;
+  m_bNotExact  = FALSE;
 }
 /*******************************************************************//**
 PURPOSE: SmFilletRemovel destructor.
@@ -102,6 +105,9 @@ SmFilletCornerInfo::SmFilletCornerInfo()
     m_pNewSideEdgeExtension3d  = NULL;
     m_pNewSideEdgeExtEndFaceUV = NULL;
     m_pNewSideEdgeExtTanFaceUV = NULL;
+    m_pNewSideCurve = NULL;
+    m_bSideCurveReplaced = FALSE;
+    m_bRebuildSideUVs = FALSE;
     m_pSideEdge = NULL;
 }
 /*******************************************************************//**
@@ -115,6 +121,8 @@ SmFilletCornerInfo::~SmFilletCornerInfo()
   m_pNewSideEdgeExtension3d  = NULL;
   m_pNewSideEdgeExtEndFaceUV = NULL;
   m_pNewSideEdgeExtTanFaceUV = NULL;
+  delete m_pNewSideCurve; // still ours unless DoRemoval() installed it
+  m_pNewSideCurve = NULL;
   m_pSideEdge = NULL;
 }
 
@@ -157,6 +165,38 @@ if ( bDebugMe ) {
 
   // Intersect the surfaces of the tangent Faces (which have been extended).
   SER( this->IntersectTangentSurfaces() );
+
+  // SolidCraft change (exact only): a face grows over the fillet's place within its surface's
+  // domain, or on a plane (a plane continued is the same plane); any other surface would be
+  // continued past its domain, which SMLib does not do exactly.
+  if ( m_bExactOnly )
+  {
+      for ( ULONG ii = 0; ii < 2; ii++ )
+      {
+          SmFace    *apFaces[2] = { m_aEndFaces[ii], m_aTanFaces[ii] };
+          SmPoint2d  aUVs[2][2] = { { m_aUVEndSurfNew[ii], m_aUVEndSurfNew[ii] },
+                                    { m_aCornerInfo[0][ii].m_sUVTanSurfNew, m_aCornerInfo[1][ii].m_sUVTanSurfNew } };
+          for ( ULONG jj = 0; jj < 2; jj++ )
+          {
+              SmSurface *pSrf = apFaces[jj]->GetSurface();  NER( pSrf );
+              SmExtent2d sDomain = pSrf->GetNaturalUVDomain();
+              double dSlack = SM_EFF_ZERO_SQRT * ( 1.0 + sDomain.GetMaxDimension() );
+              SmBoolean bInside = TRUE;
+              for ( ULONG kk = 0; kk < 2; kk++ )
+              {
+                  const SmPoint2d &crUV = aUVs[jj][kk];
+                  if ( crUV.x < sDomain.GetMin().x - dSlack || crUV.x > sDomain.GetMax().x + dSlack ||
+                       crUV.y < sDomain.GetMin().y - dSlack || crUV.y > sDomain.GetMax().y + dSlack )
+                    { bInside = FALSE; }
+              }
+              if ( !bInside && !pSrf->IsKindOf( SmPlane_TYPE ) )
+              {
+                  m_bNotExact = TRUE;
+                  SER( SM_ERR );
+              }
+          }
+      }
+  }
 
 
   // Ok, we've collected all of the info without incident.
@@ -634,6 +674,43 @@ SmStatus SmFilletRemoval::FindSideEdgeExtensions( ULONG lWhichEnd, ULONG lWhichS
                                                               //      default:[SM_SO_MINIMIZE] to preserve original behavior
   }
 
+  // SolidCraft change: exact only. A side edge too short to reach the new corner runs on along
+  // its own line (its end span continued: the same line); a curved one would need a fitted
+  // intersection.
+  if ( m_bExactOnly && !( eStat == SM_SUCCESS && bSuccess && dCrvDist <= dTol ) )
+  {
+      // a corner of more than three edges keeps its end edge, on a fitted intersection
+      if ( pSideEdge == NULL )
+        { SER( SM_ERR ); }
+      SmBSplineCurve *pSideCurve = SM_CAST_PTR( SmBSplineCurve, pSideEdge->GetCurve() );
+      if ( pSideCurve == NULL || !pSideCurve->IsLinear( dTol ) )
+      {
+          m_bNotExact = TRUE;
+          SER( SM_ERR );
+      }
+      SmExtent1d sCurveIvl = pSideCurve->GetNaturalInterval();
+      double dEnd = rCorn.m_bHighEndOfSideEdge ? sCurveIvl.GetMax() : sCurveIvl.GetMin();
+      SmVector3d sPV[2];
+      SER( pSideCurve->Evaluate( dEnd, 1, TRUE, sPV ));
+      double dSpeed = sPV[1].Length();
+      if ( !( dSpeed > SM_EFF_ZERO ) )
+        { SER( SM_ERR ); }
+      double dReach = ( sPV[0].DistanceBetween( m_aNewVtxPts[lWhichEnd] ) + 10.0 * dTol ) / dSpeed;
+      double dFar   = rCorn.m_bHighEndOfSideEdge ? dEnd + dReach : dEnd - dReach;
+      SmBSplineCurve *pLonger = NULL;
+      SER( pSideCurve->CreateExtendedCurve( *pSideEdge->GetContext(), dFar, SM_CT_CINFINITY, pLonger, TRUE ));
+      NER( pLonger );
+      delete rCorn.m_pNewSideCurve;
+      rCorn.m_pNewSideCurve = pLonger;
+      double dGuess = dFar;
+      eStat = pLonger->DropPoint( pLonger->GetNaturalInterval(), m_aNewVtxPts[lWhichEnd], NULL, dTol*10, &dGuess,
+                                  bSuccess, dCrvParam, dCrvDist );
+      if ( eStat != SM_SUCCESS || !bSuccess || dCrvDist > dTol )
+      {
+          // the corner is off the side edge's line
+          SER( SM_ERR );
+      }
+  }
 
   if ( eStat == SM_SUCCESS && bSuccess && dCrvDist <= dTol )
   {
@@ -650,6 +727,14 @@ SmStatus SmFilletRemoval::FindSideEdgeExtensions( ULONG lWhichEnd, ULONG lWhichS
       sSideEdgeExtent.AddValue( dCrvParam );
 
       const SmContext *pContext = pSideEdge->GetContext();
+
+      // SolidCraft change (exact only): nothing changes before DoRemoval(), which makes this
+      // side edge's UV trims anew from its curve once its interval reaches the corner.
+      if ( m_bExactOnly )
+      {
+          rCorn.m_bRebuildSideUVs = TRUE;
+          return SM_SUCCESS;
+      }
 
       // Do End-face uv curve first, then Tan-face uv curve.
       pEdgeuse = pSideEdge->GetEdgeuseOfFace( m_aEndFaces[ lWhichEnd ] );
@@ -1227,6 +1312,16 @@ SmStatus SmFilletRemoval::DoRemoval()
 
           if ( rCorn.m_pNewSideEdgeExtension3d == NULL )
           {
+              // SolidCraft change (exact only): its line run on to the corner (the old part keeps
+              // its parameters); the UV trims go with the old curve and are made anew below.
+              if ( rCorn.m_pNewSideCurve != NULL )
+              {
+                  pSideEdge->SetCurve( rCorn.m_pNewSideCurve, TRUE );
+                  rCorn.m_pNewSideCurve->SetOwner( pSideEdge );
+                  rCorn.m_pNewSideCurve = NULL; // the edge's now
+                  rCorn.m_bSideCurveReplaced = TRUE;
+              }
+
               // Curve was long enough: just update the Edge's domain.
               sNewSideEdgeDomain.AddValue( rCorn.m_dNewSideEdgeParam );
 
@@ -1505,6 +1600,27 @@ SmStatus SmFilletRemoval::DoRemoval()
                               m_aNewEdgeCurveUVs[1],
                               m_dNewEdgeDeviation, 
                               TRUE );     // TRUE = validate geometry here. On the last one its possible
+
+  // SolidCraft change (exact only): UV trims of the side edges that run on to the corners, made anew.
+  for ( lWhichEnd = 0; lWhichEnd < 2; lWhichEnd++ )
+  {
+      for ( lWhichSide = 0; lWhichSide < 2; lWhichSide++ )
+      {
+          SmFilletCornerInfo &rCorn = m_aCornerInfo[lWhichEnd][lWhichSide];
+          if ( !( rCorn.m_bSideCurveReplaced || rCorn.m_bRebuildSideUVs ) || rCorn.m_pSideEdge == NULL )
+            { continue; }
+          SmTArray<SmEdgeuse*> sUses;
+          SER( rCorn.m_pSideEdge->GetEdgeuses( sUses ));
+          for ( ULONG ii = 0; ii < sUses.GetSize(); ii++ )
+            { sUses[ii]->DeleteUVTrimCurve(); }
+          for ( ULONG ii = 0; ii < sUses.GetSize(); ii++ )
+          {
+              SmBSplineCurve *pUV = NULL;
+              SER( sUses[ii]->GetOrCreateUVTrimCurve( pUV ));
+              NER( pUV );
+          }
+      }
+  }
 
   // And that should do it.
   return SM_SUCCESS;

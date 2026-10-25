@@ -125,6 +125,11 @@ public:
   SmBSplineCurve *m_pNewSideEdgeExtEndFaceUV;
   SmBSplineCurve *m_pNewSideEdgeExtTanFaceUV;
 
+  // SolidCraft change (exact only): the side edge's line run on to the new vertex, or NULL.
+  SmBSplineCurve *m_pNewSideCurve;
+  SmBoolean       m_bSideCurveReplaced; // DoRemoval() put m_pNewSideCurve on the side edge
+  SmBoolean       m_bRebuildSideUVs;    // (exact only) DoRemoval() makes the side edge's UV trims anew
+
   SmEdge   *m_pSideEdge;
   SmBoolean m_bHighEndOfSideEdge;
   double    m_dNewSideEdgeParam; // param of srf/srf/srf int pt on side edge curve.
@@ -185,6 +190,9 @@ protected:
   // Methods:
 
 
+  SmBoolean       m_bExactOnly;    // SolidCraft change: see SetExactOnly()
+  SmBoolean       m_bNotExact;     // SolidCraft change: see NotExact()
+
 public:
   // Constructor:
   SmFilletRemoval( SmFace *pFaceToDelete, double d3dTolerance );
@@ -193,6 +201,16 @@ public:
   virtual ~SmFilletRemoval();
 
   virtual SmStatus RemoveFace();
+
+  // SolidCraft change: remove only what SMLib makes exactly: a side edge runs on to the new
+  // corner only along its line (not on a fitted intersection), a face grows only within its
+  // surface's domain or on a plane, and every corner has a side edge. Otherwise RemoveFace()
+  // fails before changing the Brep, NotExact() TRUE where a continuation was the reason.
+  void      SetExactOnly( SmBoolean bExactOnly ) { m_bExactOnly = bExactOnly; }
+  SmBoolean NotExact() const { return m_bNotExact; }
+
+  // SolidCraft change: the edge the fillet became (after a successful RemoveFace()).
+  SmEdge  * GetSharpEdge() const { return m_aTanEdges[0]; }
 
 protected:
   SmStatus CollectFilletTopology();
