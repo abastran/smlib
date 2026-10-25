@@ -436,6 +436,35 @@ int main()
         smlib_brep_free(w);
     }
 
+    // Circles on faces whose (u, v) run at different speeds. An extrusion's side face is a plane
+    // spanning its edge's length by the height on [0,1]^2, and a circle's exact trim there is an
+    // ellipse as many times as long as it is wide. The bodies are SolidCraft's: a cylinder's seam
+    // at 0.6131 rad from its profile plane's x axis, that axis Z x n for an axis n off Z.
+    {
+        const double seam = 0.6131;
+        // SolidCraft #955: a 2 mm drill 10 deep into the 60 x 4 rim of a 60 x 40 x 4 sheet, from
+        // the hole's bottom out and 0.72 past the rim, clipped to the sheet: its end on the rim.
+        // The polygon of the trim's first quarter arc, square on the rim, folds back by 171
+        // degrees in (u, v). SmEdge::ValidateGeometry's reversal test, run by the check, took
+        // that for a reversal and moved the arc's middle control point onto its chord: test #7,
+        // a kink at the quarter knot.
+        List sheet;
+        sheet.polygon({0, 40, 0, 0, 0, 0, 60, 0, 0, 60, 40, 0});
+        List bore;
+        bore.arc(30, 10, 2, 0, -1, 0, 1, 0, 0, 1.0, seam, seam + 2 * PI);
+        const double Y[3] = {0, -1, 0};
+        smlib_brep *slab = nullptr, *drill = nullptr;
+        CHECK(smlib_extrude(sheet.kinds.data(), sheet.nk(), sheet.reals.data(), sheet.nr(), Z, 4.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &slab, nullptr) ==
+              SMLIB_OK);
+        CHECK(smlib_extrude(bore.kinds.data(), bore.nk(), bore.reals.data(), bore.nr(), Y, 10.722218803410712, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &drill,
+                            nullptr) == SMLIB_OK);
+        b = nullptr;
+        int32_t s = slab != nullptr && drill != nullptr ? smlib_boolean(drill, slab, SMLIB_BOOLEAN_INTERSECT, &b) : SMLIB_ERR_ARG;
+        expect("drill clipped to a sheet's rim", s, &b, 10.0 * PI, 1e-6);
+        smlib_brep_free(slab);
+        smlib_brep_free(drill);
+    }
+
     // Modelled ISO metric threads, the groove (the space between the teeth, ISO 68-1 basic
     // profile, 60 degree flanks) screwed a pitch past each end of the threaded length and cut
     // away, as SolidCraft cuts them. External: from the root (5H/8 under the major diameter, P/4

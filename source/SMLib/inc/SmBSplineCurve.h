@@ -732,6 +732,11 @@ public:
   virtual SmBoolean PassesValidityCheck(SmValidityCheckType   eChecks,           ///< [in] :                             <br>
                                         SmValidityCheckType & reCheckFailed)     ///< [out]: is the check which failed   <br>
                                        const ;
+  // PassesValidityCheck(SM_VC_REVERSE_DIRECTION) for a UV curve on crSurface, the turn at each
+  // end judged on the surface (its first fundamental form there), not in (u, v). Same side effect.
+  SmBoolean PassesReverseDirectionCheckOn(const SmSurface     & crSurface,         ///< [in] : surface the UV curve lies on  <br>
+                                          SmValidityCheckType & reCheckFailed)     ///< [out]: is the check which failed     <br>
+                                         const ;
   
   static SmStatus PiecewiseArcInterpolate(const SmContext           & crContext,          ///< [in] :                             <br>
                                           const SmTArray<SmPoint3d> & crPoints,           ///< [in] :                             <br>

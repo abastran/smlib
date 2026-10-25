@@ -6326,7 +6326,8 @@ SmBoolean bDebugMe2 = FALSE;
             } // end check accuracy of uv-curve.
 
           // check UV curve does not reverse direction at ends - side effect - reversed curves are fixed in this call
-          if (!pEU->m_pUVTrimCurve->PassesValidityCheck(SM_VC_REVERSE_DIRECTION, eCheckFailed))
+          // SolidCraft: judged on the face's surface, not in (u, v) (see PassesReverseDirectionCheckOn)
+          if (!pEU->m_pUVTrimCurve->PassesReverseDirectionCheckOn(*pEU->GetFace()->GetSurface(), eCheckFailed))
             {
 #ifdef SM_DEBUG_CODE
               // draw 

@@ -328,11 +328,73 @@ NL_FLAG N_CrvIsNotReversed
  ( NL_CURVE *cur,         /* in : NURBS curve */
    NL_FLAG Fixit)         /* in : TRUE = Move CPts to fix a Cpts sequence reversal, FALSE=don't */
 {
+    return N_CrvIsNotReversedInMetric( cur, Fixit, NULL, NULL );
+}
+
+/* Whether the control polygon P0, P1, P2 at one end of a curve turns back on itself: the angle
+   between its legs P1 - P0 and P2 - P1 has a cosine under -0.95 and the second leg is longer than
+   NL_MTOL. With `metric` (E, F, G, a first fundamental form) the legs are a 2D curve's (x, y)
+   vectors and their lengths and angle are the form's: those of the surface tangents they map to.
+   A leg of length 0 there points nowhere and turns back from nothing. */
+static NL_FLAG nl_EndTurnsBack
+ ( NL_POINT P0, NL_POINT P1, NL_POINT P2,
+   const NL_REAL *metric )
+{
+    NL_POINT P1P0, P2P1;
+    NL_REAL dot, mag;
+
+    N_VectorDiff( P1, P0, &P1P0 );
+    N_VectorDiff( P2, P1, &P2P1 );
+
+    if( metric == NULL )
+    {
+        N_VectorNormalize( P1P0, &P1P0, &mag );
+        N_VectorNormalize( P2P1, &P2P1, &mag );
+        N_VectorDot( P1P0, P2P1, &dot );
+        return (NL_FLAG)( dot < -0.95 && mag > NL_MTOL );
+    }
+
+    const NL_REAL E = metric[0], F = metric[1], G = metric[2];
+    const NL_REAL aa = E * P1P0.x * P1P0.x + 2.0 * F * P1P0.x * P1P0.y + G * P1P0.y * P1P0.y;
+    const NL_REAL bb = E * P2P1.x * P2P1.x + 2.0 * F * P2P1.x * P2P1.y + G * P2P1.y * P2P1.y;
+    const NL_REAL ab = E * P1P0.x * P2P1.x + F * ( P1P0.x * P2P1.y + P1P0.y * P2P1.x ) + G * P1P0.y * P2P1.y;
+    if( !( aa > 0.0 ) || !( bb > 0.0 ) )
+        return (0);
+    mag = sqrt( bb );
+    dot = ab / ( sqrt( aa ) * mag );
+    return (NL_FLAG)( dot < -0.95 && mag > NL_MTOL );
+}
+
+/*******************************************************************//**
+
+   DESCRIPTION:
+
+     N_CrvIsNotReversed, with the angle at each end measured in a given
+     metric: a 2D curve's legs as the tangents of the surface it lies
+     on (pStartMetric at the curve's start, pEndMetric at its end, each
+     the first fundamental form E, F, G there; NULL = the plane's own).
+     A UV trim on a surface whose parameters are not of equal speed (a
+     plane spanning 60 x 4 on [0,1]^2) is the affine image of its edge,
+     and an angle in (u, v) is not the angle on the surface: a quarter
+     circle's polygon, square on the surface, folds to 171 degrees there.
+     The fix is the same in any metric (the midpoint of P0 and P2, with
+     weight 1).
+
+   RETURN CODES:  as N_CrvIsNotReversed
+
+   ***********************************************************************/
+
+NL_FLAG N_CrvIsNotReversedInMetric
+ ( NL_CURVE *cur,                 /* in : NURBS curve */
+   NL_FLAG Fixit,                 /* in : TRUE = Move CPts to fix a Cpts sequence reversal, FALSE=don't */
+   const NL_REAL *pStartMetric,   /* in : E, F, G at the curve's start, or NULL */
+   const NL_REAL *pEndMetric )    /* in : E, F, G at the curve's end, or NULL */
+{
     NL_INDEX n, m;
-    NL_REAL *U, dot, mag;
+    NL_REAL *U;
     NL_DEGREE p;
     NL_CPOINT *Pw;
-    NL_POINT P0, P1, P2, P1P0, P2P1;
+    NL_POINT P0, P1, P2;
     NL_FLAG error = 0;
 
     N_CrvGetCPtsDegreeAndKnots( cur, &n, &Pw, &p, &m, &U );
@@ -343,14 +405,8 @@ NL_FLAG N_CrvIsNotReversed
     N_CPtToPtEuclid( Pw[0], &P0 );
     N_CPtToPtEuclid( Pw[1], &P1 );
     N_CPtToPtEuclid( Pw[2], &P2 );
-    N_VectorDiff( P1, P0, &P1P0 );
-    N_VectorDiff( P2, P1, &P2P1 );
-    N_VectorNormalize( P1P0, &P1P0, &mag );
-    N_VectorNormalize( P2P1, &P2P1, &mag );
 
-    N_VectorDot( P1P0, P2P1, &dot );
-
-    if( dot < -0.95 && mag > NL_MTOL )
+    if( nl_EndTurnsBack( P0, P1, P2, pStartMetric ) )
     {
       if( Fixit )
         {
@@ -369,14 +425,8 @@ NL_FLAG N_CrvIsNotReversed
     N_CPtToPtEuclid( Pw[n], &P0 );
     N_CPtToPtEuclid( Pw[n - 1], &P1 );
     N_CPtToPtEuclid( Pw[n - 2], &P2 );
-    N_VectorDiff( P1, P0, &P1P0 );
-    N_VectorDiff( P2, P1, &P2P1 );
-    N_VectorNormalize( P1P0, &P1P0, &mag );
-    N_VectorNormalize( P2P1, &P2P1, &mag );
 
-    N_VectorDot( P1P0, P2P1, &dot );
-
-    if( dot < -0.95 && mag > NL_MTOL )
+    if( nl_EndTurnsBack( P0, P1, P2, pEndMetric ) )
     {
         if( Fixit )
         {

@@ -982,3 +982,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   the stitch welded two of them 0.12 mm apart (an arc and the chord between its ends) into one
   edge of tolerance 0.24 mm, and the offset failed (1001; a 0.01 mm deep crossing of a hole's
   offset with a side's did the same). It now stitches once, at the body's tolerance.
+- **A UV trim's turn at its ends is judged on its surface** (`NL_CrvBasic.cpp`,
+  `N_CrvIsNotReversedInMetric`; `SmBSplineCurve::PassesReverseDirectionCheckOn`;
+  `SmEdge::ValidateGeometry`): `ValidateGeometry`, which the check runs (SmBrep test #61), fixes a
+  UV trim whose control polygon turns back at an end (legs at a cosine under -0.95) by moving the
+  second control point onto the chord with weight 1. It measured that turn in (u, v). A circle's
+  exact trim on a plane face spanning 60 x 4 on [0,1]^2 (an extrusion's side) is an ellipse 15
+  times as long as it is wide, and its quarter arc's polygon, square on the plane, folds back by
+  171 degrees in (u, v): the check straightened that quarter of the trim and then reported the
+  kink it had made (SmBSplineCurve test #7) in the body it was checking. The turn is now measured
+  with the surface's first fundamental form at each end; a polygon that turns back on the surface
+  is fixed as before.

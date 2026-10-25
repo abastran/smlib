@@ -17,6 +17,7 @@ GW_EXPORT NL_FLAG N_CrvWeightsAreValid( NL_CURVE *, NL_STRING );
 /* linux warning GW_EXPORT NL_FLAG N_CrvIsValid( NL_CURVE *, const  NL_STRING ); */
 GW_EXPORT NL_FLAG N_CrvIsValid( NL_CURVE *, const  TCHAR * );
 GW_EXPORT NL_FLAG N_CrvIsNotReversed( NL_CURVE *, NL_FLAG );
+GW_EXPORT NL_FLAG N_CrvIsNotReversedInMetric( NL_CURVE *, NL_FLAG, const NL_REAL *, const NL_REAL * );
 GW_EXPORT NL_FLAG N_CrvIsSized( NL_CURVE *, NL_INDEX, NL_INDEX, const NL_STRING );
 GW_EXPORT NL_FLAG N_CrvHasEqualCPts( NL_CURVE *, NL_REAL, NL_INDEX * );
 GW_EXPORT NL_FLAG N_CrvReplaceEqualCPts( NL_CURVE *, NL_REAL );

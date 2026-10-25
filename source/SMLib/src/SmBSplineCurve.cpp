@@ -35,6 +35,32 @@
 #endif // SM_DEBUG_CODE
 
 /*******************************************************************//**
+PURPOSE: The first fundamental form (E, F, G) = (Su.Su, Su.Sv, Sv.Sv) of a
+   surface at a (u, v) point, its derivatives taken on the side of each
+   parameter's knot that bUFromLeft and bVFromLeft give (as
+   Evaluate1stDerivatives). The form gives the length and angle on the
+   surface of a (u, v) step: |S' d|^2 = d.(E F; F G).d.
+
+RETURNS: FALSE where the surface cannot be evaluated there.
+***********************************************************************/
+static SmBoolean sm_FirstFundamentalForm
+  (const SmSurface & crSurface,
+   const SmPoint2d & crUV,
+   SmBoolean         bUFromLeft,
+   SmBoolean         bVFromLeft,
+   double            rEFG[3])
+{
+  SmPoint3d  sPoint ;
+  SmVector3d sDu, sDv ;
+  if ( crSurface.Evaluate1stDerivatives(crUV, bUFromLeft, bVFromLeft, sPoint, sDu, sDv) != SM_SUCCESS )
+    { return FALSE ; }
+  rEFG[0] = sDu.Dot(sDu) ;
+  rEFG[1] = sDu.Dot(sDv) ;
+  rEFG[2] = sDv.Dot(sDv) ;
+  return TRUE ;
+}
+
+/*******************************************************************//**
 PURPOSE: Private constructor to create a spline without any nurb.
 
 NOTES: Note that you can not do much with these splines except use
@@ -5794,6 +5820,66 @@ SmBoolean bDebugMe = FALSE ;
   return SmCurve::PassesValidityCheck(eChecks,reCheckFailed);
 
 } // end SmBSplineCurve::PassesValidityCheck
+
+/*******************************************************************//**
+PURPOSE: PassesValidityCheck(SM_VC_REVERSE_DIRECTION) for a UV curve on
+   crSurface: whether the control polygon turns back at an end is judged
+   by the angle its legs make on the surface, from the surface's first
+   fundamental form at that end, not by their angle in (u, v).
+
+NOTES: A trim is the affine image of its edge in (u, v), and where the
+   surface's parameters run at different speeds an angle there is not
+   the angle on the surface: on a plane spanning 60 x 4 on [0,1]^2 the
+   polygon of a quarter circle, square on the plane, folds back by 171
+   degrees in (u, v). The plain check took that for a reversal and
+   moved the arc's middle control point onto its chord (weight 1),
+   which left a straight quarter and a kink in the circle's trim.
+   Side effect as PassesValidityCheck's: a polygon that does turn back
+   on the surface is fixed the same way. A 3D curve takes the plain
+   check. A trim whose end the surface cannot evaluate fails, unfixed.
+***********************************************************************/
+SmBoolean SmBSplineCurve::PassesReverseDirectionCheckOn
+  (const SmSurface     & crSurface,      // in : surface the UV curve lies on
+   SmValidityCheckType & reCheckFailed)  // out: SM_VC_REVERSE_DIRECTION when it fails, else SM_VC_NONE
+  const
+{
+  reCheckFailed = SM_VC_NONE;
+  if ( GetDim() != 2 )
+    { return PassesValidityCheck(SM_VC_REVERSE_DIRECTION, reCheckFailed) ; }
+
+  gw_CURVE *pCur = ((SmBSplineCurve *)this)->GetOrCreateGwNurbPointer() ;
+  if ( pCur == NULL )
+    {
+      reCheckFailed = SM_VC_REVERSE_DIRECTION;
+      return FALSE;
+    }
+  const NL_INDEX n = pCur->pol->n ;
+  if ( n < 4 )
+    { return TRUE ; } // as N_CrvIsNotReversed: too few control points to tell
+
+  // Each end's form, on the side its first leg runs into.
+  NL_POINT P0, P1, Pn, Pm ;
+  N_CPtToPtEuclid( pCur->pol->Pw[0], &P0 );
+  N_CPtToPtEuclid( pCur->pol->Pw[1], &P1 );
+  N_CPtToPtEuclid( pCur->pol->Pw[n], &Pn );
+  N_CPtToPtEuclid( pCur->pol->Pw[n - 1], &Pm );
+  double aStart[3], aEnd[3] ;
+  if (   !sm_FirstFundamentalForm(crSurface, SmPoint2d(P0.x, P0.y), P1.x >= P0.x, P1.y >= P0.y, aStart)
+      || !sm_FirstFundamentalForm(crSurface, SmPoint2d(Pn.x, Pn.y), Pm.x >= Pn.x, Pm.y >= Pn.y, aEnd) )
+    {
+      reCheckFailed = SM_VC_REVERSE_DIRECTION;
+      return FALSE;
+    }
+
+  gw_FLAG err = N_CrvIsNotReversedInMetric( pCur, true, aStart, aEnd ) ;
+  if ( err )
+    {
+      reCheckFailed = SM_VC_REVERSE_DIRECTION;
+      return FALSE;
+    }
+  return TRUE;
+
+} // end SmBSplineCurve::PassesReverseDirectionCheckOn
 
 /*******************************************************************//**
 PURPOSE: Given a curve raise the degree to the specified degree.
