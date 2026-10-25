@@ -6342,6 +6342,59 @@ SmStatus SmFilletSolver::RailsFitTheirFaces
 } // end SmFilletSolver::RailsFitTheirFaces
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. Whether the two rails of this solver's fillet
+    run the same way, section by section.
+
+NOTES: A rail is the filleted edge offset into its face by the blend's
+    setback there; its tangent is the edge's, scaled by 1 - k s (k the edge's
+    curvature in that face, s the setback). Past the edge's centre of
+    curvature in the face (s > 1/k) the offset turns back on itself: a round
+    of r2 on the rim of a pin of radius 1.5 has its ball centred on the far
+    side of the axis, its rail on the top a circle of radius 0.5 traced
+    against the rim, the round a spindle torus through itself. No rolling
+    ball of that size fits there. The rails of a fillet geometry share their
+    parameter (CalcFilletGeom builds them section by section, a torus or
+    cylinder revolves or sweeps one section), so where one runs against the
+    other at the same parameter one has turned back: rbTogether is FALSE. A
+    rail that is a point (a round as wide as the face it closes) runs no
+    way and is not compared (FacesOutlastTheirBlends judges it).
+***********************************************************************/
+SmStatus SmFilletSolver::RailsRunTogether
+  (SmBoolean & rbTogether) const  // out: FALSE = a rail runs against the other: the ball does not fit
+{
+  rbTogether = TRUE;
+  const ULONG lNumSamples = 9;
+  for (ULONG k=0; k<m_vFilletGeoms.GetSize() && rbTogether; k++)
+    {
+      SmFilletGeom * pFG = m_vFilletGeoms[k];
+      if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
+        { continue; }
+      SmFilletEdge * pRail0 = pFG->GetRail(0);   NER(pRail0);
+      SmFilletEdge * pRail1 = pFG->GetRail(1);   NER(pRail1);
+      SmCurve * pCurve0 = pRail0->GetCurve();    NER(pCurve0);
+      SmCurve * pCurve1 = pRail1->GetCurve();    NER(pCurve1);
+      if (pCurve0->IsDegenerate( GetThisApproxTol3d() ) || pCurve1->IsDegenerate( GetThisApproxTol3d() ))
+        { continue; }
+      SmExtent1d sIvl0 = pCurve0->GetNaturalInterval();
+      SmExtent1d sIvl1 = pCurve1->GetNaturalInterval();
+      for (ULONG j=0; j<lNumSamples && rbTogether; j++)
+        {
+          double dAt = (j + 0.5) / lNumSamples;
+          SmVector3d sPV0[2], sPV1[2];
+          SER( pCurve0->Evaluate( sIvl0.Evaluate( dAt ), 1, TRUE, sPV0 ));
+          SER( pCurve1->Evaluate( sIvl1.Evaluate( dAt ), 1, TRUE, sPV1 ));
+          double dLen0 = sPV0[1].Length(), dLen1 = sPV1[1].Length();
+          // a rail that stops there (a point of it) runs no way
+          if (!(dLen0 > SM_EFF_ZERO) || !(dLen1 > SM_EFF_ZERO))
+            { continue; }
+          if (sPV0[1].Dot( sPV1[1] ) < 0.0)
+            { rbTogether = FALSE; }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmFilletSolver::RailsRunTogether
+
+/*******************************************************************//**
 PURPOSE: SolidCraft change. Whether a rail leaves the face it rolls on, at crLeave (rail
     parameter dRailParam), past an end of the filleted edge, where the corner at that end
     trims it; otherwise it leaves the face beside the edge.

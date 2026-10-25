@@ -2791,6 +2791,19 @@ SmStatus SmFilletExecutive::CreateFilletBrep
         }
       m_bCliffOverflow = TRUE;
     }
+  // SolidCraft change: a blend whose rails run opposite ways has one rail turned back on itself
+  // (a round wider than the rim of a pin it rounds, its ball centred beyond the axis): no
+  // rolling ball of its size fits the face there, and the blend would pass through itself.
+  for(solverIdx=0; solverIdx<m_vFilletSolvers.GetSize(); solverIdx++)
+    {
+      SmBoolean bTogether = TRUE;
+      SER( m_vFilletSolvers[solverIdx]->RailsRunTogether( bTogether ));
+      if ( !bTogether )
+        {
+          GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: a rail turns back on itself: the blend is wider than the face's curve allows (its rolling ball does not fit)") );
+          return SM_ERR;
+        }
+    }
   // SolidCraft change: blends that take the whole of a face, closing a loop of it to a point,
   // some meeting the face at an angle (a chamfer's cone ending in a point), are larger than
   // that face allows too.

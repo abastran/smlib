@@ -1103,6 +1103,34 @@ int main()
         smlib_brep_free(can);
     }
 
+    // A round wider than the rim it rounds: a ball of r2 rolling inside a pin of radius R < 2,
+    // tangent to its side and its top, has its centre on the far side of the axis, so no ball of
+    // that size fits; the round's rail on the top (the rim offset in by 2, a circle of radius
+    // R - 2 < 0) turns back against the rim and the round would be a spindle torus through
+    // itself. Refused, SMLIB_ERR_NO_ROOM (SMLib built the folded round and failed in the merge
+    // after it with its generic error). At R = 2 the ball's centre is on the axis: the
+    // hemispherical end, pi 4 8 + (2/3) pi 8.
+    {
+        for (double R : {1.99, 1.5, 1.0})
+        {
+            smlib_brep *pin = cylinder(0, 0, 0, R, 10);
+            const double rim[3] = {0, R, 10};
+            smlib_brep *rounded = nullptr;
+            CHECK(smlib_fillet(pin, rim, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_ERR_NO_ROOM && rounded == nullptr);
+            smlib_brep_free(pin);
+        }
+        smlib_brep *pin = cylinder(0, 0, 0, 2, 10);
+        const double rim[3] = {0, 2, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(pin, rim, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
+        if (rounded != nullptr)
+        {
+            CHECK(near(volume_of(rounded), PI * 4.0 * 8.0 + 2.0 / 3.0 * PI * 8.0, 1e-7));
+            done(rounded);
+        }
+        smlib_brep_free(pin);
+    }
+
     // tangency-labs/solidcore#419: an offset surface evaluated beyond its
     // base surface's domain extends the base, and the extension's shape depends on its length.
     // It was made to reach just past the first point evaluated there, and extended again from

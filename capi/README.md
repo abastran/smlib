@@ -1155,3 +1155,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   faces' surfaces within their domains (an exact circle for a boss), the tangent face's seam runs
   on to it along its line, the rails become it; nothing that would need a surface or a curved
   edge continued past its domain is removed (`NotExact()`).
+- **A blend whose ball does not fit the face's curve is refused** (`SmFilletSolver.cpp`, new
+  `RailsRunTogether`; `SmFilletExecutive.cpp`, `DoFilleting`): a round of r2 on the rim of a pin
+  of radius R < 2 has its ball centred beyond the axis, its rail on the top (the rim offset in
+  by 2) traced against the rim and the round a spindle torus through itself; SMLib built it and
+  failed in the merge after it (1001). A fillet whose two rails run opposite ways at the same
+  parameter now fails `SM_FILERR_NO_ROOM` (`SMLIB_ERR_NO_ROOM`); at R = 2 the ball is centred on
+  the axis and the round is the hemispherical end, as before.

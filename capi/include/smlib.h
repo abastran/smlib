@@ -580,7 +580,9 @@ int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
  * its end, SMLIB_ERR_NOT_EXACT. Blends that take the whole of a face at an angle are SMLIB_ERR_NO_ROOM
  * too: every edge of a loop of it blended, each blend's rail on it a point, some blend there a
  * chamfer (a cylinder's top rim
- * chamfered as wide as the top, which would end in a cone's point). A round meets the face
+ * chamfered as wide as the top, which would end in a cone's point). So is a blend whose rolling
+ * ball does not fit the curve of a face it rolls on, one rail turning back against the other (a
+ * pin's rim rounded wider than the pin's radius, the ball centred beyond the axis). A round meets the face
  * tangentially at its rail and closes it smoothly: a cylinder's top rim rounded as wide as the
  * top is a hemispherical end. The same holds for every blend below (the curvature blend and the
  * variable round pass this rule too, but SMLib cannot build them that wide yet). */
