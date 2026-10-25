@@ -53,7 +53,7 @@ nearest edge (face), which must lie within the caller's tolerance and be nearer 
 by more than the body's modelling tolerance (`SMLIB_ERR_PICK_NONE`, `SMLIB_ERR_PICK_AMBIGUOUS`,
 with the point's index). Fillets and chamfers blend exactly the picked edges: a tangent chain
 is the caller's to select. A blend whose rail leaves the face it rolls on (past neither the
-face's end nor a tangent edge onto the next face) is larger than the faces allow and is
+edge's end nor a tangent edge onto the next face) is larger than the faces allow and is
 `SMLIB_ERR_NO_ROOM`. A chamfer's distance is the setback along each face at the edge's
 midpoint; it is cut by SMLib's constant-radius solver with a linear section, whose ball radius
 is the setback times tan(a/2), a being the angle between the faces there. A shell's thickness
@@ -700,8 +700,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   `RailsFitTheirFaces`; `SmFilletExecutive.cpp`, `CreateFilletBrep`, `DoFilleting`;
   `SmFilletGeom.h`, `SM_FILERR_NO_ROOM`): once the fillet surfaces and rails are computed, each
   rail is classified against the face it rolls on (`SmFace::CurveOnClassify`). A rail nowhere on
-  its face, or leaving it between its ends across an edge that is not tangent, fails the fillet
-  with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`). This replaces the earlier change that
+  its face, or leaving it across an edge that is not tangent before an end of the filleted edge
+  (`LeavesPastAnEnd`: past an end it leaves across the face's side edge there, the edge next to
+  it in the face's loop, or a vertex of it, where the end face cuts the fillet off, or on or
+  beyond the cross section at the end, where the face goes on past it),
+  fails the fillet with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`). This replaces the earlier change that
   merged such a fillet into the body face by face (`RailsLeaveTheirFaces`), which built a round
   or a chamfer across the openings it ran into.
 - **A rail that runs along its face's rim** (`SmFilletSolver.cpp`, `TestRollOver`): the rollover
@@ -923,3 +926,15 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   face over) an `SmCylinder`'s analytic form was rebuilt from its NURBS, whose two radii differ by
   rounding (2e-11 on r9), so it got a semi-angle its own check (Zero SemiAngle) refuses. Radii
   within `SM_EFF_ZERO_SQRT` are its one radius, their mean; further apart it is refused.
+- **A round whose rail runs past a short side edge** (`SmFilletCorner.cpp`,
+  `SmFilletNx1Corner::CalcCornerEdgeGeom`): at a three-edge corner of uniform convexity the round
+  ends on the end face between its two side edges, along an end rib from one rail's end on its
+  side edge to the other's. When a side edge ends within the round's width (a box's vertical edge
+  rounded under a top round whose end arc on the side face is shorter than the radius), that rail
+  never meets it and runs on past the end face onto the faces beyond, and the rib between the
+  rails' ends could not be built (1001, stock 1.0.1 too). The corner then has no end rib and the
+  global merge cuts the round off where it meets the body, as at a corner of more than three
+  edges. A side edge that also lies on the round's other side surface (a hole's rim split at a
+  vertex) is no short edge: the round runs on along it, no end exists there, and the corner
+  fails as before. A rail that misses its side edge because it left its face before the edge's
+  end (a round larger than its face) never reaches the corner: `RailsFitTheirFaces` refuses it.

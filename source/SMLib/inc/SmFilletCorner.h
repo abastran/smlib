@@ -139,7 +139,7 @@ public:
   virtual SmStatus AdjustTangentCorner  (){return SM_SUCCESS;} // 6th : Similar to AdjustTopology - uses more geometry checks
                                                                // 7th : SmFilletSolver::TestRollOver() XSect RailCurves with OrigFace->Bndry
                                                                //         to find if railCurve "RolledOver" other faces. If so, adjust fillets.
-  SmStatus         CalcCornerEdgeGeom   () ;                   // 8th : if needed, Recompute FilletEdges of AdjustedCorners because of RollOver.
+  virtual SmStatus CalcCornerEdgeGeom   () ;                   // 8th : if needed, Recompute FilletEdges of AdjustedCorners because of RollOver.
   SmStatus         CalcCornerGeom       () ;                   // 9th : if needed, call CalcCornerPatch() or CreateEndPatch()
                                                                //       gwc: removed CalcCornerGeom() virtual attribute - didn't see any derived class implementations
   virtual SmStatus   CreateCornerPatch  () ;                   //     : calc corner SurfaceFill patch and store in m_vSurfaces, call MakeFaceBrep()
@@ -344,6 +344,8 @@ public:
                                         SmEdgeuse * pFilEdgeuse);
 
     virtual SmStatus CreateCornerPatch();
+
+    virtual SmStatus CalcCornerEdgeGeom();
 
     virtual SmFilletCornerType GetCornerType() const { return SM_FCR_N_x_1; }
 

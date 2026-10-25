@@ -6003,6 +6003,83 @@ SmStatus SmFilletNx1Corner::CreateCornerPatch
 } // end SmFilletNx1Corner::CreateCornerPatch
 
 /*******************************************************************//**
+PURPOSE: Calculate the corner edges' geometry, see
+    SmFilletCorner::CalcCornerEdgeGeom().
+
+NOTES: At a corner of uniform convexity and at most three edges, the one
+  corner edge is the end rib: where the fillet meets the end face between
+  the two side edges, from one rail's end on its side edge to the other's
+  (MakeCornerTopology). Each rail stays on its face, or rolls over a
+  tangent edge, up to the fillet's ends: a fillet whose rail leaves its
+  face beside the edge is too large for its faces and was refused
+  (SmFilletSolver::RailsFitTheirFaces, LeavesPastAnEnd). A rail can
+  still miss its side edge (SM_FV_NO_INT_RAIL_EU), two ways:
+  - The side edge ends within the fillet's width (a top round's end arc
+    shortened by another round): the rail runs past the end face onto the
+    faces beyond the side edge's other end, so the fillet ends on more
+    than one face. As at a corner of more than three edges, there is no
+    end rib then: the global merge cuts the fillet off where it meets the
+    body.
+  - The side edge lies on the fillet's other side surface too (a hole's
+    rim split at a vertex): it continues the filleted edge between the
+    fillet's own two surfaces, the rail runs alongside it and the fillet
+    runs on past the vertex, crossing no end face. No end exists there,
+    and the end rib fails as before.
+***********************************************************************/
+SmStatus SmFilletNx1Corner::CalcCornerEdgeGeom
+  ()
+{
+  SmFilletEdge * pEndRib = ( m_vEdges.GetSize() == 1 ) ? m_vEdges[0] : NULL;
+  if (   pEndRib != NULL
+      && pEndRib->GetFilletEdgeType() == SM_FE_FILLET_X_SIDE_FACE )
+    {
+      SmFilletVertex * pStartFV = (SmFilletVertex*)pEndRib->GetVertex();
+      NER(pStartFV);
+      SmFilletVertex * pEndFV   = (SmFilletVertex*)pEndRib->GetOtherVertex( pStartFV );
+      NER(pEndFV);
+      SmFilletVertex * pMissFV  =   ( pStartFV->GetStatus() == SM_FV_NO_INT_RAIL_EU && pEndFV->IsProcessed() )
+                                  ? pStartFV
+                                  : (   ( pEndFV->GetStatus() == SM_FV_NO_INT_RAIL_EU && pStartFV->IsProcessed() )
+                                      ? pEndFV
+                                      : NULL );
+      if ( pMissFV != NULL && pMissFV->GetPointClass() == SM_PC_EDGEUSE )
+        {
+          // The side edge the rail missed, and the fillet's side face it does not bound.
+          SmEdgeuse * pSideEU     = (SmEdgeuse*)pMissFV->GetPointClassObject();
+          NER(pSideEU);
+          SmEdgeuse * pFilEdgeuse = (*m_pSolverEUs)[0];
+          SmFace    * pSideFaces[2] = { pSideEU->GetFace(), pSideEU->GetRadial()->GetFace() };
+          SmFace    * pOtherFace    = pFilEdgeuse->GetFace();
+          if ( pOtherFace == pSideFaces[0] || pOtherFace == pSideFaces[1] )
+            { pOtherFace = pFilEdgeuse->GetRadial()->GetFace(); }
+          NER(pOtherFace);
+          SmSurface * pOtherSurface = pOtherFace->GetSurface();
+          NER(pOtherSurface);
+          SmEdge    * pSideEdge     = pSideEU->GetEdge();
+          NER(pSideEdge->GetCurve());
+
+          SmBoolean  bRunsOn = FALSE;
+          SmSolution sSolution;
+          SER( pOtherSurface->SimpleCoincidenceChecker( pOtherSurface->GetNaturalUVDomain(),
+                                                        *pSideEdge->GetCurve(),
+                                                        pSideEdge->GetInterval(),
+                                                        m_dThisApproxTol3d,
+                                                        bRunsOn,
+                                                        sSolution ) );
+          if ( ! bRunsOn )
+            {
+              m_pExecutive->SetDoGlobalMerge( TRUE );
+              SER( pEndRib->GetBrep()->DeleteEdge( pEndRib ) );
+              m_vEdges.ReSet();
+            }
+        }
+    }
+
+  return SmFilletCorner::CalcCornerEdgeGeom();
+
+} // end SmFilletNx1Corner::CalcCornerEdgeGeom
+
+/*******************************************************************//**
 PURPOSE: Create Nx1 corner by specifying the FilletEdge
     boundary of the incoming fillet. When needed define
     endFaces and extra FilletEdges as needed.

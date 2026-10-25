@@ -650,6 +650,150 @@ int main()
         CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 1, v_knots, 5, p_radii, 3, &r) == SMLIB_ERR_UNSUPPORTED && r == nullptr);
     }
 
+    // A variable round 2 -> r1 on the top edge x = 10, z = 30 of a 10 x 20 x 30 box. The top is
+    // 10 wide: up to r1 = 10 the round fits, and takes (1 - pi/4) L (a^2 + ab + b^2) / 3. Past
+    // it the contact line on the top leaves it across its far edge x = 0 before the round's end:
+    // the round is too large for the top and is refused, from either end, as is a constant R12.
+    // (The corner without an end rib, for a short side edge, had built r1 = 20 and 30 across the
+    // top's far edge as valid bodies.)
+    {
+        smlib_brep *slab = box(0, 0, 0, 10, 20, 30);
+        const double edge[3] = {10, 10, 30};
+        const double from0[3] = {10, 0, 30};
+        const double from1[3] = {10, 20, 30};
+        const double knots[4] = {0, 0, 1, 1};
+        const double fits[2] = {2, 10};
+        CHECK(smlib_fillet_variable(slab, edge, 0.1, from0, 1, knots, 4, fits, 2, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(6000.0 - volume_of(r), (1.0 - PI / 4.0) * 20.0 * (4.0 + 20.0 + 100.0) / 3.0, 1e-4));
+            done(r);
+        }
+        for (double r1 : {11.0, 20.0, 30.0, 50.0})
+        {
+            const double law[2] = {2, r1};
+            const double back[2] = {r1, 2};
+            CHECK(smlib_fillet_variable(slab, edge, 0.1, from0, 1, knots, 4, law, 2, &r) == SMLIB_ERR_NO_ROOM && r == nullptr);
+            CHECK(smlib_fillet_variable(slab, edge, 0.1, from1, 1, knots, 4, back, 2, &r) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        }
+        CHECK(smlib_fillet(slab, edge, 1, 0.1, 12.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        smlib_brep_free(slab);
+    }
+
+    // A chamfer of setback 2 on the top edge y = 0 of a prism 20 high on (0,0) (40,0)
+    // (40 - 20s, 20) (20s, 20): its end faces slope by s, so the chamfer's contact line on the
+    // top leaves it across an end face's top edge (the top's side edge at that end) before the
+    // cross section at the edge's end. That is past the end, where the end face cuts the
+    // chamfer off, not a blend too large for the top: the triangle 2 x 2 along 40 - 4s/3 comes
+    // off.
+    for (double s : {-0.5, 0.5})
+    {
+        const double xy[8] = {0, 0, 40, 0, 40 - 20 * s, 20, 20 * s, 20};
+        int64_t kinds[4];
+        double reals[24];
+        for (int i = 0; i < 4; ++i)
+        {
+            const int j = (i + 1) % 4;
+            const double seg[6] = {xy[2 * i], xy[2 * i + 1], 0, xy[2 * j], xy[2 * j + 1], 0};
+            kinds[i] = SMLIB_CURVE_LINE;
+            std::copy(seg, seg + 6, reals + 6 * i);
+        }
+        const double up[3] = {0, 0, 1};
+        smlib_brep *prism = nullptr;
+        CHECK(smlib_extrude(kinds, 4, reals, 24, up, 20.0, 0.0, SMLIB_DRAFT_CORNER_CURVATURE, 1, &prism, nullptr) == SMLIB_OK);
+        const double edge[3] = {20, 0, 20};
+        if (prism != nullptr && smlib_chamfer(prism, edge, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(prism) - volume_of(r), 2.0 * (40.0 - 4.0 * s / 3.0), 1e-8));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"a chamfer between sloped end faces");
+        }
+        smlib_brep_free(prism);
+    }
+
+    // A 100 x 60 x 30 slab less a basin lofted from 20..80 x 4..50 at the top to 30..70 x 20..40
+    // at z = 10, its rim edge y = 4 chamfered 2. Its contact line on the top runs on over the top
+    // past the rim's concave corners and leaves it at the slab's sides x = 0 and 100, beyond the
+    // cross sections at the edge's ends; the one on the sloped wall leaves it across the wall's
+    // sloped corner edges, before them. Both are past the ends. The section's drop below the top
+    // is 2 / sqrt(1 + 0.8^2) and it comes off along 60 - drop / 3.
+    {
+        smlib_brep *slab = box(0, 0, 0, 100, 60, 30);
+        const double rims[2][5] = {{20, 4, 80, 50, 30}, {30, 20, 70, 40, 10}};
+        int64_t kinds[8];
+        double reals[48];
+        for (int s = 0; s < 2; ++s)
+        {
+            const double *q = rims[s];
+            const double xy[4][2] = {{q[0], q[1]}, {q[2], q[1]}, {q[2], q[3]}, {q[0], q[3]}};
+            for (int i = 0; i < 4; ++i)
+            {
+                const int j = (i + 1) % 4;
+                const double seg[6] = {xy[i][0], xy[i][1], q[4], xy[j][0], xy[j][1], q[4]};
+                kinds[4 * s + i] = SMLIB_CURVE_LINE;
+                std::copy(seg, seg + 6, reals + 6 * (4 * s + i));
+            }
+        }
+        const int64_t sizes[2] = {4, 4};
+        smlib_brep *pocket = nullptr;
+        smlib_brep *basin = nullptr;
+        CHECK(smlib_loft(kinds, 8, reals, 48, sizes, 2, 1, 1, &pocket) == SMLIB_OK);
+        CHECK(pocket != nullptr && smlib_boolean(slab, pocket, SMLIB_BOOLEAN_SUBTRACT, &basin) == SMLIB_OK);
+        const double rim[3] = {50, 4, 30};
+        const double drop = 2.0 / std::sqrt(1.0 + 0.64);
+        if (basin != nullptr && smlib_chamfer(basin, rim, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(basin) - drop * (60.0 - drop / 3.0), 1e-8));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"a chamfer on the sloped basin's rim");
+        }
+        for (smlib_brep *b : {slab, pocket, basin})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // SolidCraft ladder 07-fillets/016: a 60 x 40 x 20 box, its top back edge rounded R5, its top
+    // right edge R3, then the vertical edge x = 60, y = 40 (z 0..15). The R3 round leaves the R5
+    // round's end arc on the x = 60 face 0.46 long; the vertical round's contact line there rolls
+    // over the R3 round's tangent edge past the round's end and never meets the arc. The corner
+    // has no end rib and the round is cut off where it meets the body: removed, outside the
+    // vertical round, the integral of min(R5, R3 top) over the corner column.
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        const double back_top[3] = {30, 40, 20};
+        const double right_top[3] = {60, 20, 20};
+        const double vertical[3] = {60, 40, 7.5};
+        smlib_brep *r5 = nullptr;
+        smlib_brep *r3 = nullptr;
+        CHECK(smlib_fillet(block, back_top, 1, 0.1, 5.0, &r5, nullptr) == SMLIB_OK);
+        CHECK(r5 != nullptr && smlib_fillet(r5, right_top, 1, 0.1, 3.0, &r3, nullptr) == SMLIB_OK);
+        const double radii[3] = {7.0, 4.0, 2.0};
+        const double volumes[3] = {47418.926881, 47546.786538, 47591.811067};
+        for (int i = 0; i < 3 && r3 != nullptr; ++i)
+        {
+            if (smlib_fillet(r3, vertical, 1, 0.1, radii[i], &r, nullptr) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volumes[i], 1e-8));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"ladder 016's vertical round under the short R5 end arc");
+            }
+        }
+        for (smlib_brep *b : {block, r5, r3})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // tangency-labs/solidcore#423: a sphere r2 in six patches (each on its own sphere surface),
     // cut flat at z = 1, its rim rounded R1. The clean-up after filleting removed every
     // topological edge in the body, the seams between the sphere's own patches too, and merged

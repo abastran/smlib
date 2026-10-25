@@ -323,6 +323,7 @@ public:
                
   SmStatus     TestRollOver(SmTArray<SmFilletCorner*> & rAdjustedCorners);
   SmStatus     RailsFitTheirFaces(SmBoolean & rbFit); // SolidCraft change: whether every rail stays on the face it rolls on
+  SmStatus     LeavesPastAnEnd(const SmFace & crFace, const SmCurve & crRail, double dRailParam, const SmPointClassification & crLeave, SmBoolean & rbPastAnEnd) const; // SolidCraft change: whether a rail leaves its face past an end of the filleted edge
   SmStatus     TrimRails();
 
   // utilities
