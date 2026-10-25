@@ -1835,8 +1835,7 @@ SmBoolean bDebugMe1 = FALSE;
         }
 
       SmExtent2d sDomain = GetSurface(lOtherRailIndex)->GetBaseSurface()->GetNaturalUVDomain();
-      SmVector2d sSize = sDomain.GetSize();
-      sSize = m_dSurfaceExtensionFactor * sSize;
+      SmVector2d sSize = GetDomainExtension( GetSurface(lOtherRailIndex)->GetBaseSurface(), sDomain ); // SolidCraft change: and the trace's reach
 
       rIntervals[rGuessT.GetSize()] = SmExtent1d(sDomain.GetMin().x-sSize.x,sDomain.GetMax().x+sSize.x);
       rIntervals[rGuessT.GetSize()+1] = SmExtent1d(sDomain.GetMin().y-sSize.y,sDomain.GetMax().y+sSize.y);
@@ -2948,8 +2947,7 @@ SmStatus SmVariableRadiusFS::LoadInitialValues
       {
         ULONG lOtherRailIndex = 1 - lRailIndex;
         SmExtent2d sDomain = GetSurface(1-lRailIndex)->GetBaseSurface()->GetNaturalUVDomain();
-        SmVector2d sSize = sDomain.GetSize();
-        sSize = m_dSurfaceExtensionFactor * sSize;
+        SmVector2d sSize = GetDomainExtension( GetSurface(1-lRailIndex)->GetBaseSurface(), sDomain ); // SolidCraft change: and the trace's reach
         SmExtent2d sExtendedDomain(SmPoint2d(sDomain.GetMin().x-sSize.x,sDomain.GetMin().y-sSize.y),
             SmPoint2d(sDomain.GetMax().x+sSize.x, sDomain.GetMax().y+sSize.y) );
 

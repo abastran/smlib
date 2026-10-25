@@ -1663,6 +1663,126 @@ SmStatus SmFilletExecutive::DoFillet()
 } // end SmFilletExecutive::DoFillet
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. Let a solver's trace reach as far as its rails
+   can lie from the filleted edge, on its surfaces' continuations.
+
+NOTES: For CreateFilletBrep, before CalcFilletGeom. The trace runs over each
+   base surface's domain extended by half its size (the solver's extension
+   factor, SetupOffsetExtension), and along the edge (a variable round) two
+   and a half edge lengths past each end. A blend wider than that reach is
+   clamped where its rails meet the extended domain's border, and the fillet
+   surface fitted over the whole trace comes out wrong all along the edge (a
+   variable round 2 -> 11 on a box edge whose top is 10 wide was 0.037 off
+   its circular sections, its law reaching 15.5 where the trace ends past
+   the edge), or ends early. A rail lies r / tan(t/2) from the edge, r the
+   radius (or offset) and t the angle between the two faces' planes: the
+   base domains are made to reach (SetTraceReach) twice the largest such
+   distance and the radius more, over the trace's whole length (a variable
+   radius as its law gives it there), when the default does not. A
+   variable round's trace then runs past the edge's ends only twice as far
+   as it is wide at its ends (its law grows on past them), where its corners
+   find the rails' ends. Planes and analytic surfaces continue exactly; a
+   B-spline surface is evaluated on its polynomial continuation. Blends the
+   default reach covers are traced as before.
+***********************************************************************/
+static SmStatus sm_ExtendTraceToItsRails
+ (SmFilletSolver * pFS)   // i/o: the solver
+{
+  SmOffsetSurface * apOffset[2] = { pFS->GetSurface(0), pFS->GetSurface(1) };
+  if ( apOffset[0] == NULL || apOffset[1] == NULL )
+    { return SM_SUCCESS; }
+  SmEdge * pEdge = pFS->GetEdgeuse(0)->GetEdge();      NER(pEdge);
+  const SmCurve * pCurve = pEdge->GetCurve();         NER(pCurve);
+
+  // the smallest angle between the faces' planes along the edge
+  double dAngle = SM_PI / 2.0;
+  for (ULONG i=1; i<8; i++)
+    {
+      SmPoint3d sPnt;
+      SER( pCurve->EvaluatePoint( pEdge->GetInterval().Evaluate( i / 8.0 ), sPnt ));
+      SmVector3d asNormal[2];
+      SmBoolean  bBoth = TRUE;
+      for (ULONG k=0; k<2 && bBoth; k++)
+        {
+          const SmSurface * pBase = apOffset[k]->GetBaseSurface();   NER(pBase);
+          SmBoolean bDropped = FALSE, bMulti = FALSE;
+          SmPoint2d sUV;
+          double    dGap = SM_BIG_DOUBLE;
+          SER( pBase->DropPoint( sPnt, pBase->GetNaturalUVDomain(), NULL, bDropped, sUV, dGap, bMulti ));
+          bBoth = bDropped;
+          if ( bDropped )
+            { SER( pBase->EvaluateNormal( sUV, TRUE, TRUE, asNormal[k] )); }
+        }
+      if ( !bBoth )
+        { continue; }
+      double dCos = smos_Min( 1.0, smos_Fabs( asNormal[0].Dot( asNormal[1] )));
+      dAngle = smos_Min( dAngle, acos( dCos ));
+    }
+  dAngle = smos_Max( dAngle, SM_PI / 180.0 );
+
+  // the largest radius over the trace's length: the edge, and for a variable round (its law
+  // growing on) as far past the ends as SmVariableRadiusFS::LoadInitialValues lets it run
+  double dRadius = smos_Max( smos_Fabs( apOffset[0]->GetOffsetDistance() ), smos_Fabs( apOffset[1]->GetOffsetDistance() ));
+  SmVariableRadiusFS * pVRFS = SM_CAST_PTR( SmVariableRadiusFS, pFS );
+  if ( pVRFS != NULL )
+    {
+      SmExtent1d sLawIvl = pVRFS->GetFilletLawInterval();
+      double     dPast   = 5.0 * pFS->GetExtensionFactor() * sLawIvl.GetLength();
+      SmExtent1d sTraced( sLawIvl.GetMin() - dPast, sLawIvl.GetMax() + dPast );
+      for (ULONG i=0; i<=64; i++)
+        { dRadius = smos_Max( dRadius, smos_Fabs( pVRFS->GetFilletRadius( sTraced.Evaluate( i / 64.0 )))); }
+    }
+  if ( !( dRadius > 0.0 ))
+    { return SM_SUCCESS; }
+  double dReach = ( 2.0 / tan( dAngle / 2.0 ) + 1.0 ) * dRadius;
+
+  // Each base surface's parameter directions that run across the edge (not mostly along it,
+  // by the edge's direction on it in 3D proportions), and whether the default reaches.
+  SmBoolean abAcross[2][2] = { { TRUE, TRUE }, { TRUE, TRUE } };
+  SmBoolean bShort = FALSE;
+  for (ULONG k=0; k<2; k++)
+    {
+      const SmSurface * pBase = apOffset[k]->GetBaseSurface();
+      SmExtent2d sDomain = pBase->GetNaturalUVDomain();
+      SmPoint2d  sMid    = sDomain.GetMid();
+      SmPoint3d  asEnds[4];
+      SER( pBase->EvaluatePoint( SmPoint2d( sDomain.GetMin().x, sMid.y ), asEnds[0] ));
+      SER( pBase->EvaluatePoint( SmPoint2d( sDomain.GetMax().x, sMid.y ), asEnds[1] ));
+      SER( pBase->EvaluatePoint( SmPoint2d( sMid.x, sDomain.GetMin().y ), asEnds[2] ));
+      SER( pBase->EvaluatePoint( SmPoint2d( sMid.x, sDomain.GetMax().y ), asEnds[3] ));
+      double     ad3D[2] = { asEnds[0].DistanceBetween( asEnds[1] ), asEnds[2].DistanceBetween( asEnds[3] ) };
+      SmVector2d sUVSize = sDomain.GetSize();
+      for (ULONG d=0; d<2; d++)
+        {
+          if ( ad3D[d] > SM_EFF_ZERO_SQRT && pFS->GetExtensionFactor() * ad3D[d] < dReach )
+            { bShort = TRUE; }
+        }
+      SmEdgeuse      * pEU = pFS->GetEdgeuse(k);
+      SmBSplineCurve * pUV = NULL;
+      if ( pEU == NULL || pEU->GetOrCreateUVTrimCurve( pUV ) != SM_SUCCESS || pUV == NULL )
+        { continue; }
+      SmPoint3d asDeriv[2];
+      SER( pUV->Evaluate( pUV->GetNaturalInterval().Evaluate( 0.5 ), 1, TRUE, asDeriv ));
+      double adAlong[2] = { 0.0, 0.0 };
+      for (ULONG d=0; d<2; d++)
+        {
+          double dScale = ( sUVSize[d] > 0.0 ) ? ad3D[d] / sUVSize[d] : 0.0;
+          adAlong[d] = asDeriv[1][d] * dScale;
+        }
+      double dLen = sqrt( adAlong[0] * adAlong[0] + adAlong[1] * adAlong[1] );
+      if ( dLen > 0.0 )
+        {
+          for (ULONG d=0; d<2; d++)
+            { abAcross[k][d] = ( smos_Fabs( adAlong[d] ) / dLen < 0.9 ) ? TRUE : FALSE; }
+        }
+    }
+  if ( bShort )
+    { pFS->SetTraceReach( dReach, abAcross ); }
+  return SM_SUCCESS;
+
+} // end sm_ExtendTraceToItsRails
+
+/*******************************************************************//**
 PURPOSE: Give an edge whose curve is a curve on a surface along an
    isoparameter line that isoparameter curve, exactly, as its curve.
 
@@ -2522,6 +2642,9 @@ SmStatus SmFilletExecutive::CreateFilletBrep
           sm_GraphicsLoop();
         }
 #endif // SM_DEBUG_CODE
+
+      // SolidCraft change: a trace that reaches the rails
+      SER( sm_ExtendTraceToItsRails( pFilSolver ));
 
       // Compute untrimmed filletSurface and railCurve geometry
       if(SM_SUCCESS != pFilSolver->CalcFilletGeom())

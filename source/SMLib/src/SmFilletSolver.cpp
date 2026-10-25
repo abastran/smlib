@@ -4432,7 +4432,7 @@ void SmFilletSolver::SetupOffsetExtension
    SmExtent2d      & rDomain)       // i/o: target surface domain of interest
 {
   // get length of extensions
-  SmVector2d sSize = m_dSurfaceExtensionFactor * rDomain.GetSize();
+  SmVector2d sSize = GetDomainExtension( pSurf, rDomain ); // SolidCraft change: and the trace's reach
 
   // Extend by a smaller amount if periodic.
   // Note, this used to be 0; see also Fillet regressions 212, 213, 214.
@@ -6079,6 +6079,52 @@ SmStatus SmFilletSolver::TestRollOver
 
   return SM_SUCCESS;
 } // end SmFilletSolver::TestRollOver
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. How far the trace extends a base surface's domain
+    past crDomain, in each parameter direction.
+
+NOTES: The extension factor times the domain's size (upstream), and in the
+    directions that run across the edge (SetTraceReach) at least as far as
+    m_dTraceReach in 3D: the size in parameters scaled by the domain's length
+    in 3D along that direction, through its middle. Along the edge it keeps
+    the factor's, or the trace would run on past the ends, where a variable
+    round's law grows on and asks for more reach still. A direction of no
+    length in 3D (a degenerate side) keeps the factor's.
+***********************************************************************/
+SmVector2d SmFilletSolver::GetDomainExtension
+  (const SmSurface  * pSurf,      // in : the base surface
+   const SmExtent2d & crDomain)   // in : its domain of interest
+  const
+{
+  SmVector2d sSize = m_dSurfaceExtensionFactor * crDomain.GetSize();
+  if ( pSurf == NULL || !( m_dTraceReach > 0.0 ))
+    { return sSize; }
+  SmPoint2d sMid = crDomain.GetMid();
+  SmPoint3d asEnds[4];
+  if (   pSurf->EvaluatePoint( SmPoint2d( crDomain.GetMin().x, sMid.y ), asEnds[0] ) != SM_SUCCESS
+      || pSurf->EvaluatePoint( SmPoint2d( crDomain.GetMax().x, sMid.y ), asEnds[1] ) != SM_SUCCESS
+      || pSurf->EvaluatePoint( SmPoint2d( sMid.x, crDomain.GetMin().y ), asEnds[2] ) != SM_SUCCESS
+      || pSurf->EvaluatePoint( SmPoint2d( sMid.x, crDomain.GetMax().y ), asEnds[3] ) != SM_SUCCESS )
+    { return sSize; }
+  // which of the solver's base surfaces this is: its directions across the edge
+  ULONG lSurface = 2;
+  for (ULONG k=0; k<2; k++)
+    {
+      if ( m_pSurfaces[k] != NULL && m_pSurfaces[k]->GetBaseSurface() == pSurf )
+        { lSurface = k; }
+    }
+  SmBoolean bAcrossU = ( lSurface < 2 ) ? m_abTraceAcross[lSurface][0] : TRUE;
+  SmBoolean bAcrossV = ( lSurface < 2 ) ? m_abTraceAcross[lSurface][1] : TRUE;
+  SmVector2d sUVSize = crDomain.GetSize();
+  double d3DU = asEnds[0].DistanceBetween( asEnds[1] );
+  double d3DV = asEnds[2].DistanceBetween( asEnds[3] );
+  if ( bAcrossU && d3DU > SM_EFF_ZERO_SQRT )
+    { sSize.x = smos_Max( sSize.x, m_dTraceReach * sUVSize.x / d3DU ); }
+  if ( bAcrossV && d3DV > SM_EFF_ZERO_SQRT )
+    { sSize.y = smos_Max( sSize.y, m_dTraceReach * sUVSize.y / d3DV ); }
+  return sSize;
+} // end SmFilletSolver::GetDomainExtension
 
 /*******************************************************************//**
 PURPOSE: SolidCraft change. Whether every rail of this solver's fillet stays on the face it

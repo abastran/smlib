@@ -120,6 +120,10 @@ protected:
                                                  // intervals during extension.
                                                  // An extension factor of 1.0 will add 1 length to each end tripling the size.
                                                  // An extension factor of 0.5 will add .5 length to each end doubling the size.
+  double              m_dTraceReach = 0.0;       // SolidCraft change: how far (3D) the trace's base surface domains reach past
+                                                 //   their own at least, across the edge (0 = by m_dSurfaceExtensionFactor alone)
+  SmBoolean           m_abTraceAcross[2][2] = { { TRUE, TRUE }, { TRUE, TRUE } }; // SolidCraft change: [surface][u, v]: whether
+                                                 //   that parameter direction runs across the edge (gets m_dTraceReach)
   double              m_dConversionTol;          // Tolerance indicating when conversion happens - represents
                                                  // a given number of decimal places.
   SmBoolean           m_bReverseTrim;            // If TRUE then we will take keep the opposite side
@@ -181,6 +185,7 @@ public:
   SmOffsetSurface           * GetSurface                 (ULONG             lRailIndex) const ;
   double                      GetOrientation             (ULONG             lRailIndex) { return m_dOrientations[lRailIndex]; }
   double                      GetExtensionFactor         () { return m_dSurfaceExtensionFactor; }
+  SmVector2d                  GetDomainExtension         (const SmSurface * pSurf, const SmExtent2d & crDomain) const; // SolidCraft change: by the factor and the reach
  
   ULONG                       FindFilGeomIndex           ( const SmFilletGeom *pFilGeom ) const;
   ULONG                       FindIndexInExec            () const;
@@ -192,6 +197,9 @@ public:
   void             SetReverseTrim           (SmBoolean bReverseTrim)                             { m_bReverseTrim = bReverseTrim; }
   virtual void     SetExtensionFlags        () ;
   virtual void     SetExtensionFactor       (double dExtFactor)                                  { m_dSurfaceExtensionFactor = dExtFactor; }
+  void             SetTraceReach            (double dReach, const SmBoolean (&crabAcross)[2][2]) // SolidCraft change
+                     { m_dTraceReach = dReach;
+                       for (int i=0; i<2; i++) { for (int j=0; j<2; j++) { m_abTraceAcross[i][j] = crabAcross[i][j]; } } }
   virtual void     SetFilletExecutive       (SmFilletExecutive * pFilExecutive)                  { m_pExecutive = pFilExecutive; }
   void             SetFilletSurfaceGenerator(SmFilletSurfaceGenerator *pFSG)                     { m_pFSG = pFSG; } // sets fillet cross-section shapes 
   void             SetFilletGeomForSurfaces (SmFilletGeom *pFG )                                 { m_pFGForSurfaces = pFG; }

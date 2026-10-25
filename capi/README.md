@@ -713,6 +713,16 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   fails the fillet with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`). This replaces the earlier change that
   merged such a fillet into the body face by face (`RailsLeaveTheirFaces`), which built a round
   or a chamfer across the openings it ran into.
+- **A trace that reaches its rails** (`SmFilletExecutive.cpp`, `sm_ExtendTraceToItsRails`;
+  `SmFilletSolver.h`/`.cpp`, `GetDomainExtension`, `SetTraceReach`; `SmFilletStandardSolver.cpp`,
+  `SmVariableRadiusFS::LoadInitialValues`): the fillet trace runs over its base surfaces' domains
+  extended by half their size. A blend wider than that (a variable round 2 -> 11 or more on a
+  box's top 10 wide, the law growing on past the edge's end where the trace runs) was clamped at
+  the extended border and its surface fitted wrong all along (0.037 off the round's sections
+  for 2 -> 11, failing past 2 -> 25). The domains now reach, across the edge, the rails' largest
+  distance (twice r / tan(t/2) and r more, t the angle between the faces) over the trace's
+  length; along the edge they stay as they were. Blends the default reaches are traced as
+  before.
 - **Chamfers that take the whole of a face are refused** (`SmFilletExecutive.h`/`.cpp`, new
   `FacesOutlastTheirBlends`, called by `CreateFilletBrep` after `RailsFitTheirFaces`;
   `SmFilletSolver.h`, new `SmFilletSurfaceGenerator::MeetsItsFacesTangentially`): a rail
