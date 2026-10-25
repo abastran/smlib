@@ -1138,3 +1138,13 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   surface, its extension measured from there, stopped short of the arc's end: the cap's rib ran
   off it (1001). The filleted edge's end at such a corner is now a trace point, and the end's
   extension runs on past it.
+- **A variable round's second search for a rail end holds the radius only as the first**
+  (`SmFilletGeom.cpp`, `SmFilletVertex::CalcRailIntEdgeuse`): the rail/side-edge intersection
+  holds a variable radius at its end value (`SmTemporaryRadiusChange`) only at a corner
+  calculated as constant radius; its retry with a doubled extension held it everywhere. A
+  variable round r1 to r5 into a box's R5 vertical corner: past the edge's end the law is larger
+  than 5, and the top's rail leaves the top across the right face's edge, missing the corner's
+  arc (the corner then has no end rib and the round is cut off where it meets the body). Held at
+  5, the retry found the arc's end (60, 35, 20) at a radius the round does not have there, and the
+  trace through that point failed (1001). The retry now holds the radius only where the first
+  search does.

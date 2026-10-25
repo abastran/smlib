@@ -2003,7 +2003,15 @@ SmBoolean bDebugFVUs=FALSE;
               // load rTsectPnt with the rail/curve intersection found as
               // point on sideEdge->UVTrimCurve and FilletFace->Surface
 
-              SmTemporaryRadiusChange sTempRad( pFilletGeom1->GetFilletSolver(), lRailIndex, pSideEU1 );
+              // SolidCraft change: the radius held constant only as in the first try, at a
+              // corner calculated as constant radius. Held anywhere else, the rail end found
+              // is at a radius the variable-radius fillet does not have there, and its trace
+              // cannot pass through it (a round running into a rounded corner, its rail on
+              // the top meeting the corner's arc only at that radius).
+              SmFilletSolver *pFSForChange = ( this->GetFilletCorner()->IsCalcAsConstRad() )
+                                               ? pFilletGeom1->GetFilletSolver()
+                                               : NULL;
+              SmTemporaryRadiusChange sTempRad( pFSForChange, lRailIndex, pSideEU1 );
 
               SER( pFilletGeom1->RailEdgeuseIntersect(lRailIndex,
                                                       pSideEU1,

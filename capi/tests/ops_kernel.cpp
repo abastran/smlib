@@ -1234,6 +1234,54 @@ int main()
         }
     }
 
+    // SolidCraft ladder 07-fillets/012: a variable round, r0 at x = 0 to r1 at x = 55, on the top
+    // back edge of a 60 x 40 x 20 box whose vertical edge at (60, 40) is rounded R5. With r1 = 5
+    // the rail on the top meets the R5 corner's arc only at its end (60, 35), where the law,
+    // extended past the edge's end, is larger: there it leaves the top across the right face's
+    // edge. The second search for that rail's end held the radius at r1 even though the corner
+    // is not calculated as constant radius (the first search holds it only then), found the
+    // arc's end, and the variable round's trace could not pass through it (1001). Removed: the
+    // section (1 - pi/4) r^2 along 55, and past x = 55 (s along it, the law going on as
+    // r = r1 + (r1 - r0) s / 55) the square r x r less the quarter disc as far as the R5
+    // cylinder reaches, y - 35 < sqrt(25 - s^2).
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        const double corner_edge[3] = {60, 40, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(block, corner_edge, 1, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
+        const double back_top[3] = {27.5, 40, 20};
+        const double from[3] = {0, 40, 20};
+        const double knots[4] = {0, 0, 1, 1};
+        auto under_arc = [](double rr, double a) { // the integral of rr - sqrt(rr^2 - w^2) over 0 < w < a
+            a = std::max(0.0, std::min(a, rr));
+            return rr * a - (0.5 * a * std::sqrt(rr * rr - a * a) + 0.5 * rr * rr * std::asin(a / rr));
+        };
+        for (double r0 : {1.0, 2.0})
+        {
+            const double r1 = 5.0;
+            const double law[2] = {r0, r1};
+            double removed = (1.0 - PI / 4.0) * 55.0 * (r1 * r1 * r1 - r0 * r0 * r0) / (3.0 * (r1 - r0));
+            const int steps = 200000;
+            for (int i = 0; i < steps; ++i)
+            {
+                double s = (i + 0.5) * 5.0 / steps;
+                double rr = r1 + (r1 - r0) * s / 55.0;
+                removed += under_arc(rr, std::sqrt(25.0 - s * s) - 5.0 + rr) * 5.0 / steps;
+            }
+            if (rounded != nullptr && smlib_fillet_variable(rounded, back_top, 0.1, from, 1, knots, 4, law, 2, &r) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-6));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"a variable round reaching R5 at the R5 corner");
+            }
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(block);
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
