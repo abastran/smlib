@@ -1345,6 +1345,63 @@ int main()
         smlib_brep_free(frustum);
     }
 
+    // A 40 x D x 10 plate with a 4 mm through hole at (x, y), shelled t inward open at the top:
+    // where the hole lies nearer than t to a side, the offset of its wall (radius 2 + t) crosses
+    // the side's offset, and the offset floor's hole loop crossed its outer loop (SmFace test
+    // #38). The merge failed on that face (SM_ERR_NULL_POINTER, SmEdgeDefinition::Imprint); the
+    // face is now rebuilt from the stretches of its loops that bound it, and comes apart in two
+    // when the hole crosses both sides (D = 8). The cavity is the inner box less the part of the
+    // hole's offset disk inside the floor, over the height 10 - t; a hole whose offset only
+    // touches a side's offset is not resolved: SM_ERR_BAD_INTERSECTIONS.
+    {
+        struct Plate
+        {
+            double x, y, d, t;
+        };
+        // Area of a disk of radius r between the lines at signed distances a < b from its centre.
+        auto band = [](double rr, double a, double b)
+        {
+            auto F = [rr](double u)
+            {
+                u = std::max(-rr, std::min(rr, u));
+                return u * std::sqrt(rr * rr - u * u) + rr * rr * std::asin(u / rr);
+            };
+            return F(b) - F(a);
+        };
+        for (Plate p : {Plate{4.5, 20, 40, 1.5}, Plate{4.5, 20, 40, 1.0}, Plate{20, 4, 8, 1.5}, Plate{5, 20, 40, 1.5}})
+        {
+            const double o[3] = {0, 0, 0}, size[3] = {40, p.d, 10}, axis[3] = {p.x, p.y, -1}, lid[3] = {35, p.d / 2, 10};
+            smlib_brep *box = nullptr, *pin = nullptr, *plate = nullptr;
+            CHECK(smlib_make_box(o, size, &box) == SMLIB_OK && smlib_make_cylinder(axis, 2.0, 12.0, &pin) == SMLIB_OK);
+            CHECK(smlib_boolean(box, pin, SMLIB_BOOLEAN_SUBTRACT, &plate) == SMLIB_OK);
+            const double rr = 2.0 + p.t;
+            int32_t s = plate != nullptr ? smlib_shell(plate, lid, 1, 0.1, -p.t, &r, nullptr) : SMLIB_ERR_ARG;
+            if (p.x - rr == p.t)
+            {
+                CHECK(s == SM_ERR_BAD_INTERSECTIONS && r == nullptr);
+            }
+            else
+            {
+                double inside = band(rr, std::max(p.t - p.y, -rr), std::min(p.d - p.t - p.y, rr));
+                if (p.x - rr < p.t)
+                {
+                    inside -= band(rr, -rr, p.t - p.x);
+                }
+                const double cavity = ((40.0 - 2.0 * p.t) * (p.d - 2.0 * p.t) - inside) * (10.0 - p.t);
+                CHECK(s == SMLIB_OK);
+                if (r != nullptr)
+                {
+                    CHECK(near(volume_of(r), 40.0 * p.d * 10.0 - PI * 4.0 * 10.0 - cavity, 1e-7));
+                    done(r);
+                }
+            }
+            for (smlib_brep *b : {box, pin, plate})
+            {
+                smlib_brep_free(b);
+            }
+        }
+    }
+
     // Thicken: a sheet (the cube's top face alone, SMLib's own way of making one is not in the
     // C API; a solid is refused).
     CHECK(smlib_thicken(cube, 1.0, 0, &r) == SMLIB_ERR_ARG);

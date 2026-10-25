@@ -231,6 +231,10 @@ public:
   // offset face no longer meet at their vertex, the straight edge between their ends.
   SmStatus CloseLoopGaps();
   SmStatus CloseLoopGap(SmFace *pFace, SmEdgeuse *pEdgeuse, SmBoolean bAtStart, const SmPoint3d &crVertexPoint, double dTol);
+  // SolidCraft fork: the offset faces whose loops cross (an inner loop's offset grown past the
+  // outer loop's) rebuilt from the stretches of their loops that bound the face, before the merge.
+  SmStatus ResolveCrossingLoops();
+  SmStatus ResolveCrossingLoopsOfFace(SmFace *pFace);
 
   virtual SmStatus BuildOffsetOfEdgeuses(SmEdgeuse *pEdgeuse,
                                          SmEdgeuse *pOtherEdgeuse,

@@ -7,7 +7,10 @@
 **********************************************************************/
 
 #include "StdAfx.h"
+#include <algorithm>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include <SmOffsetExecutive.h>
 #include <SmSurfaceCache.h>
@@ -20,6 +23,7 @@
 #include <SmPlane.h>
 #include <SmTrimmingTools.h>
 #include <SmAssertArray.h>
+#include <SmLoop.h>
 
 #ifdef SM_DEBUG_CODE
 #include <SmTopologyTraverser.h>
@@ -1870,6 +1874,10 @@ SmBoolean bDebugMe4 = FALSE;
     }
 #endif // SM_DEBUG_CODE
 
+  // SolidCraft change: an offset face whose loops cross is rebuilt from the stretches of its
+  // loops that bound it, before the merge sees it.
+  SER(ResolveCrossingLoops());
+
   SmBrep *pResult;
   SER(PiecewiseMerge(pResult));
   SmObjDelete sClean2(pResult);
@@ -3307,6 +3315,474 @@ SmStatus SmOffsetExecutive::CloseLoopGap
   return SM_SUCCESS;
 
 } // end SmOffsetExecutive::CloseLoopGap
+
+/*******************************************************************//**
+PURPOSE: Rebuild every offset face whose loops cross one another.
+
+NOTES: SolidCraft fork. Each loop of an offset face is made of the offsets
+   of its edges, each where the face's offset surface meets a neighbour's
+   (BuildOffsetOfEdgeuses), and a loop is trimmed only where its own
+   consecutive edges meet: nothing trims one loop of a face against another.
+   An inner loop whose offset grows past the outer loop's offset crosses it.
+   Shelled 1.5 mm inward, a window whose top lies 1 mm below a round gives
+   the offset wall the window's offset rising above the wall's top edge,
+   where the wall meets the round's offset. Such a face is not valid (SmFace
+   test #38: the loops of a face are disjoint) and the merge cannot use it:
+   imprinted, its loops share the crossings as vertices (test #39) and the
+   merged offset encloses no region; before that, the imprint lost the end
+   vertex of an edge running over a crossing (SmEdgeDefinition::Imprint,
+   SM_ERR_NULL_POINTER). Each such face is rebuilt from the stretches of its
+   loops that bound it (ResolveCrossingLoopsOfFace) before the merge.
+***********************************************************************/
+SmStatus SmOffsetExecutive::ResolveCrossingLoops()
+{
+  NER(m_pOffsetBrep);
+  SmTArray<SmFace*> sFaces;
+  m_pOffsetBrep->GetFaces(sFaces);
+  for (ULONG ii=0; ii<sFaces.GetSize(); ii++)
+    { SER(ResolveCrossingLoopsOfFace(sFaces[ii])); }
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::ResolveCrossingLoops
+
+namespace
+{
+  // A stretch of a loop of an offset face between two of its crossings with other loops or the
+  // ends of its edgeuse, in the loop's direction.
+  struct sm_LoopStretch
+  {
+    ULONG            lLoop;   // its loop: 0 = the outer loop
+    SmEdgeuse      * pEU;     // the edgeuse (of the face's SM_OT_SAME faceuse) it is a stretch of
+    SmBSplineCurve * pUV;     // pEU's UV trim curve
+    double           dLo;     // its edge-parameter interval
+    double           dHi;
+    long             lStart;  // the node it starts at: a crossing (>= 0), or the vertex ending
+    long             lEnd;    //   edgeuse k of the face (-1 - k); and the node it ends at
+    SmBoolean        bKeep;   // TRUE = it bounds the face
+    SmPoint3d        sMid;    // its middle point
+  };
+
+  // A crossing of the loops of an offset face that ResolveCrossingLoopsOfFace() does not resolve:
+  // reported, and the offset fails with SM_ERR_BAD_INTERSECTIONS rather than merge a face whose
+  // loops cross.
+  SmStatus sm_UnresolvedCrossing(const TCHAR *cpWhy)
+  {
+    smos_ErrorMessage(SM_ERR_BAD_INTERSECTIONS, FILE_NAME, LINE_NUMBER, cpWhy, (TCHAR*)0, FUNC_NAME);
+    return SM_ERR_BAD_INTERSECTIONS;
+  }
+}
+
+/*******************************************************************//**
+PURPOSE: When the loops of an offset face cross one another, replace the
+   face with the face(s) of its surface inside the outer loop and outside
+   every inner one, bounded by the stretches of the loops between their
+   crossings.
+
+NOTES: SolidCraft fork. SMLib has nothing that resolves crossing loops: the
+   face builders and trimming tools require disjoint loops
+   (SmBrep::CreateFacesWithCurves: "does not allow for loops to touch or
+   cross each other"), and the healer's loop fixes reorder, reorient or split
+   off loops, never cut them. So:
+   - The crossings are found in the face's UV space, as SmFace test #38
+     finds them (GlobalCurveIntersect of the UV trim curves, at the
+     surface's tolerance mapped to UV).
+   - Every loop is cut at its crossings. A stretch of the outer loop bounds
+     the face where it lies outside every inner loop; a stretch of an inner
+     loop where it lies inside the outer loop and outside the other inner
+     ones (SmLoop::ContainsUVPoint at the stretch's middle).
+   - The kept stretches, in their loops' directions, close into loops at
+     the crossings: at a crossing exactly one kept stretch arrives and one
+     leaves. A new loop holding a stretch of the old outer loop bounds the
+     face from outside; the others are holes.
+   - The face is rebuilt (MakeFaceWithCurves) from each stretch's edge curve
+     and UV trim curve trimmed to it (they share the edge's parameter), on a
+     copy of its surface. When it has come apart (several outer loops),
+     SmBrep::MakeFaceFromLoopOnFace, as the healer does, gives each outer
+     loop a face of its own with the holes inside it.
+   - The new faces, edges and vertices take the attributes of the face,
+     edges and vertices they come from, and the face's places in the offset
+     maps.
+   A face whose loops cross in a way this does not resolve is not merged:
+   SM_ERR_BAD_INTERSECTIONS, with the reason. Those ways: loops meeting at a
+   loop vertex or running along one another, three loops through one point,
+   a stretch neither inside nor outside a loop, a crossing where the kept
+   stretches do not continue one to one, and a face whose edges bound other
+   faces too.
+***********************************************************************/
+SmStatus SmOffsetExecutive::ResolveCrossingLoopsOfFace(SmFace *pFace)
+{
+  NER(pFace);
+  SmSurface *pSurface = pFace->GetSurface(); NER(pSurface);
+  SmFaceuse *pFU = pFace->GetUpwardFaceuse(); NER(pFU);
+  if (pFU->GetOrientation() != SM_OT_SAME) { pFU = pFU->GetMate(); NER(pFU); }
+
+  // The face's edge loops (the outer loop first) and the points of its vertex loops.
+  SmTArray<SmLoopuse*> sLoopuses;
+  pFU->GetLoopuses(sLoopuses);
+  std::vector<SmLoopuse*>                vLoops;
+  std::vector< std::vector<SmEdgeuse*> > vLoopEUs;
+  SmTArray<SmPoint3d>                    sLoopPoints;
+  for (ULONG ii=0; ii<sLoopuses.GetSize(); ii++)
+    {
+      SmLoopuse *pLU = sLoopuses[ii];
+      if (pLU->IsVertexLoopuse())
+        {
+          SmTArray<SmVertexuse*> sVUs;
+          pLU->GetVertexuses(sVUs);
+          sLoopPoints.Add(sVUs[0]->GetVertex()->GetPoint());
+          continue;
+        }
+      SmTArray<SmEdgeuse*> sEUs;
+      pLU->GetEdgeuses(sEUs);
+      vLoops.push_back(pLU);
+      vLoopEUs.push_back(std::vector<SmEdgeuse*>());
+      for (ULONG kk=0; kk<sEUs.GetSize(); kk++) { vLoopEUs.back().push_back(sEUs[kk]); }
+    }
+  if (vLoops.size() < 2) { return SM_SUCCESS; }
+
+  // Every edgeuse, in loop order, with its UV trim curve.
+  std::vector<ULONG>           vLoopOf;
+  std::vector<SmEdgeuse*>      vEU;
+  std::vector<SmBSplineCurve*> vUV;
+  std::vector<size_t>          vFirstOfLoop;
+  double dTol3d = m_rGeometryCreation.GetThisApproxTol3d();
+  for (ULONG ll=0; ll<vLoops.size(); ll++)
+    {
+      vFirstOfLoop.push_back(vEU.size());
+      for (size_t kk=0; kk<vLoopEUs[ll].size(); kk++)
+        {
+          SmEdgeuse *pEU = vLoopEUs[ll][kk];
+          SmBSplineCurve *pUV = NULL;
+          SER(pEU->GetOrCreateUVTrimCurve(pUV)); NER(pUV);
+          AERN(pUV->GetNaturalInterval().AreEqual(pEU->GetEdge()->GetInterval()), SM_ERR_ASSERT_FAILURE);
+          vLoopOf.push_back(ll);
+          vEU.push_back(pEU);
+          vUV.push_back(pUV);
+          dTol3d = smos_Max(dTol3d, (double)pEU->GetEdge()->GetTolerance());
+        }
+    }
+  vFirstOfLoop.push_back(vEU.size());
+  dTol3d *= 10.0;
+
+  // The crossings of edgeuses of different loops, in UV space (as SmFace test #38 finds them).
+  SmZoneTol3d sZoneTol3d = SmTol::GetZoneTol3d(pSurface);
+  SmTol2d     sUVTol     = SmTol::MapTo2d(sZoneTol3d, pSurface->GetNaturalUVDomain().GetMid(), *pSurface);
+  std::vector< std::vector< std::pair<double,long> > > vCuts(vEU.size()); // per edgeuse: (parameter, crossing)
+  long lNumCrossings = 0;
+  for (size_t aa=0; aa<vEU.size(); aa++)
+    {
+      for (size_t bb=vFirstOfLoop[vLoopOf[aa]+1]; bb<vEU.size(); bb++)
+        {
+          SmSolutionArray sSols;
+          SER(vUV[aa]->GlobalCurveIntersect(vUV[aa]->GetNaturalInterval(), *vUV[bb], vUV[bb]->GetNaturalInterval(), sUVTol, sSols));
+          for (ULONG ss=0; ss<sSols.GetSize(); ss++)
+            {
+              if (sSols[ss].m_eSolutionType != SM_ST_SINGLE_VALUE)
+                { return sm_UnresolvedCrossing(_T("Offset face loops run along one another")); }
+              double dTa = sSols[ss].m_vStart[0];
+              double dTb = sSols[ss].m_vStart[1];
+              SmPoint3d sPa, sPb;
+              SER(vEU[aa]->GetEdge()->GetCurve()->EvaluatePoint(dTa, sPa));
+              SER(vEU[bb]->GetEdge()->GetCurve()->EvaluatePoint(dTb, sPb));
+              if (   sPa.DistanceBetween(vEU[aa]->GetEdge()->GetStartVertex()->GetPoint()) <= dTol3d
+                  || sPa.DistanceBetween(vEU[aa]->GetEdge()->GetEndVertex()->GetPoint())   <= dTol3d
+                  || sPb.DistanceBetween(vEU[bb]->GetEdge()->GetStartVertex()->GetPoint()) <= dTol3d
+                  || sPb.DistanceBetween(vEU[bb]->GetEdge()->GetEndVertex()->GetPoint())   <= dTol3d)
+                { return sm_UnresolvedCrossing(_T("Offset face loops meet at a loop vertex")); }
+              vCuts[aa].push_back(std::make_pair(dTa, lNumCrossings));
+              vCuts[bb].push_back(std::make_pair(dTb, lNumCrossings));
+              lNumCrossings++;
+            }
+        }
+    }
+  if (lNumCrossings == 0) { return SM_SUCCESS; }
+
+  // Until the merge every offset face is a sheet of its own: its edges bound it alone.
+  for (size_t gg=0; gg<vEU.size(); gg++)
+    {
+      if (!vEU[gg]->GetEdge()->IsLamina())
+        { return sm_UnresolvedCrossing(_T("Offset face whose loops cross shares an edge with another face")); }
+    }
+
+  // Cut every edgeuse at its crossings into stretches, in the loop's direction.
+  std::vector<sm_LoopStretch> vStretches;
+  for (size_t gg=0; gg<vEU.size(); gg++)
+    {
+      SmEdgeuse *pEU   = vEU[gg];
+      SmCurve   *pCrv  = pEU->GetEdge()->GetCurve();
+      SmBoolean  bSame = (pEU->GetOrientation() == SM_OT_SAME);
+      SmExtent1d sIvl  = pEU->GetEdge()->GetInterval();
+      std::vector< std::pair<double,long> > &rCuts = vCuts[gg];
+      std::sort(rCuts.begin(), rCuts.end());
+      if (!bSame) { std::reverse(rCuts.begin(), rCuts.end()); }
+      ULONG  lLoop = vLoopOf[gg];
+      size_t lPrev = (gg == vFirstOfLoop[lLoop]) ? vFirstOfLoop[lLoop+1] - 1 : gg - 1;
+      double dFrom = bSame ? sIvl.GetMin() : sIvl.GetMax();
+      long   lFrom = -1 - (long)lPrev;
+      for (size_t cc=0; cc<=rCuts.size(); cc++)
+        {
+          double dTo = (cc < rCuts.size()) ? rCuts[cc].first  : (bSame ? sIvl.GetMax() : sIvl.GetMin());
+          long   lTo = (cc < rCuts.size()) ? rCuts[cc].second : -1 - (long)gg;
+          sm_LoopStretch sS;
+          sS.lLoop  = lLoop;
+          sS.pEU    = pEU;
+          sS.pUV    = vUV[gg];
+          sS.dLo    = smos_Min(dFrom, dTo);
+          sS.dHi    = smos_Max(dFrom, dTo);
+          sS.lStart = lFrom;
+          sS.lEnd   = lTo;
+          sS.bKeep  = FALSE;
+          SmPoint3d sFromPt, sToPt;
+          SER(pCrv->EvaluatePoint(sS.dLo, sFromPt));
+          SER(pCrv->EvaluatePoint(sS.dHi, sToPt));
+          if (!(sS.dHi > sS.dLo) || sFromPt.DistanceBetween(sToPt) <= dTol3d)
+            { return sm_UnresolvedCrossing(_T("Three offset face loops cross at one point")); }
+          SER(pCrv->EvaluatePoint(0.5*(sS.dLo + sS.dHi), sS.sMid));
+          vStretches.push_back(sS);
+          dFrom = dTo;
+          lFrom = lTo;
+        }
+    }
+
+  // Which stretches bound the face: of the outer loop, those outside every inner loop; of an
+  // inner loop, those inside the outer loop and outside the other inner ones.
+  for (size_t ss=0; ss<vStretches.size(); ss++)
+    {
+      sm_LoopStretch &rS = vStretches[ss];
+      SmPoint3d sUV3;
+      SER(rS.pUV->EvaluatePoint(0.5*(rS.dLo + rS.dHi), sUV3));
+      SmPoint2d sUV(sUV3.x, sUV3.y);
+      rS.bKeep = TRUE;
+      for (ULONG ll=0; ll<vLoops.size(); ll++)
+        {
+          if (ll == rS.lLoop) { continue; }
+          SmEdge      *pOnEdge  = NULL;
+          double       dOnParam = 0.0;
+          SmOrientType eOrient  = SM_OT_UNKNOWN;
+          SmPointObjectContainmentType eIn = vLoops[ll]->GetLoop()->ContainsUVPoint(sUV, sZoneTol3d, pOnEdge, dOnParam, eOrient);
+          if (eIn != SM_POC_INSIDE && eIn != SM_POC_OUTSIDE)
+            { return sm_UnresolvedCrossing(_T("Offset face loop stretch is neither inside nor outside another loop")); }
+          if (eIn != ((ll == 0) ? SM_POC_INSIDE : SM_POC_OUTSIDE)) { rS.bKeep = FALSE; }
+        }
+    }
+
+  // Close the kept stretches into loops: each goes on to the one kept stretch that starts where
+  // it ends (at a crossing, the stretch of the other loop that bounds the face).
+  std::vector<long> vNext(vStretches.size(), -1);
+  std::vector<long> vPrevCount(vStretches.size(), 0);
+  for (size_t ss=0; ss<vStretches.size(); ss++)
+    {
+      if (!vStretches[ss].bKeep) { continue; }
+      for (size_t tt=0; tt<vStretches.size(); tt++)
+        {
+          if (!vStretches[tt].bKeep || vStretches[tt].lStart != vStretches[ss].lEnd) { continue; }
+          if (vNext[ss] >= 0) { return sm_UnresolvedCrossing(_T("Offset face loops leave a crossing more than one way")); }
+          vNext[ss] = (long)tt;
+          vPrevCount[tt]++;
+        }
+      if (vNext[ss] < 0) { return sm_UnresolvedCrossing(_T("Offset face loops leave a crossing no way")); }
+    }
+  std::vector< std::vector<size_t> > vNewLoops;
+  std::vector<SmBoolean>             vNewLoopIsOuter;
+  std::vector<SmBoolean>             vDone(vStretches.size(), FALSE);
+  for (size_t ss=0; ss<vStretches.size(); ss++)
+    {
+      if (!vStretches[ss].bKeep || vDone[ss]) { continue; }
+      std::vector<size_t> vLoop;
+      SmBoolean bOuter = FALSE;
+      for (size_t tt=ss; !vDone[tt]; tt=(size_t)vNext[tt])
+        {
+          if (vPrevCount[tt] != 1) { return sm_UnresolvedCrossing(_T("Offset face loops arrive at a crossing more than one way")); }
+          vDone[tt] = TRUE;
+          vLoop.push_back(tt);
+          if (vStretches[tt].lLoop == 0) { bOuter = TRUE; }
+        }
+      vNewLoops.push_back(vLoop);
+      vNewLoopIsOuter.push_back(bOuter);
+    }
+
+  // Outer loops first (MakeFaceWithCurves takes the first loop for the outer one).
+  std::vector<size_t> vOrder;
+  for (size_t ll=0; ll<vNewLoops.size(); ll++) { if ( vNewLoopIsOuter[ll]) { vOrder.push_back(ll); } }
+  size_t lNumOuter = vOrder.size();
+  for (size_t ll=0; ll<vNewLoops.size(); ll++) { if (!vNewLoopIsOuter[ll]) { vOrder.push_back(ll); } }
+
+  // The face(s) the old one becomes; none when no stretch of its outer loop bounds it.
+  std::vector<SmFace*> vNewFaces;
+  if (lNumOuter > 0)
+    {
+      SmTArray<ULONG>           sLoopCounts;
+      SmTArray<SmCurve*>        s3DCurves;
+      SmTArray<SmBSplineCurve*> sUVCurves;
+      SmTArray<SmOrientType>    sOrients;
+      SmObjsDelete<SmCurve*>        sClean3D(&s3DCurves);
+      SmObjsDelete<SmBSplineCurve*> sCleanUV(&sUVCurves);
+      for (size_t oo=0; oo<vOrder.size(); oo++)
+        {
+          const std::vector<size_t> &rLoop = vNewLoops[vOrder[oo]];
+          sLoopCounts.Add((ULONG)rLoop.size());
+          for (size_t kk=0; kk<rLoop.size(); kk++)
+            {
+              const sm_LoopStretch &rS = vStretches[rLoop[kk]];
+              SmCurve *p3D = NULL;
+              SER(rS.pEU->GetEdge()->GetCurve()->Copy(m_crContext, p3D)); NER(p3D);
+              s3DCurves.Add(p3D);
+              SmExtent1d sIvl3D(rS.dLo, rS.dHi);
+              SER(p3D->Trim(sIvl3D));
+              SmCurve *pUVCopy = NULL;
+              SER(rS.pUV->Copy(m_crContext, pUVCopy)); NER(pUVCopy);
+              SmBSplineCurve *pUV = SM_CAST_PTR(SmBSplineCurve, pUVCopy);
+              if (pUV == NULL) { delete pUVCopy; SER(SM_ERR_ASSERT_FAILURE); }
+              sUVCurves.Add(pUV);
+              SmExtent1d sIvlUV(rS.dLo, rS.dHi);
+              SER(pUV->Trim(sIvlUV));
+              sOrients.Add(rS.pEU->GetOrientation());
+            }
+        }
+      SmSurface *pNewSurface = NULL;
+      SER(pSurface->Copy(m_crContext, pNewSurface)); NER(pNewSurface);
+      SmRegion *pNewRegion = NULL;
+      SmShell  *pNewShell  = NULL;
+      SmFace   *pNewFace   = NULL;
+      sClean3D.Clear(); // the new face owns its curves and its surface
+      sCleanUV.Clear();
+      SER(m_pOffsetBrep->MakeFaceWithCurves(m_pOffsetBrep->GetInfiniteRegion(), sLoopCounts, &s3DCurves, &sUVCurves, sOrients,
+                                            sLoopPoints, pNewSurface, pFace->GetUVDomain(), SM_OT_SAME,
+                                            pNewRegion, pNewShell, pNewFace));
+      NER(pNewFace);
+      vNewFaces.push_back(pNewFace);
+
+      // A face come apart: each further outer loop a face of its own, with the holes inside it.
+      if (lNumOuter > 1)
+        {
+          SmTArray<SmLoop*> sNewLoops;
+          pNewFace->GetLoops(sNewLoops);
+          for (ULONG ll=1; ll<sNewLoops.GetSize(); ll++)
+            {
+              // an outer loop holds a stretch of the old outer loop
+              SmTArray<SmEdge*> sLoopEdges;
+              sNewLoops[ll]->GetEdges(sLoopEdges);
+              SmBoolean bOuter = FALSE;
+              for (ULONG ee=0; ee<sLoopEdges.GetSize() && !bOuter; ee++)
+                {
+                  for (size_t ss=0; ss<vStretches.size() && !bOuter; ss++)
+                    {
+                      if (!vStretches[ss].bKeep || vStretches[ss].lLoop != 0) { continue; }
+                      SmBoolean bFound = FALSE;
+                      double dParam = 0.0, dDist = 0.0;
+                      SER(sLoopEdges[ee]->ClosestPoint(vStretches[ss].sMid, bFound, dParam, dDist));
+                      bOuter = (bFound && dDist <= dTol3d);
+                    }
+                }
+              if (!bOuter) { continue; }
+              SmFace *pSplitFace = NULL;
+              SER(m_pOffsetBrep->MakeFaceFromLoopOnFace(pNewFace, sNewLoops[ll], pSplitFace));
+              NER(pSplitFace);
+              vNewFaces.push_back(pSplitFace);
+            }
+          AERN(vNewFaces.size() == lNumOuter, SM_ERR_ASSERT_FAILURE);
+          // MakeFaceFromLoopOnFace leaves the new faces in the old one's shell, which they do not
+          // connect: each offset face is a sheet of its own until the merge.
+          SER(m_pOffsetBrep->SplitDisconnectedShells());
+        }
+    }
+
+  // The new faces, edges and vertices take the attributes of the face, edges and vertices they
+  // come from, and the old edgeuses' places in the edgeuse map go to the new ones.
+  for (size_t ff=0; ff<vNewFaces.size(); ff++)
+    {
+      SmFace *pNewFace = vNewFaces[ff];
+      pFace->Notify(SM_NO_COPY, pNewFace, SM_NO_GET_BREP(pNewFace), SM_NO_GET_BREP(pFace));
+      SmTArray<SmEdge*> sNewEdges;
+      pNewFace->GetEdges(sNewEdges);
+      for (ULONG ee=0; ee<sNewEdges.GetSize(); ee++)
+        {
+          SmEdge *pNewEdge = sNewEdges[ee];
+          // the stretch whose middle lies on it
+          const sm_LoopStretch *cpFrom = NULL;
+          for (size_t ss=0; ss<vStretches.size() && cpFrom == NULL; ss++)
+            {
+              if (!vStretches[ss].bKeep) { continue; }
+              SmBoolean bFound = FALSE;
+              double dParam = 0.0, dDist = 0.0;
+              SER(pNewEdge->ClosestPoint(vStretches[ss].sMid, bFound, dParam, dDist));
+              if (bFound && dDist <= dTol3d) { cpFrom = &vStretches[ss]; }
+            }
+          NER(cpFrom);
+          SmEdge *pOldEdge = cpFrom->pEU->GetEdge();
+          pOldEdge->Notify(SM_NO_COPY, pNewEdge, SM_NO_GET_BREP(pNewEdge), SM_NO_GET_BREP(pOldEdge));
+          SmVertex *apNew[2] = { pNewEdge->GetStartVertex(), pNewEdge->GetEndVertex() };
+          SmVertex *apOld[2] = { pOldEdge->GetStartVertex(), pOldEdge->GetEndVertex() };
+          for (int nn=0; nn<2; nn++)
+            for (int oo=0; oo<2; oo++)
+              if (apNew[nn]->GetPoint().DistanceBetween(apOld[oo]->GetPoint()) <= dTol3d)
+                { apOld[oo]->Notify(SM_NO_COPY, apNew[nn], SM_NO_GET_BREP(apNew[nn]), SM_NO_GET_BREP(apOld[oo])); }
+          SmTArray<SmEdgeuse*> sNewEUs;
+          SER(pNewEdge->GetEdgeuses(sNewEUs));
+          SmEdgeuse *apOldEU[2] = { cpFrom->pEU, cpFrom->pEU->GetMate() };
+          for (int oo=0; oo<2; oo++)
+            {
+              SmTArray<SmEdgeuse*> sOrigEUs;
+              m_vEUToEU.GetFirsts(apOldEU[oo], sOrigEUs);
+              for (ULONG nn=0; nn<sNewEUs.GetSize(); nn++)
+                {
+                  if (sNewEUs[nn]->GetFaceuse()->GetOrientation() != apOldEU[oo]->GetFaceuse()->GetOrientation()) { continue; }
+                  for (ULONG pp=0; pp<sOrigEUs.GetSize(); pp++) { SER(m_vEUToEU.RelatePair(sOrigEUs[pp], sNewEUs[nn])); }
+                }
+            }
+        }
+    }
+
+  // The new faces take the old one's places in the face maps; the old face, its edgeuses and
+  // their pairs go.
+  SmTArray<SmFaceuse*> sFUs;
+  m_vFUToF.GetFirsts(pFace, sFUs);
+  for (ULONG ii=0; ii<sFUs.GetSize(); ii++)
+    {
+      SER(m_vFUToF.RemovePair(sFUs[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vFUToF.RelatePair(sFUs[ii], vNewFaces[ff])); }
+    }
+  SmTArray<SmEdge*> sEs;
+  m_vEToF.GetFirsts(pFace, sEs);
+  for (ULONG ii=0; ii<sEs.GetSize(); ii++)
+    {
+      SER(m_vEToF.RemovePair(sEs[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vEToF.RelatePair(sEs[ii], vNewFaces[ff])); }
+    }
+  SmTArray<SmVertex*> sVs;
+  m_vVToF.GetFirsts(pFace, sVs);
+  for (ULONG ii=0; ii<sVs.GetSize(); ii++)
+    {
+      SER(m_vVToF.RemovePair(sVs[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vVToF.RelatePair(sVs[ii], vNewFaces[ff])); }
+    }
+  SmTArray<SmFace*> sBlend;
+  m_vBlendToFaces.GetSeconds(pFace, sBlend);
+  for (ULONG ii=0; ii<sBlend.GetSize(); ii++)
+    {
+      SER(m_vBlendToFaces.RemovePair(pFace, sBlend[ii]));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vBlendToFaces.RelatePair(vNewFaces[ff], sBlend[ii])); }
+    }
+  m_vBlendToFaces.GetFirsts(pFace, sBlend);
+  for (ULONG ii=0; ii<sBlend.GetSize(); ii++)
+    {
+      SER(m_vBlendToFaces.RemovePair(sBlend[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vBlendToFaces.RelatePair(sBlend[ii], vNewFaces[ff])); }
+    }
+  for (size_t gg=0; gg<vEU.size(); gg++)
+    {
+      SmEdgeuse *apOldEU[2] = { vEU[gg], vEU[gg]->GetMate() };
+      for (int oo=0; oo<2; oo++)
+        {
+          SmTArray<SmEdgeuse*> sOrigEUs;
+          m_vEUToEU.GetFirsts(apOldEU[oo], sOrigEUs);
+          for (ULONG pp=0; pp<sOrigEUs.GetSize(); pp++) { SER(m_vEUToEU.RemovePair(sOrigEUs[pp], apOldEU[oo])); }
+        }
+    }
+  SER(m_pOffsetBrep->DeleteFace(pFace, TRUE, TRUE));
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::ResolveCrossingLoopsOfFace
 
 /*******************************************************************//**
 PURPOSE: Build the offset of an edgeuse.

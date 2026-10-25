@@ -938,3 +938,16 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   vertex) is no short edge: the round runs on along it, no end exists there, and the corner
   fails as before. A rail that misses its side edge because it left its face before the edge's
   end (a round larger than its face) never reaches the corner: `RailsFitTheirFaces` refuses it.
+- **An offset face whose loops cross is rebuilt from the stretches that bound it**
+  (`SmOffsetExecutive.cpp`, `ResolveCrossingLoops`): an extended offset builds each loop of an
+  offset face from its edges' offsets, trimmed only where a loop's own consecutive edges meet, so
+  an inner loop whose offset grows past the outer loop's crosses it (a hole or window nearer a
+  side than the wall: SmFace test #38). The piecewise merge cannot use such a face; it failed
+  with 1006 (`SmEdgeDefinition::Imprint`, an end vertex lost where an edge ran over a crossing;
+  stock 1.0.1 fails the same way). Before the merge each such face is rebuilt (`MakeFaceWithCurves`)
+  from the stretches of its loops between the crossings (found as test #38 finds them, in UV) that
+  bound it: of the outer loop those outside every inner loop, of an inner loop those inside the
+  outer loop and outside the other inner ones (`SmLoop::ContainsUVPoint`). A face that comes apart
+  gets a face per outer loop (`MakeFaceFromLoopOnFace`, as the healer does). Loops that meet at a
+  loop vertex, touch, run along one another or cross three at a point are not resolved: the
+  offset fails with `SM_ERR_BAD_INTERSECTIONS` and the reason.
