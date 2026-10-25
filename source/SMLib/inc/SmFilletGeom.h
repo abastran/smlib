@@ -61,7 +61,7 @@ enum SmFilletErrorType
   SM_FILERR_BAD_INT,
   SM_FILERR_BAD_TRIM,
   SM_FILERR_BAD_MERGE,
-  SM_FILERR_NO_ROOM            // SolidCraft change: a rail leaves the face it rolls on (the blend is larger than the faces allow)
+  SM_FILERR_NO_ROOM            // SolidCraft change: a rail leaves the face it rolls on, or the blends take the whole of a face (the blend is larger than the faces allow)
         // 6 - (Add more as needed)
         // 0 - Unknown
         // 1 - Rail/Rail Intersection

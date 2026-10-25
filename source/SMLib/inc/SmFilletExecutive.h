@@ -403,6 +403,7 @@ public:
   SmStatus DoSurfaceFilleting        (SmFilletErrorInfo * pOptFilletErrorInfo = NULL); // note: increments unlocked mark value
   SmStatus DoPiecewiseMerge          ();                                               // note: increments unlocked mark value
   SmStatus LoadFilletSolver          (SmFilletSolver * pFS);
+  SmStatus FacesOutlastTheirBlends(SmBoolean & rbOutlast); // SolidCraft change: whether every face the blends roll on keeps some of itself
   SmStatus NoteRadiusCornerSurfaces();        // SolidCraft change: copy fillet surfaces that turn where the radius has a corner
   SmStatus SplitFilletFacesAtRadiusCorners(); // SolidCraft change: split those fillet faces where the radius turns
   SmStatus RemoveTopoEdges           ();

@@ -25,6 +25,7 @@
 #include <SmAttribute.h>
 #include <SmCrvOnSurf.h>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -1731,6 +1732,74 @@ static SmStatus sm_ReplaceIsoCrvOnSurf
 } // end sm_ReplaceIsoCrvOnSurf
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. Whether every face the blends roll on keeps some
+   of itself.
+
+NOTES: A face is trimmed back to each blend's rail on it. A rail can shrink
+   to a point: a rim's chamfer or round as wide as the rim's radius has its
+   rail on the face inside the rim at the rim's centre. While another edge
+   of the face's loop keeps a rail of some length, that point is a corner of
+   what is left of the face (a box's bottom loop chamfered as wide as its
+   corner rounds, the cone at each corner closing to a point on the round's
+   axis). A loop whose every edge is blended, each blend's rail on the face
+   a point, closes to that point instead: the blends take the whole of the
+   face (a cylinder's top rim chamfered or rounded as wide as the top, the
+   chamfer's cone or the round's sphere ending in a point), which is larger
+   than the face allows: rbOutlast is FALSE. Each solver blends one edge, so
+   this asks every solver's rails; SmFilletSolver::RailsFitTheirFaces
+   classifies each rail against its face on its own, and a point inside the
+   face is on it.
+***********************************************************************/
+SmStatus SmFilletExecutive::FacesOutlastTheirBlends
+  (SmBoolean & rbOutlast) // out: FALSE = the blends take the whole of a face they roll on
+{
+  rbOutlast = TRUE;
+  // Each face and blended edge whose blend's rail on that face is a point.
+  std::vector<std::pair<const SmFace*, const SmEdge*>> sPointRails;
+  for (ULONG i=0; i<m_vFilletSolvers.GetSize(); i++)
+    {
+      SmFilletSolver * pSolver = m_vFilletSolvers[i];      NER(pSolver);
+      SmEdgeuse      * pFilEU = pSolver->GetEdgeuse(0);    NER(pFilEU);
+      const SmEdge   * pFilEdge = pFilEU->GetEdge();       NER(pFilEdge);
+      SmTArray<SmFilletGeom*> sFGs;
+      pSolver->GetFilletGeoms( sFGs );
+      for (ULONG k=0; k<sFGs.GetSize(); k++)
+        {
+          SmFilletGeom * pFG = sFGs[k];
+          if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
+            { continue; }
+          for (ULONG ii=0; ii<2; ii++)
+            {
+              SmFilletEdge * pRail = pFG->GetRail(ii);     NER(pRail);
+              SmCurve      * pCurve = pRail->GetCurve();   NER(pCurve);
+              if (pCurve->IsDegenerate( pSolver->GetThisApproxTol3d() ))
+                { sPointRails.emplace_back( pRail->GetOriginalFace(), pFilEdge ); }
+            }
+        }
+    }
+  for (size_t i=0; i<sPointRails.size() && rbOutlast; i++)
+    {
+      const SmFace * pFace = sPointRails[i].first;         NER(pFace);
+      SmTArray<SmLoop*> sLoops;
+      pFace->GetLoops( sLoops );
+      for (ULONG j=0; j<sLoops.GetSize() && rbOutlast; j++)
+        {
+          SmTArray<SmEdge*> sEdges;
+          sLoops[j]->GetEdges( sEdges );
+          SmBoolean bClosesToAPoint = (sEdges.GetSize() > 0);
+          for (ULONG e=0; e<sEdges.GetSize() && bClosesToAPoint; e++)
+            {
+              std::pair<const SmFace*, const SmEdge*> sUse( pFace, sEdges[e] );
+              bClosesToAPoint = (std::find( sPointRails.begin(), sPointRails.end(), sUse ) != sPointRails.end());
+            }
+          if (bClosesToAPoint)
+            { rbOutlast = FALSE; }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmFilletExecutive::FacesOutlastTheirBlends
+
+/*******************************************************************//**
 PURPOSE: Keep copies of the fillet surfaces of solvers whose radius has a
    corner, where those surfaces turn (a C0 knot).
 
@@ -2510,6 +2579,15 @@ SmStatus SmFilletExecutive::CreateFilletBrep
           GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: a rail leaves the face it rolls on (the blend is larger than the faces allow)") );
           return SM_ERR;
         }
+    }
+  // SolidCraft change: blends that take the whole of a face, closing a loop of it to a point,
+  // are larger than that face allows too.
+  SmBoolean bOutlast = TRUE;
+  SER( FacesOutlastTheirBlends( bOutlast ));
+  if ( !bOutlast )
+    {
+      GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: the blends take the whole of a face they roll on (the blend is larger than the faces allow)") );
+      return SM_ERR;
     }
 
 #ifdef SM_DEBUG_CODE

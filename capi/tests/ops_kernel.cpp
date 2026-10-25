@@ -844,6 +844,67 @@ int main()
         }
     }
 
+    // A cylinder r10 h20, its top rim chamfered or rounded as wide as the top: each blend's rail
+    // on the top is the top's centre, so the blend would take the whole top and end in a point
+    // (the chamfer a cone, the round a sphere), and is refused (SMLIB_ERR_NO_ROOM) in every form:
+    // the equal chamfer, by smlib_blend too, two distances with either face first, a distance
+    // and an angle, the round. SMLib built them, the top gone (SolidCraft's
+    // chamfer_sides_curved_tests::too_large_or_unsupported_is_refused). 9.99 fits and takes the
+    // triangle (the round: the square less the quarter disc) of its section revolved about the
+    // axis (Pappus).
+    {
+        smlib_brep *can = cylinder(0, 0, 0, 10, 20);
+        const double whole = PI * 100.0 * 20.0;
+        const double at = 100.0 * PI / 180.0;
+        const double top_rim[3] = {10.0 * std::cos(at), 10.0 * std::sin(at), 20.0};
+        const double up[3] = {0, 0, 1};
+        const double down[3] = {0, 0, -1};
+        // The ring the triangle with corners (r, z) sweeps about the axis.
+        auto ring = [](double r0, double z0, double r1, double z1, double r2, double z2)
+        {
+            double area = 0.5 * std::fabs((r1 - r0) * (z2 - z0) - (r2 - r0) * (z1 - z0));
+            return 2.0 * PI * (r0 + r1 + r2) / 3.0 * area;
+        };
+        for (double d : {10.0, 9.99})
+        {
+            auto expect = [&](const char *what, int32_t s, double removed)
+            {
+                if (d < 10.0)
+                {
+                    if (s != SMLIB_OK || !near(volume_of(r), whole - removed, 1e-7))
+                    {
+                        std::fprintf(stderr, "  %s %g: status %d\n", what, d, static_cast<int>(s));
+                        failures++;
+                    }
+                    done(r);
+                }
+                else if (s != SMLIB_ERR_NO_ROOM || r != nullptr)
+                {
+                    std::fprintf(stderr, "  %s %g: status %d, not refused for want of room\n", what, d, static_cast<int>(s));
+                    failures++;
+                    smlib_brep_free(r);
+                    r = nullptr;
+                }
+            };
+            const double equal = ring(10, 20, 10 - d, 20, 10, 20 - d);
+            const double sides = ring(10, 20, 10 - d, 20, 10, 17);
+            const double slope = std::tan(PI / 6.0);
+            expect("chamfer", smlib_chamfer(can, top_rim, 1, 0.1, d, &r, nullptr), equal);
+            expect("blend chamfer", smlib_blend(can, SMLIB_BLEND_CHAMFER, top_rim, &d, 1, 0.1, &r, nullptr), equal);
+            expect("chamfer across the top, 3 down", smlib_chamfer_sides(can, top_rim, 1, 0.1, d, 3.0, 0, up, &r, nullptr), sides);
+            expect("chamfer 3 down, across the top", smlib_chamfer_sides(can, top_rim, 1, 0.1, 3.0, d, 0, down, &r, nullptr), sides);
+            expect("chamfer across the top at 30 degrees", smlib_chamfer_sides(can, top_rim, 1, 0.1, d, PI / 6.0, 1, up, &r, nullptr),
+                   ring(10, 20, 10 - d, 20, 10, 20 - d * slope));
+            expect("chamfer 3 down at 60 degrees", smlib_chamfer_sides(can, top_rim, 1, 0.1, d / std::tan(PI / 3.0), PI / 3.0, 1, down, &r, nullptr),
+                   ring(10, 20, 10 - d, 20, 10, 20 - d / std::tan(PI / 3.0)));
+            // The round's section: the square d x d at the rim less the quarter disc, its
+            // centroid d (10 - 3 pi) / (12 - 3 pi) in from the rim.
+            expect("fillet", smlib_fillet(can, top_rim, 1, 0.1, d, &r, nullptr),
+                   2.0 * PI * (10.0 - d * (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI)) * (1.0 - PI / 4.0) * d * d);
+        }
+        smlib_brep_free(can);
+    }
+
     // tangency-labs/solidcore#419: an offset surface evaluated beyond its
     // base surface's domain extends the base, and the extension's shape depends on its length.
     // It was made to reach just past the first point evaluated there, and extended again from

@@ -499,7 +499,8 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
 #define SMLIB_ERR_PICK_AMBIGUOUS (-1102)
 /* An inward offset leaves no room inside the body: no point of it lies farther than the wall
  * from every face that is offset (smlib_shell, smlib_offset_faces); a blend larger than the
- * faces it rolls on allow (smlib_fillet and the blends after it). */
+ * faces it rolls on allow, or blends that take the whole of a face (smlib_fillet and the blends
+ * after it). */
 #define SMLIB_ERR_NO_ROOM (-1103)
 /* SMLib reported success but the operation did nothing: a blend (smlib_fillet, smlib_chamfer,
  * smlib_blend, smlib_fillet_variable, smlib_chamfer_sides) that made no face, a face move or draft (smlib_offset_faces, smlib_draft) that left no face on the
@@ -560,7 +561,9 @@ int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
  * is selected too (a caller that wants a whole tangent chain selects it). A blend whose contact
  * line (rail) would leave the face it rolls on, other than past the face's end or across a
  * tangent edge onto the next face, is larger than the faces allow: SMLIB_ERR_NO_ROOM, nothing
- * built. The same holds for every blend below. */
+ * built. So are blends that take the whole of a face: every edge of a loop of it blended, each
+ * blend's rail on it a point (a cylinder's top rim chamfered or rounded as wide as the top,
+ * which would end in a point). The same holds for every blend below. */
 int32_t smlib_fillet(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double radius,
                      smlib_brep **out, int64_t *out_failed_point);
 
