@@ -10372,8 +10372,10 @@ SmStatus SmCurve::CalculateTightBoundingBox
   SER( EvaluatePoint( crInterval.GetMax(), sPt ) );
   sTightBox.AddPoint3d( sPt );
 
-  // Now add all tangent discontinuous points
-  if( this->IsKindOf( SmBSplineCurve_TYPE ) ) 
+  // Now add the tangent discontinuous points inside the interval (its ends are in already).
+  // The curve's knots can run past the interval: an edge on part of a NURBS arc, whose knots
+  // outside it are points the edge never reaches.
+  if( this->IsKindOf( SmBSplineCurve_TYPE ) )
     {
       SmTArray<double> sKnots;
       SER(GetKnots(sKnots,NULL));
@@ -10382,7 +10384,7 @@ SmStatus SmCurve::CalculateTightBoundingBox
       SER(CalculateContinuities( eMinCont, sContinuities, 2.0 ));
 
       for (ULONG i=1; i<sKnots.GetSize(); i++) {
-          if (i==sKnots.GetSize()-1 || sContinuities[i] <= SM_CT_C1 ) 
+          if ( sKnots[i] > crInterval.GetMin() && sKnots[i] < crInterval.GetMax() && sContinuities[i] <= SM_CT_C1 )
             {
               SER( EvaluatePoint( sKnots[i], sPt ) );
               sTightBox.AddPoint3d( sPt );

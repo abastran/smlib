@@ -8,6 +8,8 @@
 #include "../src/smlib_shim.h"
 
 #include <SmApiPrimitives.h>
+#include <SmAxis2Placement.h>
+#include <SmCircle.h>
 
 #include <cmath>
 #include <cstdio>
@@ -186,6 +188,30 @@ int main()
     }
     CHECK(smlib_brep_area(&sb, 1e-4, &a) == SMLIB_OK && std::fabs(a - 200.0) < 1e-9);
     delete sheet;
+
+    // The tight box of part of a NURBS arc is the part's: a quarter circle of radius 50 over the
+    // first third of its parameter reaches y = 25 or so, not the arc's last knot at (0, 50). (An
+    // imported sphere cap's seam, 30 degrees of a quarter-circle NURBS, boxed the cap down to the
+    // equator's side.)
+    {
+        const SmContext &ctx = *SmApiGetOrCreateContext();
+        SmAxis2Placement frame(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0));
+        const SmExtent1d quarter(0.0, 90.0);
+        SmCircle *arc = nullptr;
+        CHECK(SmCircle::CreateCanonical(ctx, frame, 50.0, arc, &quarter) == SM_SUCCESS && arc != nullptr);
+        if (arc != nullptr)
+        {
+            CHECK(arc->EditParameterization(quarter) == SM_SUCCESS);
+            // The arc's own parameter is not the angle: its box is from (50, 0) to its point at 30.
+            SmExtent3d box;
+            SmPoint3d end;
+            CHECK(arc->CalculateTightBoundingBox(SmExtent1d(0.0, 30.0), &box) == SM_SUCCESS);
+            CHECK(arc->EvaluatePoint(30.0, end) == SM_SUCCESS && end.y > 20.0 && end.y < 30.0);
+            CHECK(std::fabs(box.GetUMin() - end.x) < 1e-9 && std::fabs(box.GetUMax() - 50.0) < 1e-9);
+            CHECK(std::fabs(box.GetVMin()) < 1e-9 && std::fabs(box.GetVMax() - end.y) < 1e-9);
+            delete arc;
+        }
+    }
 
     // Rejected arguments.
     CHECK(smlib_brep_mass_properties(nullptr, 1e-4, m) == SMLIB_ERR_ARG);
