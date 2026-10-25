@@ -227,10 +227,14 @@ public:
   // Internals:
 
   SmStatus BuildSideWallOfEdgeuse(SmEdgeuse *pEdgeuse);
-  // Close the loop gaps a local operation's steps leave: where consecutive edgeuses of an
-  // offset face no longer meet at their vertex, the straight edge between their ends.
+  // Close the loop gaps the offset leaves (a local operation's steps, a solid offset's vertex
+  // where two consecutive edges' offsets run parallel): where consecutive edgeuses of an offset
+  // face no longer meet at their vertex, the straight edge between their ends.
   SmStatus CloseLoopGaps();
   SmStatus CloseLoopGap(SmFace *pFace, SmEdgeuse *pEdgeuse, SmBoolean bAtStart, const SmPoint3d &crVertexPoint, double dTol);
+  // A local operation's step walls' corners where an edge of another face runs past them: that
+  // edge split there.
+  SmStatus SplitEdgesAtStepCorners();
   // SolidCraft fork: the offset faces whose loops cross (an inner loop's offset grown past the
   // outer loop's) rebuilt from the stretches of their loops that bound the face, before the merge.
   SmStatus ResolveCrossingLoops();

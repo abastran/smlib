@@ -1069,3 +1069,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   the planar face was inside out, the intersection empty, and the face got no offset (the shell
   failed, 1001). The 2D faces are now made from the face's counterclockwise loops, and the
   clipped faces' loops are taken in the faceuse's sense for the offset face.
+- **A solid offset closes a loop's gap where two consecutive edges' offsets run parallel**
+  (`SmOffsetExecutive.cpp`, `DoExtendedOffset`, `CloseLoopGaps`): at a vertex where a face meets
+  two coplanar faces of opposite normals (a box's side and the base of a cylinder joined on it,
+  whose rim crosses the box's front edge), the front face's loop runs from its edge with the side
+  to its edge with the base, whose offsets are 2t apart and never meet; one edge kept the shared
+  vertex 2t from its curve, the merge grew that vertex's tolerance to 4 mm and the shell failed
+  (1001, rig case shell/1494). `CloseLoopGaps`, which closed a local operation's step gaps,
+  closes these too, with the straight edge between the two ends where it lies on the face's
+  surface; its splitting of edges at step walls' corners stays with local operations
+  (`SplitEdgesAtStepCorners`). With the cylinder's seam through such a vertex the rim's offsets
+  stop at the seam, not at the front face's offset, and the shell is still refused.

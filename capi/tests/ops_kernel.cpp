@@ -1349,6 +1349,48 @@ int main()
         }
     }
 
+    // Rig case shell/1494, the same box and cylinder, its seam turned off the front face: the
+    // shell failed (1001). Where the box's side x = 47.5 and the base of the cylinder (the half
+    // disc in front of the box, facing -x) meet the front face at the cylinder's rim (z = 2.5
+    // and 17.5), the front face's loop runs from its edge with the side to its edge with the
+    // base, whose offsets (x = 46.5 and 48.5) are parallel: they never meet, and the vertex kept
+    // by the one lay 2 from the other's curve, as in the cylinder's loop. The merge grew that
+    // vertex's tolerance to 4, it captured another vertex, and SmMerge::MakeFaceuse met an edge
+    // whose ends were not its vertices' mates. The gap is now closed by the straight edge between
+    // the two ends (on the front face's offset and on the cylinder's, a ruling). The cavity is
+    // the box's inset, the cylinder's inset beyond the base's offset (x 48.5 to 76.5), and
+    // between the two offsets of the side the part of the cylinder's inset disc behind the front
+    // face's offset (y >= 1): the circular segment of r 6.5 beyond the chord 1 from its centre,
+    // 2 long. (With the seam through one of those two vertices, as above, the cylinder's loop
+    // passes the vertex twice and its rim's offsets stop at the seam, not at the front face's
+    // offset: still refused.)
+    {
+        const double segment = 6.5 * 6.5 * std::acos(1.0 / 6.5) - std::sqrt(6.5 * 6.5 - 1.0);
+        const double saddle = 47.5 * 45.0 * 30.0 + PI * 7.5 * 7.5 * 30.0 - (45.5 * 43.0 * 29.0 + 2.0 * segment + PI * 6.5 * 6.5 * 28.0);
+        smlib_brep *block = box(0, 0, 0, 47.5, 45, 30);
+        for (double seam : {30.0, 55.0, 125.0, 200.0})
+        {
+            SmBrep *bar = nullptr;
+            CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 7.5, 30.0, bar) == SM_SUCCESS && bar != nullptr);
+            CHECK(SmApiRotate(bar, SmVector3d(0, 0, 0), SmVector3d(0, 0, 1), seam) == SM_SUCCESS);
+            CHECK(SmApiRotate(bar, SmVector3d(0, 0, 0), SmVector3d(0, 1, 0), 90.0) == SM_SUCCESS);
+            CHECK(SmApiTranslate(bar, SmVector3d(47.5, 0, 10)) == SM_SUCCESS);
+            smlib_brep side{bar};
+            smlib_brep *joined = nullptr;
+            CHECK(smlib_boolean(block, &side, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+            const double bottom[3] = {23.75, 22.5, 0};
+            CHECK(joined != nullptr && smlib_shell(joined, bottom, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), saddle, 1e-7));
+                done(r);
+            }
+            delete bar;
+            smlib_brep_free(joined);
+        }
+        smlib_brep_free(block);
+    }
+
     // tangency-labs/solidcore#397: an inward shell of a box 30 x 20 x 10 whose edges are rounded
     // thinner than the 2 mm wall. Each round's inward offset collapses (SMLib's offset surface is
     // NULL), which failed the shell (1001); the faces beside it are now mated across it, so the

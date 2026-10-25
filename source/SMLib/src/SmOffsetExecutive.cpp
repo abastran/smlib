@@ -1682,10 +1682,6 @@ SmBoolean bDebugMe8 = FALSE;
     } // end iter every offset edgeuse
 
 
-  // A local operation has no merge to close what a step wall leaves open at its ends.
-  if (m_eOffsetOperation == SM_OO_LOCAL_OPERATION)
-    { SER(CloseLoopGaps()); }
-
   // The offset of an edge along a collapsed face's end (where the round meets the face across its
   // end) now runs from the corner where the mated faces meet back to that corner: squeeze it out.
   for (ii=0; ii<sOffsetEdgeuses.GetSize(); ii++)
@@ -1716,6 +1712,23 @@ SmBoolean bDebugMe8 = FALSE;
   // offset open: refuse it rather than build a body with holes.
   if (lUnbridged > 0)
     { SER(SM_ERR_DEGENERATE_SURFACE); }
+
+  // A local operation has no merge to close what a step wall leaves open at its ends.
+  // SolidCraft change: nor does a solid offset's merge close a loop's gap at a vertex where two
+  // consecutive edges' offsets run parallel and never meet: a saddle vertex where the face meets
+  // two coplanar faces of opposite normals (a box's side and the base of a cylinder joined on it,
+  // its axis in the plane of the box's front face: the front face's offset runs from the side's
+  // offset to the base's, 2t apart, across the cylinder's offset). The edge along the base's
+  // offset kept the vertex at the side's offset, its curve 2t away; the merge then grew that
+  // vertex's tolerance to 4 mm, it captured another, and MakeFaceuse found an edge whose ends
+  // were not its vertices' mates (tangency-labs/solidcraft#1494). The gap's straight edge closes
+  // the loop where it lies on the face's surface (on the front face's plane and the cylinder's
+  // offset alike, a ruling), and the merge joins the faces along it. This comes after the
+  // squeeze above: the offset of an edge along a collapsed face's end runs from a corner back to
+  // it and is no gap.
+  SER(CloseLoopGaps());
+  if (m_eOffsetOperation == SM_OO_LOCAL_OPERATION)
+    { SER(SplitEdgesAtStepCorners()); }
 
   SER(RemoveExcessFaces( m_pOffsetBrep ));
 
@@ -3191,11 +3204,24 @@ SmStatus SmOffsetExecutive::CloseLoopGaps()
             } // end iter every loop
         } // end until no gap is left
     } // end iter every offset face
+  return SM_SUCCESS;
 
-  // A step wall's corners where an edge of another face runs past them (the edge between a
-  // side face's pieces, one beside the moved face and trimmed to the step, one beside the face
-  // that stayed): that edge is split there, so that each part meets its own neighbour. (In a
-  // local operation the only cap faces are step walls.)
+} // end SmOffsetExecutive::CloseLoopGaps
+
+/*******************************************************************//**
+PURPOSE: Split the edges that run past a local operation's step walls'
+   corners.
+
+NOTES: A step wall's corners where an edge of another face runs past them
+   (the edge between a side face's pieces, one beside the moved face and
+   trimmed to the step, one beside the face that stayed): that edge is split
+   there, so that each part meets its own neighbour. (In a local operation
+   the only cap faces are step walls.)
+***********************************************************************/
+SmStatus SmOffsetExecutive::SplitEdgesAtStepCorners()
+{
+  NER(m_pOffsetBrep);
+  double dApproxTol = m_rGeometryCreation.GetThisApproxTol3d();
   SmTArray<SmFace*> sWalls;
   m_vEToF.GetAllSeconds(sWalls);
   SmTArray<SmVertex*> sCorners;
@@ -3229,7 +3255,7 @@ SmStatus SmOffsetExecutive::CloseLoopGaps()
     } // end iter every step wall corner
   return SM_SUCCESS;
 
-} // end SmOffsetExecutive::CloseLoopGaps
+} // end SmOffsetExecutive::SplitEdgesAtStepCorners
 
 /*******************************************************************//**
 PURPOSE: Close one loop gap: pEdgeuse's start (bAtStart) or end lies away
