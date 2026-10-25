@@ -19,6 +19,9 @@
 #endif
 
 #include <SmBSplineSurface.h>
+#include <SmBSplineCurve.h>
+#include <SmEdgeuse.h>
+#include <SmSolutionArray.h>
 #include <SmAssertArray.h>
 
 /*******************************************************************//**
@@ -1509,6 +1512,544 @@ SmStatus SmFilletRemoval::DoRemoval()
 } // end SmFilletRemoval::DoRemoval
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change: SmRingFilletRemoval constructor.
+
+NOTES:
+***********************************************************************/
+SmRingFilletRemoval::SmRingFilletRemoval( SmFace *pFaceToDelete, double d3dTolerance )
+{
+  m_pFaceToDelete = pFaceToDelete;
+  m_d3dTol        = d3dTolerance;
+  m_pSeam         = NULL;
+  m_pNewEdgeCurve = NULL;
+  m_bNotExact     = FALSE;
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      m_aRails[ii]      = NULL;
+      m_aTanFaces[ii]   = NULL;
+      m_aVertices[ii]   = NULL;
+      m_aSideEdges[ii]  = NULL;
+      m_aSideAtHigh[ii] = FALSE;
+      m_aSideParams[ii] = 0.0;
+      m_aSideCurves[ii] = NULL;
+      for ( ULONG jj = 0; jj < 2; jj++ )
+      {
+          m_aSideUVs[ii][jj]      = NULL;
+          m_aSideUVOwners[ii][jj] = NULL;
+      }
+  }
+}
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: SmRingFilletRemoval destructor.
+
+NOTES: The new curves are owned here until DoRemoval() hands them to the
+   Brep (and clears these pointers).
+***********************************************************************/
+SmRingFilletRemoval::~SmRingFilletRemoval()
+{
+  delete m_pNewEdgeCurve;
+  m_pNewEdgeCurve = NULL;
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      delete m_aSideCurves[ii];
+      m_aSideCurves[ii] = NULL;
+      for ( ULONG jj = 0; jj < 2; jj++ )
+      {
+          delete m_aSideUVs[ii][jj];
+          m_aSideUVs[ii][jj] = NULL;
+      }
+  }
+}
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: TRUE when pFace is bounded as a ring fillet.
+
+NOTES: Two closed tangent manifold edges, and at most one edge whose only
+   face is pFace (its seam). Nothing about the surface is checked: that is
+   SmFace::IdentifyFillet()'s job.
+***********************************************************************/
+SmBoolean SmRingFilletRemoval::IsRing( const SmFace *pFace, double dTangencyTolDeg )
+{
+  if ( pFace == NULL )
+    { return FALSE; }
+  SmTArray<SmEdge*> sEdges;
+  pFace->GetEdges( sEdges );
+  ULONG lRails = 0, lSeams = 0;
+  for ( ULONG ii = 0; ii < sEdges.GetSize(); ii++ )
+  {
+      SmEdge *pE = sEdges[ii];
+      SmTArray<SmFace*> sFaces;
+      pE->GetFaces( sFaces );
+      if ( sFaces.GetSize() == 1 && sFaces[0] == pFace )
+        { lSeams++; continue; }
+      if ( pE->IsClosed() && pE->IsManifold() && pE->IsTangentEdge( dTangencyTolDeg ) )
+        { lRails++; continue; }
+      return FALSE;
+  }
+  return lRails == 2 && lSeams <= 1;
+}
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: remove the ring fillet and close the hole with
+   the sharp edge.
+
+NOTES: See the class notes.
+***********************************************************************/
+SmStatus SmRingFilletRemoval::RemoveFace()
+{
+  SER( this->CollectRingTopology() );
+  SER( this->IntersectTangentSurfaces() );
+  SER( this->FindSideEdgeExtension( 0 ) );
+  SER( this->FindSideEdgeExtension( 1 ) );
+
+  // Everything is known: change the Brep.
+  SER( this->DoRemoval() );
+  return SM_SUCCESS;
+
+} // end SmRingFilletRemoval::RemoveFace
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: collect the rails, the tangent faces, the
+   rails' vertices, the fillet's seam and the tangent faces' seams at the
+   vertices.
+
+NOTES:
+***********************************************************************/
+SmStatus SmRingFilletRemoval::CollectRingTopology()
+{
+  const double dTangencyTolDeg = 2.0; // as SmFilletRemoval::CollectFilletTopology
+  SmFace *pFilFace = m_pFaceToDelete;
+  NER( pFilFace );
+  if ( !IsRing( pFilFace, dTangencyTolDeg ) )
+    { SER( SM_ERR ); }
+
+  SmTArray<SmEdge*> sEdges;
+  pFilFace->GetEdges( sEdges );
+  ULONG lRail = 0;
+  for ( ULONG ii = 0; ii < sEdges.GetSize(); ii++ )
+  {
+      SmTArray<SmFace*> sFaces;
+      sEdges[ii]->GetFaces( sFaces );
+      if ( sFaces.GetSize() == 1 && sFaces[0] == pFilFace )
+        { m_pSeam = sEdges[ii]; continue; }
+      if ( sFaces.GetSize() != 2 || lRail > 1 )
+        { SER( SM_ERR ); }
+      m_aRails[lRail]    = sEdges[ii];
+      m_aTanFaces[lRail] = ( sFaces[0] == pFilFace ) ? sFaces[1] : sFaces[0];
+      lRail++;
+  }
+  if ( lRail != 2 || m_aTanFaces[0] == m_aTanFaces[1] || m_aTanFaces[0] == pFilFace || m_aTanFaces[1] == pFilFace )
+    { SER( SM_ERR ); }
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      SmSurface *pSrf = m_aTanFaces[ii]->GetSurface();
+      if ( pSrf == NULL || !pSrf->IsKindOf( SmBSplineSurface_TYPE ) )
+        { SER( SM_ERR ); }
+      m_aVertices[ii] = m_aRails[ii]->GetStartVertex();
+      NER( m_aVertices[ii] );
+  }
+
+  // The fillet's seam joins the two rails' vertices.
+  if ( m_pSeam != NULL )
+  {
+      SmVertex *pV0 = m_pSeam->GetStartVertex();
+      SmVertex *pV1 = m_pSeam->GetOtherVertex( pV0 );
+      if ( !( ( pV0 == m_aVertices[0] && pV1 == m_aVertices[1] ) || ( pV0 == m_aVertices[1] && pV1 == m_aVertices[0] ) ) )
+        { SER( SM_ERR ); }
+  }
+
+  // At each rail's vertex, besides the rail and the fillet's seam: at most one seam of the
+  // tangent face (an edge whose only face it is).
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      SmTArray<SmEdge*> sAtVertex;
+      m_aVertices[ii]->GetEdges( sAtVertex );
+      for ( ULONG jj = 0; jj < sAtVertex.GetSize(); jj++ )
+      {
+          SmEdge *pE = sAtVertex[jj];
+          if ( pE == m_aRails[ii] || pE == m_pSeam )
+            { continue; }
+          SmTArray<SmFace*> sFaces;
+          pE->GetFaces( sFaces );
+          if ( m_aSideEdges[ii] != NULL || sFaces.GetSize() != 1 || sFaces[0] != m_aTanFaces[ii] || pE->IsClosed() )
+            { SER( SM_ERR ); }
+          m_aSideEdges[ii]  = pE;
+          m_aSideAtHigh[ii] = ( pE->GetStartVertex() != m_aVertices[ii] );
+      }
+  }
+  return SM_SUCCESS;
+
+} // end SmRingFilletRemoval::CollectRingTopology
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: the sharp edge: where the two tangent faces'
+   surfaces meet, the closed curve nearest to the rails, running as rail 0
+   and starting at the new vertex.
+
+NOTES: The new vertex lies where the sharp edge crosses a tangent face's
+   seam (its seam edge is to run on to it), or where the curve starts when
+   neither tangent face has a seam at the rail.
+***********************************************************************/
+SmStatus SmRingFilletRemoval::IntersectTangentSurfaces()
+{
+  const SmContext *pContext = m_pFaceToDelete->GetContext();
+  NER( pContext );
+  SmSurface *pSurf0 = m_aTanFaces[0]->GetSurface();  NER( pSurf0 );
+  SmSurface *pSurf1 = m_aTanFaces[1]->GetSurface();  NER( pSurf1 );
+
+  SmBoolean bUseSurfaceEdges[2] = { TRUE, TRUE };
+  SmApproxTol3d sSSITol = m_d3dTol / 4.0;
+  double dAngTolRad = SM_DEG2RAD( 20.0 );
+  SmTArray<SmCurve*> s3DCurves;          SmObjsDelete<SmCurve*> sClean3D( &s3DCurves );
+  SmTArray<SmCurve*> sUVCurves0;         SmObjsDelete<SmCurve*> sCleanUV0( &sUVCurves0 );
+  SmTArray<SmCurve*> sUVCurves1;         SmObjsDelete<SmCurve*> sCleanUV1( &sUVCurves1 );
+  SER( pSurf0->GlobalSurfaceIntersect( *pContext, pSurf0->GetNaturalUVDomain(), *pSurf1, pSurf1->GetNaturalUVDomain(),
+                                       bUseSurfaceEdges, &sSSITol, &dAngTolRad, &s3DCurves, &sUVCurves0, &sUVCurves1,
+                                       NULL, NULL ));
+
+  // The rails' samples, and how far apart the rails are: a sharp edge lies within a few
+  // chords of its fillet's rails (r tan(phi/2) from each, the chord being 2 r sin(phi/2),
+  // for faces turning by phi < 170 degrees: within 6 chords).
+  const ULONG lNumSamples = 8;
+  SmPoint3d sRailPts[2][lNumSamples];
+  double dChord = 0.0;
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      for ( ULONG kk = 0; kk < lNumSamples; kk++ )
+      {
+          SER( m_aRails[ii]->GetPrimaryEdgeuse()->NormalizedEvaluate( ( kk + 0.5 ) / lNumSamples, FALSE, sRailPts[ii][kk] ));
+      }
+  }
+  for ( ULONG kk = 0; kk < lNumSamples; kk++ )
+  {
+      SmBoolean bFound = FALSE;
+      double dParam = 0.0, dDist = 0.0;
+      SmCurve *pRail1 = m_aRails[1]->GetCurve();  NER( pRail1 );
+      SER( pRail1->DropPoint( m_aRails[1]->GetInterval(), sRailPts[0][kk], NULL, m_d3dTol, NULL, bFound, dParam, dDist ));
+      if ( !bFound )
+        { SER( SM_ERR ); }
+      dChord = smos_Max( dChord, dDist );
+  }
+  double dReach = 6.0 * dChord;
+
+  // The closed curve every rail sample lies within reach of, the nearest.
+  ULONG  lFound = s3DCurves.GetSize();
+  double dBest  = SM_BIG_DOUBLE;
+  for ( ULONG cc = 0; cc < s3DCurves.GetSize(); cc++ )
+  {
+      SmCurve *pC = s3DCurves[cc];
+      if ( pC == NULL || pC->IsDegenerate( m_d3dTol ) || !pC->IsClosed( pC->GetNaturalInterval(), m_d3dTol ) )
+        { continue; }
+      double dWorst = 0.0;
+      for ( ULONG ii = 0; ii < 2 && dWorst <= dReach; ii++ )
+      {
+          for ( ULONG kk = 0; kk < lNumSamples && dWorst <= dReach; kk++ )
+          {
+              SmBoolean bFound = FALSE;
+              double dParam = 0.0, dDist = 0.0;
+              SER( pC->DropPoint( pC->GetNaturalInterval(), sRailPts[ii][kk], NULL, m_d3dTol, NULL, bFound, dParam, dDist ));
+              dWorst = bFound ? smos_Max( dWorst, dDist ) : SM_BIG_DOUBLE;
+          }
+      }
+      if ( dWorst <= dReach && dWorst < dBest )
+      {
+          dBest  = dWorst;
+          lFound = cc;
+      }
+  }
+  if ( lFound >= s3DCurves.GetSize() )
+  {
+      // The surfaces don't meet near the fillet within their domains: the sharp edge would lie
+      // on a continuation of one of them.
+      m_bNotExact = TRUE;
+      SER( SM_ERR );
+  }
+  SmBSplineCurve *pSharp = SM_CAST_PTR( SmBSplineCurve, s3DCurves[lFound] );
+  NER( pSharp );
+  s3DCurves[lFound] = NULL; // ours now
+  SmObjDelete sCleanSharp( pSharp );
+
+  // Run as rail 0.
+  {
+      SmPoint3d sPt;
+      SmVector3d sPV[2], sQV[2];
+      SmCurve *pRail0 = m_aRails[0]->GetCurve();  NER( pRail0 );
+      double dMid = m_aRails[0]->GetInterval().Evaluate( 0.5 );
+      SER( pRail0->Evaluate( dMid, 1, TRUE, sPV ));
+      SmBoolean bFound = FALSE;
+      double dParam = 0.0, dDist = 0.0;
+      SER( pSharp->DropPoint( pSharp->GetNaturalInterval(), sPV[0], NULL, m_d3dTol, NULL, bFound, dParam, dDist ));
+      if ( !bFound )
+        { SER( SM_ERR ); }
+      SER( pSharp->Evaluate( dParam, 1, TRUE, sQV ));
+      // the rail's own direction: its edge's orientation on the curve
+      if ( sPV[1].Dot( sQV[1] ) < 0.0 )
+      {
+          SmExtent1d sOld = pSharp->GetNaturalInterval(), sNew;
+          SER( pSharp->ReverseParameterization( sOld, sNew ));
+      }
+  }
+
+  // The new vertex: where the sharp edge crosses a tangent face's seam at its rail's vertex.
+  SmExtent1d sIvl = pSharp->GetNaturalInterval();
+  double dStartAt = sIvl.GetMin();
+  SmBoolean bHaveVertex = FALSE;
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      SmEdge *pSide = m_aSideEdges[ii];
+      if ( pSide == NULL )
+        { continue; }
+      SmBSplineCurve *pSideCurve = SM_CAST_PTR( SmBSplineCurve, pSide->GetCurve() );  NER( pSideCurve );
+      SmSolution      sData[8];
+      SmSolutionArray sSolutions( 8, sData );
+      SER( pSharp->GlobalCurveIntersect( sIvl, *pSideCurve, pSideCurve->GetNaturalInterval(), m_d3dTol, sSolutions ));
+      if ( sSolutions.GetSize() == 0 )
+      {
+          // The seam's curve stops short of the sharp edge (the fillet trimmed it): a line runs on
+          // along itself (its end span continued: the same line), anything else would have to be
+          // continued past its curve.
+          if ( !pSideCurve->IsLinear( m_d3dTol ) )
+          {
+              m_bNotExact = TRUE;
+              SER( SM_ERR );
+          }
+          SmExtent1d sSideIvl = pSideCurve->GetNaturalInterval();
+          double dEnd = m_aSideAtHigh[ii] ? sSideIvl.GetMax() : sSideIvl.GetMin();
+          SmVector3d sPV[2];
+          SER( pSideCurve->Evaluate( dEnd, 1, TRUE, sPV ));
+          double dSpeed = sPV[1].Length();
+          if ( !( dSpeed > SM_EFF_ZERO ) )
+            { SER( SM_ERR ); }
+          double dReachParam = ( dReach + 10.0 * m_d3dTol ) / dSpeed;
+          double dFar = m_aSideAtHigh[ii] ? dEnd + dReachParam : dEnd - dReachParam;
+          SmBSplineCurve *pLonger = NULL;
+          SER( pSideCurve->CreateExtendedCurve( *pContext, dFar, SM_CT_CINFINITY, pLonger, TRUE ));
+          NER( pLonger );
+          m_aSideCurves[ii] = pLonger;
+          pSideCurve = pLonger;
+          SER( pSharp->GlobalCurveIntersect( sIvl, *pSideCurve, pSideCurve->GetNaturalInterval(), m_d3dTol, sSolutions ));
+          if ( sSolutions.GetSize() == 0 )
+            { SER( SM_ERR ); }
+      }
+      // One crossing (a closed curve starting there meets it at both its ends).
+      SmPoint3d sAt;
+      SER( pSharp->EvaluatePoint( sSolutions[0].m_vStart[0], sAt ));
+      for ( ULONG kk = 1; kk < sSolutions.GetSize(); kk++ )
+      {
+          SmPoint3d sOther;
+          SER( pSharp->EvaluatePoint( sSolutions[kk].m_vStart[0], sOther ));
+          if ( sOther.DistanceBetween( sAt ) > m_d3dTol )
+            { SER( SM_ERR ); }
+      }
+      if ( bHaveVertex )
+      {
+          // Both tangent faces have a seam there: they must cross the sharp edge together.
+          if ( sAt.DistanceBetween( m_sNewVertex ) > m_d3dTol )
+            { SER( SM_ERR ); }
+      }
+      else
+      {
+          m_sNewVertex = sAt;
+          dStartAt     = sSolutions[0].m_vStart[0];
+          bHaveVertex  = TRUE;
+      }
+      m_aSideParams[ii] = sSolutions[0].m_vStart[1];
+  }
+  if ( !bHaveVertex )
+  {
+      SER( pSharp->EvaluatePoint( sIvl.GetMin(), m_sNewVertex ));
+  }
+
+  // Start the closed curve at the new vertex: the piece after it, then the piece before it.
+  double dSnap = SM_EFF_ZERO * ( 1.0 + sIvl.GetMaxDimension() );
+  if ( dStartAt > sIvl.GetMin() + dSnap && dStartAt < sIvl.GetMax() - dSnap )
+  {
+      SmCurve *pCopy = NULL;
+      SER( pSharp->Copy( *pContext, pCopy ));
+      SmBSplineCurve *pBefore = SM_CAST_PTR( SmBSplineCurve, pCopy );
+      SmObjDelete sCleanBefore( pCopy );
+      NER( pBefore );
+      SmExtent1d sAfterIvl( dStartAt, sIvl.GetMax() );
+      SmExtent1d sBeforeIvl( sIvl.GetMin(), dStartAt );
+      SER( pSharp->Trim( sAfterIvl ));
+      SER( pBefore->Trim( sBeforeIvl ));
+      double dGap = m_d3dTol;
+      SER( pSharp->JoinWith( 1, pBefore, 0, &dGap ));
+  }
+  sCleanSharp.Clear();
+  m_pNewEdgeCurve = pSharp;
+  return SM_SUCCESS;
+
+} // end SmRingFilletRemoval::IntersectTangentSurfaces
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: a tangent face's seam at a rail's vertex runs on
+   to the new vertex: on its own curve (found by IntersectTangentSurfaces())
+   and on its UV trims, each continued along its own line.
+
+NOTES: A UV trim that does not reach a point of the face's surface at the
+   new vertex fails the removal: it would have to be rebuilt.
+***********************************************************************/
+SmStatus SmRingFilletRemoval::FindSideEdgeExtension( ULONG lWhichSide )
+{
+  SmEdge *pSide = m_aSideEdges[lWhichSide];
+  if ( pSide == NULL )
+    { return SM_SUCCESS; }
+  const SmContext *pContext = pSide->GetContext();  NER( pContext );
+  SmSurface *pSurf = m_aTanFaces[lWhichSide]->GetSurface();  NER( pSurf );
+  double dNew = m_aSideParams[lWhichSide];
+
+  SmTArray<SmEdgeuse*> sUses;
+  SER( pSide->GetEdgeuses( sUses ));
+  ULONG lPair = 0;
+  for ( ULONG ii = 0; ii < sUses.GetSize(); ii++ )
+  {
+      SmEdgeuse *pOwner = NULL;
+      SmBSplineCurve *pUV = sUses[ii]->GetUVTrimCurve( &pOwner );
+      if ( pUV == NULL || pOwner != sUses[ii] )
+        { continue; }
+      if ( lPair > 1 )
+        { SER( SM_ERR ); }
+      SmBSplineCurve *pExtended = NULL;
+      if ( pUV->GetNaturalInterval().ContainsValue( dNew ) )
+      {
+          SmCurve *pCopy = NULL;
+          SER( pUV->Copy( *pContext, pCopy ));
+          pExtended = SM_CAST_PTR( SmBSplineCurve, pCopy );
+      }
+      else
+      {
+          SER( pUV->CreateExtendedCurve( *pContext, dNew, SM_CT_CINFINITY, pExtended, TRUE ));
+      }
+      NER( pExtended );
+      m_aSideUVs[lWhichSide][lPair]      = pExtended;
+      m_aSideUVOwners[lWhichSide][lPair] = sUses[ii];
+      lPair++;
+
+      // It must reach the face's surface at the new vertex.
+      SmPoint3d sUVAt, sAt;
+      SER( pExtended->EvaluatePoint( dNew, sUVAt ));
+      SER( pSurf->EvaluatePoint( SmPoint2d( sUVAt[0], sUVAt[1] ), sAt ));
+      if ( sAt.DistanceBetween( m_sNewVertex ) > m_d3dTol )
+        { SER( SM_ERR ); }
+  }
+  if ( lPair == 0 )
+    { SER( SM_ERR ); }
+  return SM_SUCCESS;
+
+} // end SmRingFilletRemoval::FindSideEdgeExtension
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: change the Brep: the fillet goes, its rails
+   become the sharp edge.
+
+NOTES:
+***********************************************************************/
+SmStatus SmRingFilletRemoval::DoRemoval()
+{
+  SmBrep *pBrep = m_pFaceToDelete->GetBrep();  NER( pBrep );
+  NER( m_pNewEdgeCurve );
+  pBrep->Notify( SM_NO_PRE_EDIT, pBrep, NULL, NULL );
+
+  // The fillet goes; its seam (a wire edge then) with it.
+  SER( pBrep->DeleteFace( m_pFaceToDelete, TRUE, FALSE ));
+  m_pFaceToDelete = NULL;
+  m_pSeam = NULL;
+
+  // The tangent faces' seams run on to the new vertex.
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      SmEdge *pSide = m_aSideEdges[ii];
+      if ( pSide == NULL )
+        { continue; }
+      SmExtent1d sSideIvl = pSide->GetInterval();
+      if ( m_aSideAtHigh[ii] )
+        { sSideIvl.SetMinMax( sSideIvl.GetMin(), m_aSideParams[ii] ); }
+      else
+        { sSideIvl.SetMinMax( m_aSideParams[ii], sSideIvl.GetMax() ); }
+      if ( m_aSideCurves[ii] != NULL )
+      {
+          // Its line continued (the old part keeps its parameters); its UV trims go with the
+          // old curve and are replaced below.
+          pSide->SetCurve( m_aSideCurves[ii], TRUE );
+          m_aSideCurves[ii]->SetOwner( pSide );
+          m_aSideCurves[ii] = NULL; // the edge's now
+      }
+      pSide->SetInterval( sSideIvl );
+      for ( ULONG jj = 0; jj < 2; jj++ )
+      {
+          if ( m_aSideUVOwners[ii][jj] == NULL )
+            { continue; }
+          m_aSideUVOwners[ii][jj]->SetUVTrimCurve( m_aSideUVs[ii][jj], 0.0, TRUE );
+          m_aSideUVs[ii][jj] = NULL; // the edgeuse's now
+      }
+  }
+
+  // Both vertices to the new one, both rails onto the sharp edge's curve.
+  m_aVertices[0]->SetPoint( m_sNewVertex );
+  m_aVertices[1]->SetPoint( m_sNewVertex );
+
+  SmEdge *pSurviveEdge = m_aRails[0];
+  SmEdge *pDeleteEdge  = m_aRails[1];
+  SmVector3d sPV0[2], sPV1[2];
+  SER( pSurviveEdge->GetCurve()->Evaluate( pSurviveEdge->GetInterval().Evaluate( 0.5 ), 1, TRUE, sPV0 ));
+  SER( pDeleteEdge ->GetCurve()->Evaluate( pDeleteEdge ->GetInterval().Evaluate( 0.5 ), 1, TRUE, sPV1 ));
+  SmOrientType eOrient = ( sPV0[1].Dot( sPV1[1] ) > 0.0 ) ? SM_OT_SAME : SM_OT_OPPOSITE;
+
+  SmExtent1d sNewIvl = m_pNewEdgeCurve->GetNaturalInterval();
+  pSurviveEdge->SetCurve( m_pNewEdgeCurve, TRUE ); // deletes the rail's curve and UV trims
+  m_pNewEdgeCurve->SetOwner( pSurviveEdge );
+  m_pNewEdgeCurve = NULL; // the edge's now
+  pSurviveEdge->SetInterval( sNewIvl );
+  pDeleteEdge->SetCurve( NULL, TRUE );
+  pDeleteEdge->SetInterval( sNewIvl );
+
+  // The vertex with a seam on it survives (a seam's end is that vertex).
+  SmVertex *pSurviveVtx = ( m_aSideEdges[0] != NULL || m_aSideEdges[1] == NULL ) ? m_aVertices[0] : m_aVertices[1];
+  SmVertex *pDeleteVtx  = ( pSurviveVtx == m_aVertices[0] ) ? m_aVertices[1] : m_aVertices[0];
+  SER( pBrep->GlueVertices( pSurviveVtx, pDeleteVtx ));
+  m_aVertices[0] = m_aVertices[1] = pSurviveVtx;
+
+  SER( pBrep->GlueEdges( pSurviveEdge, eOrient, 0.0, pDeleteEdge ));
+  m_aRails[1] = pSurviveEdge;
+
+  // Deleting the fillet split each shell it alone held together (the boss's top from the
+  // rest) into one for each part; joined again along the sharp edge they are one shell.
+  SER( pBrep->JoinShellsAtVertex( pSurviveVtx ));
+
+  // UV trims of the sharp edge on both tangent faces, and their domains to take them in.
+  SmTArray<SmEdgeuse*> sUses;
+  SER( pSurviveEdge->GetEdgeuses( sUses ));
+  for ( ULONG ii = 0; ii < sUses.GetSize(); ii++ )
+  {
+      SmBSplineCurve *pUV = NULL;
+      SER( sUses[ii]->GetOrCreateUVTrimCurve( pUV ));
+      NER( pUV );
+  }
+  for ( ULONG ii = 0; ii < 2; ii++ )
+  {
+      SmFace *pFace = m_aTanFaces[ii];
+      SmEdgeuse *pEU = pSurviveEdge->GetEdgeuseOfFace( pFace );  NER( pEU );
+      SmBSplineCurve *pUV = pEU->GetUVTrimCurve();  NER( pUV );
+      SmExtent2d sFaceDomain = pFace->GetUVDomain();
+      SmExtent1d sUVIvl = pUV->GetNaturalInterval();
+      for ( ULONG kk = 0; kk <= 16; kk++ )
+      {
+          SmPoint3d sUV;
+          SER( pUV->EvaluatePoint( sUVIvl.Evaluate( kk / 16.0 ), sUV ));
+          sFaceDomain.AddPoint2d( SmPoint2d( sUV[0], sUV[1] ));
+      }
+      // The face lies within its surface's domain (nothing was continued).
+      SmExtent2d sSurfDomain = pFace->GetSurface()->GetNaturalUVDomain(), sInSurface;
+      SER( sFaceDomain.Intersect( sSurfDomain, sInSurface ));
+      pFace->SetUVDomain( sInSurface );
+  }
+  return SM_SUCCESS;
+
+} // end SmRingFilletRemoval::DoRemoval
+
+/*******************************************************************//**
 PURPOSE: Delete a fillet face and fill in the hole.
 
 NOTES: Deletes the fillet face and extends and intersects
@@ -1541,6 +2082,14 @@ SmStatus SmBrep::DeleteFilletFace( SmFace *pFilletFace, double * pd3dTol )
     SER_MSG(SM_ERR, _T("Tried to edit Brep with m_bEditingEnabled == FALSE"));
 
   double d3dTol = ( pd3dTol != NULL ) ? *pd3dTol : static_cast<double>(pFilletFace->GetTolerance());
+
+  // SolidCraft change: a ring fillet (closed rails, no ends) has its own removal.
+  if ( SmRingFilletRemoval::IsRing( pFilletFace, 2.0 ) )
+  {
+      SmRingFilletRemoval sRingRemoval( pFilletFace, d3dTol );
+      return sRingRemoval.RemoveFace();
+  }
+
   SmFilletRemoval sRemoval( pFilletFace, d3dTol );
 
   return sRemoval.RemoveFace();

@@ -1148,3 +1148,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   5, the retry found the arc's end (60, 35, 20) at a radius the round does not have there, and the
   trace through that point failed (1001). The retry now holds the radius only where the first
   search does.
+- **A ring fillet is removed** (`SmFilletRemoval.cpp`, new `SmRingFilletRemoval`, used by
+  `SmBrep::DeleteFilletFace`; `SmBrep.cpp`, new `JoinShellsAtVertex`): a round all the way round
+  a boss's foot or rim has closed rails and no ends, and the removal took four-sided fillets
+  only, so `SmApiRemoveFillet` failed on it. Its sharp edge is SMLib's intersection of the two
+  faces' surfaces within their domains (an exact circle for a boss), the tangent face's seam runs
+  on to it along its line, the rails become it; nothing that would need a surface or a curved
+  edge continued past its domain is removed (`NotExact()`).

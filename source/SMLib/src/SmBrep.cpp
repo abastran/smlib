@@ -9861,6 +9861,45 @@ SmBoolean bDebugMe = FALSE;
 } // end SmBrep::GlueVertices
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change: join the shells of each region that pVertex is
+   in into one.
+
+NOTES: For topology joined at pVertex after it had been apart: a face
+   deleted that alone held two parts of a shell together leaves a shell for
+   each part (DeleteFace), and gluing the parts again at a vertex joins only
+   one region's pair of shells (GlueVertices).
+***********************************************************************/
+SmStatus SmBrep::JoinShellsAtVertex(SmVertex * pVertex)
+{
+  NER(pVertex);
+  if (m_bEditingEnabled == FALSE)
+    { SER_MSG(SM_ERR, _T("Tried to edit Brep with m_bEditingEnabled == FALSE")); }
+
+  SmTArray<SmShell*> sShells;
+  pVertex->GetShells(sShells);
+  for (ULONG ii = 0; ii < sShells.GetSize(); ii++)
+    {
+      for (ULONG jj = ii + 1; jj < sShells.GetSize(); jj++)
+        {
+          SmShell *pKeep = sShells[ii];
+          SmShell *pJoin = sShells[jj];
+          if (pKeep == NULL || pJoin == NULL || pKeep == pJoin || pKeep->GetRegion() != pJoin->GetRegion())
+            { continue; }
+          SmTArray<SmEdge*> sWireEdges;
+          SER(pJoin->GetWireEdges(sWireEdges));
+          SER(pJoin->TransferChildrenTo(pKeep, &sWireEdges));
+          SmRegion *pRegion = pJoin->GetRegion();
+          NER(pRegion);
+          SER(pRegion->Remove(pJoin));
+          delete pJoin;
+          sShells[jj] = NULL;
+        }
+    }
+  return SM_SUCCESS;
+
+} // end SmBrep::JoinShellsAtVertex
+
+/*******************************************************************//**
 PURPOSE: Combine the topology of two edges which have common vertices
          but no common faces which need to be destroyed.
 
