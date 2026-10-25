@@ -17,12 +17,14 @@
 #include <SmFace.h>
 #include <SmFilletExecutive.h>
 #include <SmOffsetSurface.h>
+#include <SmSurfOfRevolution.h>
 #include <SmVector3d.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -1665,6 +1667,147 @@ int main()
         }
     }
 
+    // Rig case shell/4567: a vase revolved about y from a fit-point spline (its six cubic spans
+    // here, from the axis at the origin to the rim at (6, 46)), shelled 2 inward open at the top.
+    // The spline meets the axis at a slant, so the bottom's inward offset crosses the axis, 1.6
+    // above the frame's origin. SmSurfOfRevolution::CreateOffsetSurface trims the offset
+    // generatrix at the axis, but looked for it along a segment from the frame's origin one way
+    // only, along the frame's z axis: revolved about -y (as the rig's vase is), the crossing lies
+    // the other way, it was missed, the offset was revolved 0.12 past the axis, and the bottom's
+    // offset face is no cone point but a hole round it. Revolved about +y it was found. The offset surface now ends on the axis, at the exact offset's crossing.
+    // The profile and its exact inward offset p + t n (n the unit normal into the material)
+    // are evaluated here directly.
+    {
+        const double t = 2.0, top = 46.0;
+        static const double S[6][4][2] = {{{0, 0}, {5.0046051747861462, 0.28969795384163027}, {10.009210349572294, 0.57939590768326088}, {14, 3}},
+                                          {{14, 3}, {17.791122091620693, 5.2994962033305715}, {20.667337490527675, 9.5220052633338028}, {22, 14}},
+                                          {{22, 14}, {23.175751555936337, 17.950744649667318}, {23.150034916853265, 22.100353826034457}, {22, 26}},
+                                          {{22, 26}, {20.772697258333796, 30.161653155655173}, {18.264920922540426, 34.038626225241856}, {14, 36}},
+                                          {{14, 36}, {11.021250018636229, 37.369882865619019}, {7.1853563364202362, 37.805327050833874}, {6, 40}},
+                                          {{6, 40}, {5.2048387962612725, 41.472231370814619}, {5.6024193981306363, 43.736115685407313}, {6, 46}}};
+        // span k of the profile at s: (r, y), its first and second derivatives
+        auto bez = [](int k, double s, double d[3][2])
+        {
+            const double(*c)[2] = S[k];
+            const double u = 1 - s;
+            for (int i = 0; i < 2; ++i)
+            {
+                d[0][i] = u * u * u * c[0][i] + 3 * u * u * s * c[1][i] + 3 * u * s * s * c[2][i] + s * s * s * c[3][i];
+                d[1][i] = 3 * (u * u * (c[1][i] - c[0][i]) + 2 * u * s * (c[2][i] - c[1][i]) + s * s * (c[3][i] - c[2][i]));
+                d[2][i] = 6 * (u * (c[2][i] - 2 * c[1][i] + c[0][i]) + s * (c[3][i] - 2 * c[2][i] + c[1][i]));
+            }
+        };
+        // the exact offset q = p + t (-y', r') / |p'| and its derivative
+        auto off = [&](int k, double s, double q[2], double dq[2])
+        {
+            double d[3][2];
+            bez(k, s, d);
+            const double len = std::hypot(d[1][0], d[1][1]), dlen = (d[1][0] * d[2][0] + d[1][1] * d[2][1]) / len;
+            q[0] = d[0][0] - t * d[1][1] / len;
+            q[1] = d[0][1] + t * d[1][0] / len;
+            dq[0] = d[1][0] - t * (d[2][1] / len - d[1][1] * dlen / (len * len));
+            dq[1] = d[1][1] + t * (d[2][0] / len - d[1][0] * dlen / (len * len));
+        };
+        // where g changes sign in [a, b] (bisection)
+        auto root = [](const std::function<double(double)> &g, double a, double b)
+        {
+            for (int i = 0; i < 200; ++i)
+            {
+                const double m = 0.5 * (a + b);
+                ((g(a) < 0) == (g(m) < 0) ? a : b) = m;
+            }
+            return 0.5 * (a + b);
+        };
+        // the offset of the first span crosses the axis at s0, at height apex[1]
+        const double s0 = root([&](double s) { double q[2], dq[2]; off(0, s, q, dq); return q[0]; }, 0.0, 0.5);
+        double apex[2], dapex[2];
+        off(0, s0, apex, dapex);
+
+        // the profile as curves: the six spans, the rim, the axis
+        std::vector<int64_t> kinds;
+        std::vector<double> reals;
+        for (int k = 0; k < 6; ++k)
+        {
+            kinds.insert(kinds.end(), {SMLIB_CURVE_NURBS, 3, 4});
+            for (int j = 0; j < 4; ++j)
+            {
+                reals.insert(reals.end(), {S[k][j][0], S[k][j][1], 0, 1});
+            }
+            reals.insert(reals.end(), {0, 0, 0, 0, 1, 1, 1, 1});
+        }
+        kinds.insert(kinds.end(), {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE});
+        reals.insert(reals.end(), {6, top, 0, 0, top, 0, 0, top, 0, 0, 0, 0});
+        for (double turn : {1.0, -1.0})
+        {
+            const double origin[3] = {0, 0, 0}, axis[3] = {0, turn, 0};
+            smlib_brep *vase = nullptr;
+            CHECK(smlib_revolve(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), origin, axis, 2 * PI, 1,
+                                &vase) == SMLIB_OK);
+            if (vase == nullptr)
+            {
+                continue;
+            }
+            // The bottom's inward offset surface (the side that moves its middle up) ends on the
+            // axis: one of its boundary lines is the point apex.
+            SmTArray<SmFace *> faces;
+            vase->p->GetFaces(faces);
+            int bottoms = 0;
+            for (ULONG i = 0; i < faces.GetSize(); ++i)
+            {
+                SmSurface *surf = faces[i]->GetSurface();
+                SmExtent3d e;
+                CHECK(faces[i]->CalculateBoundingBox(e, TRUE) == SM_SUCCESS);
+                if (!surf->IsKindOf(SmSurfOfRevolution_TYPE) || e.GetMin(1) > 1e-9)
+                {
+                    continue;
+                }
+                bottoms++;
+                for (double d : {t, -t})
+                {
+                    SmSurface *o = nullptr;
+                    CHECK(surf->CreateOffsetSurface(*SmApiGetOrCreateContext(), d, SM_CAST_APPROXTOL3D(1e-6), o) == SM_SUCCESS && o != nullptr);
+                    if (o == nullptr)
+                    {
+                        continue;
+                    }
+                    const SmExtent2d dom = o->GetNaturalUVDomain();
+                    SmPoint3d mid_o, mid_s;
+                    CHECK(o->EvaluatePoint(dom.GetMid(), mid_o) == SM_SUCCESS && surf->EvaluatePoint(dom.GetMid(), mid_s) == SM_SUCCESS);
+                    if (mid_o.y > mid_s.y)
+                    {
+                        // the boundary line nearest the axis: its farthest point from it, its height
+                        double nearest = HUGE_VAL, height = 0.0;
+                        for (int side = 0; side < 4; ++side)
+                        {
+                            double far = 0.0, y = 0.0;
+                            for (int j = 0; j <= 8; ++j)
+                            {
+                                const double w = j / 8.0;
+                                const SmPoint2d uv = side < 2 ? dom.Evaluate(side, w) : dom.Evaluate(w, side - 2);
+                                SmPoint3d p;
+                                CHECK(o->EvaluatePoint(uv, p) == SM_SUCCESS);
+                                far = std::max(far, std::hypot(p.x, p.z));
+                                y += p.y / 9.0;
+                            }
+                            if (far < nearest)
+                            {
+                                nearest = far;
+                                height = y;
+                            }
+                        }
+                        std::printf("vase about %+gy: the bottom's inward offset ends %.3g from the axis at y %.9f (the exact offset crosses at %.9f)\n", turn,
+                                    nearest, height, apex[1]);
+                        CHECK(nearest < 1e-6 && std::fabs(height - apex[1]) < 1e-5);
+                    }
+                    delete o;
+                }
+            }
+            CHECK(bottoms == 1);
+
+            smlib_brep_free(vase);
+        }
+    }
+
     // SolidCraft's ladder part 09/011 (tests/data/part-chamfers-shell.txt, as smlib_shell was
     // handed it): a block with a bezier-arched window 1 mm below a round, an M5 hole 0.35 mm from
     // that round, a chamfer, holes and a slot, shelled 1.5 inward open at the bottom. The round's
@@ -1764,6 +1907,7 @@ int main()
     CHECK(smlib_thicken(cube, 1.0, 0, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_thicken(nullptr, 1.0, 0, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_thicken(cube, NAN, 0, &r) == SMLIB_ERR_ARG);
+
 
     // Two holes 6 apart cut one after the other through a disc: the second hole's wall meets the
     // first's (trimmed to the disc) in two lines. Parallel cylinders are intersected by

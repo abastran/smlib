@@ -1399,29 +1399,51 @@ SmBoolean bDebugMe = FALSE;
 
       // Trim the offset curve with the axis of rev to avoid self intersecting results
       SmVector3d zAxis = m_vPosition.GetZAxis();
-  
+
       SmExtent1d sDomain = pOffCurve->GetNaturalInterval();
-          
+
           SmExtent3d bbox;
           SER( pOffCurve->CalculateBoundingBox(sDomain, &bbox) );
           double dHeight = bbox.GetMaxDimension() * 1.5;                // multiply max dimension by some factor to be sure
-                                                                        
+
+          // SolidCraft change: the axis segment spans the offset curve's whole extent along the
+          // axis, on both sides of the frame's origin. It ran from the origin along +z only, so it
+          // missed an offset that crosses the axis on the origin's other side: a vase revolved
+          // about -y from a profile meeting the axis at a slant, shelled 2 mm inward, has its
+          // bottom's offset profile cross the axis 1.6 mm above the origin; untrimmed, it was
+          // revolved 0.12 mm past the axis and left a hole round the pole (tangency-labs/solidcraft#4567).
+          SmTArray<SmPoint3d> sCorners;
+          bbox.GetCorners(sCorners);
+          double dAxialMin = SM_BIG_DOUBLE, dAxialMax = -SM_BIG_DOUBLE;
+          for (ULONG kk=0; kk<sCorners.GetSize(); kk++)
+            {
+              double dAxial = (sCorners[kk] - m_vPosition.GetOrigin()).Dot(zAxis);
+              dAxialMin = smos_Min(dAxialMin, dAxial);
+              dAxialMax = smos_Max(dAxialMax, dAxial);
+            }
+
           SmLine* pAxisLine = NULL;
-          SER( SmLine::CreateLineSegment(crContext, 3, m_vPosition.GetOrigin(), m_vPosition.GetOrigin() + dHeight * zAxis, pAxisLine) );
+          SER( SmLine::CreateLineSegment(crContext, 3, m_vPosition.GetOrigin() + (dAxialMin - dHeight) * zAxis,
+                                         m_vPosition.GetOrigin() + (dAxialMax + dHeight) * zAxis, pAxisLine) );
           SmObjDelete sClean( pAxisLine );
 
           SmSolutionArray sSolutions;
           SER( pOffCurve->GlobalCurveIntersect(sDomain, *pAxisLine, pAxisLine->GetNaturalInterval(), dThisApproxTol3d, sSolutions) );
-          
+
           if (sSolutions.GetSize() == 1) {
                   // if intersection is at endpoint, do not bother trimming
                   dParam = sSolutions[0].m_vStart[0];
 
-                  if (sDomain.GetMin() != dParam || sDomain.GetMax() != dParam) {
-                          
-                          // Take the largest portion for now
-                          // Eventually use a better algorithm
-                          if (dParam < sDomain.GetMid()) {
+                  if (sDomain.GetMin() != dParam && sDomain.GetMax() != dParam) {
+
+                          // SolidCraft change: keep the part on the generatrix's side of the axis
+                          // (positive radius along the frame's x axis), not the longer part.
+                          SmPoint3d sLowMid, sHighMid;
+                          SER( pOffCurve->EvaluatePoint(0.5*(sDomain.GetMin() + dParam), sLowMid) );
+                          SER( pOffCurve->EvaluatePoint(0.5*(dParam + sDomain.GetMax()), sHighMid) );
+                          double dLowRadius  = (sLowMid  - m_vPosition.GetOrigin()).Dot(m_vPosition.GetXAxis());
+                          double dHighRadius = (sHighMid - m_vPosition.GetOrigin()).Dot(m_vPosition.GetXAxis());
+                          if (dHighRadius > dLowRadius) {
                             SER( sDomain.SetMin(dParam) );
                           }
                           else {

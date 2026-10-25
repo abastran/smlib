@@ -1054,3 +1054,11 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   0.00048. The trim is tested mapped by its face surface's first fundamental form at its middle
   (the Cholesky factor: exact on a plane), with the tolerance and solution spacing of the mapped
   trim: the copy-and-scale the original code had commented out for want of the surface.
+- **A revolved face's offset is trimmed at the axis on either side of the frame's origin**
+  (`SmSurfOfRevolution.cpp`, `CreateOffsetSurface`): the offset generatrix of a profile that
+  meets the axis at a slant crosses the axis, and was trimmed there along a segment from the
+  frame's origin one way only (along its z axis), so a crossing on the origin's other side was
+  missed: the offset was revolved past the axis and left a hole round the pole (a vase revolved
+  about y, shelled inward, rig case shell/4567). The segment now spans the offset's extent along
+  the axis both ways, and the part kept is the one on the generatrix's side of the axis (positive
+  radius), not the longer one.
