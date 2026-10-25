@@ -6261,6 +6261,12 @@ int iDebugLevel = 0;
   // is the edge extended into the side face. pEU stays the neighbour on the
   // fillet's side face, which the rail ends against. lCornerEUs counts the
   // corner's edges.
+  // So is the edge that continues the filleted edge tangentially across the
+  // vertex with the opposite convexity, on the side face (past any tangent
+  // edges, such as the side face's seam): a boss's base circle running on past
+  // a wall as the rim of the boss's overhang. The rail on the side face runs
+  // alongside it and never meets it; the round ends on the end face past it,
+  // whose extension cuts the side face.
   SmEdgeuse * pCornerEU[2] = { pEU[0], pEU[1] };
   ULONG       lCornerEUs   = lTotalEUs;
   if ( ! bClosedSideEdge && lTotalEUs > 3 )
@@ -6276,10 +6282,21 @@ int iDebugLevel = 0;
           ULONG lOtherIdx = ( kk == 0 ) ? lIndex1 : lIndexA;
           ULONG lIdx      = ( kk == 0 ) ? lIndexA : lIndex1;
           ULONG lSkipped  = 0;
+          SmBoolean bPassedContinuation = FALSE;
           SmEdgeuse * pNextEU = pEU[ kk ];
-          while (   lTotalEUs - lSkipped > 3
-                 && sm_CheckTangentialEdgeuseAtVertex( pNextEU, m_cpVertex, dTanTolDeg ) )
+          while ( lTotalEUs - lSkipped > 3 )
             {
+              if ( ! sm_CheckTangentialEdgeuseAtVertex( pNextEU, m_cpVertex, dTanTolDeg ) )
+                {
+                  // the filleted edge's continuation, of the opposite convexity, once
+                  if (   bPassedContinuation
+                      || pNextEU->GetEdge() == pFilEdgeuse->GetEdge()
+                      || ! sm_TestG1Continuity( m_cpVertex, pFilEdgeuse->GetEdge(), pNextEU->GetEdge(),
+                                                dTanTolDeg, NULL, iDebugLevel )
+                      || same_convexity_edges_round_vertex( pFilEdgeuse, pNextEU->GetEdge() ) )
+                    { break; }
+                  bPassedContinuation = TRUE;
+                }
               lIdx = ( kk == 0 ) ? ( (lIdx + lTotalEUs) - 1 ) % lTotalEUs : ( lIdx + 1 ) % lTotalEUs;
               if ( lIdx == lFilEUIndex || lIdx == lOtherIdx )
                 { lSkipped = 0; break; }

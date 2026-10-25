@@ -1142,6 +1142,39 @@ int main()
         delete half;
     }
 
+    // SolidCraft rig case fillets/4174: a block 40 x 30 x 5 and a cylinder r10.5 standing on its
+    // top, its axis on the block's front edge, so half of it overhangs. The concave arc where the
+    // cylinder meets the top, rounded r, ends at the front face, where the arc runs on tangentially
+    // as the convex rim of the overhang's underside. The rail on the cylinder runs alongside that
+    // rim and never meets it; the corner took the rim for the side edge the rail ends on (1001).
+    // The round ends on the front face's extension: Pappus over the half turn, the section
+    // (1 - pi/4) r^2 with its centroid r (5/6 - pi/4) / (1 - pi/4) from the cylinder.
+    {
+        smlib_brep *block = box(-20, 0, 0, 40, 30, 5);
+        smlib_brep *post = cylinder(0, 0, 5, 10.5, 30);
+        smlib_brep *joined = nullptr;
+        CHECK(smlib_boolean(block, post, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK && sound(joined));
+        const double base_arc[6] = {10.5 * std::cos(PI / 4), 10.5 * std::sin(PI / 4), 5, -10.5 * std::cos(PI / 4), 10.5 * std::sin(PI / 4), 5};
+        for (double radius : {1.0, 2.0, 3.0})
+        {
+            const double section = (1.0 - PI / 4.0) * radius * radius;
+            const double centroid = radius * (5.0 / 6.0 - PI / 4.0) / (1.0 - PI / 4.0);
+            if (joined != nullptr && smlib_fillet(joined, base_arc, 2, 0.1, radius, &r, nullptr) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volume_of(joined) + PI * (10.5 + centroid) * section, 1e-8));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"the cylinder's base arc rounded up to the front face");
+            }
+        }
+        for (smlib_brep *b : {block, post, joined})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);

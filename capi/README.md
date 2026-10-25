@@ -1117,3 +1117,14 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   topological edge, so the sheet's own splits and their offsets stay), each wall first put on its
   plane when it is a planar patch that is not one (a trapezoid wall is a bilinear patch, on which
   its neighbour's straight edges would be curves): the merged face is exact.
+- **A round ends where its edge runs on tangentially past the end, the other way** (`SmFilletCorner.cpp`,
+  `SmFilletNx1Corner::MakeCornerTopology`): at a vertex where the filleted edge continues
+  tangentially as an edge of the opposite convexity on one of its side faces (a boss's concave
+  base circle running on past a wall as the convex rim of the boss's overhang), with the other
+  side edge of the opposite convexity too, the corner took that continuation for the side edge
+  the rail ends on. The rail runs alongside it and never meets it, and the edge between the
+  continuation and the end face was taken for an end face, so the end rib failed (1001). The
+  continuation, found past any tangent edges (a cylinder's seam at the vertex), is now skipped as
+  the tangent side edges are: the edge past it, of the filleted edge's convexity, is the side edge
+  extended, the end face the face between it and the other side edge (the wall), and the side
+  face is cut where the end face's extension meets it.
