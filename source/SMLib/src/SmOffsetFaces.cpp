@@ -266,19 +266,14 @@ SmStatus SmOffsetFacesExecutive::OffsetFaces( const SmTArray<SmFace*> & crFaces,
   SmTemporaryChangeValue<SmBoolean> sEditing( m_pBrep->m_bEditingEnabled, TRUE );
   const double dTol = m_pBrep->GetTolerance();
 
-  // Whatever happens, no mark outlives the call, and the kept attributes are freed.
+  // The kept attributes are freed whatever happens. (The marks are removed at the end of a
+  // successful call; a failed one leaves the Brep unspecified, marks and all.)
   std::vector<SmFollowed> sBlends;
-  struct Cleanup
+  struct FreeKept
   {
-    SmBrep * m_pBrep;
     std::vector<SmFollowed> & m_rBlends;
-    ~Cleanup()
+    ~FreeKept()
     {
-      (void)m_pBrep->RemoveAttributeFromTopology( SM_AI_FOLLOWED_BLEND ); // only marks go: nothing to report
-      SmTArray<SmFace*> sFaces;
-      m_pBrep->GetFaces( sFaces );
-      for ( ULONG ii = 0; ii < sFaces.GetSize(); ii++ )
-        { SmFollowedBlendMark::Clear( sFaces[ii]->GetSurface() ); }
       for ( SmFollowed & rB : m_rBlends )
         {
           sm_Free( rB.sFaceAttrs );
@@ -289,7 +284,7 @@ SmStatus SmOffsetFacesExecutive::OffsetFaces( const SmTArray<SmFace*> & crFaces,
             { sm_Free( rK ); }
         }
     }
-  } sCleanup{ m_pBrep, sBlends };
+  } sFreeKept{ sBlends };
 
   // The faces to move, marked: taking blends off can replace a face by another piece of it.
   for ( ULONG ff = 0; ff < crFaces.GetSize(); ff++ )
@@ -682,7 +677,10 @@ SmStatus SmOffsetFacesExecutive::OffsetFaces( const SmTArray<SmFace*> & crFaces,
       { return Refuse( SM_OFR_NO_EFFECT, _T("the local operation reported success but moved no face onto its new surface") ); }
   }
   if ( sBlends.empty() )
-    { return SM_SUCCESS; }
+    {
+      SER( m_pBrep->RemoveAttributeFromTopology( SM_AI_FOLLOWED_BLEND ));
+      return SM_SUCCESS;
+    }
 
   // 5. The sharp edges blended again, all in one call, each at its blend's size and of its kind.
   SmTArray<SmEdge*>                    sEdges;
@@ -818,6 +816,7 @@ SmStatus SmOffsetFacesExecutive::OffsetFaces( const SmTArray<SmFace*> & crFaces,
           }
       }
   }
+  SER( m_pBrep->RemoveAttributeFromTopology( SM_AI_FOLLOWED_BLEND ));
   return SM_SUCCESS;
 
 } // end SmOffsetFacesExecutive::OffsetFaces
