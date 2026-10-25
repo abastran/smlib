@@ -463,6 +463,58 @@ int main()
         expect("drill clipped to a sheet's rim", s, &b, 10.0 * PI, 1e-6);
         smlib_brep_free(slab);
         smlib_brep_free(drill);
+
+        // A 300 x 200 x 3 plate joined to a r 4 rod along its edge y = 0, z = 3: the rod's end
+        // discs lie on the plate's 200 x 3 ends, where the trim of the r 4 circle is an ellipse
+        // whose radius at its ends, 0.0003 in (u, v), test #13 took for a cusp (and the reversal
+        // test kinked the trim, as above). Inside the plate is the rod's quarter y >= 0,
+        // z <= 3 less the half segment below z = 0, (r^2 acos(3/r) - 3 sqrt(r^2 - 9)) / 2.
+        List plate;
+        plate.polygon({0, 0, 0, 300, 0, 0, 300, 200, 0, 0, 200, 0});
+        List rod;
+        rod.arc(0, 0, 3, 1, 0, 0, 0, 1, 0, 4.0, seam, seam + 2 * PI);
+        const double X[3] = {1, 0, 0};
+        smlib_brep *p = nullptr, *r = nullptr;
+        CHECK(smlib_extrude(plate.kinds.data(), plate.nk(), plate.reals.data(), plate.nr(), Z, 3.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &p, nullptr) ==
+              SMLIB_OK);
+        CHECK(smlib_extrude(rod.kinds.data(), rod.nk(), rod.reals.data(), rod.nr(), X, 300.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &r, nullptr) ==
+              SMLIB_OK);
+        b = nullptr;
+        s = p != nullptr && r != nullptr ? smlib_boolean(p, r, SMLIB_BOOLEAN_UNION, &b) : SMLIB_ERR_ARG;
+        const double below = 0.5 * (16.0 * std::acos(0.75) - 3.0 * std::sqrt(7.0));
+        expect("plate with a rod along its edge", s, &b, 300.0 * 200.0 * 3.0 + 300.0 * (0.75 * PI * 16.0 + below), 1e-6);
+        smlib_brep_free(p);
+        smlib_brep_free(r);
+
+        // SolidCraft #1038: a 1 mm hole through a 200 x 200 block whose top is one cubic wave
+        // across x (u on [0,1] over its 200 mm, v its length in mm): the hole's rim on the wave
+        // is an ellipse some 200 times as long as it is wide in (u, v), of radius 1.3e-5 at its
+        // ends (test #13). The wave is z = 40 at the hole's axis x = 100 with slope 0.2256
+        // there, so the hole removes 10 pi within 1e-5 of it.
+        List wave;
+        wave.line(0, 200, 0, 200, 200, 0).line(200, 200, 0, 200, 200, 40);
+        wave.kinds.insert(wave.kinds.end(), {SMLIB_CURVE_NURBS, 3, 4});
+        wave.reals.insert(wave.reals.end(), {200, 200, 40, 1, 133, 200, 70, 1, 67, 200, 10, 1, 0, 200, 40, 1, 0, 0, 0, 0, 1, 1, 1, 1});
+        wave.line(0, 200, 40, 0, 200, 0);
+        List pin;
+        pin.arc(100, 100, -10, 0, 0, 1, 1, 0, 0, 0.5, seam, seam + 2 * PI);
+        const double minus_y[3] = {0, -1, 0};
+        smlib_brep *block = nullptr, *tool = nullptr;
+        CHECK(smlib_extrude(wave.kinds.data(), wave.nk(), wave.reals.data(), wave.nr(), minus_y, 200.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &block,
+                            nullptr) == SMLIB_OK);
+        CHECK(smlib_extrude(pin.kinds.data(), pin.nk(), pin.reals.data(), pin.nr(), Z, 100.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &tool, nullptr) ==
+              SMLIB_OK);
+        double whole = 0.0;
+        CHECK(block != nullptr && smlib_brep_volume(block, 1e-7, &whole) == SMLIB_OK);
+        b = nullptr;
+        s = block != nullptr && tool != nullptr ? smlib_boolean(block, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG;
+        double holed = 0.0;
+        CHECK(b != nullptr && smlib_brep_volume(b, 1e-7, &holed) == SMLIB_OK);
+        std::printf("%-34s removed %.9f expected %.9f\n", "small hole through a wave", whole - holed, 10.0 * PI);
+        CHECK(std::fabs(whole - holed - 10.0 * PI) <= 1e-5 * 10.0 * PI);
+        expect("small hole through a wave", s, &b, whole - 10.0 * PI, 1e-5 * 10.0 * PI / whole);
+        smlib_brep_free(block);
+        smlib_brep_free(tool);
     }
 
     // Modelled ISO metric threads, the groove (the space between the teeth, ISO 68-1 basic

@@ -24,11 +24,11 @@
 #include <SmAssertArray.h>
 #include <SmDatabaseIO.h>
 #include <SmPseudoBox.h>
+#include <SmFace.h>
+#include <SmEdgeuse.h>
 
 #ifdef SM_DEBUG_CODE
-#include <SmFace.h>
 #include <SmBrep.h>
-#include <SmEdgeuse.h>
 #include <SmCrvOnSurf.h>
 // Remove Composites
 // #include <SmCEdge.h>
@@ -58,6 +58,13 @@ static SmBoolean sm_FirstFundamentalForm
   rEFG[1] = sDu.Dot(sDv) ;
   rEFG[2] = sDv.Dot(sDv) ;
   return TRUE ;
+}
+
+// Whether a first fundamental form is positive definite: no direction of zero length (not a
+// singular point of its surface).
+static SmBoolean sm_IsPositiveDefinite(const double caEFG[3])
+{
+  return caEFG[0] > 0.0 && caEFG[0] * caEFG[2] - caEFG[1] * caEFG[1] > 0.0 ;
 }
 
 /*******************************************************************//**
@@ -8112,62 +8119,80 @@ static       ULONG lFoundItem ;
 
        } // end iter all min Deriv solutions
 
-//    // if this is a UVTrimCurve with a given pCrvOnSurf pointer
+      // SolidCraft: a radius of curvature is a length, and a UV trim's lengths are those of its
+      // face's surface. A trim is tested for its radius mapped by the surface's first fundamental
+      // form at the trim's middle (at the centre of the surface's domain where the middle is a
+      // singular point), so that steps of equal length on the surface have equal length: exact
+      // on a plane, and the surface's own lengths near the middle elsewhere. In (u, v) the exact
+      // trim of a r 4 circle on a plane face spanning 200 x 3 on [0,1]^2 is an ellipse 67 times
+      // as long as it is wide, of radius 0.0003 at its ends against the tolerance 0.00048 its
+      // own size gives. The radius tolerance and solution spacing are the mapped trim's, and a
+      // mapped trim that cannot be sized fails the test as an unsized curve does. A trim on a
+      // surface with no metric at either point is tested as it is. (The original code had this
+      // copy-and-scale commented out, for want of the surface.)
       SmBSplineCurve *pCopyCurve = NULL ;
-      SmObjDelete sCopyClean(pCopyCurve) ; // Will be set only if a copy is made.
-//    if(   this->GetDim() == 2
-//       && pOptCrvOnSurf != NULL)
-//      {
-//        // copy and scale the UVTrimCurve so that it lives on a surface
-//        // mapping which is similar to arc-length parameterizations
-//
-//        // Surface UVDomain
-//        SmExtent2d sSurfUVDomain = pOptCrvOnSurf->GetNaturalUVDomain() ;
-//
-//        // MidCurve Evaluation
-//        SmPoint3d sMidCurvePointXYZ ;
-//        this->EvaluatePoint(GetNaturalInterval().Evaluate(.5), sMidCurvePointXYZ) ;
-//
-//        // Surface deriviatives at midCurve evaluation watch out for singularities
-//        SmPoint2d sMidCurvePointUV(sMidCurvePointXYZ.x, sMidCurvePointXYZ.y) ;
-//        SmSurfParamType eSingularDirection ;
-//        if(pOptCrvOnSurf->IsSingularity(sMidCurvePointUV, eSingularDirection))
-//          {
-//            sMidCurvePointUV = sSurfUVDomain.Evaluate(.5, .5) ;
-//          }
-//        SmPoint3d sSurfPoint, sSurfDu, sSurfDv ;
-//        pOptCrvOnSurf->Evaluate1stDerivatives(sMidCurvePointUV, TRUE, TRUE,
-//                                              sSurfPoint, sSurfDu, sSurfDv) ; 
-//
-//        // pick scale factors so that surface is near arclength parameterization
-//        // watch out for surface singularities
-//        double dScaleU = sSurfDu.Length() ;
-//        double dScaleV = sSurfDv.Length() ;
-//
-//        // Copy the UVTrimCurve and scale its control points
-//        pCopyCurve = new (this->GetContext()) SmBSplineCurve(*this) ;
-//        sCopyClean.SetObj( pCopyCurve );
-//        ULONG lControlPointCount = pCopyCurve->m_pNurb->pol->n + 1 ;
-//        CPOINT *pPw = pCopyCurve->m_pNurb->pol->Pw ;
-//        for(ULONG ii=0;ii<lControlPointCount;ii++)
-//          {
-//            pPw[ii].x *= dScaleU ;
-//            pPw[ii].y *= dScaleV ;
-//          } 
-//            
-//      } // end scaling of UVTrimCurves when given pOptCrvOnSurf
+      SmObjDelete sCopyClean ; // Will be set only if a copy is made.
+      SmBoolean bRadiusSized = bSized ;
+      double dRadiusTol = dTol, dRadiusSep = dMinSep ;
+      const SmEdgeuse *pTrimOf = GetDim() == 2 ? GetEdgeuse() : NULL ;
+      const SmFace    *pTrimFace = pTrimOf ? pTrimOf->GetFace() : NULL ;
+      const SmSurface *pTrimSurface = pTrimFace ? pTrimFace->GetSurface() : NULL ;
+      if ( bSized && IsBounded() && pTrimSurface != NULL )
+        {
+          SmPoint3d sMid ;
+          double    aEFG[3] = {0.0, 0.0, 0.0} ;
+          SmBoolean bForm = (   EvaluatePoint(sDomain.Evaluate(.5), sMid) == SM_SUCCESS
+                             && sm_FirstFundamentalForm(*pTrimSurface, SmPoint2d(sMid.x, sMid.y), TRUE, TRUE, aEFG)
+                             && sm_IsPositiveDefinite(aEFG) ) ;
+          if ( !bForm )
+            {
+              bForm = (   sm_FirstFundamentalForm(*pTrimSurface, pTrimSurface->GetNaturalUVDomain().Evaluate(.5, .5), TRUE, TRUE, aEFG)
+                       && sm_IsPositiveDefinite(aEFG) ) ;
+            }
+          if ( bForm )
+            {
+              // (u, v) -> (a u + b v, c v), the Cholesky factor L of the form: |L d|^2 = d.G.d.
+              // Linear, so it maps homogeneous control points as it maps cartesian ones.
+              const double a = smos_Sqrt(aEFG[0]) ;
+              const double b = aEFG[1] / a ;
+              const double c = smos_Sqrt(aEFG[0] * aEFG[2] - aEFG[1] * aEFG[1]) / a ;
+              pCopyCurve = new (GetContext()) SmBSplineCurve(*this) ;
+              sCopyClean.SetObj( pCopyCurve ) ;
+              SmExtent3d sMappedBox ;
+              bRadiusSized = pCopyCurve->m_pNurb != NULL ;
+              if ( bRadiusSized )
+                {
+                  gw_CPOINT *pPw = pCopyCurve->m_pNurb->pol->Pw ;
+                  const ULONG lCount = (ULONG)pCopyCurve->m_pNurb->pol->n + 1 ;
+                  for ( ULONG k = 0 ; k < lCount ; k++ )
+                    {
+                      const double x = pPw[k].x, y = pPw[k].y ;
+                      pPw[k].x = a * x + b * y ;
+                      pPw[k].y = c * y ;
+                    }
+                  bRadiusSized = ( pCopyCurve->CalculateBoundingBox( sDomain, &sMappedBox ) == SM_SUCCESS ) ;
+                }
+              bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, bRadiusSized, SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE, _T("")) ;
+              if ( bRadiusSized )
+                {
+                  const double dMappedSize = sMappedBox.GetSize().Length() ;
+                  dRadiusTol = (dMappedSize / dSizeT) / 10000 ;
+                  dRadiusSep = dMappedSize / smos_Max(20., dSizeT) ;
+                }
+            }
+        }
 
       if ( pCopyCurve == NULL )
         { pCopyCurve = (SmBSplineCurve*)this; }
 
       // Another type of kink check: vanishing radius of curvature.
       SmBoolean bRadii = FALSE ;
-      if ( bSized )
+      if ( bRadiusSized )
         {
           bRadii = (   pCopyCurve->GlobalPropertyAnalysis( sDomain, SM_CP_MINIMIZE_RADIUS_OF_CURVATURE,
-                                                           NULL, NULL, dMinSep, rSolutionArray )
+                                                           NULL, NULL, dRadiusSep, rSolutionArray )
                     == SM_SUCCESS ) ;
-          bRtn &= SM_ASSERT_VALUE_REPORT(GetDim() == 2 ? 13 : 14, SM_LEVEL_0, bRadii, dTol, SM_UNDEF_DOUBLE, _T("")) ;
+          bRtn &= SM_ASSERT_VALUE_REPORT(GetDim() == 2 ? 13 : 14, SM_LEVEL_0, bRadii, dRadiusTol, SM_UNDEF_DOUBLE, _T("")) ;
         }
 
       // The minimum radius is the smallest solution value. Unlike
@@ -8185,19 +8210,19 @@ static       ULONG lFoundItem ;
             }
         }
 
-      if(dMinRadius < dTol)
+      if(dMinRadius < dRadiusTol)
         {
           if(GetDim() == 2)
             { 
               /* 13 */
-              bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, dMinRadius >= dTol, dTol, dMinRadius, _T("")) ;
+              bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, dMinRadius >= dRadiusTol, dRadiusTol, dMinRadius, _T("")) ;
               SM_ASSERT_SET_OWNER_PARAM(SmPoint2d(dMinRadiusParam, 0.0)) ;
               // SM_ASSERT_MSG( FALSE, _T("2D Curve Warning: Extremely small radius of curvature") );
             }
           if(GetDim() == 3)
             { 
               /* 14 */
-              bRtn &= SM_ASSERT_VALUE_REPORT(14, SM_LEVEL_0, dMinRadius >= dTol, dTol, dMinRadius, _T("")) ;
+              bRtn &= SM_ASSERT_VALUE_REPORT(14, SM_LEVEL_0, dMinRadius >= dRadiusTol, dRadiusTol, dMinRadius, _T("")) ;
               SM_ASSERT_SET_OWNER_PARAM(SmPoint2d(dMinRadiusParam, 0.0)) ;
 
               // SM_ASSERT_MSG( FALSE, _T("3D Curve Warning: Extremely small radius of curvature") );

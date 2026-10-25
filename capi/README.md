@@ -993,3 +993,10 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   kink it had made (SmBSplineCurve test #7) in the body it was checking. The turn is now measured
   with the surface's first fundamental form at each end; a polygon that turns back on the surface
   is fixed as before.
+- **A UV trim's radius of curvature is measured on its surface** (`SmBSplineCurve.cpp`,
+  `SmBSplineCurve::AssertValid`, test 13): the radius test (live since the radius is read) ran on
+  the trim in (u, v), where the exact trim of a r 4 circle on a plane face spanning 200 x 3 is an
+  ellipse 67 times as long as it is wide, of radius 0.0003 at its ends against a tolerance of
+  0.00048. The trim is tested mapped by its face surface's first fundamental form at its middle
+  (the Cholesky factor: exact on a plane), with the tolerance and solution spacing of the mapped
+  trim: the copy-and-scale the original code had commented out for want of the surface.
