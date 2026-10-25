@@ -4239,8 +4239,9 @@ NOTES: Face containment in the given region is NOT tested.
    If pRegion is passed in NULL, this will use the infinite region.
    This is the usual case, and recommended.
 
-   If this routine fails, it will return a null rpNewFace,
-   although the return status might still be SM_SUCCESS.
+   pSurface is consumed when rpNewFace is returned, whatever the status: a face made before a
+   failure stays in this Brep and owns the surface. With a null rpNewFace the surface stays
+   the caller's.
 ***********************************************************************/
 SmStatus SmBrep::CreateFaceInRegionFromSurface
   (SmRegion         * pRegion,       // in : region to contain new face. NULL for infinite region.
@@ -14411,23 +14412,26 @@ SmBoolean bDebugMe = FALSE;
     SmObjDelete sClean(pNewPlane);
 
     // ---  Now make the face
-    SER(MakeFaceWithCurves(GetInfiniteRegion(),             // in : region to contain new topology objects
-                           sLoopCurveCounts,                // in : 1 entry per loop, value = loop edge count, 1st entry=outer loop
-                          &s3DCurves,                       // in : opt ordered 3d trimming curves assigned to loops per sLoopEUCounts
-                           NULL,                            // in : opt ordered 2d trimming curves assigned to loops per sLoopEUCounts
-                           sCurveOrients,                   // in : associated orients for each trimming curve, SM_OT_SAME or SM_OT_OPPOSITE
-                           sLoopPoints,                     // in : Point positions to build SmVertex VertexLoops
-                           pNewPlane,                       // in : new face->Surface
-                           pNewPlane->GetNaturalUVDomain(), // in : domain of Surface used by face
-                           SM_OT_SAME,                      // in : Surface orient, oneof SM_OT_SAME or SM_OT_OPPOSITE
-                           pNewRegion,                      // out: New region if any. NULL when building trimmed surfaces, may be NotNULL for solids.
-                           pNewShell,                       // out: New shell if any.  Trimmed surfaces always create a new shell.
-                           pNewFace));                      // out: the new face
+    SmStatus eStat = MakeFaceWithCurves(GetInfiniteRegion(),             // in : region to contain new topology objects
+                                        sLoopCurveCounts,                // in : 1 entry per loop, value = loop edge count, 1st entry=outer loop
+                                       &s3DCurves,                       // in : opt ordered 3d trimming curves assigned to loops per sLoopEUCounts
+                                        NULL,                            // in : opt ordered 2d trimming curves assigned to loops per sLoopEUCounts
+                                        sCurveOrients,                   // in : associated orients for each trimming curve, SM_OT_SAME or SM_OT_OPPOSITE
+                                        sLoopPoints,                     // in : Point positions to build SmVertex VertexLoops
+                                        pNewPlane,                       // in : new face->Surface
+                                        pNewPlane->GetNaturalUVDomain(), // in : domain of Surface used by face
+                                        SM_OT_SAME,                      // in : Surface orient, oneof SM_OT_SAME or SM_OT_OPPOSITE
+                                        pNewRegion,                      // out: New region if any. NULL when building trimmed surfaces, may be NotNULL for solids.
+                                        pNewShell,                       // out: New shell if any.  Trimmed surfaces always create a new shell.
+                                        pNewFace);                       // out: the new face
+    // a face made, even one whose making then failed, owns the plane
+    if (pNewFace != NULL)
+      { sClean.Clear(); }
+    SER(eStat);
 
     // ---  Set tolerance
     SM_OLDTOL_LINE pNewFace->SetTolerance(smos_Max(dMaxGap, (double)pNewFace->GetTolerance()));
 
-    sClean.Clear();
     sCleanBS.Clear();
 
     return SM_SUCCESS;
@@ -17984,9 +17988,12 @@ static ULONG lDebugCount = 0 ;
                   if(pNewSubRegion != NULL ) { rpNewRegion = pNewSubRegion; }
                   if(pNewSubShell  != NULL ) { rpNewShell  = pNewSubShell;  }
                   rNewFaces.Add( pNewSubFace) ;
-                  iSurfaceUses[ii]++;
                 }
-        
+              // a face made, even one whose making then failed, owns its surface: the subpatch
+              // is not deleted below
+              if(pNewSubFace != NULL )
+                { iSurfaceUses[ii]++; }
+
               // No, we have decided not to do this stitching.
               // // Stitch pNewSubFace to the previous one.
               // sMerger.MergeAddedFace( pNewSubFace, lNumEdgesStitched,
@@ -19125,6 +19132,10 @@ NOTES: The orientation of the
    If pRegion is passed in NULL, this will use the infinite region.
    This is the usual case, and recommended.
 
+   A face returned in rpNewFace owns pSurface, whatever the status: a failure after the face
+   was made leaves it in this Brep, which deletes the surface with it. With no face returned
+   the surface stays the caller's.
+
    increments an unused Mark value
 ***********************************************************************/
 SmStatus SmBrep::MakeFace
@@ -19198,11 +19209,11 @@ static ULONG lDebugCount   = 0 ;
 //      { SER(SM_ERR); }
 //  #endif  // SM_NO_COMPOSITES
 
-  // get preexisting surface owner
-  SmObject *pOldOwner = pSurface->GetOwner();
-
   // make the Face object with loop and vertex connections
   //   This may split a region making a new region and a new shell.
+  //   Once it has made the face, the face is in this Brep on pSurface and owns it, even when
+  //   MakeFaceTopology fails after that point: the face is returned in rpNewFace and this Brep
+  //   deletes the surface with it. Before that point the surface's owner is untouched.
   SmStatus eStat = MakeFaceTopology        // increments unlocked mark value
                     (pRegion,              // in : target region to receive new Face. NULL for infinite region.
                      pSurface,             // in : target surface for new Face
@@ -19221,10 +19232,6 @@ static ULONG lDebugCount   = 0 ;
                      bCalculateTrims,      // in : TRUE = attach or create UVTrimCurve to every Edgeuse, FALSE=don't
                                            //      default:[FALSE]
                      cpOptUVCurves) ;      // in : optional array of UVTrimCurves to assign to NewFace->Edgeuses, default:[NULL]
-
-  // restore the preexisting surface owner - making composites
-  // we do this regardless if MakeFaceTopology fails or succeeds
-  pSurface->SetOwner(pOldOwner);
 
   // If MakeFaceTopology failed, stop here
   if(eStat != SM_SUCCESS )

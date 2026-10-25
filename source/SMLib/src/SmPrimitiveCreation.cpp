@@ -254,6 +254,9 @@ PURPOSE: One face of a box: the plane of `crFrame` bounded by `crDomain`, added 
 
 NOTES: A plane that cannot be made, or made into a face (coordinates too large for the
        tolerance), is deleted and its status returned; it never stays behind unowned.
+       A face made on the plane owns it even when the face's making then fails (a box
+       smaller than the tolerance, whose faces close up wrongly): that status is returned
+       and pBrep deletes the plane with the face.
        A side of zero extent (a box of zero length, width or height) bounds no area and
        gets no face, as in stock SMLib, where its plane failed and the failure was dropped.
 ***********************************************************************/
@@ -667,11 +670,13 @@ static SmStatus sm_CreateConicSolid
 {
   SmBrep* pBrep = pRegion->GetBrep();
   const SmContext* cpContext = pBrep->GetContext();
-  SmObjDelete sConeCleanup(pConeSrf);   // free the surface if face creation fails
+  SmObjDelete sConeCleanup(pConeSrf);   // free the surface if no face is made on it
 
   SmFace* newFace = NULL;
-  SER(pBrep->CreateFaceFromSurface( (SmSurface*)pConeSrf, pConeSrf->GetNaturalUVDomain(), newFace ));
-  sConeCleanup.Clear();                 // brep now owns the surface
+  SmStatus eStat = pBrep->CreateFaceFromSurface( (SmSurface*)pConeSrf, pConeSrf->GetNaturalUVDomain(), newFace );
+  if (newFace != NULL)
+    { sConeCleanup.Clear(); }           // the face owns the surface, even when its making then failed
+  SER(eStat);
 
   // Build Caps
   SmExtent2d sDomain = pConeSrf->GetNaturalUVDomain();
@@ -930,11 +935,13 @@ SmStatus SmPrimitiveCreation::CreateSphere
   SmSphere* pSphere = NULL;
   SER(SmSphere::CreateCanonical( *cpContext, rRefFrame, dRadius, pSphere ));
   NER(pSphere);
-  SmObjDelete sSphereCleanup(pSphere);   // free the surface if face creation fails
+  SmObjDelete sSphereCleanup(pSphere);   // free the surface if no face is made on it
 
   SmFace* newFace = NULL;
-  SER(pBrep->CreateFaceFromSurface( (SmSurface*)pSphere, pSphere->GetNaturalUVDomain(), newFace ));
-  sSphereCleanup.Clear();                // brep now owns the surface
+  SmStatus eStat = pBrep->CreateFaceFromSurface( (SmSurface*)pSphere, pSphere->GetNaturalUVDomain(), newFace );
+  if (newFace != NULL)
+    { sSphereCleanup.Clear(); }          // the face owns the surface, even when its making then failed
+  SER(eStat);
 
   return SM_SUCCESS;
 } // end SmPrimitiveCreation::CreateSphere
@@ -1073,11 +1080,13 @@ SmStatus SmPrimitiveCreation::CreateTorus
   SmTorus* pTorus = NULL;
   SER(SmTorus::CreateCanonical( *cpContext, rRefFrame, dMajorRadius, dMinorRadius, pTorus ));
   NER(pTorus);
-  SmObjDelete sTorusCleanup(pTorus);     // free the surface if face creation fails
+  SmObjDelete sTorusCleanup(pTorus);     // free the surface if no face is made on it
 
   SmFace* newFace = NULL;
-  SER(pBrep->CreateFaceFromSurface( (SmSurface*)pTorus, pTorus->GetNaturalUVDomain(), newFace ));
-  sTorusCleanup.Clear();                 // brep now owns the surface
+  SmStatus eStat = pBrep->CreateFaceFromSurface( (SmSurface*)pTorus, pTorus->GetNaturalUVDomain(), newFace );
+  if (newFace != NULL)
+    { sTorusCleanup.Clear(); }           // the face owns the surface, even when its making then failed
+  SER(eStat);
 
   return SM_SUCCESS;
 
@@ -4304,10 +4313,14 @@ static SmStatus sm_CreateCurvatureKeepingWalls
       SmShell  *pNewShell  = NULL;
       SmFace   *pNewFace   = NULL;
       // the loop runs clockwise in (u, v): opposite to the surface's normal
-      SER( pBrep->MakeFaceWithCurves(NULL, sLoops, &s3D, &sUV, sOrient, sNoPoints, pSurface, sDomain, SM_OT_OPPOSITE,
-                                     pNewRegion, pNewShell, pNewFace) );
+      SmStatus eStat = pBrep->MakeFaceWithCurves(NULL, sLoops, &s3D, &sUV, sOrient, sNoPoints, pSurface, sDomain,
+                                                 SM_OT_OPPOSITE, pNewRegion, pNewShell, pNewFace);
+      // a face made, even one whose making then failed, owns the surface
+      if (pNewFace != NULL)
+        { sCleanSurface.Clear(); }
+      SER( eStat );
       // the face owns them now
-      sCleanSurface.Clear(); sCleanBottom.Clear(); sCleanTop.Clear(); sCleanSeam0.Clear(); sCleanSeam1.Clear();
+      sCleanBottom.Clear(); sCleanTop.Clear(); sCleanSeam0.Clear(); sCleanSeam1.Clear();
       sCleanPcBottom.Clear(); sCleanPcTop.Clear(); sCleanPcSeam0.Clear(); sCleanPcSeam1.Clear();
       // the far end's curve, for its cap
       SmCurve *pFar = NULL;

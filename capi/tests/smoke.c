@@ -84,6 +84,13 @@ int main(void)
         CHECK(smlib_make_box(far_origins[i], far_sizes[i], &none) != SMLIB_OK && none == NULL);
     }
 
+    /* A box far smaller than the tolerance (smlib_fuzz's leak-000bffce): its top face closes up
+       on the bottom one and SMLib's test of the closed shell fails (SM_ERR, 1001) after the
+       face is made. The face keeps its plane, so freeing the failed body frees the plane too. */
+    const double tiny_origin[3] = {0x1.e3e3e2a292902p-28, 0x1.e3e3e3e3e3e3ep-28, 0x1.e3e3e3e3e3e3ep-28};
+    const double tiny_size[3] = {0x1.e3e3e3e3e3e3cp-28, 0x1.fe0f5053e3e3ep-16, 0x1.e3f3e3e3e3e3ep-28};
+    CHECK(smlib_make_box(tiny_origin, tiny_size, &none) == 1001 && none == NULL);
+
     /* One log line per call; the call in flight is visible to a crash handler. */
     smlib_set_log(on_log, NULL);
     smlib_brep *logged = NULL;
