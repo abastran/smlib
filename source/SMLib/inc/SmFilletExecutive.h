@@ -29,6 +29,8 @@
 #include <SmTrackTopologyChanges.h>
 #endif
 
+#include <vector>
+
 // GWC:BIND_TEMPLATE_MOVE   SM_TARRAY_TEMPLATE_PREDECLARATION(SmFilletErrorType) ;
 // due to UNIX problems...leave it here
 SM_TARRAY_TEMPLATE_PREDECLARATION(SmFilletErrorType) ;
@@ -227,6 +229,17 @@ protected:
   SmTArray<SmSurface*>      m_vRadiusCornerSurfaces; // SolidCraft change: copies of the fillet surfaces that turn where their radius
                                                      // has a corner, owned; their faces are split there after the merge
 
+  SmBoolean                 m_bCliffOverflow;       // SolidCraft change: TRUE = a convex blend's rail leaves its face across a cliff;
+                                                    //   the blend is built on its faces' continuations and the material it
+                                                    //   removes is subtracted from m_pTargetBrep (SubtractRemovalRegion)
+  struct SmFilletOpenEnd                            // SolidCraft change: an end of a fillet the Nx1 corner there left uncut,
+    {                                               //   its rails missing its side edges, in m_bCliffOverflow:
+      SmFilletSolver * m_pSolver;                   //   the solver of the filleted edge,
+      SmVertex       * m_pVertex;                   //   the edge's vertex at that end,
+      SmFace         * m_pEndFace;                  //   the face whose surface's continuation cuts the fillet off there
+    };
+  std::vector<SmFilletOpenEnd> m_vOpenEnds;         // SolidCraft change: the fillet's ends left uncut, in m_bCliffOverflow
+
   // gwc: Only one of m_bDoPiecewiseMerge, m_bDoTopologyInsertion, and m_bDoGlobalMerge should be TRUE in any SmFilletExecutive.
   //      They are 3 different ways to do the same thing; move m_pFilletBrep Topology and Geometry into m_pTargetBrep. 
 
@@ -404,6 +417,15 @@ public:
   SmStatus DoPiecewiseMerge          ();                                               // note: increments unlocked mark value
   SmStatus LoadFilletSolver          (SmFilletSolver * pFS);
   SmStatus FacesOutlastTheirBlends(SmBoolean & rbOutlast); // SolidCraft change: whether every face the blends roll on keeps some of itself, or is closed by blends tangent to it
+  // SolidCraft change: the cliff overflow (SmFilletCliffOverflow.cpp)
+  SmBoolean GetCliffOverflow() const { return m_bCliffOverflow; }
+  SmStatus  NoteOpenEnd(SmFilletSolver * pSolver, SmVertex * pVertex, SmFace * pEndFace); // an end the Nx1 corner left uncut
+  SmStatus  SubtractRemovalRegion();          // close m_pFilletBrep into the region the blends remove, subtract it from m_pTargetBrep
+  SmStatus  NoteUnbuiltOverflow(SmFilletErrorInfo * pOptFilletErrorInfo); // after a failure in an overflow: too large (SM_FILERR_NO_ROOM)
+private:
+  SmStatus  CutFilletAtOpenEnd(const SmFilletOpenEnd & crEnd); // cut the fillet off by the end face's surface continued
+  SmStatus  CloseRemovalRegion();             // add the faces on the target's surfaces that close m_pFilletBrep
+public:
   SmStatus NoteRadiusCornerSurfaces();        // SolidCraft change: copy fillet surfaces that turn where the radius has a corner
   SmStatus SplitFilletFacesAtRadiusCorners(); // SolidCraft change: split those fillet faces where the radius turns
   SmStatus RemoveTopoEdges           ();

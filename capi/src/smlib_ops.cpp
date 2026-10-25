@@ -230,8 +230,11 @@ bool chamfer_radius(SmEdge *e, double distance, double &radius)
 std::string g_blend_why;
 
 // The status a blend that failed with status `s` reports, its reason noted (g_blend_why): a
-// blend the executive found larger than its faces allow (SM_FILERR_NO_ROOM, a rail leaving the
-// face it rolls on) is SMLIB_ERR_NO_ROOM, any other failure `s`.
+// blend the executive found larger than its faces allow (SM_FILERR_NO_ROOM: a concave blend whose
+// rail leaves the face it rolls on, a round whose rail runs on into the body's material, a cliff
+// overflow the subtraction does not build) is SMLIB_ERR_NO_ROOM; a convex blend overflowing a
+// cliff that needs a continuation SMLib cannot make exactly (SM_FILERR_NOT_EXACT)
+// SMLIB_ERR_NOT_EXACT; any other failure `s`.
 int32_t blend_failure(SmFilletExecutive &exec, int32_t s)
 {
     SmFilletErrorInfo *e = exec.GetFilletErrorInfo();
@@ -248,7 +251,15 @@ int32_t blend_failure(SmFilletExecutive &exec, int32_t s)
     {
         g_blend_why += ascii(c, SM_TBLOCK_SIZE) + "\n";
     }
-    return e->GetErrorCode() == SM_FILERR_NO_ROOM ? SMLIB_ERR_NO_ROOM : s;
+    switch (e->GetErrorCode())
+    {
+    case SM_FILERR_NO_ROOM:
+        return SMLIB_ERR_NO_ROOM;
+    case SM_FILERR_NOT_EXACT:
+        return SMLIB_ERR_NOT_EXACT;
+    default:
+        return s;
+    }
 }
 
 // Chamfers `edges` of `b` in place, edge i with its first edgeuse's surface offset `first[i]`

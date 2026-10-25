@@ -52,9 +52,13 @@ Edges and faces are chosen by points, never by SMLib's internal order: each poin
 nearest edge (face), which must lie within the caller's tolerance and be nearer than any other
 by more than the body's modelling tolerance (`SMLIB_ERR_PICK_NONE`, `SMLIB_ERR_PICK_AMBIGUOUS`,
 with the point's index). Fillets and chamfers blend exactly the picked edges: a tangent chain
-is the caller's to select. A blend whose rail leaves the face it rolls on (past neither the
-edge's end nor a tangent edge onto the next face) is larger than the faces allow and is
-`SMLIB_ERR_NO_ROOM`; so are blends that take the whole of a face at an angle, every edge of a
+is the caller's to select. A convex blend whose rail leaves the face it rolls on (past neither
+the edge's end nor a tangent edge onto the next face) runs over a cliff: it is built on its
+faces' continuations and the material it removes is subtracted (the body blended as if the
+cliff were not there, then cut by it), which never bridges an opening. A concave one is larger
+than the faces allow and is `SMLIB_ERR_NO_ROOM`, as is a round running into a wall; see
+`smlib_fillet` in `smlib.h` for the limits (`SMLIB_ERR_NO_ROOM`, `SMLIB_ERR_NOT_EXACT`).
+Blends that take the whole of a face at an angle are `SMLIB_ERR_NO_ROOM` too, every edge of a
 loop of it blended, each rail on it a point and some blend there a chamfer (a cylinder's top rim
 chamfered as wide as the top, which would end in a cone's point). A round meets the face
 tangentially and closes it smoothly: a cylinder's top rim rounded (`smlib_fillet`,
@@ -702,17 +706,42 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   that owner, which never listed the copy; once the removal's status was passed on, every split of
   a ProtoEdge that carries an EdgeDefinition failed (an inward shell of the ladder part failed in
   its offset's self-intersection merge). The copy now starts without an owner.
-- **A blend larger than its faces is refused** (`SmFilletSolver.h`/`.cpp`, new
+- **A blend larger than its faces** (`SmFilletSolver.h`/`.cpp`, new
   `RailsFitTheirFaces`; `SmFilletExecutive.cpp`, `CreateFilletBrep`, `DoFilleting`;
   `SmFilletGeom.h`, `SM_FILERR_NO_ROOM`): once the fillet surfaces and rails are computed, each
   rail is classified against the face it rolls on (`SmFace::CurveOnClassify`). A rail nowhere on
   its face, or leaving it across an edge that is not tangent before an end of the filleted edge
   (`LeavesPastAnEnd`: past an end it leaves across the face's side edge there, the edge next to
   it in the face's loop, or a vertex of it, where the end face cuts the fillet off, or on or
-  beyond the cross section at the end, where the face goes on past it),
-  fails the fillet with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`). This replaces the earlier change that
-  merged such a fillet into the body face by face (`RailsLeaveTheirFaces`), which built a round
-  or a chamfer across the openings it ran into.
+  beyond the cross section at the end, where the face goes on past it), overflows its face. A
+  concave blend that overflows fails with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`);
+  a convex one is a cliff overflow (below). This replaces the earlier change that merged such a
+  fillet into the body face by face (`RailsLeaveTheirFaces`), which built a round or a chamfer
+  across the openings it ran into.
+- **The cliff overflow of a convex blend** (new `SmFilletCliffOverflow.cpp`:
+  `SmFilletExecutive::SubtractRemovalRegion`, `CutFilletAtOpenEnd`, `CloseRemovalRegion`;
+  `SmFilletExecutive.cpp`, `CreateFilletBrep`, `DoFilleting`, `sm_BlendAddsMaterial`;
+  `SmFilletSolver.cpp`, `RailsFitTheirFaces`, `sm_InsideMaterial`; `SmFilletCorner.cpp`,
+  `SmFilletNx1Corner::CalcCornerEdgeGeom`; `SmFilletGeom.h`, `SM_FILERR_NOT_EXACT`): a convex
+  blend (one that removes material: its edge is convex,
+  `SmFilletSolver::IsConcaveEdge`) whose rail leaves its face across a cliff is
+  built on the faces' continuations and subtracted. The rails' crossings are not rolled over
+  (`TestRollOver` is skipped); an Nx1 corner whose rails miss their side edges (or meet them
+  only clamped at the side edge's far vertex, off the fillet) leaves that end uncut, and the
+  fillet is cut there by the end face's plane (the section nearest the edge's end). The sheet of
+  fillet and corner faces is closed with a face on the surface of each target face its boundary
+  runs on, the plane continued exactly (a new plane on the same frame over a larger domain),
+  bounded by the sheet's boundary there, the blended edges and the side edges joining them
+  (continued along their lines past their ends), stitched and oriented as a solid, and
+  subtracted from the body with `SmMerge::ManifoldBoolean` (`SM_BO_DIFFERENCE`). The result is
+  the body blended as if the cliffs were not there, then cut by what the cliffs cut away (rig
+  5158 and 5181, #422, solidcraft#1080). Refused: a round whose rail runs on into the body's
+  material (beyond a wall: the knife edge it would leave under the wall, `SM_FILERR_NO_ROOM`,
+  solidcraft#3435); a needed continuation of a non-planar surface past its domain or of a side
+  edge that is not a line (`SM_FILERR_NOT_EXACT`); an overflow with a tangent rollover, a fillet
+  end on several faces or on a non-planar face, concave blends in the same call, a sheet
+  boundary that does not pass from face to face along side edges, or a variable round on planes
+  whose surface misses its law (`sm_HoldsItsLaw`): too large, `SM_FILERR_NO_ROOM`, as before.
 - **A trace that reaches its rails** (`SmFilletExecutive.cpp`, `sm_ExtendTraceToItsRails`;
   `SmFilletSolver.h`/`.cpp`, `GetDomainExtension`, `SetTraceReach`; `SmFilletStandardSolver.cpp`,
   `SmVariableRadiusFS::LoadInitialValues`): the fillet trace runs over its base surfaces' domains
@@ -973,7 +1002,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   edges. A side edge that also lies on the round's other side surface (a hole's rim split at a
   vertex) is no short edge: the round runs on along it, no end exists there, and the corner
   fails as before. A rail that misses its side edge because it left its face before the edge's
-  end (a round larger than its face) never reaches the corner: `RailsFitTheirFaces` refuses it.
+  end (a round larger than its face) is a cliff overflow (above): the corner leaves that end
+  uncut, and the end face's plane cuts it.
 - **An offset face whose loops cross is rebuilt from the stretches that bound it**
   (`SmOffsetExecutive.cpp`, `ResolveCrossingLoops`): an extended offset builds each loop of an
   offset face from its edges' offsets, trimmed only where a loop's own consecutive edges meet, so

@@ -654,10 +654,18 @@ int main()
 
     // A variable round 2 -> r1 on the top edge x = 10, z = 30 of a 10 x 20 x 30 box. The top is
     // 10 wide: up to r1 = 10 the round fits, and takes (1 - pi/4) L (a^2 + ab + b^2) / 3. Past
-    // it the contact line on the top leaves it across its far edge x = 0 before the round's end:
-    // the round is too large for the top and is refused, from either end, as is a constant R12.
+    // it the contact line on the top leaves it across its far edge x = 0 before the round's end
+    // (and past r1 = 30 the one on the side leaves it across its bottom edge): a convex round
+    // overflowing cliffs, built on the faces' continuations and subtracted from the box, from
+    // either end, as is a constant R12. The analytic volume integrates, along y, the section of
+    // the round's removal region (the r x r square at the edge less the quarter disc about the
+    // ball's centre (10 - r, 30 - r), SMLib's circular section in the planes y = const) inside
+    // the box's section [0, 10] x [0, 30] (closed form in local coordinates a, b from the disc's
+    // centre: a, b in [0, r], a^2 + b^2 >= r^2, a >= r - 10, b >= r - 30), by Gauss-Legendre in
+    // pieces split where r passes 10 and 30. SMLib's variable round sections are cubics within
+    // about 2e-5 of the radius: the variable rounds are checked to 1e-4, the constant to 1e-7.
     // (The corner without an end rib, for a short side edge, had built r1 = 20 and 30 across the
-    // top's far edge as valid bodies.)
+    // top's far edge as valid bodies; then they were refused, SMLIB_ERR_NO_ROOM.)
     {
         smlib_brep *slab = box(0, 0, 0, 10, 20, 30);
         const double edge[3] = {10, 10, 30};
@@ -671,14 +679,93 @@ int main()
             CHECK(near(6000.0 - volume_of(r), (1.0 - PI / 4.0) * 20.0 * (4.0 + 20.0 + 100.0) / 3.0, 1e-4));
             done(r);
         }
+        // the integral of sqrt(r^2 - a^2) da
+        auto disc = [](double rr, double a)
+        {
+            a = std::max(-rr, std::min(rr, a));
+            return 0.5 * (a * std::sqrt(std::max(rr * rr - a * a, 0.0)) + rr * rr * std::asin(a / rr));
+        };
+        // the removal region's section inside the box's
+        auto section = [&](double rr)
+        {
+            const double al = std::max(0.0, rr - 10.0), be = std::max(0.0, rr - 30.0);
+            if (al >= rr || be >= rr)
+            {
+                return 0.0;
+            }
+            const double top = std::max(al, std::sqrt(std::max(rr * rr - be * be, 0.0)));
+            return (rr - al) * rr - (disc(rr, top) - disc(rr, al) + be * (rr - top));
+        };
+        // 20-point Gauss-Legendre on [lo, hi]
+        auto gauss = [](double lo, double hi, const auto &f)
+        {
+            static const double x[10] = {0.0765265211334973, 0.2277858511416451, 0.3737060887154195, 0.5108670019508271,
+                                         0.6360536807265150, 0.7463319064601508, 0.8391169718222188, 0.9122344282513259,
+                                         0.9639719272779138, 0.9931285991850949};
+            static const double w[10] = {0.1527533871307258, 0.1491729864726037, 0.1420961093183820, 0.1316886384491766,
+                                         0.1181945319615184, 0.1019301198172404, 0.0832767415767048, 0.0626720483341091,
+                                         0.0406014298003869, 0.0176140071391521};
+            const double m = 0.5 * (lo + hi), h = 0.5 * (hi - lo);
+            double sum = 0.0;
+            for (int i = 0; i < 10; ++i)
+            {
+                sum += w[i] * (f(m - h * x[i]) + f(m + h * x[i]));
+            }
+            return h * sum;
+        };
+        // the volume removed by the round going linearly r0 -> r1 along y in [0, 20]
+        auto removed = [&](double r0, double r1)
+        {
+            auto at = [&](double y) { return section(r0 + (r1 - r0) * y / 20.0); };
+            std::vector<double> cuts = {0.0, 20.0};
+            for (double c : {10.0, 30.0})
+            {
+                const double y = (r1 != r0) ? 20.0 * (c - r0) / (r1 - r0) : -1.0;
+                if (y > 0.0 && y < 20.0)
+                {
+                    cuts.push_back(y);
+                }
+            }
+            std::sort(cuts.begin(), cuts.end());
+            double sum = 0.0;
+            for (size_t i = 0; i + 1 < cuts.size(); ++i)
+            {
+                // ten pieces per stretch between kinks
+                for (int k = 0; k < 10; ++k)
+                {
+                    const double lo = cuts[i] + (cuts[i + 1] - cuts[i]) * k / 10.0, hi = cuts[i] + (cuts[i + 1] - cuts[i]) * (k + 1) / 10.0;
+                    sum += gauss(lo, hi, at);
+                }
+            }
+            return sum;
+        };
         for (double r1 : {11.0, 20.0, 30.0, 50.0})
         {
             const double law[2] = {2, r1};
             const double back[2] = {r1, 2};
-            CHECK(smlib_fillet_variable(slab, edge, 0.1, from0, 1, knots, 4, law, 2, &r) == SMLIB_ERR_NO_ROOM && r == nullptr);
-            CHECK(smlib_fillet_variable(slab, edge, 0.1, from1, 1, knots, 4, back, 2, &r) == SMLIB_ERR_NO_ROOM && r == nullptr);
+            const double want = 6000.0 - removed(2.0, r1);
+            for (int from = 0; from < 2; ++from)
+            {
+                const int32_t s = from == 0 ? smlib_fillet_variable(slab, edge, 0.1, from0, 1, knots, 4, law, 2, &r)
+                                            : smlib_fillet_variable(slab, edge, 0.1, from1, 1, knots, 4, back, 2, &r);
+                if (s != SMLIB_OK || r == nullptr || !near(volume_of(r), want, 1e-4))
+                {
+                    std::fprintf(stderr, "  variable round 2 -> %g from y = %d: status %d\n", r1, from * 20, static_cast<int>(s));
+                    failures++;
+                }
+                if (r != nullptr)
+                {
+                    done(r);
+                }
+            }
         }
-        CHECK(smlib_fillet(slab, edge, 1, 0.1, 12.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        // the constant R12: 5384.17828518
+        CHECK(smlib_fillet(slab, edge, 1, 0.1, 12.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 6000.0 - removed(12.0, 12.0), 1e-7));
+            done(r);
+        }
         smlib_brep_free(slab);
     }
 
@@ -829,16 +916,112 @@ int main()
 
     // tangency-labs/solidcore#422: a plate 40 x 20 x 10 with a through hole r3 at (20, 14.5),
     // its top edge y = 20 rounded R4. The round's contact line on the top (y = 16) runs across
-    // the hole: the round is larger than the top face allows there, and is refused
-    // (SMLIB_ERR_NO_ROOM) rather than built across the hole.
+    // the hole: the round is built as if the top went on over the hole, and what it removes is
+    // subtracted, so the hole breaks into the round and nothing bridges it (rig case
+    // 324-fillet-over-hole-overlap): 8000 - 90 pi - 40 (16 - 4 pi) + the overlap counted twice,
+    // the integral over y in [16, 17.5] of (4 - sqrt(16 - (y - 16)^2)) 2 sqrt(9 - (y - 14.5)^2),
+    // 0.3758. (Then it was refused, SMLIB_ERR_NO_ROOM; before that built across the hole.)
     {
         smlib_brep *plate = box(0, 0, 0, 40, 20, 10);
         smlib_brep *bore = cylinder(20, 14.5, -1, 3, 12);
         smlib_brep *holed_plate = nullptr;
         CHECK(smlib_boolean(plate, bore, SMLIB_BOOLEAN_SUBTRACT, &holed_plate) == SMLIB_OK);
         const double edge[3] = {5, 20, 10};
-        CHECK(holed_plate != nullptr && smlib_fillet(holed_plate, edge, 1, 0.1, 4.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        CHECK(holed_plate != nullptr && smlib_fillet(holed_plate, edge, 1, 0.1, 4.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 7580.287315360674, 1e-7));
+            done(r);
+        }
         for (smlib_brep *b : {plate, bore, holed_plate})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // tangency-labs/solidcraft#1080: a cube 20 with three square openings 10 x 10 through it,
+    // 5 in from the faces; its top front edge (y = 0, z = 20) chamfered or rounded 6 or 9 runs
+    // past the 5 mm between the edge and the openings. Each is built as if the faces went on
+    // over the openings, then cut by them: the chamfer's triangle y + 20 - z <= d (the round's
+    // corner square less the quarter disc about (r, 20 - r)) along x, less its parts inside the
+    // openings (the x opening y, z in [5, 15] everywhere along x; the y and z openings z in
+    // [5, 15], y in [5, 15] for x in [5, 15]), integrated exactly (the chamfer) or as the round's
+    // section in closed form by pieces (Gauss-Legendre), from 4000 left by the openings: chamfer
+    // 6 3650, chamfer 9 3350, round 6 3846.04504440, round 9 3676.80702897. (Then they were
+    // refused, SMLIB_ERR_NO_ROOM; before that built across the openings.)
+    {
+        smlib_brep *cube = box(0, 0, 0, 20, 20, 20);
+        for (const std::array<double, 6> &o : {std::array<double, 6>{-1, 5, 5, 22, 10, 10}, std::array<double, 6>{5, -1, 5, 10, 22, 10},
+                                                std::array<double, 6>{5, 5, -1, 10, 10, 22}})
+        {
+            smlib_brep *bar = box(o[0], o[1], o[2], o[3], o[4], o[5]);
+            smlib_brep *cut = nullptr;
+            CHECK(smlib_boolean(cube, bar, SMLIB_BOOLEAN_SUBTRACT, &cut) == SMLIB_OK);
+            smlib_brep_free(cube);
+            smlib_brep_free(bar);
+            cube = cut;
+        }
+        const double edge[3] = {10, 0, 20};
+        const std::array<std::pair<double, double>, 2> chamfers = {{{6.0, 3650.0}, {9.0, 3350.0}}};
+        for (const auto &c : chamfers)
+        {
+            CHECK(smlib_chamfer(cube, edge, 1, 0.1, c.first, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), c.second, 1e-7));
+                done(r);
+            }
+        }
+        const std::array<std::pair<double, double>, 2> rounds = {{{6.0, 3846.0450444039}, {9.0, 3676.8070289689}}};
+        for (const auto &c : rounds)
+        {
+            CHECK(smlib_fillet(cube, edge, 1, 0.1, c.first, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), c.second, 1e-6));
+                done(r);
+            }
+        }
+        smlib_brep_free(cube);
+    }
+
+    // tangency-labs/solidcraft#3435: a cylinder r7 h48.2 with a boss r2.7 on its top, its top rim
+    // rounded 6.9: the round's contact line on the top (r = 0.1) lies under the boss, inside the
+    // body's material. Built and cut, the round would meet the boss's underside tangentially,
+    // in a knife edge: refused (SMLIB_ERR_NO_ROOM).
+    {
+        smlib_brep *can = cylinder(0, 0, 0, 7, 48.2);
+        smlib_brep *boss = cylinder(0, 0, 48.2, 2.7, 2);
+        smlib_brep *bossed = nullptr;
+        CHECK(smlib_boolean(can, boss, SMLIB_BOOLEAN_UNION, &bossed) == SMLIB_OK);
+        const double at = 100.0 * PI / 180.0;
+        const double rim[3] = {7.0 * std::cos(at), 7.0 * std::sin(at), 48.2};
+        CHECK(bossed != nullptr && smlib_fillet(bossed, rim, 1, 0.1, 6.9, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        for (smlib_brep *b : {can, boss, bossed})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // A concave round that overflows stays refused: an L of a floor 20 x 20 x 2 and a wall 2
+    // thick and 10 high along x = 0, its inner edge (x = 2, z = 2) rounded 9: the contact line on
+    // the wall (z = 11) leaves it across its top. A round that adds material, built past the
+    // wall, would fill across what lies beyond it (SMLIB_ERR_NO_ROOM). R6 fits: the floor's
+    // 800 and the wall's 2 x 8 x 20 above it, and the round's fill (1 - pi/4) 6^2 along 20.
+    {
+        smlib_brep *floor = box(0, 0, 0, 20, 20, 2);
+        smlib_brep *wall = box(0, 0, 0, 2, 20, 10);
+        smlib_brep *l = nullptr;
+        CHECK(smlib_boolean(floor, wall, SMLIB_BOOLEAN_UNION, &l) == SMLIB_OK);
+        const double inner[3] = {2, 10, 2};
+        CHECK(l != nullptr && smlib_fillet(l, inner, 1, 0.1, 6.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 800.0 + 320.0 + (1.0 - PI / 4.0) * 36.0 * 20.0, 1e-6));
+            done(r);
+        }
+        CHECK(l != nullptr && smlib_fillet(l, inner, 1, 0.1, 9.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        for (smlib_brep *b : {floor, wall, l})
         {
             smlib_brep_free(b);
         }

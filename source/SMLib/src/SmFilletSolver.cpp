@@ -6127,27 +6127,106 @@ SmVector2d SmFilletSolver::GetDomainExtension
 } // end SmFilletSolver::GetDomainExtension
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. Whether an edge is concave: the body's material
+    wedge between its two faces spans more than a half turn there (a wall's
+    foot, an inner corner), rather than less (a cliff's rim, an outer edge).
+
+NOTES: SmEdgeuse::IsConvexRadialSector tells whether the sector between an
+    edgeuse's face and its radial partner's spans more than a half turn; of
+    the edge's loop edgeuses, one on the material side (its shell's region
+    not void) is asked. A tangent edge spans a half turn and is not concave.
+    An edge with no loop edgeuse on the material side is an error.
+***********************************************************************/
+SmStatus SmFilletSolver::IsConcaveEdge
+  (const SmEdge & crEdge,      // in : the edge
+   SmBoolean    & rbConcave)   // out: TRUE = the material wedge spans more than a half turn
+{
+  rbConcave = FALSE;
+  SmTArray<SmEdgeuse*> sUses;
+  SER( crEdge.GetEdgeuses( sUses ));
+  for (ULONG i=0; i<sUses.GetSize(); i++)
+    {
+      SmEdgeuse * pUse = sUses[i];
+      if ( pUse == NULL || !pUse->IsLoopEdgeuse() )
+        { continue; }
+      SmShell * pShell = pUse->GetShell();
+      if ( pShell == NULL || pShell->GetRegion() == NULL || pShell->GetRegion()->IsVoid() )
+        { continue; }
+      rbConcave = pUse->IsConvexRadialSector( 10 );
+      return SM_SUCCESS;
+    }
+  SER( SM_ERR );
+  return SM_ERR;
+} // end SmFilletSolver::IsConcaveEdge
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. Whether a rail that leaves the face it rolls on
+    near crPoint runs on into the body's material: beyond a wall, the face's
+    continuation lies inside the body.
+
+NOTES: For RailsFitTheirFaces. Judged by the face's boundary edge nearest
+    crPoint (the one the rail crosses, or for a rail nowhere on its face the
+    nearest it lies beyond): concave (a wall's foot) or not (a cliff's rim).
+***********************************************************************/
+static SmStatus sm_InsideMaterial
+  (const SmFace    & crFace,      // in : the face the rail rolls on
+   const SmPoint3d & crPoint,     // in : a point of the rail beyond that face, or on its boundary
+   SmBoolean       & rbInside)    // out: TRUE = the rail runs on into the material
+{
+  rbInside = FALSE;
+  SmTArray<SmEdge*> sEdges;
+  crFace.GetEdges( sEdges );
+  const SmEdge * pNearest = NULL;
+  double         dNearest = SM_BIG_DOUBLE;
+  for (ULONG i=0; i<sEdges.GetSize(); i++)
+    {
+      const SmCurve * pCurve = sEdges[i]->GetCurve();
+      if ( pCurve == NULL )
+        { continue; }
+      SmBoolean bDropped = FALSE;
+      double    dParam = 0.0, dDist = SM_BIG_DOUBLE;
+      SER( pCurve->DropPoint( sEdges[i]->GetInterval(), crPoint, NULL, SM_BIG_DOUBLE, NULL, bDropped, dParam, dDist ));
+      if ( bDropped && dDist < dNearest )
+        {
+          dNearest = dDist;
+          pNearest = sEdges[i];
+        }
+    }
+  NER(pNearest);
+  SER( SmFilletSolver::IsConcaveEdge( *pNearest, rbInside ));
+  return SM_SUCCESS;
+} // end sm_InsideMaterial
+
+/*******************************************************************//**
 PURPOSE: SolidCraft change. Whether every rail of this solver's fillet stays on the face it
     rolls on, so that the blend fits.
 
 NOTES: Each rail, untrimmed (CalcFilletGeom made it), is classified against its face with
     SmFace::CurveOnClassify. It may run off the face past the filleted edge's ends
-    (LeavesPastAnEnd; the corner trims it there), and off across a tangent side edge (a rollover onto the next face, which TestRollOver
-    processes). A rail that is nowhere on its face, or that leaves it between its ends across
-    an edge that is not tangent (a wall, the rim of an opening), means the blend is larger
-    than the faces allow: rbFit is FALSE. Touching or running along the face's boundary is on
-    the face.
+    (LeavesPastAnEnd; the corner trims it there), and off across a tangent side edge (a
+    rollover onto the next face, which TestRollOver processes; rbRollsOver is TRUE then). A
+    rail that is nowhere on its face, or that leaves it between its ends across an edge that
+    is not tangent (a cliff: an opening's rim, the body's outline; or a wall), means the
+    blend is larger than the faces: rbFit is FALSE. rbIntoMaterial tells which: TRUE when such
+    a rail runs on inside the body's material (beyond a wall, the face's continuation lies
+    inside the body): the edge it leaves across is concave (IsConcaveEdge), or for a rail
+    nowhere on its face the face's edge nearest its point nearest the edge's middle.
+    Touching or running along the face's boundary is on the face.
 ***********************************************************************/
 SmStatus SmFilletSolver::RailsFitTheirFaces
-  (SmBoolean & rbFit) // out: FALSE = a rail leaves its face
+  (SmBoolean & rbFit,           // out: FALSE = a rail leaves its face
+   SmBoolean & rbRollsOver,     // out: TRUE  = a rail rolls over a tangent edge onto the next face
+   SmBoolean & rbIntoMaterial)  // out: TRUE  = a rail that leaves its face runs on inside the body
 {
   rbFit = TRUE;
-  for (ULONG k=0; k<m_vFilletGeoms.GetSize() && rbFit; k++)
+  rbRollsOver = FALSE;
+  rbIntoMaterial = FALSE;
+  for (ULONG k=0; k<m_vFilletGeoms.GetSize(); k++)
     {
       SmFilletGeom * pFG = m_vFilletGeoms[k];
       if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
         { continue; }
-      for (ULONG ii=0; ii<2 && rbFit; ii++)
+      for (ULONG ii=0; ii<2; ii++)
         {
           SmFilletEdge * pRail = pFG->GetRail(ii);                 NER(pRail);
           SmCurve      * pCurve = pRail->GetCurve();               NER(pCurve);
@@ -6168,22 +6247,55 @@ SmStatus SmFilletSolver::RailsFitTheirFaces
                 }
               // Where the rail leaves the face: the first interval ends there, the others start.
               const SmPointClassification & rLeave = (j == 0) ? rIvl.m_vEnd : rIvl.m_vStart;
+              const double dLeave = (j == 0) ? rIvl.GetMax() : rIvl.GetMin();
               if (j == 0 || j+1 == lNumIvls)
                 {
                   // The rail beyond the face from there to its end: past an end of the
                   // filleted edge, where a corner trims it, only if it leaves the face there.
                   SmBoolean bPastAnEnd = FALSE;
-                  SER( LeavesPastAnEnd( *pFace, *pCurve, (j == 0) ? rIvl.GetMax() : rIvl.GetMin(), rLeave, bPastAnEnd ));
+                  SER( LeavesPastAnEnd( *pFace, *pCurve, dLeave, rLeave, bPastAnEnd ));
                   if (bPastAnEnd)
                     { continue; }
                 }
               SmEdge * pSide = (rLeave.GetPointClass() == SM_PC_EDGE) ? (SmEdge*)rLeave.GetObject() : NULL;
               SmBoolean bOppositeNormals = FALSE;
-              if (pSide == NULL || !sm_TestManifoldTangentRollover(pSide, bOppositeNormals, m_dTangencyTolerance, 0))
-                { rbFit = FALSE; }
+              if (pSide != NULL && sm_TestManifoldTangentRollover(pSide, bOppositeNormals, m_dTangencyTolerance, 0))
+                {
+                  rbRollsOver = TRUE;
+                  continue;
+                }
+              rbFit = FALSE;
+              // the edge it leaves across (or the face's edge nearest where it leaves)
+              SmBoolean bInside = FALSE;
+              if ( pSide != NULL )
+                { SER( IsConcaveEdge( *pSide, bInside )); }
+              else
+                {
+                  SmPoint3d sLeave;
+                  SER( pCurve->EvaluatePoint( dLeave, sLeave ));
+                  SER( sm_InsideMaterial( *pFace, sLeave, bInside ));
+                }
+              if (bInside)
+                { rbIntoMaterial = TRUE; }
             }
           if (!bOnFace)
-            { rbFit = FALSE; }
+            {
+              rbFit = FALSE;
+              // the rail's point nearest the middle of the filleted edge
+              SmEdge * pFilEdge = GetEdgeuse(0)->GetEdge();                   NER(pFilEdge);
+              SmPoint3d sMid, sOnRail;
+              SER( pFilEdge->GetCurve()->EvaluatePoint( pFilEdge->GetInterval().Evaluate( 0.5 ), sMid ));
+              SmBoolean bDropped = FALSE;
+              double dParam = 0.0, dDist = 0.0;
+              SER( pCurve->DropPoint( pCurve->GetNaturalInterval(), sMid, NULL, SM_BIG_DOUBLE, NULL, bDropped, dParam, dDist ));
+              if (!bDropped)
+                { SER( SM_ERR ); }
+              SER( pCurve->EvaluatePoint( dParam, sOnRail ));
+              SmBoolean bInside = FALSE;
+              SER( sm_InsideMaterial( *pFace, sOnRail, bInside ));
+              if (bInside)
+                { rbIntoMaterial = TRUE; }
+            }
         }
     }
   return SM_SUCCESS;

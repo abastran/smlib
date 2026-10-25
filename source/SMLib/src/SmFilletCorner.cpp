@@ -6010,9 +6010,9 @@ NOTES: At a corner of uniform convexity and at most three edges, the one
   corner edge is the end rib: where the fillet meets the end face between
   the two side edges, from one rail's end on its side edge to the other's
   (MakeCornerTopology). Each rail stays on its face, or rolls over a
-  tangent edge, up to the fillet's ends: a fillet whose rail leaves its
-  face beside the edge is too large for its faces and was refused
-  (SmFilletSolver::RailsFitTheirFaces, LeavesPastAnEnd). A rail can
+  tangent edge, up to the fillet's ends, unless it overflows a cliff
+  beside the edge (SmFilletSolver::RailsFitTheirFaces, LeavesPastAnEnd:
+  a concave fillet is refused then, a convex one a cliff overflow). A rail can
   still miss its side edge (SM_FV_NO_INT_RAIL_EU), two ways:
   - The side edge ends within the fillet's width (a top round's end arc
     shortened by another round): the rail runs past the end face onto the
@@ -6025,6 +6025,12 @@ NOTES: At a corner of uniform convexity and at most three edges, the one
     fillet's own two surfaces, the rail runs alongside it and the fillet
     runs on past the vertex, crossing no end face. No end exists there,
     and the end rib fails as before.
+  In a cliff overflow (SmFilletExecutive::m_bCliffOverflow) the fillet's
+  faces continue past their cliffs, and so does the end face: a rail that
+  misses its side edge there (either rail, or both), but for the second
+  way, runs past the side edge's far end on its face's continuation. The
+  end rib is left out then and the fillet uncut there; the executive cuts
+  it off by the end face's surface continued (SubtractRemovalRegion).
 ***********************************************************************/
 SmStatus SmFilletNx1Corner::CalcCornerEdgeGeom
   ()
@@ -6042,6 +6048,35 @@ SmStatus SmFilletNx1Corner::CalcCornerEdgeGeom
                                   : (   ( pEndFV->GetStatus() == SM_FV_NO_INT_RAIL_EU && pStartFV->IsProcessed() )
                                       ? pEndFV
                                       : NULL );
+      // SolidCraft change: in a cliff overflow a rail can miss its side edge with the
+      // intersection clamped to the side edge's far vertex, off the fillet: that is a miss too;
+      // and both rails can miss.
+      SmBoolean abMiss[2] = { pStartFV->GetStatus() == SM_FV_NO_INT_RAIL_EU, pEndFV->GetStatus() == SM_FV_NO_INT_RAIL_EU };
+      if ( m_pExecutive->GetCliffOverflow() )
+        {
+          SmFilletEdgeuse * pRibEU = (SmFilletEdgeuse*)pEndRib->GetPrimaryEdgeuse();
+          SmFilletGeom    * pRibFG = ( pRibEU != NULL ) ? pRibEU->GetFilletGeom() : NULL;
+          SmSurface       * pFilletSurface = ( pRibFG != NULL ) ? pRibFG->GetFilletSurface() : NULL;
+          NER(pFilletSurface);
+          SmFilletVertex * apFV[2] = { pStartFV, pEndFV };
+          for (ULONG kk=0; kk<2; kk++)
+            {
+              if ( abMiss[kk] || !apFV[kk]->IsProcessed() )
+                { continue; }
+              SmBoolean bDropped = FALSE, bMulti = FALSE;
+              SmPoint2d sUV;
+              double    dGap = SM_BIG_DOUBLE;
+              SER( pFilletSurface->DropPoint( apFV[kk]->GetPoint(), pFilletSurface->GetNaturalUVDomain(), NULL, bDropped, sUV, dGap, bMulti ));
+              if ( !bDropped || dGap > 10.0 * m_dThisApproxTol3d )
+                {
+                  abMiss[kk] = TRUE;
+                  apFV[kk]->SetStatus( SM_FV_NO_INT_RAIL_EU );  // its rail is not trimmed there
+                }
+            }
+          if ( abMiss[0] || abMiss[1] )
+            { pMissFV = abMiss[0] ? pStartFV : pEndFV; }
+        }
+      SmBoolean bBothMiss = m_pExecutive->GetCliffOverflow() && abMiss[0] && abMiss[1];
       if ( pMissFV != NULL && pMissFV->GetPointClass() == SM_PC_EDGEUSE )
         {
           // The side edge the rail missed, and the fillet's side face it does not bound.
@@ -6066,7 +6101,22 @@ SmStatus SmFilletNx1Corner::CalcCornerEdgeGeom
                                                         m_dThisApproxTol3d,
                                                         bRunsOn,
                                                         sSolution ) );
-          if ( ! bRunsOn )
+          if ( ! bRunsOn && m_pExecutive->GetCliffOverflow() )
+            {
+              // The end face: the side edge's face that is neither of the fillet's side faces.
+              SmFace * pEndFace = ( pSideFaces[0] == pOtherFace || pSideFaces[0] == pFilEdgeuse->GetFace()
+                                    || pSideFaces[0] == pFilEdgeuse->GetRadial()->GetFace() )
+                                  ? pSideFaces[1] : pSideFaces[0];
+              if (   pEndFace == pFilEdgeuse->GetFace()
+                  || pEndFace == pFilEdgeuse->GetRadial()->GetFace() )
+                { SER( SM_ERR ); }
+              SmFilletSolver * pFilSolver = GetFilletExecutive()->GetFilletSolverOfEdgeuse( pFilEdgeuse );
+              NER(pFilSolver);
+              SER( m_pExecutive->NoteOpenEnd( pFilSolver, SM_CONST_CAST(SmVertex*, m_cpVertex), pEndFace ));
+              SER( pEndRib->GetBrep()->DeleteEdge( pEndRib ) );
+              m_vEdges.ReSet();
+            }
+          else if ( ! bRunsOn && ! bBothMiss )
             {
               m_pExecutive->SetDoGlobalMerge( TRUE );
               SER( pEndRib->GetBrep()->DeleteEdge( pEndRib ) );

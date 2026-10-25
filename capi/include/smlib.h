@@ -559,10 +559,21 @@ int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
 /* A new body: `brep` with exactly the selected edges rounded at constant `radius` (> 0) by a
  * circular cross-section; an edge that continues one of them tangentially is rounded only if it
  * is selected too (a caller that wants a whole tangent chain selects it). A blend whose contact
- * line (rail) would leave the face it rolls on, other than past the face's end or across a
- * tangent edge onto the next face, is larger than the faces allow: SMLIB_ERR_NO_ROOM, nothing
- * built. So are blends that take the whole of a face at an angle: every edge of a loop of it
- * blended, each blend's rail on it a point, some blend there a chamfer (a cylinder's top rim
+ * line (rail) leaves the face it rolls on, other than past the face's end or across a tangent
+ * edge onto the next face, runs over a cliff (an opening's rim, the body's outline) or into a
+ * wall. A convex blend (one that removes material) is then built as if its faces (and its end
+ * faces) went on past the cliffs, and the material it removes is subtracted: the body blended
+ * as if the cliffs were not there, then cut by what they cut away, so a blend never bridges an
+ * opening. Refused: a concave blend (one that adds material) that overflows, and a round whose
+ * rail runs on into the body's material (beyond a wall, where it would meet the wall's
+ * underside in a knife edge), and an overflow the subtraction does not build (with a rail
+ * rolling over a tangent edge too, a fillet end on more than one face or on a face that is not
+ * planar, concave blends in the same call, a variable round whose surface traced on the
+ * continued faces misses its law), SMLIB_ERR_NO_ROOM; an overflow that needs a face's surface
+ * other than a plane continued past its domain, or a side edge other than a line continued past
+ * its end, SMLIB_ERR_NOT_EXACT. Blends that take the whole of a face at an angle are SMLIB_ERR_NO_ROOM
+ * too: every edge of a loop of it blended, each blend's rail on it a point, some blend there a
+ * chamfer (a cylinder's top rim
  * chamfered as wide as the top, which would end in a cone's point). A round meets the face
  * tangentially at its rail and closes it smoothly: a cylinder's top rim rounded as wide as the
  * top is a hemispherical end. The same holds for every blend below (the curvature blend and the

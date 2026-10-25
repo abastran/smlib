@@ -64,6 +64,7 @@ endif()
 # written (void) with its reason. On clang a new dropped status in them fails the build.
 set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmFilletExecutive.cpp
+  ${SRC}/SMLib/src/SmFilletCliffOverflow.cpp
   ${SRC}/SMLib/src/SmFilletGeom.cpp
   ${SRC}/SMLib/src/SmFilletSolver.cpp
   ${SRC}/SMLib/src/SmFilletCorner.cpp

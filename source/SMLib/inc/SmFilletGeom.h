@@ -61,7 +61,8 @@ enum SmFilletErrorType
   SM_FILERR_BAD_INT,
   SM_FILERR_BAD_TRIM,
   SM_FILERR_BAD_MERGE,
-  SM_FILERR_NO_ROOM            // SolidCraft change: a rail leaves the face it rolls on, or the blends take the whole of a face, some meeting it at an angle (the blend is larger than the faces allow)
+  SM_FILERR_NO_ROOM,           // SolidCraft change: a rail leaves the face it rolls on, or the blends take the whole of a face, some meeting it at an angle (the blend is larger than the faces allow)
+  SM_FILERR_NOT_EXACT          // SolidCraft change: a cliff overflow needs a continuation of a face or an edge that cannot be made exactly
         // 6 - (Add more as needed)
         // 0 - Unknown
         // 1 - Rail/Rail Intersection

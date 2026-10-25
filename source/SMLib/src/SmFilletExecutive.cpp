@@ -497,6 +497,7 @@ SmFilletExecutive::SmFilletExecutive
    m_crContext(crContext),
    m_pTargetBrep(pTargetBrep),
    m_pFilletBrep(NULL),
+   m_bCliffOverflow(FALSE),
    m_bDoPiecewiseMerge(FALSE),
    m_bDoTopologyInsertion(TRUE),
    m_bDoGlobalMerge(FALSE),
@@ -777,6 +778,8 @@ SmStatus SmFilletExecutive::SetFilletParameters
   m_bDoGlobalMerge       = FALSE;
   m_bDoTrimming          = TRUE;
   m_bDoClassification    = TRUE;
+  m_bCliffOverflow       = FALSE; // SolidCraft change
+  m_vOpenEnds.clear();
 
   ULONG lNumFilletedEdges = rEdgePtrs.GetSize();
   if ( lNumFilletedEdges < 1 ) { return SM_SUCCESS; }
@@ -945,6 +948,8 @@ SmStatus SmFilletExecutive::SetFilletParameters
   m_bDoGlobalMerge       = FALSE;
   m_bDoTrimming          = TRUE;
   m_bDoClassification    = TRUE;
+  m_bCliffOverflow       = FALSE; // SolidCraft change
+  m_vOpenEnds.clear();
 
   ULONG lNumFilletedEdges = rEdgePtrs.GetSize();
   if ( lNumFilletedEdges < 1 ) { return SM_SUCCESS; }
@@ -1661,6 +1666,28 @@ SmStatus SmFilletExecutive::DoFillet()
   return SM_SUCCESS;
 
 } // end SmFilletExecutive::DoFillet
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. Whether a solver's blend adds material (a
+   concave blend, filling the void between its faces) rather than removing
+   it (a convex one).
+
+NOTES: For CreateFilletBrep. A blend goes into the sector between its two
+   faces where its ball rolls: a convex edge's (an outer edge's) material
+   wedge, which it cuts away, or a concave edge's void, which it fills
+   (SmFilletSolver::IsConcaveEdge). Not by classifying a point against the
+   body: mid-fillet that crashed in its ray fire (prog_test's fillet
+   regression, box_extrusion1.smb).
+***********************************************************************/
+static SmStatus sm_BlendAddsMaterial
+ (SmFilletSolver * pFS,      // in : the solver
+  SmBoolean      & rbAdds)   // out: TRUE = the blend fills the void between its faces
+{
+  SmEdge * pEdge = pFS->GetEdgeuse(0)->GetEdge();                     NER(pEdge);
+  SER( SmFilletSolver::IsConcaveEdge( *pEdge, rbAdds ));
+  return SM_SUCCESS;
+
+} // end sm_BlendAddsMaterial
 
 /*******************************************************************//**
 PURPOSE: SolidCraft change. Let a solver's trace reach as far as its rails
@@ -2716,17 +2743,53 @@ SmStatus SmFilletExecutive::CreateFilletBrep
   // For example, new fillet vertices that are supposed to lie in a face
   // of the target Brep might lie outside of the face.
 
-  // SolidCraft change: a blend whose rails leave the faces they roll on is larger than those
-  // faces allow, and is refused here rather than built across what lies beyond them.
+  // SolidCraft change: a blend whose rails leave the faces they roll on between its ends is
+  // larger than those faces. A convex blend (one that removes material) whose rails leave them
+  // across cliffs is built on the faces' continuations, and the material it removes is
+  // subtracted from the body (m_bCliffOverflow, SubtractRemovalRegion): as if the cliffs were
+  // not there, then cut by what they cut away, which can only remove material and never
+  // bridges an opening. Refused: a concave blend (one that adds material) that overflows; a
+  // round or curvature-continuous blend whose rail runs on into the body's material (beyond a
+  // wall, where it would meet the wall's underside tangentially, in a knife edge); and an
+  // overflow together with a rail rolling over a tangent edge, or with a fillet end on more
+  // than one face (a corner of more than three edges, which the global merge would cut).
+  SmBoolean bOverflow = FALSE, bConcave = FALSE, bConcaveOverflow = FALSE, bRoundIntoMaterial = FALSE, bRollsOver = FALSE;
   for(solverIdx=0; solverIdx<m_vFilletSolvers.GetSize(); solverIdx++)
     {
-      SmBoolean bFit = TRUE;
-      SER( m_vFilletSolvers[solverIdx]->RailsFitTheirFaces( bFit ));
-      if ( !bFit )
+      SmFilletSolver * pFilSolver = m_vFilletSolvers[solverIdx];
+      SmBoolean bFit = TRUE, bRolls = FALSE, bIntoMaterial = FALSE;
+      SER( pFilSolver->RailsFitTheirFaces( bFit, bRolls, bIntoMaterial ));
+      if ( bRolls )
+        { bRollsOver = TRUE; }
+      if ( bFit )
+        { continue; }
+      bOverflow = TRUE;
+      SmBoolean bAdds = FALSE;
+      SER( sm_BlendAddsMaterial( pFilSolver, bAdds ));
+      if ( bAdds )
+        { bConcaveOverflow = TRUE; }
+      SmFilletSurfaceGenerator * pFSG = pFilSolver->GetFilletSurfaceGenerator();
+      if ( bIntoMaterial && ( pFSG == NULL || pFSG->GetFilletSurfaceGeneratorType() != SM_FSG_LINEAR ))
+        { bRoundIntoMaterial = TRUE; }
+    }
+  // whether the other blends add material (concave), when one overflows
+  for(solverIdx=0; solverIdx<m_vFilletSolvers.GetSize() && bOverflow && !bConcaveOverflow && !bConcave; solverIdx++)
+    { SER( sm_BlendAddsMaterial( m_vFilletSolvers[solverIdx], bConcave )); }
+  if ( bOverflow )
+    {
+      // too large for its faces, or an overflow the subtraction does not build: as before, too large
+      const TCHAR * cWhy = bConcaveOverflow   ? _T("Fillet Error: a rail leaves the face it rolls on (the blend is larger than the faces allow, and adds material)")
+                         : bRoundIntoMaterial ? _T("Fillet Error: a round's rail leaves the face it rolls on into the body's material (beyond a wall)")
+                         : bConcave           ? _T("Fillet Error: a rail leaves the face it rolls on while another blend adds material (not supported together)")
+                         : bRollsOver         ? _T("Fillet Error: a rail leaves the face it rolls on while a rail rolls over a tangent edge (not supported together)")
+                         : m_bDoGlobalMerge   ? _T("Fillet Error: a rail leaves the face it rolls on, and the fillet ends on more than one face (not supported together)")
+                         :                      NULL;
+      if ( cWhy != NULL )
         {
-          GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: a rail leaves the face it rolls on (the blend is larger than the faces allow)") );
+          GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, cWhy );
           return SM_ERR;
         }
+      m_bCliffOverflow = TRUE;
     }
   // SolidCraft change: blends that take the whole of a face, closing a loop of it to a point,
   // some meeting the face at an angle (a chamfer's cone ending in a point), are larger than
@@ -2877,7 +2940,9 @@ SmStatus SmFilletExecutive::CreateFilletBrep
   // when asked - intersect every rail curve with its originalFace->boundary
   // Edges and Vertices to find if the rail curve 'rolled' over onto another
   // surface.  If so adjust the fillets as needed to roll onto other surfaces.
-  if ( m_bDoClassification )
+  // SolidCraft change: not in a cliff overflow, which rolls over no tangent edge (refused
+  // above) and whose rails run on past the cliffs, on their faces' continuations.
+  if ( m_bDoClassification && !m_bCliffOverflow )
     {
       SmTArray<SmFilletCorner*> sAdjustedCorners; 
 
@@ -3497,6 +3562,9 @@ SmStatus SmFilletExecutive::DoFilleting
       // Note, do not NoteFilletError here, that has presumably
       // been done, at a point where they knew more about it
       // than we do here.
+      // SolidCraft change: but a cliff overflow that cannot be built is too large for its faces
+      // (as it was before the overflow was built at all), unless a continuation was not exact.
+      SER( NoteUnbuiltOverflow( pOptFilletErrorInfo ));
       FILEXEC_ERR(_T("Error Creating Fillet Brep"));
     }
 
@@ -3618,6 +3686,22 @@ SmBoolean bDebugMe = FALSE ;
   SER( NoteRadiusCornerSurfaces() );
 
   SmTemporaryChangeValue<SmBoolean> sChange(m_pTargetBrep->m_bEditingEnabled,TRUE);
+
+  // SolidCraft change: a cliff overflow closes the fillet faces into the region the blends
+  // remove and subtracts it from the target, instead of merging the fillet faces in.
+  if ( m_bCliffOverflow )
+    {
+      if ( SubtractRemovalRegion() != SM_SUCCESS )
+        {
+          SER( NoteUnbuiltOverflow( pOptFilletErrorInfo ));
+          SER( SM_ERR );
+        }
+      if ( pOptFilletErrorInfo != NULL )
+        {
+          *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
+        }
+      return SM_SUCCESS;
+    }
 
   // load SmMerge state parameters
 
