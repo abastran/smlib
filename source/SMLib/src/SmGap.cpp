@@ -70,8 +70,8 @@ SmBoolean SmGap::operator==    // rtn: TRUE when two gaps are the same
   SmScaledZero sScaledZero = SmTol::GetScaledZero(m_dGap3d) ;
 
   // get gap objects
-  GetTopoObjects(pThisObj1,  pThisObj2) ;
-  GetTopoObjects(pOtherObj1, pOtherObj2) ;
+  if ( GetTopoObjects(pThisObj1,  pThisObj2)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: gaps whose objects cannot be read are not shown the same
+  if ( GetTopoObjects(pOtherObj1, pOtherObj2)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: gaps whose objects cannot be read are not shown the same
 
   // calc and return if two gaps are equivalent
   return (   pThisObj1 == pOtherObj1
@@ -162,14 +162,14 @@ SmStatus SmGap::GetGapEndPoints
                                        }
   // Point = Edge0->Curve(T0)
   if(dEdgeT0 != SM_UNDEF_DOUBLE)       { SM_ASSERT_MSG(pEdge0 != NULL, _T("GetGapEndPoints(): Fetched a EdgeT0 value without an Edge0")) ; 
-                                         pEdge0->GetCurve()->EvaluatePoint(dEdgeT0, *pTarget) ;
+                                         SER( pEdge0->GetCurve()->EvaluatePoint(dEdgeT0, *pTarget)  );
                                          pTarget = &rPoint2 ;
                                          lCnt++ ;
                                        }
 
   // Point = Edge1->Curve(T1)
   if(dEdgeT1 != SM_UNDEF_DOUBLE)       { SM_ASSERT_MSG(pEdge1 != NULL, _T("GetGapEndPoints(): Fetched a EdgeT1 value without an Edge1")) ; 
-                                         pEdge1->GetCurve()->EvaluatePoint(dEdgeT1, *pTarget) ;
+                                         SER( pEdge1->GetCurve()->EvaluatePoint(dEdgeT1, *pTarget)  );
                                          pTarget = &rPoint2 ;
                                          lCnt++ ;
                                        }
@@ -179,10 +179,10 @@ SmStatus SmGap::GetGapEndPoints
                                          SmPoint3d        sPtUV ;
                                          SmSurface      * pSurface     = pFace ? pFace->GetSurface() : NULL ;
                                          SmBSplineCurve * pUVTrimCurve = NULL ;
-                                         pEdgeuse0->GetOrCreateUVTrimCurve(pUVTrimCurve) ;
-                                         if(pUVTrimCurve) { pUVTrimCurve->EvaluatePoint(dUVTrimCurveT, sPtUV) ; }
+                                         SER( pEdgeuse0->GetOrCreateUVTrimCurve(pUVTrimCurve)  );
+                                         if(pUVTrimCurve) { SER( pUVTrimCurve->EvaluatePoint(dUVTrimCurveT, sPtUV)  ); }
                                          if(pSurface)     { SmPoint2d sUV(sPtUV.x, sPtUV.y) ;
-                                                            pSurface->EvaluatePoint(sUV, *pTarget) ;
+                                                            SER( pSurface->EvaluatePoint(sUV, *pTarget)  );
                                                             pTarget = &rPoint2 ; 
                                                           }
                                          lCnt++ ;
@@ -193,7 +193,7 @@ SmStatus SmGap::GetGapEndPoints
   //       return both dUVTrimCurveT and sFaceUV values 
   //       - only evaluate one
   else if(sFaceUV.IsInitialized())     { SM_ASSERT_MSG(pFace != NULL, _T("GetGapEndPoints(): Fetched a FaceUV value without a Face")) ;
-                                         pFace->GetSurface()->EvaluatePoint(sFaceUV, *pTarget) ; 
+                                         SER( pFace->GetSurface()->EvaluatePoint(sFaceUV, *pTarget)  ); 
                                          pTarget = &rPoint2 ;
                                          lCnt++ ;
                                        }
@@ -601,7 +601,7 @@ SmDisplayList * SmGap::DrawNeighbors
   if(!pEdge0 && pEdgeuse0) 
                 { SmSurface      * pSurface = pEdgeuse0->GetFace() ? pEdgeuse0->GetFace()->GetSurface() : NULL ;
                   SmBSplineCurve * pUVTrimCurve ;
-                  pEdgeuse0->GetOrCreateUVTrimCurve(pUVTrimCurve) ;
+                  (void)pEdgeuse0->GetOrCreateUVTrimCurve(pUVTrimCurve) ; // SolidCraft: drawing only
                   if(pUVTrimCurve && pSurface)
                     { SmCrvOnSurf sCrvOnSurf(*pUVTrimCurve, *pSurface) ;
                       sCrvOnSurf.Draw(NULL, FALSE, NULL, pOptGfxSet) ;
@@ -610,7 +610,7 @@ SmDisplayList * SmGap::DrawNeighbors
   if(!pEdge1 && pEdgeuse1) 
                 { SmSurface      * pSurface = pEdgeuse1->GetFace() ? pEdgeuse1->GetFace()->GetSurface() : NULL ;
                  SmBSplineCurve * pUVTrimCurve ;
-                  pEdgeuse1->GetOrCreateUVTrimCurve(pUVTrimCurve) ;
+                  (void)pEdgeuse1->GetOrCreateUVTrimCurve(pUVTrimCurve) ; // SolidCraft: drawing only
                  if(pUVTrimCurve && pSurface)
                    { SmCrvOnSurf sCrvOnSurf(*pUVTrimCurve, *pSurface) ;
                      sCrvOnSurf.Draw(NULL, FALSE, NULL, pOptGfxSet) ;
@@ -701,7 +701,7 @@ SmPoint2d     SmVertexFaceTrimCurveGap::GetFaceUV()    const { if(   m_pVertexus
                                                                   && m_pVertexuse->GetEdgeuse()
                                                                   && m_pVertexuse->GetEdgeuse()->GetUVTrimCurve())
                                                                  { SmPoint3d sPt3d ;
-                                                                   m_pVertexuse->GetEdgeuse()->GetUVTrimCurve()->EvaluatePoint(m_dUVTrimCurveT, sPt3d) ; 
+                                                                   if ( m_pVertexuse->GetEdgeuse()->GetUVTrimCurve()->EvaluatePoint(m_dUVTrimCurveT, sPt3d)  != SM_SUCCESS ) { return SmPoint2d() ; } // SolidCraft change: no UV without the trim curve point, as when there is no trim curve
                                                                    return(SmPoint2d(sPt3d.x, sPt3d.y)) ;
                                                                  } 
                                                                else 
@@ -710,7 +710,7 @@ SmPoint2d     SmVertexFaceTrimCurveGap::GetFaceUV()    const { if(   m_pVertexus
 SmPoint2d     SmEdgeFaceTrimCurveGap::GetFaceUV()      const { if(   m_pEdgeuse
                                                                   && m_pEdgeuse->GetUVTrimCurve())
                                                                  { SmPoint3d sPt3d ;
-                                                                   m_pEdgeuse->GetUVTrimCurve()->EvaluatePoint(m_dUVTrimCurveT, sPt3d) ; 
+                                                                   if ( m_pEdgeuse->GetUVTrimCurve()->EvaluatePoint(m_dUVTrimCurveT, sPt3d)  != SM_SUCCESS ) { return SmPoint2d() ; } // SolidCraft change: no UV without the trim curve point, as when there is no trim curve
                                                                    return(SmPoint2d(sPt3d.x, sPt3d.y)) ;
                                                                  } 
                                                                else 
@@ -1740,12 +1740,12 @@ static constexpr ULONG lTgtCount = 0 ;
           ULONG             lStartIndxV = 0, lEndIndxV = 0 ;
 
           // Get Spline U (and V) Knots 
-          if(pThisCurve) { ((SmBSplineCurve *) pThisCurve)->GetKnots(sUniqueKnotsU, NULL, NULL) ; 
+          if(pThisCurve) { SER( ((SmBSplineCurve *) pThisCurve)->GetKnots(sUniqueKnotsU, NULL, NULL)  ); 
                            sUniqueKnotsV.Add(0.0) ; // have one entry to simplify upcoming loop structurs - fewer conditionals
                          }
           else           { SM_ASSERT_MSG(pThisSurface != NULL, _T("BuildSampleSet - found a case where pThisSurface is not set properly - review and extend method")) ;
-                           ((SmBSplineSurface *)pThisSurface)->GetKnots(SM_SP_U, sUniqueKnotsU, NULL, NULL) ;  
-                           ((SmBSplineSurface *)pThisSurface)->GetKnots(SM_SP_V, sUniqueKnotsV, NULL, NULL) ;  
+                           SER( ((SmBSplineSurface *)pThisSurface)->GetKnots(SM_SP_U, sUniqueKnotsU, NULL, NULL)  );  
+                           SER( ((SmBSplineSurface *)pThisSurface)->GetKnots(SM_SP_V, sUniqueKnotsV, NULL, NULL)  );  
                          }
 
           // Get UniqueKnotsU index values for m_sSampleIvlU EndPoints
@@ -2773,10 +2773,10 @@ SmStatus SmGapFunction::BuildLocalNeighborhood()
   pCurveClassification->ReSet() ;
 
   // solve for interval boundaries
-  EvaluateNeighborhoodBoundaries(sSolutions) ;
+  SER( EvaluateNeighborhoodBoundaries(sSolutions)  );
 
   // make intervals from solution boundaries
-  pCurveClassification->InsertTopologyIntersections(sSolutions, 0) ;
+  SER( pCurveClassification->InsertTopologyIntersections(sSolutions, 0)  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -2827,11 +2827,11 @@ SmBoolean bDebugMe = FALSE ;
       //           Different rules could be generated for the cases where otherShape was a point, a curve,
       //           or a surface.  That would save one more drop point calculation.
       SmGapSample sGapSample(GetXSectTol3d()) ;
-      Evaluate(dParam,       // in : This Geom 1st param used for Curves and Surfaces
+      SER( Evaluate(dParam,       // in : This Geom 1st param used for Curves and Surfaces
                0.0,          // in : This Geom 2nd param only used for Surfaces
                sGapSample,   // out: Eval holder block
                NULL,         // in : When evaluating a sequence of gaps guess last neighbor gap param, NULL to ignore
-               NULL) ;       // in : When evaluating a sequence of gaps guess last neighbor gap param, NULL to ignore
+               NULL)  );       // in : When evaluating a sequence of gaps guess last neighbor gap param, NULL to ignore
 
       // classify the interval from the gap classification
       if ( sGapSample.IsInTol() )
@@ -2950,21 +2950,21 @@ SmBoolean bDebugMe = FALSE ;
       SmPoint3d sThisEndPos, sOtherEndPD[2][2] ;
 
       // This pos: for now - all this geometry is a curve 
-      pThisCurve->EvaluatePoint(sThisBegParam.x, sThisBegPos) ;
-      pThisCurve->EvaluatePoint(sThisEndParam.x, sThisEndPos) ;
+      (void)pThisCurve->EvaluatePoint(sThisBegParam.x, sThisBegPos) ; // SolidCraft: GetLocalIntervals is only drawn (Draw)
+      (void)pThisCurve->EvaluatePoint(sThisEndParam.x, sThisEndPos) ; // SolidCraft: GetLocalIntervals is only drawn (Draw)
 
       // Other pos
       if     (pOtherPoint) { sOtherBegPD[0][0] = *pOtherPoint ; 
                              sOtherEndPD[0][0] = *pOtherPoint ;
                            }
-      else if(pOtherCurve) { pOtherCurve->Evaluate(sOtherBegParam.x, 1, TRUE, sOtherBegPD[0], TRUE) ; // NonZeroTangents
-                             pOtherCurve->Evaluate(sOtherEndParam.x, 1, TRUE, sOtherEndPD[0], TRUE) ; // NonZeroTangents
+      else if(pOtherCurve) { (void)pOtherCurve->Evaluate(sOtherBegParam.x, 1, TRUE, sOtherBegPD[0], TRUE) ; // NonZeroTangents // SolidCraft: GetLocalIntervals is only drawn (Draw)
+                             (void)pOtherCurve->Evaluate(sOtherEndParam.x, 1, TRUE, sOtherEndPD[0], TRUE) ; // NonZeroTangents // SolidCraft: GetLocalIntervals is only drawn (Draw)
                              sOtherBegPD[1][0] = sOtherBegPD[0][1] ; // init cross-tangents for upcoming GapDropType check
                              sOtherEndPD[1][0] = sOtherEndPD[0][1] ;
                            }
       else                 { SM_ASSERT(pOtherSurface != NULL) ;
-                             pOtherSurface->Evaluate(sOtherBegParam, 1, 1, TRUE, TRUE, TRUE, sOtherBegPD[0], TRUE) ; // NonZeroTangents
-                             pOtherSurface->Evaluate(sOtherEndParam, 1, 1, TRUE, TRUE, TRUE, sOtherEndPD[0], TRUE) ; // NonZeroTangents
+                             (void)pOtherSurface->Evaluate(sOtherBegParam, 1, 1, TRUE, TRUE, TRUE, sOtherBegPD[0], TRUE) ; // NonZeroTangents // SolidCraft: GetLocalIntervals is only drawn (Draw)
+                             (void)pOtherSurface->Evaluate(sOtherEndParam, 1, 1, TRUE, TRUE, TRUE, sOtherEndPD[0], TRUE) ; // NonZeroTangents // SolidCraft: GetLocalIntervals is only drawn (Draw)
                            }
 
       // gapDropTypes
@@ -3480,7 +3480,7 @@ SmStatus SmCrvPtGapFunction::Evaluate
   SM_REF3(dThisV, pOptOtherGuessU, pOptOtherGuessV) ;
   // Curve Eval
   SmPoint3d sThisPos ;
-  m_pThisCurve->EvaluatePoint(dThisU, sThisPos) ;
+  SER( m_pThisCurve->EvaluatePoint(dThisU, sThisPos)  );
   
   // set output
   rGapSample.SetCanonical(sThisPos, dThisU, 0.0,
@@ -3503,7 +3503,7 @@ SmStatus SmCrvPtGapFunction::EvaluateNeighborhoodBoundaries
   rSolutions.ReSet() ; 
 
   // try GlobalPropertyAnalysis (SM_SO_AT_DISTANCE)
-  m_pThisCurve->GlobalPointSolve     
+  SER( m_pThisCurve->GlobalPointSolve     
      ( m_pThisCurve->GetNaturalInterval(), // in : search curve interval                                             
        SM_SO_AT_DISTANCE,                  // in : which solver operation to perform                                
        m_sOtherPoint,                      // in : Euclidean target point                                           
@@ -3523,7 +3523,7 @@ SmStatus SmCrvPtGapFunction::EvaluateNeighborhoodBoundaries
                                            //      SM_SO_DIRECTED_MAXIMIZE,        SM_SO_PROJECTED_MINIMIZE         
                                            //      SM_SO_PROJECTED_MAXIMIZE                                          
        SM_SR_ALL,                          // in : SM_SR_SINGLE=get best solution, SM_SR_ALL=get all solutions                                                                            
-       rSolutions) ;                       // out: array of problem solutions reported as curve parameter values                                                               
+       rSolutions)  );                       // out: array of problem solutions reported as curve parameter values                                                               
   
   // all done
   return(SM_SUCCESS) ; 
@@ -3639,7 +3639,7 @@ SmCrvCrvGapFunction::SmCrvCrvGapFunction
    // gwc: passing a XSectTol as a ZoneTol3d - needs fix
    m_sLocalNeighborhood(pThisCurve, rThisIvl, NULL, (SmZoneTol3d &)rXSectTol3d)
 {  
-   m_sSampleIvlV.SetMinMax(0.0,1.0) ; 
+   (void)m_sSampleIvlV.SetMinMax(0.0,1.0) ; // SolidCraft: 0 < 1, it cannot fail
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -3672,7 +3672,7 @@ SmStatus SmCrvCrvGapFunction::Evaluate
   SM_REF2(dThisV, pOptOtherGuessV) ;
   // This Curve Eval
   SmPoint3d sThisPos ;
-  m_pThisCurve->EvaluatePoint(dThisU, sThisPos) ;
+  SER( m_pThisCurve->EvaluatePoint(dThisU, sThisPos)  );
 
   // Drop point to ToGeometry
   double dOtherU ;
@@ -3680,7 +3680,7 @@ SmStatus SmCrvCrvGapFunction::Evaluate
   double dDistDropped ;
   SmBoolean bSuccess ;
   SmExtent1d sOtherDomain = m_pOtherCurve->GetNaturalInterval() ;
-  m_pOtherCurve->DropPoint(sOtherDomain,       // in : target curve allowed domain   
+  SER( m_pOtherCurve->DropPoint(sOtherDomain,       // in : target curve allowed domain   
                            sThisPos,           // in : Point to drop to curve   
                            NULL,               // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -3693,7 +3693,7 @@ SmStatus SmCrvCrvGapFunction::Evaluate
                            bSuccess,           // out: TRUE = found a drop point   
                            dOtherU,            // out: found drop curve param   
                            dDistDropped,       // out: found drop distance   
-                           SM_SO_MINIMIZE) ;   // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                           SM_SO_MINIMIZE) );   // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                //      default:[SM_SO_MINIMIZE] to preserve original behavior
@@ -3718,7 +3718,7 @@ SmStatus SmCrvCrvGapFunction::Evaluate
   if ( bTryGlobal )
     {
       // try a global drop point solution
-      m_pOtherCurve->DropPoint(sOtherDomain,      // in : target curve allowed domain  
+      SER( m_pOtherCurve->DropPoint(sOtherDomain,      // in : target curve allowed domain  
                                sThisPos,          // in : Point to drop to curve 
                                NULL,              // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                   //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -3731,7 +3731,7 @@ SmStatus SmCrvCrvGapFunction::Evaluate
                                bSuccess,          // out: TRUE = found a drop point 
                                dOtherU,           // out: found drop curve param 
                                dDistDropped,      // out: found drop distance 
-                               SM_SO_MINIMIZE) ;  // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                               SM_SO_MINIMIZE)  );  // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                   //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                   //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                   //      default:[SM_SO_MINIMIZE] to preserve original behavior
@@ -3768,7 +3768,7 @@ SmBoolean bDebugMe = FALSE ;
     {
       // Other Curve dropped point Eval
       SmPoint3d sOtherPD[2] ;
-      m_pOtherCurve->Evaluate(dOtherU, 1, TRUE, sOtherPD, TRUE) ; // NonZeroTangents
+      SER( m_pOtherCurve->Evaluate(dOtherU, 1, TRUE, sOtherPD, TRUE)  ); // NonZeroTangents
       SmVector3d sGap = sOtherPD[0]-sThisPos ;
       SmGapDropType eGapDropType =    ( !sOtherDomain.IsValueOnBoundary(dOtherU) ) 
                                    || (  sGap.LengthSquared() < SM_EFF_ZERO_SQ )
@@ -3804,7 +3804,7 @@ SmStatus SmCrvCrvGapFunction::EvaluateNeighborhoodBoundaries
   rSolutions.ReSet() ; 
 
   // try GlobalPropertyAnalysis (SM_SO_AT_DISTANCE)
-  m_pThisCurve->GlobalCurveSolve     
+  SER( m_pThisCurve->GlobalCurveSolve     
      (*GetThisIvlU(),                       // in : Interval on curve where solution will be searched for            
       *m_pOtherCurve,                       // in : target other curve                                               
        m_pOtherCurve->GetNaturalInterval(), // in : Interval on other curve where solution will be searched for      
@@ -3822,7 +3822,7 @@ SmStatus SmCrvCrvGapFunction::EvaluateNeighborhoodBoundaries
        NULL,                                // in : See SmSolverOperationType documentation for corresponding meaning
                                             //      of these vectors.                                                
        SM_SR_ALL,                           // in : oneof SM_SR_SINGLE, SM_SR_ALL, SM_SR_FIND_AMBIGUITIES, SM_SR_NODES                                                                     
-       rSolutions) ;                        // out: 
+       rSolutions)  );                        // out: 
                                                                            
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -3959,7 +3959,7 @@ SmStatus SmCrvSrfGapFunction::Evaluate
   // This Curve Eval
   // This Curve Eval FromPt
   SmPoint3d sThisPos ;
-  m_pThisCurve->EvaluatePoint(dThisU, sThisPos) ;
+  SER( m_pThisCurve->EvaluatePoint(dThisU, sThisPos)  );
 
   // Drop point to ToGeometry
   SmPoint2d *pOtherGuessUV = NULL, sOtherGuessUV ;
@@ -3974,13 +3974,13 @@ SmStatus SmCrvSrfGapFunction::Evaluate
   SmBoolean bIsMulti;
   SmBoolean bSuccess ;
   SmExtent2d sOtherDomain = m_pOtherSurface->GetNaturalUVDomain();
-  m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
+  SER( m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
                              sOtherDomain,  // in : target surface domain
                              pOtherGuessUV, // in : When given, uses only local solves
                              bSuccess,      // out: TRUE=Point dropped successfully, FALSE=didn't
                              sOtherUV,      // out: drop result UVPoint
                              dDistDropped,
-                             bIsMulti); // out: distance of found point to Pt to drop
+                             bIsMulti) ); // out: distance of found point to Pt to drop
 
   // If we don't like the result of the drop with a guess,
   // try without a guess (global solve).
@@ -4038,13 +4038,13 @@ SmBoolean bDebugMe = FALSE ;
   if ( bTryGlobal )
     {
       // try a global drop point solution
-      m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
+      SER( m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
                                  sOtherDomain,  // in : target surface domain
                                  NULL,          // in : Global solve this time: no guess
                                  bSuccess,      // out: TRUE=Point dropped successfully, FALSE=didn't
                                  sOtherUV,      // out: drop result UVPoint
                                  dDistDropped,
-                                 bIsMulti); // out: distance of found point to Pt to drop
+                                 bIsMulti) ); // out: distance of found point to Pt to drop
     }
 
   // set output
@@ -4052,7 +4052,7 @@ SmBoolean bDebugMe = FALSE ;
     {
       // Other Surface dropped point Eval
       SmPoint3d sOtherPD[2][2] ;
-      m_pOtherSurface->Evaluate(sOtherUV, 1, 1, TRUE, TRUE, TRUE, sOtherPD[0], TRUE) ; // NonZeroTangents
+      SER( m_pOtherSurface->Evaluate(sOtherUV, 1, 1, TRUE, TRUE, TRUE, sOtherPD[0], TRUE)  ); // NonZeroTangents
       SmVector3d sGap = sOtherPD[0][0]-sThisPos ;
       SmGapDropType eGapDropType =    ( !sOtherDomain.IsPoint2dOnBoundary(sOtherUV) ) 
                                    || (  sGap.LengthSquared() < SM_EFF_ZERO_SQ )
@@ -4219,7 +4219,7 @@ SmStatus SmSrfPtGapFunction::Evaluate
   // Curve Eval
   SmPoint3d sThisPos ;
   SmPoint2d sThisUV(dThisU, dThisV) ;
-  m_pThisSurface->EvaluatePoint(sThisUV, sThisPos) ;
+  SER( m_pThisSurface->EvaluatePoint(sThisUV, sThisPos)  );
   
   // set output
   rGapSample.SetCanonical(sThisPos, dThisU, dThisV,
@@ -4332,7 +4332,7 @@ SmStatus SmSrfCrvGapFunction::Evaluate
   // This Curve Eval
   SmPoint3d sThisPos ;
   SmPoint2d sThisUV(dThisU, dThisV) ;
-  m_pThisSurface->EvaluatePoint(sThisUV, sThisPos) ;
+  SER( m_pThisSurface->EvaluatePoint(sThisUV, sThisPos)  );
 
   // Drop point to ToGeometry
   double dOtherU ;
@@ -4340,7 +4340,7 @@ SmStatus SmSrfCrvGapFunction::Evaluate
   double dDistDropped ;
   SmBoolean bSuccess ;
   SmExtent1d sOtherDomain = m_pOtherCurve->GetNaturalInterval();
-  m_pOtherCurve->DropPoint(sOtherDomain,       // in : target curve allowed domain 
+  SER( m_pOtherCurve->DropPoint(sOtherDomain,       // in : target curve allowed domain 
                            sThisPos,           // in : Point to drop to curve 
                            NULL,               // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -4353,7 +4353,7 @@ SmStatus SmSrfCrvGapFunction::Evaluate
                            bSuccess,           // out: TRUE = found a drop point 
                            dOtherU,            // out: found drop curve param 
                            dDistDropped,       // out: found drop distance 
-                           SM_SO_MINIMIZE) ;   // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                           SM_SO_MINIMIZE) );   // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                //      default:[SM_SO_MINIMIZE] to preserve original behavior                             
@@ -4378,7 +4378,7 @@ SmStatus SmSrfCrvGapFunction::Evaluate
   if ( bTryGlobal )
     {
       // try a global drop point solution
-      m_pOtherCurve->DropPoint(sOtherDomain,        // in : target curve allowed domain
+      SER( m_pOtherCurve->DropPoint(sOtherDomain,        // in : target curve allowed domain
                                sThisPos,            // in : Point to drop to curve
                                NULL,                // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                     //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -4391,7 +4391,7 @@ SmStatus SmSrfCrvGapFunction::Evaluate
                                bSuccess,            // out: TRUE = found a drop point
                                dOtherU,             // out: found drop curve param
                                dDistDropped,        // out: found drop distance
-                               SM_SO_MINIMIZE) ;    // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
+                               SM_SO_MINIMIZE)  );    // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                     //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                     //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                     //      default:[SM_SO_MINIMIZE] to preserve original behavior
@@ -4402,7 +4402,7 @@ SmStatus SmSrfCrvGapFunction::Evaluate
     {
       // Other Curve dropped point Eval
       SmPoint3d sOtherPD[2] ;
-      m_pOtherCurve->Evaluate(dOtherU, 1, TRUE, sOtherPD, TRUE) ; // NonZeroTangents
+      SER( m_pOtherCurve->Evaluate(dOtherU, 1, TRUE, sOtherPD, TRUE)  ); // NonZeroTangents
       SmVector3d sGap = sOtherPD[0]-sThisPos ;
       SmGapDropType eGapDropType =    ( !sOtherDomain.IsValueOnBoundary(dOtherU) ) 
                                    || (  sGap.LengthSquared() < SM_EFF_ZERO_SQ )
@@ -4526,7 +4526,7 @@ SmStatus SmSrfSrfGapFunction::Evaluate
   // This Surface Eval
   SmPoint3d sThisPos ;
   SmPoint2d sThisUV(dThisU, dThisV) ;
-  m_pThisSurface->EvaluatePoint(sThisUV, sThisPos) ;
+  SER( m_pThisSurface->EvaluatePoint(sThisUV, sThisPos)  );
 
   // Drop point to ToGeometry
   SmPoint2d *pOtherGuessUV = NULL, sOtherGuessUV ;
@@ -4542,13 +4542,13 @@ SmStatus SmSrfSrfGapFunction::Evaluate
   SmBoolean bSuccess ;
   SmBoolean bIsMulti;
   SmExtent2d sOtherDomain = m_pOtherSurface->GetNaturalUVDomain();
-  m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
+  SER( m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
                              sOtherDomain,  // in : target surface domain
                              pOtherGuessUV, // in : When given, uses only local solves
                              bSuccess,      // out: TRUE=Point dropped successfully, FALSE=didn't
                              sOtherUV,      // out: drop result UVPoint
                              dDistDropped,     // out: distance of found point to Pt to drop
-                             bIsMulti); //
+                             bIsMulti) ); //
 
   // If we don't like the result of the drop with a guess,
   // try without a guess (global solve).
@@ -4570,20 +4570,20 @@ SmStatus SmSrfSrfGapFunction::Evaluate
   if ( bTryGlobal )
     {
       // try a global drop point solution
-      m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
+      SER( m_pOtherSurface->DropPoint(sThisPos,      // in : target point to drop
                                  sOtherDomain,  // in : target surface domain
                                  NULL,          // in : Global solve this time: no guess
                                  bSuccess,      // out: TRUE=Point dropped successfully, FALSE=didn't
                                  sOtherUV,      // out: drop result UVPoint
                                  dDistDropped,
-                                 bIsMulti); // out: distance of found point to Pt to drop
+                                 bIsMulti) ); // out: distance of found point to Pt to drop
     }
   // set output
   if(bSuccess)
     {
       // Other Surface dropped point Eval
       SmPoint3d sOtherPD[2][2] ;
-      m_pOtherSurface->Evaluate(sOtherUV, 1, 1, TRUE, TRUE, TRUE, sOtherPD[0], TRUE) ; // NonZeroTangents
+      SER( m_pOtherSurface->Evaluate(sOtherUV, 1, 1, TRUE, TRUE, TRUE, sOtherPD[0], TRUE)  ); // NonZeroTangents
       SmVector3d sGap = sOtherPD[0][0]-sThisPos ;
       SmGapDropType eGapDropType =    ( !sOtherDomain.IsPoint2dOnBoundary(sOtherUV) ) 
                                    || (  sGap.LengthSquared() < SM_EFF_ZERO_SQ )

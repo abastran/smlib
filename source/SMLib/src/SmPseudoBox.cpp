@@ -61,9 +61,9 @@ SmPseudoBox::SmPseudoBox
   m_aBasis[0].Set(1,0,0) ;
   m_aBasis[1].Set(0,1,0) ;
   m_aBasis[2].Set(0,0,1) ;
-  m_aIntervals[0].SetMinMax(crBBox.GetUMin(), crBBox.GetUMax()) ;
-  m_aIntervals[1].SetMinMax(crBBox.GetVMin(), crBBox.GetVMax()) ;
-  m_aIntervals[2].SetMinMax(crBBox.GetWMin(), crBBox.GetWMax()) ;
+  (void)m_aIntervals[0].SetMinMax(crBBox.GetUMin(), crBBox.GetUMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  (void)m_aIntervals[1].SetMinMax(crBBox.GetVMin(), crBBox.GetVMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  (void)m_aIntervals[2].SetMinMax(crBBox.GetWMin(), crBBox.GetWMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
 
 } // end SmPseudoBox::SmPseudoBox copy constructor
 
@@ -106,9 +106,9 @@ SmPseudoBox &SmPseudoBox::operator=
   m_aBasis[0].Set(1,0,0) ;
   m_aBasis[1].Set(0,1,0) ;
   m_aBasis[2].Set(0,0,1) ;
-  m_aIntervals[0].SetMinMax(crOther.GetUMin(), crOther.GetUMax()) ;
-  m_aIntervals[1].SetMinMax(crOther.GetVMin(), crOther.GetVMax()) ;
-  m_aIntervals[2].SetMinMax(crOther.GetWMin(), crOther.GetWMax()) ;
+  (void)m_aIntervals[0].SetMinMax(crOther.GetUMin(), crOther.GetUMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  (void)m_aIntervals[1].SetMinMax(crOther.GetVMin(), crOther.GetVMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  (void)m_aIntervals[2].SetMinMax(crOther.GetWMin(), crOther.GetWMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
   
   // all done
   return *this;
@@ -202,7 +202,7 @@ NOTES: Return SM_ERR if dNewUMin > the max U value.
 SmStatus SmPseudoBox::SetUMin( double dNewUMin )
 {
   if ( dNewUMin > m_aIntervals[0].GetMin() ) SER(SM_ERR_INVALID_INPUT);
-  m_aIntervals[0].SetMin(dNewUMin) ;
+  SER( m_aIntervals[0].SetMin(dNewUMin)  );
   return SM_SUCCESS;
 }
 /*******************************************************************//**
@@ -213,7 +213,7 @@ NOTES: Return SM_ERR if dNewUMax < the min U value.
 SmStatus SmPseudoBox::SetUMax( double dNewUMax )
 {
   if ( dNewUMax > m_aIntervals[0].GetMax() ) SER(SM_ERR_INVALID_INPUT);
-  m_aIntervals[0].SetMax(dNewUMax) ;
+  SER( m_aIntervals[0].SetMax(dNewUMax)  );
   return SM_SUCCESS;
 }
 
@@ -225,7 +225,7 @@ NOTES: Return SM_ERR if dNewVMin > the max V value.
 SmStatus SmPseudoBox::SetVMin( double dNewVMin )
 {
   if ( dNewVMin > m_aIntervals[0].GetMin() ) SER(SM_ERR_INVALID_INPUT);
-  m_aIntervals[0].SetMin(dNewVMin) ;
+  SER( m_aIntervals[0].SetMin(dNewVMin)  );
   return SM_SUCCESS;
 }
 /*******************************************************************//**
@@ -236,7 +236,7 @@ NOTES: Return SM_ERR if dNewVMax < the min V value.
 SmStatus SmPseudoBox::SetVMax( double dNewVMax )
 {
   if ( dNewVMax > m_aIntervals[0].GetMax() ) SER(SM_ERR_INVALID_INPUT);
-  m_aIntervals[0].SetMax(dNewVMax) ;
+  SER( m_aIntervals[0].SetMax(dNewVMax)  );
   return SM_SUCCESS;
 }
 
@@ -248,7 +248,7 @@ NOTES: Return SM_ERR if dNewWMin > the max W value.
 SmStatus SmPseudoBox::SetWMin( double dNewWMin )
 {
   if ( dNewWMin > m_aIntervals[0].GetMin() ) SER(SM_ERR_INVALID_INPUT);
-  m_aIntervals[0].SetMin(dNewWMin) ;
+  SER( m_aIntervals[0].SetMin(dNewWMin)  );
   return SM_SUCCESS;
 }
 /*******************************************************************//**
@@ -259,7 +259,7 @@ NOTES: Return SM_ERR if dNewWMax < the min W value.
 SmStatus SmPseudoBox::SetWMax( double dNewWMax )
 {
   if ( dNewWMax > m_aIntervals[0].GetMax() ) SER(SM_ERR_INVALID_INPUT);
-  m_aIntervals[0].SetMax(dNewWMax) ;
+  SER( m_aIntervals[0].SetMax(dNewWMax)  );
   return SM_SUCCESS;
 }
 
@@ -275,7 +275,7 @@ void SmPseudoBox::AddPoint3d
   SmPoint3d sA ;
 
   // map crPoint to PseudoBox absolute parameters
-  InvertAbsolute(crPoint, sA) ;
+  (void)InvertAbsolute(crPoint, sA) ; // SolidCraft: a void member cannot report a degenerate frame
 
   // add each PseudoBox parameter to the intervals
   m_aIntervals[0].AddValue(sA.x);
@@ -310,17 +310,17 @@ void SmPseudoBox::ExpandSweep
   SmPoint3d sA ;
 
   // map crPoint to PseudoBox absolute parameters
-  InvertAbsolute(rSweepVector, sA) ;
+  (void)InvertAbsolute(rSweepVector, sA) ; // SolidCraft: a void member cannot report a degenerate frame
 
   //double dSweepInc = rSweepVector.Dot(m_aBasis[0]) ;
-  if(sA.x > 0) m_aIntervals[0].SetMinMax(m_aIntervals[0].GetMin(),        m_aIntervals[0].GetMax() + sA.x) ;
-  else         m_aIntervals[0].SetMinMax(m_aIntervals[0].GetMin() + sA.x, m_aIntervals[0].GetMax()) ;
+  if(sA.x > 0) (void)m_aIntervals[0].SetMinMax(m_aIntervals[0].GetMin(),        m_aIntervals[0].GetMax() + sA.x) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  else         (void)m_aIntervals[0].SetMinMax(m_aIntervals[0].GetMin() + sA.x, m_aIntervals[0].GetMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
 
-  if(sA.y > 0) m_aIntervals[1].SetMinMax(m_aIntervals[1].GetMin(),        m_aIntervals[1].GetMax() + sA.y) ;
-  else         m_aIntervals[1].SetMinMax(m_aIntervals[1].GetMin() + sA.y, m_aIntervals[1].GetMax()) ;
+  if(sA.y > 0) (void)m_aIntervals[1].SetMinMax(m_aIntervals[1].GetMin(),        m_aIntervals[1].GetMax() + sA.y) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  else         (void)m_aIntervals[1].SetMinMax(m_aIntervals[1].GetMin() + sA.y, m_aIntervals[1].GetMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
 
-  if(sA.z > 0) m_aIntervals[2].SetMinMax(m_aIntervals[2].GetMin(),        m_aIntervals[2].GetMax() + sA.z) ;
-  else         m_aIntervals[2].SetMinMax(m_aIntervals[2].GetMin() + sA.z, m_aIntervals[2].GetMax()) ;
+  if(sA.z > 0) (void)m_aIntervals[2].SetMinMax(m_aIntervals[2].GetMin(),        m_aIntervals[2].GetMax() + sA.z) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  else         (void)m_aIntervals[2].SetMinMax(m_aIntervals[2].GetMin() + sA.z, m_aIntervals[2].GetMax()) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
 
 } // end SmPseudoBox::ExpandSweep
 
@@ -338,7 +338,7 @@ SmBoolean SmPseudoBox::ContainsPoint3d
   SmPoint3d sA ;
 
   // map crPoint to PseudoBox normalized parameters
-  InvertAbsolute(crPoint, sA) ;
+  if ( InvertAbsolute(crPoint, sA)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a point that cannot be put in the box frame is not shown inside
 
   // check that all parameters are within tol of their intervals
   SmBoolean bRtn =    m_aIntervals[0].ContainsValue(sA.x, d3dTolerance) 
@@ -560,15 +560,15 @@ SmStatus SmPseudoBox::ConvertAbsoluteToNormal
   SmPoint3d        & sP        = rNormalizedParameters ;
 
   // map absolute PseudoBox absolute coordinates to absolute coordinates
-  if     (m_aIntervals[0].GetLength() > SM_EFF_ZERO)        { m_aIntervals[0].Inversion(sA.x, sP.x) ; }
+  if     (m_aIntervals[0].GetLength() > SM_EFF_ZERO)        { (void)m_aIntervals[0].Inversion(sA.x, sP.x) ; } // SolidCraft: SM_ERR is a value outside the interval, mapped outside [0 1] all the same
   else if(m_aIntervals[0].ContainsValue(sA.x, SM_EFF_ZERO)) { sP.x =  0.0 ; } 
   else                                                      { sP.x = -1.0 ; sRtn = SM_ERR ; }
                                                            
-  if     (m_aIntervals[1].GetLength() > SM_EFF_ZERO)        { m_aIntervals[1].Inversion(sA.y, sP.y) ; }
+  if     (m_aIntervals[1].GetLength() > SM_EFF_ZERO)        { (void)m_aIntervals[1].Inversion(sA.y, sP.y) ; } // SolidCraft: SM_ERR is a value outside the interval, mapped outside [0 1] all the same
   else if(m_aIntervals[1].ContainsValue(sA.y, SM_EFF_ZERO)) { sP.y =  0.0 ; } 
   else                                                      { sP.y = -1.0 ; sRtn = SM_ERR ; }
                                                            
-  if     (m_aIntervals[2].GetLength() > SM_EFF_ZERO)        { m_aIntervals[2].Inversion(sA.z, sP.z) ; }
+  if     (m_aIntervals[2].GetLength() > SM_EFF_ZERO)        { (void)m_aIntervals[2].Inversion(sA.z, sP.z) ; } // SolidCraft: SM_ERR is a value outside the interval, mapped outside [0 1] all the same
   else if(m_aIntervals[2].ContainsValue(sA.z, SM_EFF_ZERO)) { sP.z =  0.0 ; } 
   else                                                      { sP.z = -1.0 ; sRtn = SM_ERR ; }
                                                            
@@ -628,7 +628,7 @@ SmStatus SmPseudoBox::Union
   crOther.CalcCorners(&sPoints[8]) ;
 
   // set Basis
-  rResult.SetBasis(aBasis[0], aBasis[1], aBasis[2]) ;
+  SER( rResult.SetBasis(aBasis[0], aBasis[1], aBasis[2])  );
 
   // Add in all corner points
   for(ULONG ii=0;ii<16;ii++)
@@ -725,9 +725,9 @@ NOTES:
 ***********************************************************************/
 void SmPseudoBox::SetUnbounded()
 {
-  m_aIntervals[0].SetMinMax(-SM_INFINITE_PARAMETER, SM_INFINITE_PARAMETER) ; 
-  m_aIntervals[1].SetMinMax(-SM_INFINITE_PARAMETER, SM_INFINITE_PARAMETER) ; 
-  m_aIntervals[2].SetMinMax(-SM_INFINITE_PARAMETER, SM_INFINITE_PARAMETER) ; 
+  (void)m_aIntervals[0].SetMinMax(-SM_INFINITE_PARAMETER, SM_INFINITE_PARAMETER) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  (void)m_aIntervals[1].SetMinMax(-SM_INFINITE_PARAMETER, SM_INFINITE_PARAMETER) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
+  (void)m_aIntervals[2].SetMinMax(-SM_INFINITE_PARAMETER, SM_INFINITE_PARAMETER) ; // SolidCraft: an interval copied or widened from an ordered one, it cannot fail
 
 } // end SmPseudoBox::SetUnbounded
 
@@ -810,11 +810,11 @@ double SmPseudoBox::DistanceToPoint
       // Intersect planes and find distance to line
       SmPoint3d sLinePnt;
       SmVector3d sLineVec;
-      smgu_IntersectTwoPlanes(aPlPnts[alFoundIdx[0]],aPlNorms[alFoundIdx[0]],
+      (void)smgu_IntersectTwoPlanes(aPlPnts[alFoundIdx[0]],aPlNorms[alFoundIdx[0]], // SolidCraft: faces of the box are square to one another, so they meet
                               aPlPnts[alFoundIdx[1]],aPlNorms[alFoundIdx[1]],
                               sLinePnt, sLineVec);
       double dLineParam;
-      smgu_LineClosestPoint(sLinePnt,sLineVec,rPoint,dLineParam);
+      (void)smgu_LineClosestPoint(sLinePnt,sLineVec,rPoint,dLineParam); // SolidCraft: faces of the box are square to one another, so they meet
       SmPoint3d sPntOnLine = sLinePnt + dLineParam * sLineVec;
       return sPntOnLine.DistanceBetween(rPoint);
     }
@@ -823,7 +823,7 @@ double SmPseudoBox::DistanceToPoint
   if (lNumFound == 3) 
     { // point closest to vertex of pseudo box
       SmPoint3d sVertexPnt;
-      smgu_IntersectThreePlanes(aPlPnts[alFoundIdx[0]],aPlNorms[alFoundIdx[0]],
+      (void)smgu_IntersectThreePlanes(aPlPnts[alFoundIdx[0]],aPlNorms[alFoundIdx[0]], // SolidCraft: faces of the box are square to one another, so they meet
                                 aPlPnts[alFoundIdx[1]],aPlNorms[alFoundIdx[1]],
                                 aPlPnts[alFoundIdx[2]],aPlNorms[alFoundIdx[2]],
                                 sVertexPnt);
@@ -1542,21 +1542,21 @@ void SmPseudoBox::CalcPlanes
   SmVector3d sVec2 = m_aBasis[2] * m_aIntervals[2].GetLength();
 
   SmVector3d sNormal = m_aBasis[1] * m_aBasis[2];
-  sNormal.Unitize();
+  (void)sNormal.Unitize(); // SolidCraft: a zero vector stays zero
   aPoints [0] = sOrigin + 0.5 * ( sVec1 + sVec2 );
   aVectors[0] = ( bNoFlip ) ? -sNormal : sNormal;
   aPoints [1] = aPoints[0] + sVec0;
   aVectors[1] = -aVectors[0];
 
   sNormal = m_aBasis[2] * m_aBasis[0];
-  sNormal.Unitize();
+  (void)sNormal.Unitize(); // SolidCraft: a zero vector stays zero
   aPoints [2] = sOrigin + 0.5 * ( sVec2 + sVec0 );
   aVectors[2] = ( bNoFlip ) ? -sNormal : sNormal;
   aPoints [3] = aPoints[2] + sVec1;
   aVectors[3] = -aVectors[2];
 
   sNormal = m_aBasis[0] * m_aBasis[1];
-  sNormal.Unitize();
+  (void)sNormal.Unitize(); // SolidCraft: a zero vector stays zero
   aPoints [4] = sOrigin + 0.5 * ( sVec0 + sVec1 );
   aVectors[4] = ( bNoFlip ) ? -sNormal : sNormal;
   aPoints [5] = aPoints[4] + sVec2;
@@ -1602,14 +1602,14 @@ SmExtent1d SmPseudoBox::GetUInterval
   double     dTExit ;
 
   // intersect line = crPoint3d + u * [1 0 0] with PseudoBox
-  IntersectLine(crPoint3d, sLineVec, lNumFound, dTEnter, dTExit) ;
+  if ( IntersectLine(crPoint3d, sLineVec, lNumFound, dTEnter, dTExit)  != SM_SUCCESS ) { return ( sIvl.Init(), sIvl ) ; } // SolidCraft change: no crossing interval without the line intersection
   
   // Switch on the intersection type
   switch(lNumFound)
     { 
       case 0 : sIvl.Init() ; break ; 
-      case 1 : sIvl.SetMinMax(dTEnter, dTEnter) ; break ; 
-      case 2 : sIvl.SetMinMax(dTEnter, dTExit) ;  break ; 
+      case 1 : (void)sIvl.SetMinMax(dTEnter, dTEnter) ; break ; // SolidCraft: enter and exit come ordered from IntersectLine
+      case 2 : (void)sIvl.SetMinMax(dTEnter, dTExit) ;  break ; // SolidCraft: enter and exit come ordered from IntersectLine
     }
 
   // all done 
@@ -1634,14 +1634,14 @@ SmExtent1d SmPseudoBox::GetVInterval
   double     dTExit ;
 
   // intersect line = crPoint3d + v * [0 1 0] with PseudoBox
-  IntersectLine(crPoint3d, sLineVec, lNumFound, dTEnter, dTExit) ;
+  if ( IntersectLine(crPoint3d, sLineVec, lNumFound, dTEnter, dTExit)  != SM_SUCCESS ) { return ( sIvl.Init(), sIvl ) ; } // SolidCraft change: no crossing interval without the line intersection
   
   // Switch on the intersection type
   switch(lNumFound)
     { 
       case 0 : sIvl.Init() ; break ; 
-      case 1 : sIvl.SetMinMax(dTEnter, dTEnter) ; break ; 
-      case 2 : sIvl.SetMinMax(dTEnter, dTExit) ;  break ; 
+      case 1 : (void)sIvl.SetMinMax(dTEnter, dTEnter) ; break ; // SolidCraft: enter and exit come ordered from IntersectLine
+      case 2 : (void)sIvl.SetMinMax(dTEnter, dTExit) ;  break ; // SolidCraft: enter and exit come ordered from IntersectLine
     }
 
   // all done 
@@ -1666,14 +1666,14 @@ SmExtent1d SmPseudoBox::GetWInterval
   double     dTExit ;
 
   // intersect line = crPoint3d + w * [0 0 1] with PseudoBox
-  IntersectLine(crPoint3d, sLineVec, lNumFound, dTEnter, dTExit) ;
+  if ( IntersectLine(crPoint3d, sLineVec, lNumFound, dTEnter, dTExit)  != SM_SUCCESS ) { return ( sIvl.Init(), sIvl ) ; } // SolidCraft change: no crossing interval without the line intersection
   
   // Switch on the intersection type
   switch(lNumFound)
     { 
       case 0 : sIvl.Init() ; break ; 
-      case 1 : sIvl.SetMinMax(dTEnter, dTEnter) ; break ; 
-      case 2 : sIvl.SetMinMax(dTEnter, dTExit) ;  break ; 
+      case 1 : (void)sIvl.SetMinMax(dTEnter, dTEnter) ; break ; // SolidCraft: enter and exit come ordered from IntersectLine
+      case 2 : (void)sIvl.SetMinMax(dTEnter, dTExit) ;  break ; // SolidCraft: enter and exit come ordered from IntersectLine
     }
 
   // all done 
@@ -2259,16 +2259,16 @@ SmStatus SmPseudoBox::ProjectToPlane
 
        // build new basis from combination of largest possible independent projected basis vectors
        if     (dXCrossYLenSq > SM_EFF_ZERO_SQ) // Projected X and Y are independent
-         { aBasis[0].Unitize() ;
-           aBasis[1].Unitize() ;
-           sXCrossY.Unitize() ;
-           rProjectedBox.SetBasis(aBasis[0], aBasis[1], sXCrossY) ;
+         { (void)aBasis[0].Unitize() ; // SolidCraft: a zero vector stays zero
+           (void)aBasis[1].Unitize() ; // SolidCraft: a zero vector stays zero
+           (void)sXCrossY.Unitize() ; // SolidCraft: a zero vector stays zero
+           SER( rProjectedBox.SetBasis(aBasis[0], aBasis[1], sXCrossY)  );
          }
        else if(dXCrossZLenSq > SM_EFF_ZERO_SQ) // Projected X and Z are independent
-         { aBasis[0].Unitize() ;
-           aBasis[2].Unitize() ;
-           sXCrossZ.Unitize() ;
-           rProjectedBox.SetBasis(aBasis[0], aBasis[2], sXCrossZ) ; 
+         { (void)aBasis[0].Unitize() ; // SolidCraft: a zero vector stays zero
+           (void)aBasis[2].Unitize() ; // SolidCraft: a zero vector stays zero
+           (void)sXCrossZ.Unitize() ; // SolidCraft: a zero vector stays zero
+           SER( rProjectedBox.SetBasis(aBasis[0], aBasis[2], sXCrossZ)  ); 
          }
        else // X, Y and Z don't span the plane                                   
          { // build any orthogonal basis about aBasis[0] placing X and Y in the projection plane
@@ -2533,7 +2533,7 @@ SmStatus SmPseudoBox::ProjectToPlane
 
                   // solve for s in A*s*s + B*s*s + C = 0
                   double dScaledZero = SM_EFF_ZERO * (1.0 + smos_3Max(dACoef[0], dACoef[1], dACoef[2])) ;
-                  smgu_SolveQuadraticEqn(dACoef, dScaledZero, lNumSolves, adSols) ;
+                  SER( smgu_SolveQuadraticEqn(dACoef, dScaledZero, lNumSolves, adSols)  );
 
                   // for every solution
                   for(mm=0;mm<lNumSolves;mm++)

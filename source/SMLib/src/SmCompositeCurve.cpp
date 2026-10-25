@@ -426,24 +426,24 @@ SmStatus SmCompositeCurve::CalculateBoundingBox
 
       // get target Ivl for this segment
       sSegIvl.Translate(sIvlOffset) ;
-      sSegIvl.Intersect(crInterval, sTgtIvl) ;
+      (void)sSegIvl.Intersect(crInterval, sTgtIvl) ; // SolidCraft: SM_ERR is a segment outside crInterval, answered with the negative interval checked below
 
       // when TgtIvl is not negative
       if(!sTgtIvl.HasNegativeLength())
         {
           // get its bounding boxes
-          m_paSegments[ii].GetCurve()->CalculateBoundingBox(sTgtIvl,
+          SER( m_paSegments[ii].GetCurve()->CalculateBoundingBox(sTgtIvl,
                                                             pThisBBox,
                                                             pThisPseudoBox,
                                                             pThisPolarBox,
-                                                            bExpandBox) ;
+                                                            bExpandBox)  );
           // union bounding boxes
           if(pThisBBox)      { pBBox->Union(*pThisBBox, *pBBox) ; }
-          if(pThisPseudoBox) { pPseudoBox->Union(*pThisPseudoBox,
+          if(pThisPseudoBox) { SER( pPseudoBox->Union(*pThisPseudoBox,
                                                   bFirstUnion ? pThisPseudoBox->GetBasis() : pPseudoBox->GetBasis(),
-                                                 *pPseudoBox) ;
+                                                 *pPseudoBox)  );
                              }
-          if(pThisPolarBox)  { pPolarBox->Union(*pThisPolarBox, *pPolarBox) ; }
+          if(pThisPolarBox)  { SER( pPolarBox->Union(*pThisPolarBox, *pPolarBox)  ); }
 
 
           // mark state - done with first union
@@ -485,7 +485,7 @@ SmExtent1d SmCompositeCurve::GetNaturalInterval
       sSegIvl = m_paSegments[ii].m_pParentCurve->GetNaturalInterval() ;
 
       // increment the effective interval
-      sIvl.SetMinMax(sIvl.GetMin(), sIvl.GetMax() + sSegIvl.GetLength()) ;
+      (void)sIvl.SetMinMax(sIvl.GetMin(), sIvl.GetMax() + sSegIvl.GetLength()) ; // SolidCraft: the interval only grows by a segment length, it cannot fail
 
     } // end iter every segment adding up intervals
 
@@ -1127,7 +1127,7 @@ SmCompositeCurve::SmCompositeCurve
       m_paSegments[i].m_eTransition  = crSourceCurve.m_paSegments[i].m_eTransition ;
       m_paSegments[i].m_bSameSense   = crSourceCurve.m_paSegments[i].m_bSameSense ;
 
-      crSourceCurve.m_paSegments[i].m_pParentCurve->Copy(*crSourceCurve.GetContext(),
+      (void)crSourceCurve.m_paSegments[i].m_pParentCurve->Copy(*crSourceCurve.GetContext(), // SolidCraft: a constructor cannot report
                                                          m_paSegments[i].m_pParentCurve) ;
 
       m_paSegments[i].m_dGapStart    = crSourceCurve.m_paSegments[i].m_dGapStart ;
@@ -1359,11 +1359,11 @@ static SmStatus sm_FlushCrv
         {
           // fill gap with line segment - update curve and gap arrays
           SmBSplineCurve * pLine = NULL ;
-          SmBSplineCurve::CreateLineSegment(crContext,
+          SER( SmBSplineCurve::CreateLineSegment(crContext,
                                             3,
                                             curr->m_End,
                                             next->m_Start,
-                                            pLine);
+                                            pLine) );
           sGaps.Add(0.0);
           sCurves.Add(pLine);
           sSenses.Add(TRUE);
@@ -1593,7 +1593,7 @@ SmStatus SmCompositeCurve::BuildCompositesFromCurves
           // Flush the curve and reinitialize the list
           SmBoolean bUnused = FALSE;
           double    dUnused = 0.0 ;
-          sm_FlushCrv( crContext,                // in : context for new object construction
+          SER( sm_FlushCrv( crContext,                // in : context for new object construction
                           &sListHead,               // in : pListHead->Next starts composite curve, pListHead isnot part of the composite.
                                                     //      this is a NULL terminated LinkedList
                           dTol,                     // in : max gap-size between curve segment end-points
@@ -1605,7 +1605,7 @@ SmStatus SmCompositeCurve::BuildCompositesFromCurves
                           dOptDistanceToCreateLine, // in : gap-size < dOptDistanceToCreateLine, add line seg and connect.
                                                     //      0.0 to ignore
                           dUnused,                  // in : dOptDistanceToCreateBlend,
-                          rComposites );            // out: composite curve
+                          rComposites ) );            // out: composite curve
 
           // Now look for 1st remaining curve segment to start another composite curve
           for(ULONG kk=0; kk<lTotalCurves; kk++ )
@@ -1879,7 +1879,7 @@ static SmStatus sm_CreateCorner
       SER( sZ.CCWAngleBetween( sV1, sV2, dAngle ));
       dAngle = smos_Fabs(dAngle);
       SmAxis2Placement sA2P;
-      sA2P.SetCanonical( crVertexPoint, sX, sY );
+      SER( sA2P.SetCanonical( crVertexPoint, sX, sY ) );
       SmBSplineCurve *pTempBSPlCurve;
       SER( SmBSplineCurve::CreateCircleSegment( crContext,            // in : context for new object construction
                                                 3,                    // in : image space dimension: 2 or 3
@@ -1960,7 +1960,7 @@ SmBoolean bDebugMe = FALSE;
 
       // create vector between vertex and extension intersection
       SmVector3d sVertexPtToXPt = xPnt - crVertexPoint;
-      sVertexPtToXPt.Unitize();
+      (void)sVertexPtToXPt.Unitize(); // SolidCraft: a zero vector stays zero
 
       // Take cross product with plane normal to get vector of chamfer
       SmTArray<SmCurve*> sOffsets;
@@ -1968,7 +1968,7 @@ SmBoolean bDebugMe = FALSE;
       sOffsets.Add( rpCornerCurve2 );
 
       SmVector3d sPlaneNormal(0,0,1);
-      SmCurve::ComputeCrvsNormal( sOffsets, sPlaneNormal );
+      SER( SmCurve::ComputeCrvsNormal( sOffsets, sPlaneNormal ) );
 
       SmVector3d sChamferVector = sVertexPtToXPt * sPlaneNormal;
       SmPoint3d sChamferPt = crVertexPoint + dOffsetDistance * sVertexPtToXPt;
@@ -1989,7 +1989,7 @@ SmBoolean bDebugMe = FALSE;
 
       // Intersect the first offset with the chamfer
       SmSolutionArray sSolutions1;
-      rpCornerCurve1->GlobalCurveIntersect( sRange1, *rpCornerCurve3,  sRange3, dXSectTol3d, sSolutions1 );
+      SER( rpCornerCurve1->GlobalCurveIntersect( sRange1, *rpCornerCurve3,  sRange3, dXSectTol3d, sSolutions1 ) );
 
       // Trim the first offset - we assume there is one solution
       SmExtent1d sTrimIvl( sRange1.GetMin(), sSolutions1[0].m_vStart[0] );
@@ -1997,7 +1997,7 @@ SmBoolean bDebugMe = FALSE;
 
       // Intersect the second offset with the chamfer
       SmSolutionArray sSolutions2;
-      rpCornerCurve2->GlobalCurveIntersect( sRange2, *rpCornerCurve3,  sRange3, dXSectTol3d, sSolutions2 );
+      SER( rpCornerCurve2->GlobalCurveIntersect( sRange2, *rpCornerCurve3,  sRange3, dXSectTol3d, sSolutions2 ) );
 
       // Trim the second offset - we assume there is one solution
       SmExtent1d sTrimIv2( sRange2.GetMin(), sSolutions2[0].m_vStart[0] );
@@ -2007,9 +2007,9 @@ SmBoolean bDebugMe = FALSE;
       SmExtent1d sTrimIv3;
       double dP1 = sSolutions1[0].m_vStart[1], dP2 = sSolutions2[0].m_vStart[1];
       if ( dP1 < dP2 )
-          sTrimIv3.SetMinMax( dP1, dP2 );
+        { SER( sTrimIv3.SetMinMax( dP1, dP2 ) ); }
       else
-          sTrimIv3.SetMinMax( dP2, dP1 );
+        { SER( sTrimIv3.SetMinMax( dP2, dP1 ) ); }
       SER( rpCornerCurve3->Trim( sTrimIv3 )) ; // may snap sIvl by tol to existing knots
 
 
@@ -2086,8 +2086,8 @@ static SmStatus sm_CurveClassify
     {
         double dMidParam = sIvl.Evaluate( 0.5 );
         SmVector3d sPVThis[2], sPVOrig[2];
-        crTrimmedOffset.Evaluate( dMidParam, 1, FALSE, sPVThis );
-        pOriginator->Evaluate( dMidParam, 1, FALSE, sPVOrig );
+        SER( crTrimmedOffset.Evaluate( dMidParam, 1, FALSE, sPVThis ) );
+        SER( pOriginator->Evaluate( dMidParam, 1, FALSE, sPVOrig ) );
         if ( sPVThis[1].Dot( sPVOrig[1] ) < 0.0 )
         {
             rbKeepCurve = FALSE;
@@ -2379,8 +2379,8 @@ static SmStatus sm_CheckBowTies
   const SmCurve *pEndCurve   = crOrigCurves[lNumOrig-1];
   SmExtent1d     sStartIvl   = pStartCurve[0].GetNaturalInterval();
   SmExtent1d     sEndIvl     = pEndCurve[0].GetNaturalInterval();
-  pStartCurve->EvaluatePoint( sStartIvl.GetMin(), sStartPt );
-  pEndCurve  ->EvaluatePoint( sEndIvl  .GetMax(), sEndPt   );
+  SER( pStartCurve->EvaluatePoint( sStartIvl.GetMin(), sStartPt ) );
+  SER( pEndCurve  ->EvaluatePoint( sEndIvl  .GetMax(), sEndPt   ) );
 
   // no work - composite curve is closed
   if(sStartPt.DistanceBetween( sEndPt ) < dXSectTol3d )
@@ -2412,7 +2412,7 @@ static SmStatus sm_CheckBowTies
 
   // Check start point.
   SmPoint3d sStartOffsetPt;
-  crOffsets[0]->EvaluatePoint( crOffsets[0]->GetNaturalInterval().GetMin(), sStartOffsetPt );
+  SER( crOffsets[0]->EvaluatePoint( crOffsets[0]->GetNaturalInterval().GetMin(), sStartOffsetPt ) );
 
   // for every offset curve - check for curves closer than dCutoffDistance to end point
   for(ii=0;ii<crOrigCurves.GetSize();ii++ )
@@ -2459,7 +2459,7 @@ static SmStatus sm_CheckBowTies
 
   // Now check end point.
   SmPoint3d sEndOffsetPt;
-  crOffsets[lNumOrig-1]->EvaluatePoint( crOffsets[lNumOrig-1]->GetNaturalInterval().GetMax(), sEndOffsetPt );
+  SER( crOffsets[lNumOrig-1]->EvaluatePoint( crOffsets[lNumOrig-1]->GetNaturalInterval().GetMax(), sEndOffsetPt ) );
 
   // for every origCurve - check for curves closer than dCutoffDistance to end point
   for(ii=0; ii<crOrigCurves.GetSize(); ii++ )
@@ -2548,12 +2548,12 @@ SmStatus sm_FixBowTie
     {
       // find locations on the curve a fixed distance to the point
       SmPoint3d PtToTest = sPointsToTest[ii];
-      pOffCrv->GlobalPropertyAnalysis( sIvl,
+      SER( pOffCrv->GlobalPropertyAnalysis( sIvl,
                                        SM_CP_DISTANCE_TO_POINT,
                                       &dOffsetDist,
                                       &PtToTest,
                                        SM_EFF_ZERO,
-                                       sSolutions );
+                                       sSolutions ) );
 
       // for every solution
       for(jj = 0; jj < sSolutions.GetSize(); jj++ )
@@ -2675,12 +2675,12 @@ SmStatus SmCompositeCurve::CreateOffsetsOfManyCurves
 
           // add copy of segment base curve to sOrigCurves after ensuring a positive parameter direction
           SmCurve *pParentCopy = NULL;
-          pThisParent->Copy( crContext, pParentCopy );
+          SER( pThisParent->Copy( crContext, pParentCopy ) );
 
           SmExtent1d sIvl = pParentCopy->GetNaturalInterval();
 
           if(!pCompCrv->m_paSegments[jj].m_bSameSense )
-            { pParentCopy->ReverseParameterization( sIvl, sIvl ) ; }
+            { SER( pParentCopy->ReverseParameterization( sIvl, sIvl )  ); }
 
           sOrigCurves.Add( pParentCopy );
 
@@ -3244,11 +3244,11 @@ SmStatus SmCompositeCurve::IntersectAndTrimOffsets
   //   Get list of all open CompositeCurve EndPoints that are within
   //   the 'forbidden zone' - closer than dOffsetDistance, to one of the Original Curves.
   SmTArray<SmPoint3d> sPointsToTest;
-  sm_CheckBowTies(crOffsets,             // in : raw offsets of the Original Curves 
+  SER( sm_CheckBowTies(crOffsets,             // in : raw offsets of the Original Curves 
                   dOffsetDistance,       // in : Offset Distance 
                   dXSectTol3d,           // in : max distance between coincident points, GWC: Should be an XSectTol3d
                   crTotalOriginalCurves, // in : to classify against 
-                  sPointsToTest) ;       // out: open CompositeCurve EndPoints 
+                  sPointsToTest)  );       // out: open CompositeCurve EndPoints 
                                          //       found to be in the 'forbidden zone' 
                                          //      (closer than dOffsetDistance to some crOrigCurves.) 
   // locals
@@ -3360,16 +3360,16 @@ SmStatus SmCompositeCurve::IntersectAndTrimOffsets
                       SmExtent1d sTrimIvl ;
                       if (eCurrStart == SM_EP_START)
                         {
-                          sm_TrimFirstBreak( rThisBreaks, rSol.m_vEnd[0]) ;
-                          sTrimIvl.SetMinMax( rSol.m_vEnd[0], sCurrIvl.GetMax()) ;
+                          SER( sm_TrimFirstBreak( rThisBreaks, rSol.m_vEnd[0])  );
+                          SER( sTrimIvl.SetMinMax( rSol.m_vEnd[0], sCurrIvl.GetMax())  );
                         }
                       else
                         {
                           SM_ASSERT(eCurrEnd == SM_EP_END) ;
-                          sm_TrimLastBreak( rThisBreaks, rSol.m_vStart[0]) ;
-                          sTrimIvl.SetMinMax( sCurrIvl.GetMin(), rSol.m_vStart[0]) ;
+                          SER( sm_TrimLastBreak( rThisBreaks, rSol.m_vStart[0])  );
+                          SER( sTrimIvl.SetMinMax( sCurrIvl.GetMin(), rSol.m_vStart[0])  );
                         }
-                      pCurr->Trim( sTrimIvl ) ; // may snap sIvl by tol to existing knots
+                      SER( pCurr->Trim( sTrimIvl )  ); // may snap sIvl by tol to existing knots
                       sCurrIvl     = sTrimIvl ;
                       bDoneWithSol = TRUE ;
                     } // end overlapping range sol branch
@@ -3402,12 +3402,12 @@ SmStatus SmCompositeCurve::IntersectAndTrimOffsets
 
       // Before we classify, we have to check for 'incomplete bow-ties':
       // see description in sm_CheckBowTies().
-      sm_FixBowTie( pCurr,                // in : curve to test
+      SER( sm_FixBowTie( pCurr,                // in : curve to test
                     sPointsToTest,        // in : list of Open CompositeCurve EndPoints known to be
                                           //       closer to one of the raw offset curves (in the forbidden zone)
                     dOffsetDistance,      // in : find point/curve distance
                     dXSectTol3d,          // in : not used
-                    rThisBreaks );        // in/out: growing list appended to with
+                    rThisBreaks ) );        // in/out: growing list appended to with
                                           //         all locations on pCurr dOffsetDistance
                                           //         from any of the sPointsToTest.
 
@@ -3656,7 +3656,7 @@ SmStatus SmCompositeCurve::Transform
 
     for (ULONG i=0; i<m_lNumSegments; i++) {
         SmCurve* pCurve = m_paSegments[i].m_pParentCurve;
-        pCurve->Transform(crRotateNMove,cpOptScale);
+        SER( pCurve->Transform(crRotateNMove,cpOptScale) );
     }
     return SM_SUCCESS;
 
@@ -4157,7 +4157,7 @@ SmStatus SmCompositeCurve::WriteToDB
   // for every CompositeCurveSegment
   for(ii=0;ii<m_lNumSegments;ii++)
     {
-      m_paSegments[ii].WriteToDB(rDB, lDBVersionNumber) ;
+      SER( m_paSegments[ii].WriteToDB(rDB, lDBVersionNumber)  );
 
     } // end iter every CompositeCurveSegment
 
@@ -4216,7 +4216,7 @@ SmStatus SmCompositeCurve::ReadFromDB
   for(ii=0;ii<pCompositeCurve->m_lNumSegments;ii++)
     {
       SmCompositeCurveSegment *pTgtSegment = &pCompositeCurve->m_paSegments[ii] ;
-      SmCompositeCurveSegment::ReadFromDB(rDB, crContext, pTgtSegment, lDBVersionNumber) ;
+      SER( SmCompositeCurveSegment::ReadFromDB(rDB, crContext, pTgtSegment, lDBVersionNumber)  );
 
     } // end iter every CompositeCurveSegment
 

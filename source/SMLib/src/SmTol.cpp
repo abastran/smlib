@@ -115,7 +115,7 @@
   SmBoolean    SmTol::IsG1AngRad            (SmVector3d *pVec1, SmVector3d *pVec2, SmScaledZero *pOptOverrideEffZeroAngRad) 
                                             { SM_ASSERT_TOLPTR(pOptOverrideEffZeroAngRad) ;
                                               SmScaledZero sAngTolRad = pOptOverrideEffZeroAngRad ? *pOptOverrideEffZeroAngRad : GetEffG1AngRad() ;
-                                              double dAngRad ; pVec1->AngleBetween(*pVec2, dAngRad) ;
+                                              double dAngRad ; (void)pVec1->AngleBetween(*pVec2, dAngRad) ; // SolidCraft: AngleBetween leaves 0 for a zero vector
                                               return( dAngRad < sAngTolRad ) ; 
                                             }
   SmBoolean    SmTol::IsRadiusSmall         (double dCurvatureRad,                 SmZoneTol3d  *pOptOverrideZoneTol3d)     
@@ -1030,7 +1030,10 @@ SmTol2d SmTol::MapTo2d
   SmPoint3d sPt, sDU, sDV ;
 
   // evaluate SurfacePt = rSurface(rUVTrimCurve(dParam))
-  rSurface.Evaluate1stDerivatives(rUV, TRUE, TRUE, sPt, sDU, sDV) ;
+  // SolidCraft change: derivatives that cannot be evaluated count as the vanishing ones below
+  // (the domain-sized tolerance near singularities); they were read unset
+  if (rSurface.Evaluate1stDerivatives(rUV, TRUE, TRUE, sPt, sDU, sDV) != SM_SUCCESS)
+    { sDU.Set(0.0, 0.0, 0.0) ; sDV.Set(0.0, 0.0, 0.0) ; }
 
   // locals
   SmExtent2d sUVDomain   = rSurface.GetNaturalUVDomain() ;
@@ -1079,7 +1082,10 @@ SmTol2d SmTol::MapTo2d
   SmPoint2d sUVDir ;
 
   // evaluate SurfacePt = rSurface(rUVTrimCurve(dParam))
-  rSurface.Evaluate1stDerivatives(rUV, TRUE, TRUE, sPt, sDU, sDV) ;
+  // SolidCraft change: derivatives that cannot be evaluated count as the vanishing ones below
+  // (the domain-sized tolerance near singularities); they were read unset
+  if (rSurface.Evaluate1stDerivatives(rUV, TRUE, TRUE, sPt, sDU, sDV) != SM_SUCCESS)
+    { sDU.Set(0.0, 0.0, 0.0) ; sDV.Set(0.0, 0.0, 0.0) ; }
 
   // pick the max 1st deriv direction
   if(sDU.LengthSquared() > sDV.LengthSquared()) { sUVDir.Set(1.0, 0.0) ; }
@@ -1117,10 +1123,14 @@ SmTol2d SmTol::MapTo2d
      || (   rTrimCurve.IsKindOf(SmCrvOnSurf_TYPE)
          && &rSurface == ((SmCrvOnSurf &)rTrimCurve).GetBaseSurface()))
     {
-      if( rTrimCurve.IsKindOf(SmCrvOnSurf_TYPE) ) 
-        { ((SmCrvOnSurf &)rTrimCurve).GetUVCurve()->Evaluate(dParam, 1, TRUE, sPD) ; }
-      else                                        
-        { rTrimCurve.Evaluate(dParam, 1, TRUE, sPD) ; }
+      // SolidCraft change: a trim curve point that cannot be evaluated gives the tolerance of
+      // vanishing derivatives (it was mapped at an unset point)
+      SmStatus eEval =   rTrimCurve.IsKindOf(SmCrvOnSurf_TYPE)
+                       ? ((SmCrvOnSurf &)rTrimCurve).GetUVCurve()->Evaluate(dParam, 1, TRUE, sPD)
+                       : rTrimCurve.Evaluate(dParam, 1, TRUE, sPD) ;
+      if (eEval != SM_SUCCESS)
+        { SmExtent2d sDom = rSurface.GetNaturalUVDomain() ;
+          return( smos_Min(sDom.GetUInterval().GetLength(), sDom.GetVInterval().GetLength()) / 100.0 ) ; }
 
       sUV    = sPD[0] ;
       sUVDir = sPD[1] ;
@@ -1131,9 +1141,16 @@ SmTol2d SmTol::MapTo2d
         SmBoolean bIsMulti;
       double    dGap = 0.0;
 
-      rTrimCurve.Evaluate(dParam, 1, TRUE, sPD) ;
-      rSurface.DropPoint(sPD[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sUV, dGap, bIsMulti) ;
-      rSurface.DropVectors(sUV, TRUE, TRUE, 1, &sPD[1], &sUVDir) ;
+      // SolidCraft change: a point that cannot be evaluated or dropped gives the tolerance of
+      // vanishing derivatives (bSuccess was not read); a direction that cannot be dropped is
+      // none, for which the mapping takes the smaller of the U and V tolerances
+      if (   rTrimCurve.Evaluate(dParam, 1, TRUE, sPD) != SM_SUCCESS
+          || rSurface.DropPoint(sPD[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sUV, dGap, bIsMulti) != SM_SUCCESS
+          || !bSuccess)
+        { SmExtent2d sDom = rSurface.GetNaturalUVDomain() ;
+          return( smos_Min(sDom.GetUInterval().GetLength(), sDom.GetVInterval().GetLength()) / 100.0 ) ; }
+      if (rSurface.DropVectors(sUV, TRUE, TRUE, 1, &sPD[1], &sUVDir) != SM_SUCCESS)
+        { sUVDir.Set(0.0, 0.0) ; }
     }
 
   // pass the call along
@@ -1159,7 +1176,10 @@ SmTol1d SmTol::MapTo1d
   SmPoint3d sPD[2] ;
 
   // evaluate CurvePt
-  rCurve.Evaluate(dParam, 1, TRUE, sPD) ;
+  // SolidCraft change: a derivative that cannot be evaluated counts as a vanishing one (the
+  // interval-sized tolerance below); it was read unset
+  if (rCurve.Evaluate(dParam, 1, TRUE, sPD) != SM_SUCCESS)
+    { sPD[1].Set(0.0, 0.0, 0.0) ; }
 
   // pass the call along
   return( MapTo1d(rTol3d, sPD[1], rCurve.GetNaturalInterval() ) ) ;
@@ -1186,7 +1206,10 @@ SmTol1d SmTol::MapTo1d
   SmCrvOnSurf sCrvOnSurf((SmCurve &)rUVTrimCurve, (SmSurface &)rSurface) ;
 
   // evaluate CurvePt = rSurface(rUVTrimCurve(dParam))
-  sCrvOnSurf.Evaluate(dParam, 1, TRUE, sPD) ;
+  // SolidCraft change: a derivative that cannot be evaluated counts as a vanishing one (the
+  // interval-sized tolerance below); it was read unset
+  if (sCrvOnSurf.Evaluate(dParam, 1, TRUE, sPD) != SM_SUCCESS)
+    { sPD[1].Set(0.0, 0.0, 0.0) ; }
 
   // pass the call along
   return( MapTo1d(rTol3d, sPD[1], rUVTrimCurve.GetNaturalInterval() ) ) ;
@@ -1306,9 +1329,9 @@ SmStatus SmTol::UpdateObjectTolerance
 
                             // We have to update lower-dimensional topology.  [cbiTolProj]
                             SmVertex *pVtx = pEdge->GetStartVertex();
-                            UpdateObjectTolerance( pVtx, dThisGap, dThisTol );
+                            SER( UpdateObjectTolerance( pVtx, dThisGap, dThisTol ) );
                             pVtx = pEdge->GetOtherVertex( pVtx );
-                            UpdateObjectTolerance( pVtx, dThisGap, dThisTol );
+                            SER( UpdateObjectTolerance( pVtx, dThisGap, dThisTol ) );
 
                             if ( bCheckGaps )
                               {
@@ -1347,7 +1370,7 @@ SmStatus SmTol::UpdateObjectTolerance
                           ULONG ii, lNumEdges = sEdges.GetSize();
                           for ( ii = 0; ii < lNumEdges; ii++ )
                             {
-                              UpdateObjectTolerance( sEdges[ii], dThisGap, dThisTol );
+                              SER( UpdateObjectTolerance( sEdges[ii], dThisGap, dThisTol ) );
                             }
                           break;
                         } // end SmFace switch
@@ -1390,27 +1413,30 @@ SmScaledZero SmTol::GetScaledZero( const SmPseudoBox & rBox)     { double dA = r
 SmScaledZero SmTol::GetScaledZero( const SmFace     & rFace)     { return( rFace.GetSurface() ? GetScaledZero(*rFace.GetSurface() ) : SmScaledZero(SM_EFF_ZERO) ) ; }
 SmScaledZero SmTol::GetScaledZero( const SmEdge     & rEdge)     { return( rEdge.GetCurve()   ? GetScaledZero(*rEdge.GetCurve() )   : SmScaledZero(SM_EFF_ZERO) ) ; }
 SmScaledZero SmTol::GetScaledZero( const SmVertex   & rVertex)   { return( GetScaledZero(rVertex.GetPoint()) ) ; }
-SmScaledZero SmTol::GetScaledZero( const SmBrep     & rBrep )    { SmExtent3d sBBox ; rBrep.  CalculateBoundingBox(sBBox) ; return(GetScaledZero(sBBox)) ; }
-SmScaledZero SmTol::GetScaledZero( const SmRegion   & rRegion )  { SmExtent3d sBBox ; rRegion.CalculateBoundingBox(sBBox) ; return(GetScaledZero(sBBox)) ; }
-SmScaledZero SmTol::GetScaledZero( const SmShell    & rShell )   { SmExtent3d sBBox ; rShell. CalculateBoundingBox(sBBox) ; return(GetScaledZero(sBBox)) ; }
+SmScaledZero SmTol::GetScaledZero( const SmBrep     & rBrep )    { SmExtent3d sBBox ; if (rBrep.  CalculateBoundingBox(sBBox) != SM_SUCCESS) { return SmScaledZero(SM_EFF_ZERO) ; } return(GetScaledZero(sBBox)) ; } // SolidCraft change: no box, the default zero
+SmScaledZero SmTol::GetScaledZero( const SmRegion   & rRegion )  { SmExtent3d sBBox ; if (rRegion.CalculateBoundingBox(sBBox) != SM_SUCCESS) { return SmScaledZero(SM_EFF_ZERO) ; } return(GetScaledZero(sBBox)) ; } // SolidCraft change: no box, the default zero
+SmScaledZero SmTol::GetScaledZero( const SmShell    & rShell )   { SmExtent3d sBBox ; if (rShell. CalculateBoundingBox(sBBox) != SM_SUCCESS) { return SmScaledZero(SM_EFF_ZERO) ; } return(GetScaledZero(sBBox)) ; } // SolidCraft change: no box, the default zero
 
 SmScaledZero SmTol::GetScaledZero( const SmCurve    & rCurve)    { SmExtent1d sIvl = rCurve.GetNaturalInterval() ;
                                                                    double     dLength = rCurve.ApproximateLength(sIvl, 3) ;
                                                                    SmPoint3d  sPnt ;
-                                                                   rCurve.EvaluatePoint(sIvl.Evaluate(0.5), sPnt) ;
+                                                                   if (rCurve.EvaluatePoint(sIvl.Evaluate(0.5), sPnt) != SM_SUCCESS)
+                                                                     { return SmScaledZero(SM_EFF_ZERO) ; } // SolidCraft change: no point, the default zero
 
                                                                    return( GetScaledZero(sPnt, dLength) ) ;
                                                                  }
 SmScaledZero SmTol::GetScaledZero( const SmSurface  & rSurface)  { SmPoint2d sSize ;
                                                                    SmPoint3d sPnt ;
-                                                                   rSurface.ApproximateSize(sSize) ;
-                                                                   rSurface.EvaluatePoint(rSurface.GetNaturalUVDomain().Evaluate(0.5,0.5), sPnt) ;
+                                                                   if (   rSurface.ApproximateSize(sSize) != SM_SUCCESS
+                                                                       || rSurface.EvaluatePoint(rSurface.GetNaturalUVDomain().Evaluate(0.5,0.5), sPnt) != SM_SUCCESS)
+                                                                     { return SmScaledZero(SM_EFF_ZERO) ; } // SolidCraft change: no size or point, the default zero
                                                                    return( GetScaledZero(sPnt, sSize) ) ;
                                                                  }
 SmScaledZero SmTol::GetScaledZero( const SmVolume   & rVolume)   { SmExtent3d sParamDomain = rVolume.GetNaturalParamDomain() ;
                                                                    if(sParamDomain.IsBounded()) 
                                                                          { SmExtent3d sOutBox ;
-                                                                           rVolume.EvaluateBoundingBox(sParamDomain, NULL, &sOutBox) ;
+                                                                           if (rVolume.EvaluateBoundingBox(sParamDomain, NULL, &sOutBox) != SM_SUCCESS)
+                                                                             { return SmScaledZero(SM_EFF_ZERO) ; } // SolidCraft change: no box, the default zero
                                                                            return( GetScaledZero(sOutBox) ) ;
                                                                          } 
                                                                    else  { return 100.0 * SM_EFF_ZERO ; }

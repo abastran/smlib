@@ -107,6 +107,14 @@ set(SMLIB_STATUS_CLEAN
   ${SRC}/SMLib/src/SmSurfaceDropLib.cpp
   ${SRC}/SMLib/src/SmSurfaceCache.cpp
   ${SRC}/SMLib/src/SmCurveCache.cpp
+  ${SRC}/SMLib/src/SmPseudoBox.cpp
+  ${SRC}/SMLib/src/SmGeomUtility.cpp
+  ${SRC}/SMLib/src/SmGap.cpp
+  ${SRC}/SMLib/src/SmPointSet.cpp
+  ${SRC}/SMLib/src/SmCompositeCurve.cpp
+  ${SRC}/SMLib/src/SmTransform.cpp
+  ${SRC}/SMLib/src/SmTol.cpp
+  ${SRC}/SMLib/src/SmExtent2d.cpp
   ${SRC}/SMLib/src/SmOffsetExecutive.cpp
   ${SRC}/SMLib/src/SmOffsetGeometryCreation.cpp
   ${SRC}/SMLib/src/SmOffsetSurface.cpp

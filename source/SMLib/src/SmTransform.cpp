@@ -353,7 +353,7 @@ SmStatus SmTransform::MirrorSimple
   sMirror.SetToDisp (  2*dD*sN.x,     2*dD*sN.y,     2*dD*sN.z  ) ;
 
   // Mirror current transform
-  this->ConcatTransform(sMirror) ;
+  SER( this->ConcatTransform(sMirror)  );
 
   // all done
   return(SM_SUCCESS) ;
@@ -487,7 +487,7 @@ SmStatus SmTransform::RotateAboutAxisSimple
 
   // apply transform to this coordinate system
   // this = this * sOther 
-  this->ConcatTransform(sOther) ;
+  SER( this->ConcatTransform(sOther)  );
 
   // all done
   return(SM_SUCCESS) ;
@@ -557,7 +557,7 @@ SmStatus SmTransform::RotateAboutAxisAtPointSimple
 
   // apply transform to this coordinate system
   // this = this * sOther 
-  this->ConcatTransform(sOther) ;
+  SER( this->ConcatTransform(sOther)  );
 
   // all done
   return(SM_SUCCESS) ;
@@ -578,12 +578,12 @@ SmStatus SmTransform::TransformSimple
   sRotateNMove.SetAxis2Placement(crRotateNMove) ;
 
   // add rotate and move to transform
-  this->ConcatTransform(sRotateNMove) ;
+  SER( this->ConcatTransform(sRotateNMove)  );
 
   // scale transform
   if(cpOptScale)
     {
-      this->ScaleSimple(*cpOptScale) ;
+      SER( this->ScaleSimple(*cpOptScale)  );
     }
 
   // all done
@@ -616,7 +616,7 @@ SmStatus SmTransform::ProjectToPlaneSimple
   sProject.SetToDisp (  dD*sN.x,     dD*sN.y,     dD*sN.z  ) ;
 
   // Mirror current transform
-  this->ConcatTransform(sProject) ;
+  SER( this->ConcatTransform(sProject)  );
 
   // all done
   return(SM_SUCCESS) ;
@@ -693,7 +693,7 @@ SmStatus SmTransform::LoadAxis2Placement
   SmVector3d & rOrig = GetToDisp() ;
 
   // set output
-  rAxis2Placement.SetCanonical(rOrig, rX, rY) ; 
+  SER( rAxis2Placement.SetCanonical(rOrig, rX, rY)  ); 
 
   // all done
   return(SM_SUCCESS) ;
@@ -910,18 +910,18 @@ void SmTransform::ComposeFromAngles
   Init() ;
 
   // rotate about global X by wAngleX
-  RotateAboutAxisSimple(dXRotRad, SmVector3d(1, 0, 0));
+  (void)RotateAboutAxisSimple(dXRotRad, SmVector3d(1, 0, 0)); // SolidCraft: rotations about unit axes and translations cannot fail
 
   // rotate about global Y by wAngleY
-  RotateAboutAxisSimple(dYRotRad, SmVector3d(0, 1, 0));
+  (void)RotateAboutAxisSimple(dYRotRad, SmVector3d(0, 1, 0)); // SolidCraft: rotations about unit axes and translations cannot fail
 
   // rotate about global Z by wAngleZ
-  RotateAboutAxisSimple(dZRotRad, SmVector3d(0, 0, 1));
+  (void)RotateAboutAxisSimple(dZRotRad, SmVector3d(0, 0, 1)); // SolidCraft: rotations about unit axes and translations cannot fail
 
   // set transform origin
   if(pOptCenter) 
     {
-      TranslateSimple(*pOptCenter) ;
+      (void)TranslateSimple(*pOptCenter) ; // SolidCraft: rotations about unit axes and translations cannot fail
     }
 
 #ifdef SM_DEBUG_CODE
@@ -1038,8 +1038,8 @@ SmStatus SmTransform::MakeExactBSpline1stOutCurve
           const SmContext * pContext = rInputCurve.GetContext() ;
 
           // copy and transform the curve
-          rInputCurve.Copy(*pContext, pThisNewCurve) ;
-          pThisNewCurve->Transform(sAxis2Placement) ;
+          SER( rInputCurve.Copy(*pContext, pThisNewCurve)  );
+          SER( pThisNewCurve->Transform(sAxis2Placement)  );
 
           // set output
           rpNewCurve = (SmBSplineCurve *)pThisNewCurve ;
@@ -1096,8 +1096,8 @@ SmStatus SmTransform::MakeExactBSpline1stOutSurface
           const SmContext * pContext        = rInputSurface.GetContext() ;
 
           // copy and transform the surface
-          rInputSurface.Copy(*pContext, pThisNewSurface) ;
-          pThisNewSurface->Transform(sAxis2Placement) ;
+          SER( rInputSurface.Copy(*pContext, pThisNewSurface)  );
+          SER( pThisNewSurface->Transform(sAxis2Placement)  );
 
           // set output
           rpNewSurface = (SmBSplineSurface *)pThisNewSurface ;
@@ -1273,7 +1273,7 @@ SmStatus SmTransform::EvaluateBoundingBoxSimple
                           TransformVector(sThisProjPseudoBox.GetBasis(2), sZ) ;
 
                           // init sThisProjPseudoBox to projected Basis vector directions and uninitialized intervals
-                          sThisProjPseudoBox.SetBasis(sX, sY, sZ) ; 
+                          SER( sThisProjPseudoBox.SetBasis(sX, sY, sZ)  ); 
                           sThisProjPseudoBox.Init() ; // init intervals - leave basis vectors alone
                         }
 
@@ -1342,7 +1342,7 @@ SmStatus SmTransform::EvaluateBoundingBoxSimple
                     {
                       SmPoint3d sUVW = pBox->Evaluate(ii, jj, kk) ;
                       SmPoint3d sXYZ ;
-                      EvaluatePoint(sUVW, sXYZ) ;
+                      SER( EvaluatePoint(sUVW, sXYZ)  );
 
                       // build the boxes
                       if(pProjBox)       { pProjBox->AddPoint3d(sXYZ) ; }
@@ -1447,11 +1447,11 @@ SmStatus SmTransform::EvaluateIsoParametricCurveSimple
           rpNewIsoCurve = new (crContext) SmLine(sPxyz, sVxyz) ;
           
           // bound the line
-          rpNewIsoCurve->AdjustSTEPInterval(sFreeIvl) ;
+          SER( rpNewIsoCurve->AdjustSTEPInterval(sFreeIvl)  );
         }
       else                    
         { // degenerate line
-          SmCurve::CreateDegenerateCurve(crContext, 3, sPxyz, rpNewIsoCurve) ;  
+          SER( SmCurve::CreateDegenerateCurve(crContext, 3, sPxyz, rpNewIsoCurve)  );  
         }
 
     } // end watch for trimming check
@@ -1511,10 +1511,10 @@ const
   switch(eConstantParam)
     {
       // constant u
-      case SM_VP_U : sFreeUV.SetMinMax(pTgtDomain->GetVMin(),
+      case SM_VP_U : SER( sFreeUV.SetMinMax(pTgtDomain->GetVMin(),
                                        pTgtDomain->GetWMin(),
                                        pTgtDomain->GetVMax(),
-                                       pTgtDomain->GetWMax()) ;
+                                       pTgtDomain->GetWMax())  );
                      sFixedIvl = pTgtDomain->GetUInterval() ;
                      sPuvw.Set(dIsoParam, 0.0, 0.0) ;
                      sNormal = sPu ;
@@ -1523,10 +1523,10 @@ const
                      break ;
 
       // constant v
-      case SM_VP_V : sFreeUV.SetMinMax(pTgtDomain->GetWMin(),
+      case SM_VP_V : SER( sFreeUV.SetMinMax(pTgtDomain->GetWMin(),
                                        pTgtDomain->GetUMin(),
                                        pTgtDomain->GetWMax(),
-                                       pTgtDomain->GetUMax()) ;
+                                       pTgtDomain->GetUMax())  );
                      sFixedIvl = pTgtDomain->GetVInterval() ;
                      sPuvw.Set(0.0, dIsoParam, 0.0) ;
                      sNormal = sPv ;
@@ -1535,10 +1535,10 @@ const
                      break ;
 
       // constant w
-      case SM_VP_W : sFreeUV.SetMinMax(pTgtDomain->GetUMin(),
+      case SM_VP_W : SER( sFreeUV.SetMinMax(pTgtDomain->GetUMin(),
                                        pTgtDomain->GetVMin(),
                                        pTgtDomain->GetUMax(),
-                                       pTgtDomain->GetVMax()) ;
+                                       pTgtDomain->GetVMax())  );
                      sFixedIvl = pTgtDomain->GetWInterval() ;
                      sPuvw.Set(0.0, 0.0, dIsoParam) ;
                      sNormal = sPw ;
@@ -1935,7 +1935,7 @@ SmStatus SmTransform::WriteToDB
                          }
 
   // write base class data
-  SmVolume::WriteToDB(rDB, lDBVersionNumber) ;
+  SER( SmVolume::WriteToDB(rDB, lDBVersionNumber)  );
 
   // all done
   return SM_SUCCESS;
@@ -2010,7 +2010,7 @@ SmStatus SmTransform::ReadFromDB
   rpNewVolume = pTransformVolume ;
 
   // read base class data
-  SmVolume::ReadFromDB(SmVolume_TYPE, rDB, crContext, rpNewVolume, lDBVersionNumber ) ; 
+  SER( SmVolume::ReadFromDB(SmVolume_TYPE, rDB, crContext, rpNewVolume, lDBVersionNumber )  ); 
 
   // all done
   return SM_SUCCESS;
@@ -2180,7 +2180,7 @@ SmDisplayList *SmTransform::DrawAxis
       dLength = smos_Min(dLength, dMinLength > SM_EFF_ZERO ? dMinLength : SM_BIG_DOUBLE) ;
 
       SmVector3d sOrtho1, sOrtho2, sAxis ;
-      sFromTo.MakeUnitOrthoVectors(NULL, sAxis, sOrtho1, sOrtho2) ;
+      (void)sFromTo.MakeUnitOrthoVectors(NULL, sAxis, sOrtho1, sOrtho2) ; // SolidCraft: drawing only
       sOrtho1 *= .05 * dLength ;
       sOrtho2 *= .05 * dLength ;
       SmPoint3d sP0 = .85*rOutOrigin+.15*sParamOrigin ;

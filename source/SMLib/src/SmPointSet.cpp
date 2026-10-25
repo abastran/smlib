@@ -319,11 +319,11 @@ SmStatus SmPointSet3d::SetUpAxes()
              } // end iter ii, every point seeking a line tangent direction
 
            // build the axes: Z=m_sNormal, X=Tangent Projected to Normal Plane, Y = Z * X ;
-           m_sNormal.MakeUnitOrthoVectors(&sX, m_sNormal, m_sXAxis, m_sYAxis) ;
+           SER( m_sNormal.MakeUnitOrthoVectors(&sX, m_sNormal, m_sXAxis, m_sYAxis)  );
         }
       else // use given normal as Z and compute any X and Y axes.
         {
-           m_sNormal.MakeUnitOrthoVectors(NULL, m_sNormal, m_sXAxis, m_sYAxis) ;
+           SER( m_sNormal.MakeUnitOrthoVectors(NULL, m_sNormal, m_sXAxis, m_sYAxis)  );
         }
       return(SM_SUCCESS) ;
     }
@@ -331,7 +331,7 @@ SmStatus SmPointSet3d::SetUpAxes()
     {
       // classify the point set, one of SM_PST_VOID, _POINTSIZED, _LINEAR, _PLANAR, _SCATTERED
       // set m_ePointSetType, m_sCentroid, m_dDeviation
-      smgu_BestFitPlaneToPoints(GetPoints(),         // in : target point set
+      SER( smgu_BestFitPlaneToPoints(GetPoints(),         // in : target point set
                                 m_dDistTol3d,        // in : Min distance between distinct 3d points
                                 m_ePointSetType,     // out: one of: SM_PST_VOID,          // empty point set
                                                      //              SM_PST_POINTSIZED,    // all pts within tol of BestCenterPt
@@ -348,7 +348,7 @@ SmStatus SmPointSet3d::SetUpAxes()
                                                      //              SM_PST_LINEAR    : between crPoints[i] and BestLine
                                                      //              SM_PST_PLANAR    : between crPoints[i] and BestPlane
                                                      //              SM_PST_SCATTERED : between crPoints[i] and BestPlane
-                                m_dMaxCentroidDev) ; // out: max gap between crPoints[i] and rCenterPt
+                                m_dMaxCentroidDev)  ); // out: max gap between crPoints[i] and rCenterPt
 
         // set axes
         switch(m_ePointSetType)
@@ -359,13 +359,13 @@ SmStatus SmPointSet3d::SetUpAxes()
                                      m_sNormal.Set(0,0,1) ;
                                      break ;
             case SM_PST_LINEAR     : // currently m_sNormal = BestLine Tangent
-                                     m_sNormal.MakeUnitOrthoVectors(NULL,m_sXAxis,m_sYAxis,m_sNormal) ;
+                                     SER( m_sNormal.MakeUnitOrthoVectors(NULL,m_sXAxis,m_sYAxis,m_sNormal)  );
                                      break ;
             case SM_PST_PLANAR     : // currently m_sNormal = BestPlane Normal
-                                     m_sNormal.MakeUnitOrthoVectors(NULL,m_sNormal,m_sXAxis,m_sYAxis) ;
+                                     SER( m_sNormal.MakeUnitOrthoVectors(NULL,m_sNormal,m_sXAxis,m_sYAxis)  );
                                      break ;
             case SM_PST_SCATTERED  : // currently m_sNormal = BestPlane Normal
-                                     m_sNormal.MakeUnitOrthoVectors(NULL,m_sNormal,m_sXAxis,m_sYAxis) ;
+                                     SER( m_sNormal.MakeUnitOrthoVectors(NULL,m_sNormal,m_sXAxis,m_sYAxis)  );
                                      break ;
             default:
                 break;
@@ -513,18 +513,18 @@ SmStatus SmPointSet3d::SetUpPointSetType()
                                      break ;
                                    }
           case SM_PST_LINEAR     : // seek first point to specify a plane
-                                   { smgu_LinePointDistance(sO, sX, m_pData[ii], dDist) ;
+                                   { SER( smgu_LinePointDistance(sO, sX, m_pData[ii], dDist)  );
                                      if(dDist > m_dDistTol3d)
                                        {
                                          // data is not linear
                                          sY = m_pData[ii] - sO ;
-                                         sX.MakeUnitOrthoVectors(&sY,sX,sY,sZ) ;
+                                         SER( sX.MakeUnitOrthoVectors(&sY,sX,sY,sZ)  );
                                          m_ePointSetType = SM_PST_PLANAR ;
                                        }
                                      break ;
                                    }
           case SM_PST_PLANAR     : // seek first scattered point not on the plane
-                                   { smgu_PlanePointDistance(sO, sZ, m_pData[ii], dDist) ;
+                                   { SER( smgu_PlanePointDistance(sO, sZ, m_pData[ii], dDist)  );
                                      if(dDist > m_dDistTol3d)
                                        { m_ePointSetType = SM_PST_SCATTERED ;
                                          return(SM_SUCCESS) ;
@@ -543,7 +543,7 @@ SmStatus SmPointSet3d::SetUpPointSetType()
   //       the axes built here are not fitted to the data.
   if(m_bAxesSet && m_ePointSetType == SM_PST_LINEAR)
     {
-      m_sNormal.MakeUnitOrthoVectors(&sX, m_sNormal, m_sXAxis, m_sYAxis) ;
+      SER( m_sNormal.MakeUnitOrthoVectors(&sX, m_sNormal, m_sXAxis, m_sYAxis)  );
       m_bAxesSet = TRUE ;
     }
 
@@ -567,7 +567,7 @@ SmStatus SmPointSet3d::SetUpBBoxes
 {
   // prep
   if(pOptInputPBoxZ)
-    { pOptInputPBoxZ->Unitize() ; }
+    { (void)pOptInputPBoxZ->Unitize() ; } // SolidCraft: a zero vector stays zero
 
   // no work - requested data already computed
   if(   (!(eReason & SM_PSD_BBOXES)      || m_bBBoxSet     == TRUE)
@@ -586,13 +586,13 @@ SmStatus SmPointSet3d::SetUpBBoxes
       m_bBBoxSet = TRUE ;
 
       // Pseudo box uses the stored axes
-      SetUpAxes() ;
+      SER( SetUpAxes()  );
       if(pOptInputPBoxZ == NULL)
-        { m_sPBox.SetBasis(m_sXAxis, m_sYAxis, m_sNormal) ; }
+        { SER( m_sPBox.SetBasis(m_sXAxis, m_sYAxis, m_sNormal)  ); }
       else
         { SmVector3d sX, sY ;
-          pOptInputPBoxZ->MakeUnitOrthoVectors(NULL, *pOptInputPBoxZ, sX, sY) ;
-          m_sPBox.SetBasis(sX, sY, *pOptInputPBoxZ) ;
+          SER( pOptInputPBoxZ->MakeUnitOrthoVectors(NULL, *pOptInputPBoxZ, sX, sY)  );
+          SER( m_sPBox.SetBasis(sX, sY, *pOptInputPBoxZ)  );
         }
 
       // init box extents
@@ -645,7 +645,7 @@ SmStatus SmPointSet3d::SetUpTightPseudoBox
   m_bPBoxRefined = TRUE ;
 
   // ensure m_sPBox is built
-  SetUpBBoxes(SM_PSD_BBOXES, pOptInputPBoxZ) ;
+  SER( SetUpBBoxes(SM_PSD_BBOXES, pOptInputPBoxZ)  );
 
   // locals
   SmPoint3d   sPlanePoint  = m_sPBox.Evaluate(.5, .5, .5) ;
@@ -653,7 +653,7 @@ SmStatus SmPointSet3d::SetUpTightPseudoBox
   SmVector3d  sPlaneY      = m_sPBox.GetBasis(1) ;
   SmVector3d  sPlaneZ      = m_sPBox.GetBasis(2) ;
   SmVector3d  sPlaneNormal = sPlaneX * sPlaneY ;
-  sPlaneNormal.Unitize() ;
+  (void)sPlaneNormal.Unitize() ; // SolidCraft: a zero vector stays zero
   double      dArea        = m_sPBox.GetXYArea() ;
   double      dThisArea ;
   SmPseudoBox sThisBox ;
@@ -681,7 +681,7 @@ SmBoolean bDebugMe = FALSE ;
       SmVector3d sRotX = sPlaneX.RotateVecAboutAxis(sPlaneNormal, dAngRad) ;
       SmVector3d sRotY = sPlaneY.RotateVecAboutAxis(sPlaneNormal, dAngRad) ;
 
-      sThisBox.SetBasis(sRotX, sRotY, sPlaneZ) ;
+      SER( sThisBox.SetBasis(sRotX, sRotY, sPlaneZ)  );
       sThisBox.Init() ; // init intervals - leave basis vectors alone
 
       // size this pseudoBox to the data
@@ -803,10 +803,10 @@ SmBoolean bDebugMe = FALSE ;
           SmVector3d sEndVec1 = sThisPt - sEndPt1 ;
 
           // get the angles
-          sPlaneNormal.CCWAngleBetween(sPlaneY, sBegVec0, dBegAngRad0) ;  // (negative)
-          sPlaneNormal.CCWAngleBetween(sPlaneY, sEndVec0, dEndAngRad0) ;  // (positive)
-          sPlaneNormal.CCWAngleBetween(sPlaneX, sBegVec1, dBegAngRad1) ;  // (positive)
-          sPlaneNormal.CCWAngleBetween(sPlaneX, sEndVec1, dEndAngRad1) ;  // (negative)
+          SER( sPlaneNormal.CCWAngleBetween(sPlaneY, sBegVec0, dBegAngRad0)  );  // (negative)
+          SER( sPlaneNormal.CCWAngleBetween(sPlaneY, sEndVec0, dEndAngRad0)  );  // (positive)
+          SER( sPlaneNormal.CCWAngleBetween(sPlaneX, sBegVec1, dBegAngRad1)  );  // (positive)
+          SER( sPlaneNormal.CCWAngleBetween(sPlaneX, sEndVec1, dEndAngRad1)  );  // (negative)
 
 #ifdef SM_DEBUG_CODE
           // draw found min/max points
@@ -865,7 +865,7 @@ SmBoolean bDebugMe = FALSE ;
       SmVector3d sRotX = sPlaneX.RotateVecAboutAxis(sPlaneNormal, dAngRad) ;
       SmVector3d sRotY = sPlaneY.RotateVecAboutAxis(sPlaneNormal, dAngRad) ;
 
-      sThisBox.SetBasis(sRotX, sRotY, sPlaneZ) ;
+      SER( sThisBox.SetBasis(sRotX, sRotY, sPlaneZ)  );
       sThisBox.Init() ; // init intervals - leave basis vectors alone
 
       // size this pseudoBox to the data
@@ -933,9 +933,9 @@ SmStatus SmPointSet3d::SetUpDeviation
   double dDist, dDist2 ;
 
   // ensure independent data is set
-  SetUpAxes() ;
-  SetUpCentroid() ;
-  SetUpPointSetType() ;
+  SER( SetUpAxes()  );
+  SER( SetUpCentroid()  );
+  SER( SetUpPointSetType()  );
 
   // note work to be done
   SmBoolean bMaxDevCalc   = (eReason & SM_PSD_MAX_DEVIATION) ;
@@ -974,7 +974,7 @@ SmStatus SmPointSet3d::SetUpDeviation
       if(m_ePointSetType == SM_PST_LINEAR)
         { for(ii=0;ii<m_lSize;ii++)
             { // Max deiviation
-              smgu_LinePointDistance(m_sCentroid, m_sXAxis, m_pData[ii], dDist) ;
+              SER( smgu_LinePointDistance(m_sCentroid, m_sXAxis, m_pData[ii], dDist)  );
               if(dDist > m_dMaxDev) {m_dMaxDev = dDist ; }
 
               // centroid deviation
@@ -986,7 +986,7 @@ SmStatus SmPointSet3d::SetUpDeviation
       else // Plane or Scattered
         { for(ii=0;ii<m_lSize;ii++)
             { // Max deiviation
-              smgu_PlanePointDistance(m_sCentroid, m_sNormal, m_pData[ii], dDist) ;
+              SER( smgu_PlanePointDistance(m_sCentroid, m_sNormal, m_pData[ii], dDist)  );
               if(dDist > m_dMaxDev) {m_dMaxDev = dDist ; }
 
               // centroid deviation
@@ -1000,14 +1000,14 @@ SmStatus SmPointSet3d::SetUpDeviation
     { // Get just MaxDev, switch between Linear and other (Planar and Scattered) case
       if(m_ePointSetType == SM_PST_LINEAR)
         { for(ii=0;ii<m_lSize;ii++)
-            { smgu_LinePointDistance(m_sCentroid, m_sXAxis, m_pData[ii], dDist) ;
+            { SER( smgu_LinePointDistance(m_sCentroid, m_sXAxis, m_pData[ii], dDist)  );
               if(dDist > m_dMaxDev) {m_dMaxDev = dDist ; }
             }
         } // end Linear branch
 
       else // Plane or Scattered
         { for(ii=0;ii<m_lSize;ii++)
-            { smgu_PlanePointDistance(m_sCentroid, m_sNormal, m_pData[ii], dDist) ;
+            { SER( smgu_PlanePointDistance(m_sCentroid, m_sNormal, m_pData[ii], dDist)  );
               if(dDist > m_dMaxDev) {m_dMaxDev = dDist ; }
             }
         } // end Plane or Scattered branch
@@ -1303,7 +1303,7 @@ SmDisplayList * SmPointSet3d::Draw
   // when point parameterization
   if(bDrawParams)
     {
-      ((SmPointSet3d *)this)->SetUpAxes() ;
+      (void)((SmPointSet3d *)this)->SetUpAxes() ; // SolidCraft: drawing only
       double dSize = m_sBBox.GetMaxDimension() * .75 ;
 
       // save current color and PointSize
@@ -1829,7 +1829,7 @@ SmDisplayList * SmPointSequence::Draw
   // when point parameterization
   if(bDrawParams)
     {
-      ((SmPointSequence *)this)->SetUpAxes() ;
+      (void)((SmPointSequence *)this)->SetUpAxes() ; // SolidCraft: drawing only
       double dSize = m_sBBox.GetMaxDimension() * .75 ;
 
       // save current color and PointSize
@@ -2247,7 +2247,7 @@ SmStatus SmPointGrid::SetUpMonotonic()
 
           // look for change in direction
           double dAngRad ;
-          sVec1.AngleBetween(sVec0, dAngRad) ;  // out: 0 to Pi
+          SER( sVec1.AngleBetween(sVec0, dAngRad)  );  // out: 0 to Pi
           double dAngDeg = SM_RAD2DEG(dAngRad) ;
           // double dDot = sVec1.Dot(sVec0) ;
           // if(dDot < - SM_EFF_ZERO)
@@ -2309,7 +2309,7 @@ SmStatus SmPointGrid::SetUpMonotonic()
 
           // look for change in direction
           double dAngRad ;
-          sVec1.AngleBetween(sVec0, dAngRad) ;  // out: 0 to Pi
+          SER( sVec1.AngleBetween(sVec0, dAngRad)  );  // out: 0 to Pi
           double dAngDeg = SM_RAD2DEG(dAngRad) ;
           // double dDot = sVec1.Dot(sVec0) ;
           // if(dDot < - SM_EFF_ZERO)
@@ -2453,7 +2453,7 @@ SmDisplayList * SmPointGrid::Draw
   // when point parameterization
   if(bDrawParams)
     {
-      ((SmPointGrid *)this)->SetUpAxes() ;
+      (void)((SmPointGrid *)this)->SetUpAxes() ; // SolidCraft: drawing only
       double dSize = m_sBBox.GetMaxDimension() * .75 ;
 
       // save current color and PointSize

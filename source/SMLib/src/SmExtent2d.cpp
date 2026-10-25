@@ -806,7 +806,7 @@ void SmExtent2d::ClassifyPointDir2d
   double     dAngRad = 0.0;
   double     dRadTol = SmTol::GetAngTolRad() ;
   SmVector2d sU(1,0) ; 
-  sUV.CCWAngleBetween(sU, dAngRad) ;
+  (void)sUV.CCWAngleBetween(sU, dAngRad) ; // SolidCraft: CCWAngleBetween succeeds, with 0, for zero vectors
 
   SM_REF1(sDir);
 
@@ -1011,15 +1011,15 @@ SmExtent1d SmExtent2d::GetInsideSectorAtPoint2d
   ULONG sBndrys = GetPoint2dBoundaries(rUV, sTol2d) ; 
 
   // Translate classifications to Intervals and return
-  if(SM_SS_NONE)                                { sRtnIvl.SetMinMax(  0, 360) ; }
-  else if(sBndrys == (SM_SS_UMIN | SM_SS_VMIN)) { sRtnIvl.SetMinMax(  0,  90) ; }
-  else if(sBndrys == (SM_SS_VMIN | SM_SS_UMAX)) { sRtnIvl.SetMinMax( 90, 180) ; }
-  else if(sBndrys == (SM_SS_UMAX | SM_SS_VMAX)) { sRtnIvl.SetMinMax(180, 270) ; }
-  else if(sBndrys == (SM_SS_VMAX | SM_SS_UMIN)) { sRtnIvl.SetMinMax(270, 360) ; }
-  else if(sBndrys == (SM_SS_UMIN))              { sRtnIvl.SetMinMax(-90,  90) ; }
-  else if(sBndrys == (SM_SS_VMIN))              { sRtnIvl.SetMinMax(  0, 180) ; }
-  else if(sBndrys == (SM_SS_UMAX))              { sRtnIvl.SetMinMax( 90, 270) ; }
-  else if(sBndrys == (SM_SS_VMAX))              { sRtnIvl.SetMinMax(180, 360) ; }
+  if(SM_SS_NONE)                                { (void)sRtnIvl.SetMinMax(  0, 360) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_UMIN | SM_SS_VMIN)) { (void)sRtnIvl.SetMinMax(  0,  90) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_VMIN | SM_SS_UMAX)) { (void)sRtnIvl.SetMinMax( 90, 180) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_UMAX | SM_SS_VMAX)) { (void)sRtnIvl.SetMinMax(180, 270) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_VMAX | SM_SS_UMIN)) { (void)sRtnIvl.SetMinMax(270, 360) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_UMIN))              { (void)sRtnIvl.SetMinMax(-90,  90) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_VMIN))              { (void)sRtnIvl.SetMinMax(  0, 180) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_UMAX))              { (void)sRtnIvl.SetMinMax( 90, 270) ; } // SolidCraft: ordered constants, it cannot fail
+  else if(sBndrys == (SM_SS_VMAX))              { (void)sRtnIvl.SetMinMax(180, 360) ; } // SolidCraft: ordered constants, it cannot fail
 
   // all done
   return(sRtnIvl) ;
@@ -1130,8 +1130,8 @@ SmStatus SmExtent2d::IntersectPeriodic
   SmTArray<SmExtent1d> sVXSects ;
 
   // intersect U and V intervals
-  sUIvl.IntersectPeriodic(sOtherUIvl, dUPeriod, sUXSects, bDontCrossBoundaries) ;
-  sVIvl.IntersectPeriodic(sOtherVIvl, dVPeriod, sVXSects, bDontCrossBoundaries) ;
+  SER( sUIvl.IntersectPeriodic(sOtherUIvl, dUPeriod, sUXSects, bDontCrossBoundaries)  );
+  SER( sVIvl.IntersectPeriodic(sOtherVIvl, dVPeriod, sVXSects, bDontCrossBoundaries)  );
 
   // output 1 2d domain for every combination of 1d intersection intervals
   for(ii=0;ii<sUXSects.GetSize();ii++)
@@ -1696,7 +1696,7 @@ SmExtent3d SmExtent2d::ApproximateUnbounded // eff: return a bounded SmExtent3d 
         } // end bBounded == FALSE check
           
       // set output
-      pOptExpandedApprox->SetMinMax(sMinInc, sMaxInc) ;    
+      (void)pOptExpandedApprox->SetMinMax(sMinInc, sMaxInc) ; // SolidCraft: the bounds only widen from an ordered box, it cannot fail
         
     } // end need to build extended extent check
 
@@ -1749,10 +1749,10 @@ SmDisplayList * SmExtent2d::Draw
           SmPoint3d sPt00, sPt01, sPt11, sPt10 ;
           SmPoint2d sUV01(m_vMin.x, m_vMax.y) ;
           SmPoint2d sUV10(m_vMax.x, m_vMin.y) ; 
-          pOptOutSurface->EvaluatePoint(m_vMin, sPt00) ;
-          pOptOutSurface->EvaluatePoint(sUV01,  sPt01) ;
-          pOptOutSurface->EvaluatePoint(m_vMax, sPt11) ;
-          pOptOutSurface->EvaluatePoint(sUV10,  sPt10) ;
+          (void)pOptOutSurface->EvaluatePoint(m_vMin, sPt00) ; // SolidCraft: drawing only
+          (void)pOptOutSurface->EvaluatePoint(sUV01,  sPt01) ; // SolidCraft: drawing only
+          (void)pOptOutSurface->EvaluatePoint(m_vMax, sPt11) ; // SolidCraft: drawing only
+          (void)pOptOutSurface->EvaluatePoint(sUV10,  sPt10) ; // SolidCraft: drawing only
 
           smgfx_DrawPoint(sPt00.x, sPt00.y, sPt00.z, pOptGfxSet);
           smgfx_DrawLine (sPt00.x, sPt00.y, sPt00.z, sPt01.x, sPt01.y, sPt01.z, pOptGfxSet);
