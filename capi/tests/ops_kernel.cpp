@@ -1175,6 +1175,65 @@ int main()
         }
     }
 
+    // SolidCraft rig case fillets/4369: a 60 x 40 x 10 block rounded r10 in plan and a boss r10 x 10
+    // on its top at (12, 32), overhanging the block's corner. The boss's base arc over the block,
+    // rounded R2, ends at the block's corner wall and back wall, where the arc runs on as the rim
+    // of the boss's underside. On the corner wall the top's rail meets the wall 42 degrees round
+    // the boss before the arc's end, the boss's rail only at it: the round's surface, made to
+    // span its rail ends found then, stopped short of the arc's end, and the cap's rib up the
+    // wall ran off it (1001). The round adds the material within 2 of the boss's foot, under the
+    // quarter disc, over the block: the integral of 2 - sqrt(4 - (12 - rho)^2) over the plan
+    // annulus 10 < rho < 12 about the boss's axis inside the block's outline.
+    {
+        const int64_t kinds[8] = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC,
+                                  SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC};
+        const double reals[72] = {10, 0,  0, 50, 0,  0, 50, 10, 0, 0, 0, 1, 1, 0, 0, 10, -PI / 2, 0,
+                                  60, 10, 0, 60, 30, 0, 50, 30, 0, 0, 0, 1, 1, 0, 0, 10, 0,       PI / 2,
+                                  50, 40, 0, 10, 40, 0, 10, 30, 0, 0, 0, 1, 1, 0, 0, 10, PI / 2,  PI,
+                                  0,  30, 0, 0,  10, 0, 10, 10, 0, 0, 0, 1, 1, 0, 0, 10, PI,      3 * PI / 2};
+        const double up[3] = {0, 0, 1};
+        smlib_brep *plate = nullptr;
+        CHECK(smlib_extrude(kinds, 8, reals, 72, up, 10.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &plate, nullptr) == SMLIB_OK);
+        smlib_brep *boss = cylinder(12, 32, 10, 10, 10);
+        smlib_brep *joined = nullptr;
+        CHECK(plate != nullptr && smlib_boolean(plate, boss, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK && sound(joined));
+        auto in_outline = [](double x, double y) {
+            double qx = std::max({10.0 - x, 0.0, x - 50.0});
+            double qy = std::max({10.0 - y, 0.0, y - 30.0});
+            return x >= 0 && x <= 60 && y >= 0 && y <= 40 && qx * qx + qy * qy <= 100.0;
+        };
+        double added = 0.0;
+        const int n_rho = 1000;
+        const int n_turn = 8000;
+        for (int i = 0; i < n_rho; ++i)
+        {
+            double rho = 10.0 + (i + 0.5) * 2.0 / n_rho;
+            double height = 2.0 - std::sqrt(4.0 - (12.0 - rho) * (12.0 - rho));
+            for (int j = 0; j < n_turn; ++j)
+            {
+                double t = (j + 0.5) * 2.0 * PI / n_turn;
+                if (in_outline(12.0 + rho * std::cos(t), 32.0 + rho * std::sin(t)))
+                {
+                    added += height * rho * (2.0 / n_rho) * (2.0 * PI / n_turn);
+                }
+            }
+        }
+        const double foot[6] = {12, 22, 10, 12 + 10 * std::cos(PI / 6), 32 + 10 * std::sin(PI / 6), 10};
+        if (joined != nullptr && smlib_fillet(joined, foot, 2, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(joined) + added, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the boss's base arc rounded up to the block's walls");
+        }
+        for (smlib_brep *b : {plate, boss, joined})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
     // Booleans that split, vanish or touch.
     smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
     CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);

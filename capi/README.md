@@ -1128,3 +1128,13 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   the tangent side edges are: the edge past it, of the filleted edge's convexity, is the side edge
   extended, the end face the face between it and the other side edge (the wall), and the side
   face is cut where the end face's extension meets it.
+- **A round's surface reaches the end of its edge when one rail ends on an extended edge**
+  (`SmFilletSolver.cpp`, `SmFilletSolver::CalcFilletGeom`): the surface spans the trace points
+  taken from its rail ends, but a rail ending on an extended edge (`SM_FV_RAIL_X_EXTENDED_EDGEUSE`)
+  is found on the surface once it is made and gives none. At a corner capped through the
+  original vertex, that rail ends where the cap's edge on its face leaves the vertex; the other
+  rail can end well short of the edge's end (the top's rail of a round along a boss's base meets
+  the wall the boss overhangs 42 degrees round the boss before the base arc's end), and the
+  surface, its extension measured from there, stopped short of the arc's end: the cap's rib ran
+  off it (1001). The filleted edge's end at such a corner is now a trace point, and the end's
+  extension runs on past it.

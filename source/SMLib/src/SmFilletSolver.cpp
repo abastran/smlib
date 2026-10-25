@@ -1861,6 +1861,38 @@ static int sbDumpFVUs=0;
       sThroughKnots.Append(m_vG1Knots);
       SER(GetRadiusCornerParameters(sThroughKnots));
 
+      // SolidCraft change: a rail that ends on an extended edge (SM_FV_RAIL_X_EXTENDED_EDGEUSE)
+      // has its end found on the fillet surface once that is made, so it gives the trace no point
+      // (see the rail ends below). The corner's cap edges meet at the filleted edge's end there
+      // (SmFilletNx1Corner::MakeCornerTopology), and that rail ends where the cap edge on its face
+      // leaves that end: the fillet runs at least to the edge's end, its cross-section there is a
+      // through point, and the end's extension runs on past it. The other rail can end well
+      // short of the edge's end (a round along a boss's base ending at a wall the boss overhangs).
+      for ( ULONG lRail=0; lRail<2; lRail++ )
+        {
+          SmFilletEdge * pRail = pFilletGeom0->GetRail( lRail );
+          NER(pRail);
+          SmFilletVertex * pRailEnds[2] = { (SmFilletVertex*)pRail->GetVertex(), NULL };
+          if ( pRailEnds[0] != NULL )
+            { pRailEnds[1] = (SmFilletVertex*)pRail->GetOtherVertex( pRailEnds[0] ); }
+          for ( ULONG lEnd=0; lEnd<2; lEnd++ )
+            {
+              SmFilletVertex * pFV = pRailEnds[ lEnd ];
+              if (   pFV == NULL
+                  || pFV->GetFilletVertexType() != SM_FV_RAIL_X_EXTENDED_EDGEUSE
+                  || pFV->GetFilletCorner() == NULL )
+                { continue; }
+              const SmVertex * cpCornerVertex = pFV->GetFilletCorner()->GetFilletedVertex();
+              if ( pEdge->GetStartVertex() == pEdge->GetEndVertex() )
+                { continue; }  // a closed edge has no end the fillet stops at
+              double dEndParam =   ( cpCornerVertex == pEdge->GetStartVertex() ) ? sIvl.GetMin()
+                                 : ( cpCornerVertex == pEdge->GetEndVertex() )   ? sIvl.GetMax()
+                                 :                                                 SM_BIG_DOUBLE;
+              if ( dEndParam != SM_BIG_DOUBLE && ! sThroughKnots.IsIn( dEndParam ) )
+                { sThroughKnots.Add( dEndParam ); }
+            }
+        }
+
       // Now, compute 'through points' from all internal G1 knots
       // and add them to sAllTsectPnts (and sDeletePnts arrays to stop mem leaks)
       for (ULONG k=0; k<sThroughKnots.GetSize(); k++)
