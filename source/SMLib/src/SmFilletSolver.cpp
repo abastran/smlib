@@ -6277,10 +6277,18 @@ SmStatus SmFilletSolver::RailsFitTheirFaces
                   bOnFace = TRUE;
                   continue;
                 }
+              // A run of intervals off the face (split where the rail passes through a point of
+              // the face's boundary from outside to outside) leaves the face once: judge it at
+              // its first interval, from where it leaves to the rail's end or start.
+              if (j > 0 && sClass[j-1].m_vMid.GetPointClass() == SM_PC_UNKNOWN)
+                { continue; }
+              ULONG jLast = j;
+              while (jLast+1 < lNumIvls && sClass[jLast+1].m_vMid.GetPointClass() == SM_PC_UNKNOWN)
+                { jLast++; }
               // Where the rail leaves the face: the first interval ends there, the others start.
-              const SmPointClassification & rLeave = (j == 0) ? rIvl.m_vEnd : rIvl.m_vStart;
-              const double dLeave = (j == 0) ? rIvl.GetMax() : rIvl.GetMin();
-              if (j == 0 || j+1 == lNumIvls)
+              const SmPointClassification & rLeave = (j == 0) ? sClass[jLast].m_vEnd : rIvl.m_vStart;
+              const double dLeave = (j == 0) ? sClass[jLast].GetMax() : rIvl.GetMin();
+              if (j == 0 || jLast+1 == lNumIvls)
                 {
                   // The rail beyond the face from there to its end: past an end of the
                   // filleted edge, where a corner trims it, only if it leaves the face there.
