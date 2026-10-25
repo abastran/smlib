@@ -138,6 +138,35 @@ int main()
     b = nullptr;
     expect("extrude annulus", smlib_extrude(ring.kinds.data(), ring.nk(), ring.reals.data(), ring.nr(), Z, 3.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b, nullptr), &b,
            PI * (100.0 - 16.0) * 3.0, 1e-6);
+    // A 10 x 6 plate with a triangular hole whose corner touches its outline at (0, 3), 2 up: the
+    // plate touches itself along that corner's line. Each cap is one face of one loop through the
+    // corner twice (a face's loops share no vertex); the hole had come out a face of its own,
+    // outside the plate, and the plate's caps no face of material.
+    {
+        List notched;
+        notched.polygon({0, 0, 0, 10, 0, 0, 10, 6, 0, 0, 6, 0, 0, 3, 0});
+        notched.polygon({0, 3, 0, 2, 3.5, 0, 2, 2.5, 0});
+        b = nullptr;
+        CHECK(smlib_extrude(notched.kinds.data(), notched.nk(), notched.reals.data(), notched.nr(), Z, 2.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &b,
+                            nullptr) == SMLIB_OK);
+        double got = 0.0;
+        CHECK(b != nullptr && smlib_brep_volume(b, 1e-6, &got) == SMLIB_OK && std::fabs(got - 118.0) <= 1e-9 * 118.0);
+        int64_t len = 0, bad = -1;
+        char buf[4096] = {0};
+        CHECK(b != nullptr && smlib_brep_check(b, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK && bad == 0);
+        smlib_flat *f = nullptr;
+        const int64_t *loops = nullptr, *regions = nullptr;
+        int64_t n = 0, n_regions = 0;
+        CHECK(b != nullptr && smlib_brep_export(b, &f) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_FACE_LOOP_COUNT, &loops, &n) == SMLIB_OK);
+        CHECK(n == 10 && std::all_of(loops, loops + n, [](int64_t c) { return c == 1; }));
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_REGION_TYPE, &regions, &n_regions) == SMLIB_OK);
+        CHECK(n_regions == 2 && regions[1] == 0);
+        std::printf("%-34s volume %.6f expected 118, faces %lld, regions %lld, check %s\n", "extrude plate notched at a corner", got,
+                    static_cast<long long>(n), static_cast<long long>(n_regions), bad == 0 ? "valid" : buf);
+        smlib_flat_free(f);
+        smlib_brep_free(b);
+    }
     List sq;
     sq.polygon({-5, -5, 0, 5, -5, 0, 5, 5, 0, -5, 5, 0});
     double t = std::tan(10.0 * PI / 180.0);

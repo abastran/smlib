@@ -10049,6 +10049,14 @@ SmStatus SmSurface::CreatePlaneWith3DCurves
            sOuterLoopCounts)); // out: Num of Loops in each outerLoop, sized:[NumOuterLoops]
                                //      ex: rsOuterLoopCounts[i]=3 => 2 innerLoops inside OuterLoop[i]
 
+  // An inner loop touching another loop of its face at a vertex is part of that loop.
+  SER( SmTrimmingTools::JoinTouchingLoops
+         ( sOrderedCurves,     // i/o: [Sequence of[OuterLoop CCW CrvSet followed by its InnerLoop CW CrvSets]]
+           sLoopCounts,        // i/o: Num of Crvs in each Loop, sized:[NumLoops]
+           sOrients,           // i/o: assoc orientation of each Crv in its Loop, sized:[NumCrvs]
+           sOuterLoopCounts,   // i/o: Num of Loops in each outerLoop, sized:[NumOuterLoops]
+           d3DTol));           // in : max dist between points taken as one vertex
+
   if ( pOuterLoopCounts != NULL )
     { *pOuterLoopCounts = sOuterLoopCounts; }
 

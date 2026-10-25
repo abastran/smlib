@@ -47,6 +47,8 @@
 
 #include <nurbs.h>
 
+#include <vector>
+
 #ifdef SM_DEBUG_CODE
   #include <SmCrvOnSurf.h>
 #endif // SM_DEBUG_CODE
@@ -2458,6 +2460,126 @@ SmBoolean bDebug = FALSE;
   return SM_SUCCESS;
 
 } // end SmTrimmingTools::FindOuterLoops
+
+
+/*******************************************************************//**
+PURPOSE: Join each loop that touches another loop of its face at a vertex
+         into that loop: the face's boundary passes the vertex twice, in
+         one loop, as SMLib keeps a face (its loops share no vertex:
+         SmFace tests 38 and 39).
+NOTES:
+   The input is FindOuterLoops' output: each outer loop (CCW) followed by
+   its inner loops (CW). OrderCurvesIntoLoops accepts loops that touch at
+   a vertex (FindFirstPointWithinTolToPnt takes a double match there), so
+   an inner loop with a corner on its outer loop, or two inner loops
+   meeting at a corner, come here as separate loops of one outer loop.
+   Built as separate loops, their vertices there would be distinct and
+   coincident, and once merged the loops would share a vertex.
+METHOD ---
+   Within each outer loop's set: while a curve of one loop starts where a
+   curve of a later loop starts, splice the later loop into the earlier one
+   there: the earlier loop's curves up to that vertex, the later loop's
+   from that vertex round to it again, then the rest of the earlier loop.
+   Each loop keeps its direction, so the joined loop keeps the material on
+   its left. The outer loop stays first.
+***********************************************************************/
+SmStatus SmTrimmingTools::JoinTouchingLoops
+  (SmTArray< SmCurve* >     & rsCurves,           // i/o: FindOuterLoops' curves: each outer loop's CrvSet, then its inner loops'
+   SmTArray< ULONG >        & rsLoopCounts,       // i/o: Num of Crvs in each Loop, sized:[NumLoops]
+   SmTArray< SmOrientType > & rsOrients,          // i/o: assoc orientation of each Crv in its Loop, sized:[NumCrvs]
+   SmTArray< ULONG >        & rsOuterLoopCounts,  // i/o: Num of Loops in each outerLoop, sized:[NumOuterLoops]
+   double                     d3DTol)             // in : max dist between points taken as one vertex
+{
+  typedef std::pair< SmCurve*, SmOrientType > LoopCurve;
+  typedef std::vector< LoopCurve >            CurveLoop;
+
+  // Each outer loop's set of loops.
+  std::vector< std::vector< CurveLoop > > sSets;
+  ULONG lCurve = 0, lLoop = 0;
+  for (ULONG ii = 0; ii < rsOuterLoopCounts.GetSize(); ii++)
+    {
+      std::vector< CurveLoop > sSet;
+      for (ULONG jj = 0; jj < rsOuterLoopCounts[ii]; jj++, lLoop++)
+        {
+          if (lLoop >= rsLoopCounts.GetSize()) { SER(SM_ERR); }
+          CurveLoop sLoop;
+          for (ULONG kk = 0; kk < rsLoopCounts[lLoop]; kk++, lCurve++)
+            {
+              if (lCurve >= rsCurves.GetSize() || lCurve >= rsOrients.GetSize() || rsCurves[lCurve] == NULL) { SER(SM_ERR); }
+              sLoop.push_back(LoopCurve(rsCurves[lCurve], rsOrients[lCurve]));
+            }
+          sSet.push_back(sLoop);
+        }
+      sSets.push_back(sSet);
+    }
+  if (lLoop != rsLoopCounts.GetSize() || lCurve != rsCurves.GetSize() || lCurve != rsOrients.GetSize()) { SER(SM_ERR); }
+
+  // Where a curve starts as its loop runs it.
+  auto Start = [](const LoopCurve& crCurve, SmPoint3d& rPoint) -> SmStatus
+    {
+      SmExtent1d sIvl(crCurve.first->GetNaturalInterval());
+      return crCurve.first->EvaluatePoint(crCurve.second == SM_OT_SAME ? sIvl.GetMin() : sIvl.GetMax(), rPoint);
+    };
+
+  SmBoolean bJoined = FALSE;
+  for (std::vector< CurveLoop > & rSet : sSets)
+    {
+      SmBoolean bFound = TRUE;
+      while (bFound)
+        {
+          bFound = FALSE;
+          for (size_t aa = 0; !bFound && aa < rSet.size(); aa++)
+            {
+              for (size_t bb = aa + 1; !bFound && bb < rSet.size(); bb++)
+                {
+                  for (size_t ia = 0; !bFound && ia < rSet[aa].size(); ia++)
+                    {
+                      SmPoint3d sA;
+                      SER(Start(rSet[aa][ia], sA));
+                      for (size_t ib = 0; ib < rSet[bb].size(); ib++)
+                        {
+                          SmPoint3d sB;
+                          SER(Start(rSet[bb][ib], sB));
+                          if (sA.DistanceBetween(sB) >= d3DTol)
+                            { continue; }
+                          // Loop aa up to the vertex, loop bb round from it, then the rest of aa.
+                          CurveLoop sJoined(rSet[aa].begin(), rSet[aa].begin() + ia);
+                          sJoined.insert(sJoined.end(), rSet[bb].begin() + ib, rSet[bb].end());
+                          sJoined.insert(sJoined.end(), rSet[bb].begin(), rSet[bb].begin() + ib);
+                          sJoined.insert(sJoined.end(), rSet[aa].begin() + ia, rSet[aa].end());
+                          rSet[aa] = sJoined;
+                          rSet.erase(rSet.begin() + bb);
+                          bFound = bJoined = TRUE;
+                          break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+  if (!bJoined)
+    { return SM_SUCCESS; }
+
+  // set output
+  rsCurves.ReSet();
+  rsOrients.ReSet();
+  rsLoopCounts.ReSet();
+  rsOuterLoopCounts.ReSet();
+  for (const std::vector< CurveLoop > & crSet : sSets)
+    {
+      rsOuterLoopCounts.Add((ULONG)crSet.size());
+      for (const CurveLoop & crLoop : crSet)
+        {
+          rsLoopCounts.Add((ULONG)crLoop.size());
+          for (const LoopCurve & crCurve : crLoop)
+            {
+              rsCurves.Add(crCurve.first);
+              rsOrients.Add(crCurve.second);
+            }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmTrimmingTools::JoinTouchingLoops
 
 /*******************************************************************//**
 PURPOSE: AssertValid() Test reporting static labels
