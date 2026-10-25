@@ -46,6 +46,7 @@ namespace
         { SM_ERR_METHOD_FAILURE_QUITING,    "SM_ERR_METHOD_FAILURE_QUITING"  },
         { SM_ERR_NOTYET_HEAL_FACE,          "SM_ERR_NOTYET_HEAL_FACE"        },
         { SM_ERR_TESS_FAIL_FACE,            "SM_ERR_TESS_FAIL_FACE"          },
+        { SM_ERR_OFFSET_WALLS_TOUCH,        "SM_ERR_OFFSET_WALLS_TOUCH"      },
     };
 }
 

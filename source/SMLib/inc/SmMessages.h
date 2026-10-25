@@ -68,6 +68,10 @@ class SmExtent3d ;
 #define SM_ERR_METHOD_FAILURE_QUITING    1038L
 #define SM_ERR_NOTYET_HEAL_FACE          1040L
 #define SM_ERR_TESS_FAIL_FACE            1041L
+// SolidCraft fork: an offset (a shell, a solid offset) whose walls would meet: loops of an offset
+// face touch without crossing (SmOffsetExecutive::ResolveCrossingLoopsOfFace), so the offset
+// would pinch to nothing along a line, which bounds no solid.
+#define SM_ERR_OFFSET_WALLS_TOUCH        1042L
 
 /***********************************************************************
 Control Output File and Stream output for smos_WriteBuffer()

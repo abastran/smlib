@@ -106,6 +106,7 @@ Mirrors `source/SMLib/inc/SmMessages.h`. When fixing a failure, treat the `Typic
 | 1038 | `SM_ERR_METHOD_FAILURE_QUITING` | Algorithm voluntarily aborted | The kernel decided continuing would produce garbage. Specific to the algorithm — see the trace. |
 | 1040 | `SM_ERR_NOTYET_HEAL_FACE` | Face couldn't be healed automatically | Inspect or rebuild the offending face before retrying; `heal_brep` exposes no tolerance parameter. |
 | 1041 | `SM_ERR_TESS_FAIL_FACE` | Tessellation failed on a specific face | Defined for compatibility, but no current production path emits this status. Diagnose the actual returned status and tessellation diagnostics instead. |
+| 1042 | `SM_ERR_OFFSET_WALLS_TOUCH` | An offset's walls would meet: loops of an offset face touch without crossing | A shell or offset whose wall exactly uses up the room between two faces (a hole twice the wall from a side) would pinch to nothing along a line. Use a thinner or a thicker wall, or move the feature. The C API reports it as `SMLIB_ERR_WALLS_TOUCH`. |
 
 ## Operation-Specific Guidance
 

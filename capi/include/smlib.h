@@ -502,6 +502,12 @@ int32_t smlib_flat_read(const char *path, smlib_flat **out);
  * faces it rolls on allow, or chamfers that take the whole of a face (smlib_fillet and the
  * blends after it). */
 #define SMLIB_ERR_NO_ROOM (-1103)
+/* An offset whose walls would meet (smlib_shell; any call built on SMLib's offset may give it):
+ * the offsets of two faces touch without crossing, a hole's wall offset just reaching a side's
+ * (the hole as far from the side as two walls are thick), so the result would pinch to nothing
+ * along a line, which bounds no solid. Not SMLIB_ERR_NO_ROOM: the body has room inside, and a
+ * thinner or a thicker wall builds (the walls apart, or merged where they cross). */
+#define SMLIB_ERR_WALLS_TOUCH (-1110)
 /* SMLib reported success but the operation did nothing: a blend (smlib_fillet, smlib_chamfer,
  * smlib_blend, smlib_fillet_variable, smlib_chamfer_sides) that made no face, a face move or draft (smlib_offset_faces, smlib_draft) that left no face on the
  * surface it was moved onto. The call's log line names it. */
@@ -639,7 +645,9 @@ int32_t smlib_chamfer_sides(const smlib_brep *brep, const double *points, int64_
  * inside the original surface, positive: outside), open at the selected faces. `n_points` may
  * be 0 (and `points` NULL) for a closed hollow body. An inward wall that leaves no room inside
  * the solid (no point of it farther than the wall from every face but the open ones, by a
- * margin of 0.1% of the wall or ten times the body's tolerance) is SMLIB_ERR_NO_ROOM. */
+ * margin of 0.1% of the wall or ten times the body's tolerance) is SMLIB_ERR_NO_ROOM. A wall whose
+ * offsets touch without crossing anywhere (a hole exactly twice the wall from a side) is
+ * SMLIB_ERR_WALLS_TOUCH. */
 int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double thickness,
                     smlib_brep **out, int64_t *out_failed_point);
 

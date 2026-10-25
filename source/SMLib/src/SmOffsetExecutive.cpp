@@ -3556,6 +3556,84 @@ namespace
     smos_ErrorMessage(SM_ERR_BAD_INTERSECTIONS, FILE_NAME, LINE_NUMBER, cpWhy, (TCHAR*)0, FUNC_NAME);
     return SM_ERR_BAD_INTERSECTIONS;
   }
+
+  // Loops of an offset face that touch without crossing: the offset walls they come from meet
+  // there, so the offset would pinch to nothing along a line (or over a stretch). No face is
+  // bounded there, and the offset is refused with SM_ERR_OFFSET_WALLS_TOUCH.
+  SmStatus sm_WallsTouch(const TCHAR *cpWhy)
+  {
+    smos_ErrorMessage(SM_ERR_OFFSET_WALLS_TOUCH, FILE_NAME, LINE_NUMBER, cpWhy, (TCHAR*)0, FUNC_NAME);
+    return SM_ERR_OFFSET_WALLS_TOUCH;
+  }
+
+  // The directions in which a loop (its edgeuses rEUs) leaves the point crP of its edgeuse pOnEU
+  // (at edge parameter dParam): both ways along pOnEU's curve where crP lies inside the edge;
+  // where crP is a vertex of the loop (within dTol3d), along each of the loop's edges from it.
+  SmStatus sm_LoopDirectionsAt(const std::vector<SmEdgeuse*> &rEUs, SmEdgeuse *pOnEU, double dParam, const SmPoint3d &crP,
+                               double dTol3d, std::vector<SmVector3d> &rDirs)
+  {
+    rDirs.clear();
+    SmEdge *pOnEdge = pOnEU->GetEdge(); NER(pOnEdge);
+    if (   crP.DistanceBetween(pOnEdge->GetStartVertex()->GetPoint()) > dTol3d
+        && crP.DistanceBetween(pOnEdge->GetEndVertex()->GetPoint())   > dTol3d)
+      {
+        SmVector3d aEval[2];
+        SER(pOnEdge->GetCurve()->Evaluate(dParam, 1, TRUE, aEval));
+        rDirs.push_back(aEval[1]);
+        rDirs.push_back(-aEval[1]);
+        return SM_SUCCESS;
+      }
+    for (size_t kk=0; kk<rEUs.size(); kk++)
+      {
+        SmEdge     *pEdge = rEUs[kk]->GetEdge(); NER(pEdge);
+        SmExtent1d  sIvl  = pEdge->GetInterval();
+        SmVector3d  aEval[2];
+        if (crP.DistanceBetween(pEdge->GetStartVertex()->GetPoint()) <= dTol3d)
+          {
+            SER(pEdge->GetCurve()->Evaluate(sIvl.GetMin(), 1, TRUE, aEval));
+            rDirs.push_back(aEval[1]);
+          }
+        if (crP.DistanceBetween(pEdge->GetEndVertex()->GetPoint()) <= dTol3d)
+          {
+            SER(pEdge->GetCurve()->Evaluate(sIvl.GetMax(), 1, FALSE, aEval));
+            rDirs.push_back(-aEval[1]);
+          }
+      }
+    return SM_SUCCESS;
+  }
+
+  // Whether loop B touches loop A where they meet (crN the face's normal there, rA and rB the
+  // directions each leaves that point in): it does when it leaves along one of A's directions
+  // (they are tangent there, to SMLib's angle tolerance for parallel vectors), or when both its
+  // directions lie on the same side of A, so that it comes up to A and goes back without
+  // passing through it. A loop passing the point more than once is not told apart (FALSE).
+  SmStatus sm_LoopTouchesAt(const std::vector<SmVector3d> &rA, const std::vector<SmVector3d> &rB, const SmVector3d &crN, SmBoolean &rbTouch)
+  {
+    rbTouch = FALSE;
+    if (rA.size() != 2 || rB.size() != 2) { return SM_SUCCESS; }
+    for (size_t bb=0; bb<2; bb++)
+      {
+        for (size_t aa=0; aa<2; aa++)
+          {
+            SmBoolean bAnti = FALSE;
+            if (rB[bb].IsParallelTo(rA[aa], SM_ANG_TOL_DEG, &bAnti) && !bAnti) { rbTouch = TRUE; return SM_SUCCESS; }
+          }
+      }
+    // The side of A from rA[0] counterclockwise about crN to rA[1], and where each of B's lies.
+    double dSide = 0.0;
+    SER(crN.CCWAngleBetween(rA[0], rA[1], dSide));
+    if (dSide <= 0.0) { dSide += 2.0*SM_PI; }
+    SmBoolean abOnSide[2];
+    for (size_t bb=0; bb<2; bb++)
+      {
+        double dAt = 0.0;
+        SER(crN.CCWAngleBetween(rA[0], rB[bb], dAt));
+        if (dAt < 0.0) { dAt += 2.0*SM_PI; }
+        abOnSide[bb] = (dAt < dSide);
+      }
+    rbTouch = (abOnSide[0] == abOnSide[1]);
+    return SM_SUCCESS;
+  }
 }
 
 /*******************************************************************//**
@@ -3588,12 +3666,21 @@ NOTES: SolidCraft fork. SMLib has nothing that resolves crossing loops: the
    - The new faces, edges and vertices take the attributes of the face,
      edges and vertices they come from, and the face's places in the offset
      maps.
+   Loops that touch without crossing are refused first, whatever else the
+   face holds: SM_ERR_OFFSET_WALLS_TOUCH, with the reason. They touch where
+   they run along one another, where they meet tangentially (one leaves the
+   contact along the other, to SMLib's angle tolerance for parallel
+   vectors), and where one comes up to the other, inside an edge or at a
+   vertex of either, and goes back on the same side. The offset walls they
+   come from then meet along a line (a hole's offset tangent to a side's,
+   the hole as far from the side as two walls are thick), and the offset
+   would pinch to nothing there: no solid. A wall thinner or thicker than
+   that has loops apart or crossing.
    A face whose loops cross in a way this does not resolve is not merged:
-   SM_ERR_BAD_INTERSECTIONS, with the reason. Those ways: loops meeting at a
-   loop vertex or running along one another, three loops through one point,
-   a stretch neither inside nor outside a loop, a crossing where the kept
-   stretches do not continue one to one, and a face whose edges bound other
-   faces too.
+   SM_ERR_BAD_INTERSECTIONS, with the reason. Those ways: loops crossing at a
+   loop vertex, three loops through one point, a stretch neither inside nor
+   outside a loop, a crossing where the kept stretches do not continue one
+   to one, and a face whose edges bound other faces too.
 ***********************************************************************/
 SmStatus SmOffsetExecutive::ResolveCrossingLoopsOfFace(SmFace *pFace)
 {
@@ -3650,11 +3737,15 @@ SmStatus SmOffsetExecutive::ResolveCrossingLoopsOfFace(SmFace *pFace)
   vFirstOfLoop.push_back(vEU.size());
   dTol3d *= 10.0;
 
-  // The crossings of edgeuses of different loops, in UV space (as SmFace test #38 finds them).
+  // Where edgeuses of different loops meet, in UV space (as SmFace test #38 finds them).
   SmZoneTol3d sZoneTol3d = SmTol::GetZoneTol3d(pSurface);
   SmTol2d     sUVTol     = SmTol::MapTo2d(sZoneTol3d, pSurface->GetNaturalUVDomain().GetMid(), *pSurface);
-  std::vector< std::vector< std::pair<double,long> > > vCuts(vEU.size()); // per edgeuse: (parameter, crossing)
-  long lNumCrossings = 0;
+  struct sm_LoopContact
+  {
+    size_t lA, lB;   // the edgeuses
+    double dTa, dTb; // their edge parameters there
+  };
+  std::vector<sm_LoopContact> vContacts;
   for (size_t aa=0; aa<vEU.size(); aa++)
     {
       for (size_t bb=vFirstOfLoop[vLoopOf[aa]+1]; bb<vEU.size(); bb++)
@@ -3664,24 +3755,52 @@ SmStatus SmOffsetExecutive::ResolveCrossingLoopsOfFace(SmFace *pFace)
           for (ULONG ss=0; ss<sSols.GetSize(); ss++)
             {
               if (sSols[ss].m_eSolutionType != SM_ST_SINGLE_VALUE)
-                { return sm_UnresolvedCrossing(_T("Offset face loops run along one another")); }
-              double dTa = sSols[ss].m_vStart[0];
-              double dTb = sSols[ss].m_vStart[1];
-              SmPoint3d sPa, sPb;
-              SER(vEU[aa]->GetEdge()->GetCurve()->EvaluatePoint(dTa, sPa));
-              SER(vEU[bb]->GetEdge()->GetCurve()->EvaluatePoint(dTb, sPb));
-              if (   sPa.DistanceBetween(vEU[aa]->GetEdge()->GetStartVertex()->GetPoint()) <= dTol3d
-                  || sPa.DistanceBetween(vEU[aa]->GetEdge()->GetEndVertex()->GetPoint())   <= dTol3d
-                  || sPb.DistanceBetween(vEU[bb]->GetEdge()->GetStartVertex()->GetPoint()) <= dTol3d
-                  || sPb.DistanceBetween(vEU[bb]->GetEdge()->GetEndVertex()->GetPoint())   <= dTol3d)
-                { return sm_UnresolvedCrossing(_T("Offset face loops meet at a loop vertex")); }
-              vCuts[aa].push_back(std::make_pair(dTa, lNumCrossings));
-              vCuts[bb].push_back(std::make_pair(dTb, lNumCrossings));
-              lNumCrossings++;
+                { return sm_WallsTouch(_T("Offset face loops run along one another: the offset walls meet there")); }
+              sm_LoopContact sC = { aa, bb, sSols[ss].m_vStart[0], sSols[ss].m_vStart[1] };
+              vContacts.push_back(sC);
             }
         }
     }
-  if (lNumCrossings == 0) { return SM_SUCCESS; }
+  if (vContacts.empty()) { return SM_SUCCESS; }
+
+  // Loops that touch without crossing bound no face there, however the rest of it is resolved.
+  for (size_t cc=0; cc<vContacts.size(); cc++)
+    {
+      const sm_LoopContact &rC = vContacts[cc];
+      SmPoint3d sPa, sPb, sUV3;
+      SER(vEU[rC.lA]->GetEdge()->GetCurve()->EvaluatePoint(rC.dTa, sPa));
+      SER(vEU[rC.lB]->GetEdge()->GetCurve()->EvaluatePoint(rC.dTb, sPb));
+      SER(vUV[rC.lA]->EvaluatePoint(rC.dTa, sUV3));
+      SmVector3d sNormal;
+      SER(pSurface->EvaluateNormal(SmPoint2d(sUV3.x, sUV3.y), TRUE, TRUE, sNormal));
+      std::vector<SmVector3d> vDirsA, vDirsB;
+      SER(sm_LoopDirectionsAt(vLoopEUs[vLoopOf[rC.lA]], vEU[rC.lA], rC.dTa, sPa, dTol3d, vDirsA));
+      SER(sm_LoopDirectionsAt(vLoopEUs[vLoopOf[rC.lB]], vEU[rC.lB], rC.dTb, sPb, dTol3d, vDirsB));
+      SmBoolean bTouch = FALSE;
+      SER(sm_LoopTouchesAt(vDirsA, vDirsB, sNormal, bTouch));
+      if (bTouch) { return sm_WallsTouch(_T("Offset face loops touch without crossing: the offset walls meet along a line")); }
+    }
+
+  // The crossings: where each edgeuse is cut.
+  std::vector< std::vector< std::pair<double,long> > > vCuts(vEU.size()); // per edgeuse: (parameter, crossing)
+  long lNumCrossings = 0;
+  for (size_t cc=0; cc<vContacts.size(); cc++)
+    {
+      const sm_LoopContact &rC = vContacts[cc];
+      SmEdge *pEdgeA = vEU[rC.lA]->GetEdge();
+      SmEdge *pEdgeB = vEU[rC.lB]->GetEdge();
+      SmPoint3d sPa, sPb;
+      SER(pEdgeA->GetCurve()->EvaluatePoint(rC.dTa, sPa));
+      SER(pEdgeB->GetCurve()->EvaluatePoint(rC.dTb, sPb));
+      if (   sPa.DistanceBetween(pEdgeA->GetStartVertex()->GetPoint()) <= dTol3d
+          || sPa.DistanceBetween(pEdgeA->GetEndVertex()->GetPoint())   <= dTol3d
+          || sPb.DistanceBetween(pEdgeB->GetStartVertex()->GetPoint()) <= dTol3d
+          || sPb.DistanceBetween(pEdgeB->GetEndVertex()->GetPoint())   <= dTol3d)
+        { return sm_UnresolvedCrossing(_T("Offset face loops cross at a loop vertex")); }
+      vCuts[rC.lA].push_back(std::make_pair(rC.dTa, lNumCrossings));
+      vCuts[rC.lB].push_back(std::make_pair(rC.dTb, lNumCrossings));
+      lNumCrossings++;
+    }
 
   // Until the merge every offset face is a sheet of its own: its edges bound it alone.
   for (size_t gg=0; gg<vEU.size(); gg++)

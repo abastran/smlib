@@ -12097,11 +12097,10 @@ SmStatus SmBrep::LocalOperation
   sExec.SetExtendConvexEdges(TRUE);
 
   // Build a new Brep by merging in all the faces with their new Surfaces
+  // SolidCraft change: the offset's own status is returned (it was SM_ERR whatever the
+  // offset reported), so that a refusal such as SM_ERR_OFFSET_WALLS_TOUCH reaches the caller.
   SmBrep *pNewBrep;
-  if(sExec.DoExtendedOffset( pNewBrep ) != SM_SUCCESS )  // note: increments unlocked mark value
-    {
-        SER(SM_ERR);
-    }
+  SER(sExec.DoExtendedOffset( pNewBrep ));  // note: increments unlocked mark value
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;

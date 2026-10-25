@@ -67,9 +67,20 @@ inline constexpr size_t CURRENT_CAP = 512;
 inline char g_current[CURRENT_CAP];
 inline std::atomic<size_t> g_current_len{0};
 
+// SMLib's status as the C API's: SMLIB_OK for success; an offset whose walls would meet
+// (SM_ERR_OFFSET_WALLS_TOUCH, from any offset: a shell, a solid offset, a face move)
+// SMLIB_ERR_WALLS_TOUCH; any other status unchanged.
 inline int32_t status(SmApiStatus s)
 {
-    return s == SM_SUCCESS ? SMLIB_OK : static_cast<int32_t>(s);
+    switch (s)
+    {
+    case SM_SUCCESS:
+        return SMLIB_OK;
+    case SM_ERR_OFFSET_WALLS_TOUCH:
+        return SMLIB_ERR_WALLS_TOUCH;
+    default:
+        return static_cast<int32_t>(s);
+    }
 }
 
 inline bool finite(const double *v, int n)

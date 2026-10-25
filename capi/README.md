@@ -76,7 +76,9 @@ none, it refuses; so a wall at or past the body's inradius never reaches SMLib, 
 body's shape. `smlib_offset_faces` moves the picked faces along their outward normals onto
 their surfaces' offsets (`SmOffsetGeometryCreation::FaceuseOffset`) and lets SMLib's local
 operation (`SmBrep::LocalOperation`) extend or trim the faces around them; moved in past all of
-the body behind them is `SMLIB_ERR_NO_ROOM` by the same test. `smlib_thicken` makes a solid of a
+the body behind them is `SMLIB_ERR_NO_ROOM` by the same test. A wall whose offsets touch without
+crossing (a hole exactly twice the wall from a side: its wall's offset tangent to the side's) would
+pinch the result to nothing along a line and is `SMLIB_ERR_WALLS_TOUCH`. `smlib_thicken` makes a solid of a
 sheet with `SmApiShellBrepFull` (ruled walls along the open edges), a symmetric one after
 moving the sheet back by half with `SmApiOffsetBrepFull`.
 
@@ -1014,9 +1016,26 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   from the stretches of its loops between the crossings (found as test #38 finds them, in UV) that
   bound it: of the outer loop those outside every inner loop, of an inner loop those inside the
   outer loop and outside the other inner ones (`SmLoop::ContainsUVPoint`). A face that comes apart
-  gets a face per outer loop (`MakeFaceFromLoopOnFace`, as the healer does). Loops that meet at a
-  loop vertex, touch, run along one another or cross three at a point are not resolved: the
-  offset fails with `SM_ERR_BAD_INTERSECTIONS` and the reason.
+  gets a face per outer loop (`MakeFaceFromLoopOnFace`, as the healer does). Loops that cross at a
+  loop vertex or three at a point are not resolved: the offset fails with
+  `SM_ERR_BAD_INTERSECTIONS` and the reason.
+- **An offset whose walls would meet is refused as such** (`SmOffsetExecutive.cpp`,
+  `ResolveCrossingLoopsOfFace`; `SM_ERR_OFFSET_WALLS_TOUCH`, the shim's `SMLIB_ERR_WALLS_TOUCH`):
+  loops of an offset face that touch without crossing were refused with `SM_ERR_BAD_INTERSECTIONS`
+  and whichever reason the face's crossings met first: rig case shell/4711 (a block with an r3
+  hole 4 from its front face, shelled 2) as "loops leave a crossing more than one way", or, where
+  the hole's seam lay on another crossing, "loops meet at a loop vertex", neither of which says
+  that the hole's offset circle (r5) is tangent to the front's offset at (22.5, 2). Every place
+  the loops meet is now looked at first: loops touch where they run along one another, meet
+  tangentially (to SMLib's angle tolerance for parallel vectors), or come up to one another,
+  inside an edge or at a vertex, and go back on the same side. The walls then meet along a line,
+  the offset bounds no solid there, and it is refused with the reason ("Offset face loops touch
+  without crossing: the offset walls meet along a line"). The status is SMLib's own, so it
+  reaches every caller of the offset: `SmBrep::LocalOperation` (`smlib_offset_faces`,
+  `smlib_draft`) returned `SM_ERR` whatever its offset reported and now returns the offset's
+  status. It is not `SMLIB_ERR_NO_ROOM`: the body has room inside (that is refused before SMLib
+  sees it), and a thinner or a thicker wall builds, the walls apart or crossing and merged
+  (shell/4711 at 1.5 and 2.5; the plate of `ops_kernel.cpp` at t 1.0 and at x 4.5).
 - **A tangential contact at a curve's end is found at that end** (`SmCurve.cpp`,
   `GlobalCurveIntersect`): two curves that touch tangentially stay within the intersection
   tolerance of one another over a stretch, and where in it the point solution lands is set by

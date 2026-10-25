@@ -1654,8 +1654,11 @@ int main()
     // #38). The merge failed on that face (SM_ERR_NULL_POINTER, SmEdgeDefinition::Imprint); the
     // face is now rebuilt from the stretches of its loops that bound it, and comes apart in two
     // when the hole crosses both sides (D = 8). The cavity is the inner box less the part of the
-    // hole's offset disk inside the floor, over the height 10 - t; a hole whose offset only
-    // touches a side's offset is not resolved: SM_ERR_BAD_INTERSECTIONS. At x = 4.99 the hole's
+    // hole's offset disk inside the floor, over the height 10 - t. A hole whose offset only
+    // touches a side's (x = 5: the hole 3 = 2 t from the side's offset, its offset circle tangent
+    // to the side's at (1.5, 20)) leaves the offset walls meeting along a line, which bounds no
+    // solid: refused, SMLIB_ERR_WALLS_TOUCH (it was SM_ERR_BAD_INTERSECTIONS, "loops leave a
+    // crossing more than one way", which does not say why). At x = 4.99 the hole's
     // offset crosses the side's 0.01 mm deep, at 4.3 degrees: the cut-off rims of that crossing
     // were welded by the offset's stitch, whose tolerance escalated to the gap between them, and
     // the shell failed (1001).
@@ -1685,7 +1688,7 @@ int main()
             int32_t s = plate != nullptr ? smlib_shell(plate, lid, 1, 0.1, -p.t, &r, nullptr) : SMLIB_ERR_ARG;
             if (p.x - rr == p.t)
             {
-                CHECK(s == SM_ERR_BAD_INTERSECTIONS && r == nullptr);
+                CHECK(s == SMLIB_ERR_WALLS_TOUCH && r == nullptr);
             }
             else
             {
@@ -1706,6 +1709,38 @@ int main()
             {
                 smlib_brep_free(b);
             }
+        }
+    }
+
+    // Rig case shell/4711: a 60 x 40 x 10 block with an r3 through hole at (22.5, 7) and a 10 x 10
+    // notch at x 25..35 on its front edge, shelled t inward open at the bottom. The hole lies
+    // 4 = 2 x 2 from the front face, so at t = 2 the hole's offset circle (r5) is tangent to the
+    // front's offset y = 2 at (22.5, 2): the walls meet along the line x = 22.5, y = 2 and the
+    // offset bounds no solid there, SMLIB_ERR_WALLS_TOUCH (it was SM_ERR_BAD_INTERSECTIONS, as
+    // "loops meet at a loop vertex" here, where the circle's seam lies on the notch's offset at
+    // (27.5, 7) and its crossing there was looked at first, and as "loops leave a crossing more
+    // than one way" on SolidCraft's copy of the body). Thinner, the walls stay apart; thicker,
+    // they cross and merge; both are solids.
+    {
+        const double o[3] = {0, 0, 0}, size[3] = {60, 40, 10}, axis[3] = {22.5, 7, -5}, corner[3] = {25, -5, -5}, notch_size[3] = {10, 10, 20};
+        const double bottom[3] = {50, 30, 0};
+        smlib_brep *block = nullptr, *pin = nullptr, *notch = nullptr, *holed = nullptr, *part = nullptr;
+        CHECK(smlib_make_box(o, size, &block) == SMLIB_OK && smlib_make_cylinder(axis, 3.0, 20.0, &pin) == SMLIB_OK &&
+              smlib_make_box(corner, notch_size, &notch) == SMLIB_OK);
+        CHECK(smlib_boolean(block, pin, SMLIB_BOOLEAN_SUBTRACT, &holed) == SMLIB_OK &&
+              smlib_boolean(holed, notch, SMLIB_BOOLEAN_SUBTRACT, &part) == SMLIB_OK);
+        CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.1, -2.0, &r, nullptr) == SMLIB_ERR_WALLS_TOUCH && r == nullptr);
+        for (double t : {1.5, 2.5})
+        {
+            CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.1, -t, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                done(r);
+            }
+        }
+        for (smlib_brep *b : {block, pin, notch, holed, part})
+        {
+            smlib_brep_free(b);
         }
     }
 
@@ -1946,6 +1981,11 @@ int main()
             delete walls;
             done(r);
         }
+        // Shelled 1.0, the window's offset arch rises exactly to the wall's offset top edge,
+        // where the wall meets the round's offset (the window's top is 1 below the round): the
+        // arch touches that edge tangentially at (30, 31, 32) and the walls meet along a line,
+        // SMLIB_ERR_WALLS_TOUCH (it was SM_ERR_BAD_INTERSECTIONS).
+        CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.080157097709407002, -1.0, &r, nullptr) == SMLIB_ERR_WALLS_TOUCH && r == nullptr);
         smlib_brep_free(part);
     }
 
