@@ -54,10 +54,14 @@ by more than the body's modelling tolerance (`SMLIB_ERR_PICK_NONE`, `SMLIB_ERR_P
 with the point's index). Fillets and chamfers blend exactly the picked edges: a tangent chain
 is the caller's to select. A blend whose rail leaves the face it rolls on (past neither the
 edge's end nor a tangent edge onto the next face) is larger than the faces allow and is
-`SMLIB_ERR_NO_ROOM`; so are blends that take the whole of a face, every edge of a loop of it
-blended and each rail on it a point (a cylinder's top rim chamfered or rounded as wide as the
-top, which would end in a point). A chamfer's distance is the setback along each face at the edge's
-midpoint; it is cut by SMLib's constant-radius solver with a linear section, whose ball radius
+`SMLIB_ERR_NO_ROOM`; so are blends that take the whole of a face at an angle, every edge of a
+loop of it blended, each rail on it a point and some blend there a chamfer (a cylinder's top rim
+chamfered as wide as the top, which would end in a cone's point). A round meets the face
+tangentially and closes it smoothly: a cylinder's top rim rounded (`smlib_fillet`,
+`SMLIB_BLEND_ROUND`, `SMLIB_BLEND_CHORD`) as wide as the top is a hemispherical end. The
+curvature blend and the variable round are not refused for taking the face either, but SMLib
+cannot build them that wide yet (`SM_ERR`). A chamfer's distance is the setback along each face
+at the edge's midpoint; it is cut by SMLib's constant-radius solver with a linear section, whose ball radius
 is the setback times tan(a/2), a being the angle between the faces there. A shell's thickness
 is negative inward, positive outward. An inward wall that leaves no room inside the body is
 `SMLIB_ERR_NO_ROOM`, refused before SMLib's offset sees it (which corrupts memory there,
@@ -709,15 +713,25 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   fails the fillet with `SM_FILERR_NO_ROOM` (the shim's `SMLIB_ERR_NO_ROOM`). This replaces the earlier change that
   merged such a fillet into the body face by face (`RailsLeaveTheirFaces`), which built a round
   or a chamfer across the openings it ran into.
-- **Blends that take the whole of a face are refused** (`SmFilletExecutive.h`/`.cpp`, new
-  `FacesOutlastTheirBlends`, called by `CreateFilletBrep` after `RailsFitTheirFaces`): a rail
+- **Chamfers that take the whole of a face are refused** (`SmFilletExecutive.h`/`.cpp`, new
+  `FacesOutlastTheirBlends`, called by `CreateFilletBrep` after `RailsFitTheirFaces`;
+  `SmFilletSolver.h`, new `SmFilletSurfaceGenerator::MeetsItsFacesTangentially`): a rail
   can shrink to a point inside its face (a rim's chamfer or round as wide as the rim's radius:
   the rail on the face inside the rim is its centre), and a point inside the face is on it, so
   the rail check let a cylinder's top rim chamfered 10 on radius 10 through, built as a cone
   ending in a point with the top gone (a round, as a sphere). A loop of a face whose every edge
   is blended, each blend's rail on the face a point, now fails the fillet with
-  `SM_FILERR_NO_ROOM`. A point rail beside other edges' rails of some length is a corner of what
-  is left of the face and still builds (a box's bottom loop chamfered as wide as its corner
+  `SM_FILERR_NO_ROOM` when some blend there meets the face at an angle: a linear section (every
+  chamfer), or a section SMLib cannot vouch for (the base generator, a custom one, the circular
+  section mirrored about its chord). A section tangent to the face at its rail (the circular
+  one, at constant or variable radius or constant chord, and the G2/G3 blend curve, whose end
+  tangents are the arc's) closes the face smoothly in its place and passes: a cylinder's top
+  rim rounded as wide as the top is a hemispherical end. (The G2 blend curve on that rim then
+  fails in `TrimRails`: no analytic path revolves a blend-curve section, and the marched centre
+  line, the balls' centres, is the one point at the sphere's centre, so the rails and the
+  fillet surface span a parameter range of 1e-10. The variable round fails in its own marching,
+  `LoadInitialValues`, as it did before this rule.) A point rail beside other edges' rails of
+  some length is a corner of what is left of the face and still builds (a box's bottom loop chamfered as wide as its corner
   rounds, solidcore#420).
 - **A rail that runs along its face's rim** (`SmFilletSolver.cpp`, `TestRollOver`): the rollover
   test classifies each rail against its face and treats every interval boundary as the rail

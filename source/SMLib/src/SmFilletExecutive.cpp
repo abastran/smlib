@@ -25,7 +25,6 @@
 #include <SmAttribute.h>
 #include <SmCrvOnSurf.h>
 
-#include <algorithm>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -1743,24 +1742,38 @@ NOTES: A face is trimmed back to each blend's rail on it. A rail can shrink
    corner rounds, the cone at each corner closing to a point on the round's
    axis). A loop whose every edge is blended, each blend's rail on the face
    a point, closes to that point instead: the blends take the whole of the
-   face (a cylinder's top rim chamfered or rounded as wide as the top, the
-   chamfer's cone or the round's sphere ending in a point), which is larger
-   than the face allows: rbOutlast is FALSE. Each solver blends one edge, so
-   this asks every solver's rails; SmFilletSolver::RailsFitTheirFaces
-   classifies each rail against its face on its own, and a point inside the
-   face is on it.
+   face (a cylinder's top rim chamfered or rounded as wide as the top).
+   That is a fault only where a blend's cross section meets the face at an
+   angle: a chamfer's cone then ends in a point, which is larger than the
+   face allows, and rbOutlast is FALSE. A cross section tangent to the face
+   at its rail (SmFilletSurfaceGenerator::MeetsItsFacesTangentially: the
+   round's arc, constant or variable radius or chord, and the G2 or G3
+   blend curve) closes it smoothly in the face's place, tangent to where
+   the face was (the round as wide as the top a hemispherical end), and
+   is not refused here. Each solver blends one edge, so this asks every
+   solver's rails; SmFilletSolver::RailsFitTheirFaces classifies each rail
+   against its face on its own, and a point inside the face is on it.
 ***********************************************************************/
 SmStatus SmFilletExecutive::FacesOutlastTheirBlends
-  (SmBoolean & rbOutlast) // out: FALSE = the blends take the whole of a face they roll on
+  (SmBoolean & rbOutlast) // out: FALSE = the blends take the whole of a face they roll on, some at an angle to it
 {
   rbOutlast = TRUE;
-  // Each face and blended edge whose blend's rail on that face is a point.
-  std::vector<std::pair<const SmFace*, const SmEdge*>> sPointRails;
+  // Each face and blended edge whose blend's rail on that face is a point,
+  // and whether that blend's cross section meets the face tangentially.
+  struct PointRail
+  {
+    const SmFace * pFace;
+    const SmEdge * pEdge;
+    SmBoolean      bTangent;
+  };
+  std::vector<PointRail> sPointRails;
   for (ULONG i=0; i<m_vFilletSolvers.GetSize(); i++)
     {
       SmFilletSolver * pSolver = m_vFilletSolvers[i];      NER(pSolver);
       SmEdgeuse      * pFilEU = pSolver->GetEdgeuse(0);    NER(pFilEU);
       const SmEdge   * pFilEdge = pFilEU->GetEdge();       NER(pFilEdge);
+      SmFilletSurfaceGenerator * pFSG = pSolver->GetFilletSurfaceGenerator(); NER(pFSG);
+      SmBoolean bTangent = pFSG->MeetsItsFacesTangentially();
       SmTArray<SmFilletGeom*> sFGs;
       pSolver->GetFilletGeoms( sFGs );
       for (ULONG k=0; k<sFGs.GetSize(); k++)
@@ -1773,26 +1786,38 @@ SmStatus SmFilletExecutive::FacesOutlastTheirBlends
               SmFilletEdge * pRail = pFG->GetRail(ii);     NER(pRail);
               SmCurve      * pCurve = pRail->GetCurve();   NER(pCurve);
               if (pCurve->IsDegenerate( pSolver->GetThisApproxTol3d() ))
-                { sPointRails.emplace_back( pRail->GetOriginalFace(), pFilEdge ); }
+                { sPointRails.push_back( PointRail{ pRail->GetOriginalFace(), pFilEdge, bTangent } ); }
             }
         }
     }
   for (size_t i=0; i<sPointRails.size() && rbOutlast; i++)
     {
-      const SmFace * pFace = sPointRails[i].first;         NER(pFace);
+      const SmFace * pFace = sPointRails[i].pFace;         NER(pFace);
       SmTArray<SmLoop*> sLoops;
       pFace->GetLoops( sLoops );
       for (ULONG j=0; j<sLoops.GetSize() && rbOutlast; j++)
         {
           SmTArray<SmEdge*> sEdges;
           sLoops[j]->GetEdges( sEdges );
+          // The loop closes to a point when every edge of it has a point rail on
+          // the face; it ends in that point when some blend there meets the face
+          // at an angle.
           SmBoolean bClosesToAPoint = (sEdges.GetSize() > 0);
+          SmBoolean bAllTangent = TRUE;
           for (ULONG e=0; e<sEdges.GetSize() && bClosesToAPoint; e++)
             {
-              std::pair<const SmFace*, const SmEdge*> sUse( pFace, sEdges[e] );
-              bClosesToAPoint = (std::find( sPointRails.begin(), sPointRails.end(), sUse ) != sPointRails.end());
+              bClosesToAPoint = FALSE;
+              for (const PointRail & crRail : sPointRails)
+                {
+                  if (crRail.pFace == pFace && crRail.pEdge == sEdges[e])
+                    {
+                      bClosesToAPoint = TRUE;
+                      if (!crRail.bTangent)
+                        { bAllTangent = FALSE; }
+                    }
+                }
             }
-          if (bClosesToAPoint)
+          if (bClosesToAPoint && !bAllTangent)
             { rbOutlast = FALSE; }
         }
     }
@@ -2581,12 +2606,13 @@ SmStatus SmFilletExecutive::CreateFilletBrep
         }
     }
   // SolidCraft change: blends that take the whole of a face, closing a loop of it to a point,
-  // are larger than that face allows too.
+  // some meeting the face at an angle (a chamfer's cone ending in a point), are larger than
+  // that face allows too.
   SmBoolean bOutlast = TRUE;
   SER( FacesOutlastTheirBlends( bOutlast ));
   if ( !bOutlast )
     {
-      GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: the blends take the whole of a face they roll on (the blend is larger than the faces allow)") );
+      GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: the blends take the whole of a face they roll on, some at an angle to it (the blend is larger than the faces allow)") );
       return SM_ERR;
     }
 

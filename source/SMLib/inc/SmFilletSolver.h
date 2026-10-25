@@ -373,6 +373,11 @@ public:
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_UNKNOWN; }
 
+  // SolidCraft change: whether each cross section is tangent, at its ends on the rails, to the
+  // faces the fillet rolls on. Not known of a cross section in general.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return FALSE; }
+
 } ; // end class SmFilletSurfaceGenerator
 
 /*******************************************************************//**
@@ -401,6 +406,10 @@ public:
 
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_LINEAR; }
+
+  // SolidCraft change: a line from rail to rail cuts across both faces.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return FALSE; }
 
 } ; // end class SmLinearCrossSectionFSG
 
@@ -469,6 +478,12 @@ public:
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_CIRCULAR; }
 
+  // SolidCraft change: the arc about the ball's centre is square at each rail to the radius
+  // there, which is the face's normal, so it is tangent to the face; the larger arc
+  // (m_bComplement) too. An arc mirrored about the rails' chord (m_bMirror) is not.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return !m_bMirror; }
+
 } ; // end class SmCircularCrossSectionFSG
 
 /*******************************************************************//**
@@ -521,6 +536,11 @@ public:
 
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_BLEND_CURVE; }
+
+  // SolidCraft change: the blend curve takes its end tangents from the circular arc between
+  // the same rails (and, for G2 and G3, the faces' curvature too), so it is tangent to the faces.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return TRUE; }
 
 } ; // end class SmBlendCurveCrossSectionFSG
 
