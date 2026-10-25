@@ -2130,10 +2130,6 @@ SmStatus SmRingFilletRemoval::DoRemoval()
   SER( pBrep->GlueEdges( pSurviveEdge, eOrient, 0.0, pDeleteEdge ));
   m_aRails[1] = pSurviveEdge;
 
-  // Deleting the fillet split each shell it alone held together (the boss's top from the
-  // rest) into one for each part; joined again along the sharp edge they are one shell.
-  SER( pBrep->JoinShellsAtVertex( pSurviveVtx ));
-
   // UV trims of the sharp edge on both tangent faces, and their domains to take them in.
   SmTArray<SmEdgeuse*> sUses;
   SER( pSurviveEdge->GetEdgeuses( sUses ));
@@ -2156,10 +2152,7 @@ SmStatus SmRingFilletRemoval::DoRemoval()
           SER( pUV->EvaluatePoint( sUVIvl.Evaluate( kk / 16.0 ), sUV ));
           sFaceDomain.AddPoint2d( SmPoint2d( sUV[0], sUV[1] ));
       }
-      // The face lies within its surface's domain (nothing was continued).
-      SmExtent2d sSurfDomain = pFace->GetSurface()->GetNaturalUVDomain(), sInSurface;
-      SER( sFaceDomain.Intersect( sSurfDomain, sInSurface ));
-      pFace->SetUVDomain( sInSurface );
+      pFace->SetUVDomain( sFaceDomain );
   }
   return SM_SUCCESS;
 

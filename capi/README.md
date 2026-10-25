@@ -1149,7 +1149,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   trace through that point failed (1001). The retry now holds the radius only where the first
   search does.
 - **A ring fillet is removed** (`SmFilletRemoval.cpp`, new `SmRingFilletRemoval`, used by
-  `SmBrep::DeleteFilletFace`; `SmBrep.cpp`, new `JoinShellsAtVertex`): a round all the way round
+  `SmBrep::DeleteFilletFace`; `SmBrep.cpp`, `GlueVertices` joins the shells of every region it
+  joins at the vertex, not of one only): a round all the way round
   a boss's foot or rim has closed rails and no ends, and the removal took four-sided fillets
   only, so `SmApiRemoveFillet` failed on it. Its sharp edge is SMLib's intersection of the two
   faces' surfaces within their domains (an exact circle for a boss), the tangent face's seam runs

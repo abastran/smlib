@@ -9748,6 +9748,10 @@ SmBoolean bDebugMe = FALSE;
 
   ULONG lNumSurvShells = sSurvVShells.GetSize();
   ULONG lNumDelShells = sDelVShells.GetSize();
+  // SolidCraft change: every region both vertices are in has its pair of shells, all of which
+  // the glue joins (a solid's vertex is in a shell of the solid's region and one of the
+  // infinite region's); one pair is kept apart below for the vertex-shell cases.
+  SmTArray<SmShell*> sSurvPairShells, sDelPairShells;
   for ( ULONG ii = 0; ii < lNumSurvShells; ++ii )
   {
       SmRegion *pSurvRegion = sSurvVShells[ii]->GetRegion();
@@ -9758,6 +9762,8 @@ SmBoolean bDebugMe = FALSE;
           {
               pSurvVShell = sSurvVShells[ii];
               pDelVShell  = sDelVShells[jj];
+              sSurvPairShells.Add( sSurvVShells[ii] );
+              sDelPairShells.Add( sDelVShells[jj] );
               break;
           }
       } // end for each deleted vertex shell
@@ -9814,6 +9820,20 @@ SmBoolean bDebugMe = FALSE;
   if(pOptWireEdgesInBrep ) sWireEdgesInBrep.Append( *pOptWireEdgesInBrep) ;
   else { SER( pDelVShell->GetWireEdges( sWireEdgesInBrep)  ); }
 
+  // SolidCraft change: the other regions' pairs of shells, and their wire edges, likewise.
+  std::vector<SmTArray<SmEdge*>> sOtherWireEdges;
+  SmTArray<SmShell*> sOtherSurv, sOtherDel;
+  for ( ULONG pp = 0; pp < sSurvPairShells.GetSize(); ++pp )
+  {
+      if ( sDelPairShells[pp] == pDelVShell || sSurvPairShells[pp] == sDelPairShells[pp] || sDelPairShells[pp]->IsVertexShell() )
+        { continue; }
+      sOtherSurv.Add( sSurvPairShells[pp] );
+      sOtherDel.Add( sDelPairShells[pp] );
+      sOtherWireEdges.emplace_back();
+      if ( pOptWireEdgesInBrep ) { sOtherWireEdges.back().Append( *pOptWireEdgesInBrep ); }
+      else { SER( sDelPairShells[pp]->GetWireEdges( sOtherWireEdges.back() )); }
+  }
+
   // move every deleteVertex->Vertexuse to survivingVertex->Vertexuse
   SmVertexuse * sVUData[64];
   SmTArray<SmVertexuse*> sVUs(64,sVUData);
@@ -9855,49 +9875,20 @@ SmBoolean bDebugMe = FALSE;
       SM_ASSERT(pDelVShell != NULL) ; delete pDelVShell ; pDelVShell = NULL ;
     }
 
+  // SolidCraft change: join the other regions' pairs as well.
+  for ( ULONG pp = 0; pp < sOtherDel.GetSize(); ++pp )
+    {
+      SER( sOtherDel[pp]->TransferChildrenTo( sOtherSurv[pp], &sOtherWireEdges[pp] ));
+      SmRegion *pRegion = sOtherDel[pp]->GetRegion() ;
+      SER( pRegion->Remove( sOtherDel[pp] ) );
+      delete sOtherDel[pp];
+    }
+
   // all done
   return SM_SUCCESS;
 
 } // end SmBrep::GlueVertices
 
-/*******************************************************************//**
-PURPOSE: SolidCraft change: join the shells of each region that pVertex is
-   in into one.
-
-NOTES: For topology joined at pVertex after it had been apart: a face
-   deleted that alone held two parts of a shell together leaves a shell for
-   each part (DeleteFace), and gluing the parts again at a vertex joins only
-   one region's pair of shells (GlueVertices).
-***********************************************************************/
-SmStatus SmBrep::JoinShellsAtVertex(SmVertex * pVertex)
-{
-  NER(pVertex);
-  if (m_bEditingEnabled == FALSE)
-    { SER_MSG(SM_ERR, _T("Tried to edit Brep with m_bEditingEnabled == FALSE")); }
-
-  SmTArray<SmShell*> sShells;
-  pVertex->GetShells(sShells);
-  for (ULONG ii = 0; ii < sShells.GetSize(); ii++)
-    {
-      for (ULONG jj = ii + 1; jj < sShells.GetSize(); jj++)
-        {
-          SmShell *pKeep = sShells[ii];
-          SmShell *pJoin = sShells[jj];
-          if (pKeep == NULL || pJoin == NULL || pKeep == pJoin || pKeep->GetRegion() != pJoin->GetRegion())
-            { continue; }
-          SmTArray<SmEdge*> sWireEdges;
-          SER(pJoin->GetWireEdges(sWireEdges));
-          SER(pJoin->TransferChildrenTo(pKeep, &sWireEdges));
-          SmRegion *pRegion = pJoin->GetRegion();
-          NER(pRegion);
-          SER(pRegion->Remove(pJoin));
-          delete pJoin;
-          sShells[jj] = NULL;
-        }
-    }
-  return SM_SUCCESS;
-
-} // end SmBrep::JoinShellsAtVertex
 
 /*******************************************************************//**
 PURPOSE: Combine the topology of two edges which have common vertices

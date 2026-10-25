@@ -841,10 +841,6 @@ public:
                                                                                  //    : causes two shells to be merged. 
                                                                                  //    : If null, all shell->Brep edges are checked. 
 
-  // SolidCraft change: the shells of one region that pVertex is in become one (their faces were
-  // joined at it: GlueVertices joins one region's pair only).
-  SmStatus JoinShellsAtVertex(SmVertex * pVertex) ;
-
   SmBoolean IsNonManifoldSolid   ( )                                const ; // at least one spineEdge, any number lamina & manifold edges, no VertexShells, no WireEdges
   SmBoolean IsManifoldSolid      ( )                                const ; // all edges connect to just two faces
   SmBoolean IsSheet              ( )                                const ; // all edges are manifold or lamina - just one shell
