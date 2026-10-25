@@ -1730,7 +1730,16 @@ SmBoolean bDebugMe8 = FALSE;
   if (m_eOffsetOperation == SM_OO_LOCAL_OPERATION)
     { SER(SplitEdgesAtStepCorners()); }
 
-  SER(RemoveExcessFaces( m_pOffsetBrep ));
+  // SolidCraft change: the excess faces are removed after the merge, not here. An offset face is
+  // not trimmed yet: its loop runs out to where its neighbours' offsets meet it, past where other
+  // offsets cut it, so a face that bounds the offset can have an edge well inside the excess (less
+  // than the offset distance from the body), and RemoveExcessFaces took every face with such an
+  // edge. Shelled closed 1.5 inward, the part of ladder 09/011 lost its five offset faces round
+  // the window that rises to 1 mm under a round (the wall, the back wall, the round, the chamfer
+  // and the window's arch, each with an edge 1.0 to 1.42 from the part), and the merged offset
+  // enclosed no region (tangency-labs/solidcore#865). The merge cuts the offset faces where they
+  // meet, so each merged face lies wholly on the offset or wholly in the excess: there the test
+  // is sound.
 
 #ifdef SM_VALIDATE_TOPOLOGY
       m_pOffsetBrep->ValidatePointers();
@@ -1895,7 +1904,9 @@ SmBoolean bDebugMe4 = FALSE;
   SER(PiecewiseMerge(pResult));
   SmObjDelete sClean2(pResult);
 
-  if ( ! m_bCreateOffsetSolid )
+  // (A sheet's side walls, built for an offset solid, run from the sheet itself: they would be
+  // taken for excess. A solid has none.)
+  if ( ! m_bCreateOffsetSolid || m_pOriginalBrep->IsManifoldSolid() )
     { SER(RemoveExcessFaces(pResult)); }
 
   // arrive here when pResult contains all the offset and copied surfaces

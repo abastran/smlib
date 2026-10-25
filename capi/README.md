@@ -1080,3 +1080,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   surface; its splitting of edges at step walls' corners stays with local operations
   (`SplitEdgesAtStepCorners`). With the cylinder's seam through such a vertex the rim's offsets
   stop at the seam, not at the front face's offset, and the shell is still refused.
+- **Excess offset faces are found after the merge** (`SmOffsetExecutive.cpp`,
+  `DoExtendedOffset`, `RemoveExcessFaces`): a closed inward shell or a whole offset took away,
+  before the merge, every offset face with an edge nearer the body than the offset distance; the
+  faces are untrimmed then, and a face that bounds the offset reaches into the excess wherever
+  another offset cuts it (a hole's offset crossing a side's), so faces that bound it went and the
+  offset closed nothing (1001, or an offset of no volume: tangency-labs/solidcore#865, the part
+  of ladder 09/011). The test is now made on the merged offset, whose faces lie wholly on the
+  offset or wholly in the excess, for solid inputs whatever `m_bCreateOffsetSolid` says (a
+  sheet's side walls would be taken for excess, and keep it off for sheets).

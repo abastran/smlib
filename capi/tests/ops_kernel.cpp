@@ -1949,6 +1949,85 @@ int main()
         smlib_brep_free(part);
     }
 
+    // tangency-labs/solidcore#865: shelled closed (no face open), the plates above whose hole's
+    // offset crosses a side failed (1001), as did part 09/011; its whole offset came back with
+    // no volume. Before the merge, SmOffsetExecutive::RemoveExcessFaces took every offset face
+    // with an edge nearer the body than the offset distance, but the offset faces are not
+    // trimmed yet then: the side's offset runs on to where the floor's offset meets it, past
+    // where the hole's offset cuts it, so it has such an edge and went, with the hole's and the
+    // floor's (part 09/011 lost its five faces round the window), and the merged offset closed
+    // nothing. The test is made on the merged offset now, whose faces lie wholly on the offset
+    // or wholly in the excess. A closed plate's cavity is the inset box less the hole's offset
+    // disc, over 10 - 2t; the part's whole offset is the part less its closed shell.
+    {
+        auto band = [](double rr, double a, double b)
+        {
+            auto F = [rr](double u)
+            {
+                u = std::max(-rr, std::min(rr, u));
+                return u * std::sqrt(rr * rr - u * u) + rr * rr * std::asin(u / rr);
+            };
+            return F(b) - F(a);
+        };
+        struct Plate
+        {
+            double x, y, d, t;
+        };
+        for (Plate p : {Plate{4.5, 20, 40, 1.5}, Plate{4.5, 20, 40, 1.0}, Plate{20, 4, 8, 1.5}, Plate{12, 20, 40, 1.5}})
+        {
+            const double o[3] = {0, 0, 0}, size[3] = {40, p.d, 10}, axis[3] = {p.x, p.y, -1};
+            smlib_brep *block = nullptr, *pin = nullptr, *plate = nullptr;
+            CHECK(smlib_make_box(o, size, &block) == SMLIB_OK && smlib_make_cylinder(axis, 2.0, 12.0, &pin) == SMLIB_OK);
+            CHECK(smlib_boolean(block, pin, SMLIB_BOOLEAN_SUBTRACT, &plate) == SMLIB_OK);
+            const double rr = 2.0 + p.t;
+            double inside = band(rr, std::max(p.t - p.y, -rr), std::min(p.d - p.t - p.y, rr));
+            if (p.x - rr < p.t)
+            {
+                inside -= band(rr, -rr, p.t - p.x);
+            }
+            const double cavity = ((40.0 - 2.0 * p.t) * (p.d - 2.0 * p.t) - inside) * (10.0 - 2.0 * p.t);
+            CHECK(plate != nullptr && smlib_shell(plate, nullptr, 0, 0.1, -p.t, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), 40.0 * p.d * 10.0 - PI * 4.0 * 10.0 - cavity, 1e-7));
+                done(r);
+            }
+            for (smlib_brep *b : {block, pin, plate})
+            {
+                smlib_brep_free(b);
+            }
+        }
+
+        smlib_flat *f = nullptr;
+        smlib_brep *part = nullptr;
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/part-chamfers-shell.txt", &f) == SMLIB_OK && smlib_brep_import(f, &part) == SMLIB_OK);
+        smlib_flat_free(f);
+        CHECK(part != nullptr && smlib_shell(part, nullptr, 0, 0.080157097709407002, -1.5, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            double v_part = 0.0, v_shell = 0.0, v_offset = 0.0;
+            CHECK(smlib_brep_volume(part, 1e-10, &v_part) == SMLIB_OK && smlib_brep_volume(r, 1e-10, &v_shell) == SMLIB_OK);
+            SmBrep *w = nullptr, *o = nullptr;
+            CHECK(SmApiBrepCopy(part->p, w) == SM_SUCCESS && SmApiOffsetBrepFull(w, -1.5, TRUE, TRUE, o) == SM_SUCCESS);
+            CHECK(o != nullptr && o->IsManifoldSolid());
+            // (the offset leaves its input allocated beside its result, as smlib_thicken notes)
+            if (w != o)
+            {
+                delete w;
+            }
+            if (o != nullptr)
+            {
+                smlib_brep inset{o};
+                CHECK(smlib_brep_volume(&inset, 1e-10, &v_offset) == SMLIB_OK);
+                std::printf("part 09/011 shelled closed: %.9f; its offset %.9f, the part less the shell %.9f\n", v_shell, v_offset, v_part - v_shell);
+                CHECK(near(v_offset, v_part - v_shell, 1e-6));
+                delete o;
+            }
+            done(r);
+        }
+        smlib_brep_free(part);
+    }
+
     // SolidCraft's cross-hole cut (tests/data/cross-pin.txt less cross-hole.txt, as SolidCraft
     // handed them to smlib_boolean): a pin of radius 2 and height 6 about z, a hole of radius 1
     // through it along y, both seamed at 0.6131 rad. Each intersection loop is a closed curve that
