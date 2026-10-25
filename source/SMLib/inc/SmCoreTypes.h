@@ -127,6 +127,7 @@ template<class TYPE> class SmBucketSort;
 #define SmDerivSurfDefinition_TYPE   (CONT_BASE_TYPE + 104)
 
 #define SmCacheObj_TYPE              (CONT_BASE_TYPE + 106)
+#define SmFollowedBlendMark_TYPE     (CONT_BASE_TYPE + 108)  // SolidCraft change: SmOffsetFaces.cpp
 #define SmTree_TYPE                  (CONT_BASE_TYPE + 150)  // gwc: changed from CURVE_BASE_TYPE to CONT_BASE_TYPE to make unique
 #define SmTreeNode_TYPE              (CONT_BASE_TYPE + 151)  
 #define SmHashTable_TYPE             (CONT_BASE_TYPE + 152)  

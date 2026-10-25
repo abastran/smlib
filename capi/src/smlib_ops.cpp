@@ -26,6 +26,7 @@
 #include <SmFilletExecutive.h>
 #include <SmFilletStandardSolver.h>
 #include <SmLoopuse.h>
+#include <SmOffsetFaces.h>
 #include <SmOffsetGeometryCreation.h>
 #include <SmPlane.h>
 #include <SmRegion.h>
@@ -724,48 +725,43 @@ bool leaves_cavity(SmBrep *b, const std::vector<SmFace *> &open, double wall)
     return false;
 }
 
+// Why the last face move in this call was refused, as SmOffsetFacesExecutive noted it: dumped
+// with the call's inputs (Call::input_text).
+std::string g_offset_why;
+
 // Moves the picked faces of `b` (in place) `distance` along their outward normals: each gets
 // its surface's offset, and SMLib's local operation extends or trims the faces around them to
-// meet it. The local operation takes the surfaces over, also when it fails.
+// meet it; the tangent blends on them follow (SmOffsetFacesExecutive: taken off, the faces
+// moved, put back at their own sizes). A blend that no longer fits is SMLIB_ERR_NO_ROOM, one
+// SMLib cannot put back as it was SMLIB_ERR_UNSUPPORTED, one that would need a continuation
+// SMLib cannot make exactly SMLIB_ERR_NOT_EXACT, a move that moved nothing SMLIB_ERR_NO_EFFECT.
 int32_t move_faces(SmBrep *b, const std::vector<SmFace *> &picked, double distance)
 {
-    double tol = static_cast<double>(b->GetTolerance());
-    SmOffsetGeometryCreation make(std::fabs(distance), tol);
     SmTArray<SmFace *> faces;
-    SmTArray<SmSurface *> surfaces;
     for (SmFace *f : picked)
     {
-        SmFaceuse *fu = outer_faceuse(b, f);
-        if (fu == nullptr)
-        {
-            return static_cast<int32_t>(SM_ERR_INVALID_INPUT);
-        }
-        // The offset goes along the faceuse's normal: outward from the outer one, inward from
-        // its mate.
-        if (distance < 0.0)
-        {
-            fu = fu->GetMate();
-        }
-        SmSurface *s = nullptr;
-        SmSSIData crossings;
-        int32_t st = status(make.FaceuseOffset(*SmApiGetOrCreateContext(), fu, TRUE, s, crossings));
-        if (st != SMLIB_OK || s == nullptr)
-        {
-            delete s;
-            for (ULONG k = 0; k < surfaces.GetSize(); ++k)
-            {
-                delete surfaces[k];
-            }
-            return st != SMLIB_OK ? st : static_cast<int32_t>(SM_ERR_INVALID_INPUT);
-        }
         faces.Add(f);
-        surfaces.Add(s);
     }
-    for (ULONG k = 0; k < surfaces.GetSize(); ++k)
+    SmOffsetFacesExecutive exec(*SmApiGetOrCreateContext(), b);
+    int32_t s = status(exec.OffsetFaces(faces, distance));
+    g_offset_why = ascii(exec.GetReason(), SM_TBLOCK_SIZE);
+    if (s == SMLIB_OK)
     {
-        Before::mark(surfaces[k]);
+        return s;
     }
-    return moved_faces(b, status(b->LocalOperation(faces, surfaces)));
+    switch (exec.GetRefusal())
+    {
+    case SM_OFR_NO_ROOM:
+        return SMLIB_ERR_NO_ROOM;
+    case SM_OFR_UNSUPPORTED:
+        return SMLIB_ERR_UNSUPPORTED;
+    case SM_OFR_NOT_EXACT:
+        return SMLIB_ERR_NOT_EXACT;
+    case SM_OFR_NO_EFFECT:
+        return SMLIB_ERR_NO_EFFECT;
+    default:
+        return s;
+    }
 }
 
 // Tilts each face of `picked` (planes only) by `angle` radians about its line on the neutral
@@ -1490,6 +1486,13 @@ extern "C" int32_t smlib_offset_faces(const smlib_brep *brep, const double *poin
     Call c("smlib_offset_faces",
            handle(brep) + ", points=" + pts(points, n_points) + ", tolerance=" + num(tolerance) + ", distance=" + num(distance));
     c.input("brep", brep);
+    c.input_text("why", [](const std::string &path) {
+        if (FILE *f = std::fopen(path.c_str(), "w"))
+        {
+            std::fputs(g_offset_why.c_str(), f);
+            std::fclose(f);
+        }
+    });
     return c.run(
         [&]
         {
@@ -1510,6 +1513,7 @@ extern "C" int32_t smlib_offset_faces(const smlib_brep *brep, const double *poin
             {
                 return SMLIB_ERR_ARG;
             }
+            g_offset_why.clear();
             // Faces moved in so far that no material is left behind them reach the same offset
             // code as a shell with no cavity: the body must reach deeper than the move behind
             // the moved faces.

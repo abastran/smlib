@@ -656,7 +656,21 @@ int32_t smlib_shell(const smlib_brep *brep, const double *points, int64_t n_poin
 /* A new body: the solid `brep` with the selected faces moved `distance` (non-zero; negative:
  * into the body) along their outward normals, each onto its surface's offset, and the faces
  * around them extended or trimmed to meet the moved faces (SMLib's local operation). The
- * topology is kept where the moved faces meet their neighbours as the old ones did. */
+ * topology is kept where the moved faces meet their neighbours as the old ones did. A blend
+ * tangent to a moved face (a round on either side of it: a boss's foot or rim round beside its
+ * wall) follows it: the blend is taken off to the sharp edge it replaced, the faces moved, and
+ * the edge blended again at the blend's own size and of its kind (a constant-radius round, or
+ * a constant-chord round; a circular blend whose radius and chord are both constant is put
+ * back as the round), tangent to both faces, the result keeping the blend's history. The
+ * body is that of the blend made on the moved sharp body, by smlib_fillet's rules: a blend
+ * that no longer fits (a rim round wider than the boss it rims, rounds no longer fitting
+ * beside each other, a concave blend overflowing its face, the edge gone) is SMLIB_ERR_NO_ROOM;
+ * a convex blend overflowing a cliff is built by the cliff rule. A blend whose kind SMLib
+ * cannot recover exactly (a variable round, a curvature-continuous or other section) or cannot
+ * take off (its rail in pieces, ends at corners it cannot take apart) is SMLIB_ERR_UNSUPPORTED;
+ * one whose removal would need a surface other than a plane, or a curved edge, continued past
+ * its end is SMLIB_ERR_NOT_EXACT. A tangent neighbour that is no blend (a piece of the same
+ * surface) gives a step, a wall between the two. */
 int32_t smlib_offset_faces(const smlib_brep *brep, const double *points, int64_t n_points, double tolerance, double distance,
                            smlib_brep **out, int64_t *out_failed_point);
 

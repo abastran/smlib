@@ -1710,28 +1710,92 @@ int main()
     // tangency-labs/solidcore#402: a face moved away from a tangent neighbour that keeps its
     // surface no longer meets it. SMLib's local operation dropped the edge across the gap and
     // returned a body whose edge tolerance had grown to the gap. A face moved along its normal
-    // stays parallel to its tangent neighbour: a step, closed by a wall between the two. A boss
-    // wall moved off its base round (a r10 boss on a 60 x 40 x 10 plate, a r2 round at its
-    // base, the wall out by 1) keeps the round and gains a ledge on top of it: the 8 of wall
-    // above the round grows from r10 to r11, pi * (121 - 100) * 8. One piece of a split top
-    // moved along its normal (a 60 x 40 x 20 block, the top split at x = 30,
-    // the piece x > 30 up by 1 adds 30 x 40 x 1, down by 1 takes it off).
+    // stays parallel to a tangent neighbour that is no blend: a step, closed by a wall between
+    // the two (one piece of a split top moved along its normal: a 60 x 40 x 20 block, the top
+    // split at x = 30, the piece x > 30 up by 1 adds 30 x 40 x 1, down by 1 takes it off).
+    //
+    // A blend tangent to a moved face follows it (SmOffsetFacesExecutive): taken off, the faces
+    // moved, put back at its own radius, tangent to both faces. A boss of radius R, 10 high,
+    // on a 60 x 40 x 10 plate: a round r at its foot adds, and one at its rim takes off, the
+    // corner region of the section, A = r^2 (1 - pi/4), revolved about the axis at R + d or
+    // R - d, d = r^3 (5/6 - pi/4) / A its centroid's distance from the wall (Pappus).
+    // tangency-labs/solidcraft#3468: the r10 boss's wall out by 1 with its r2 foot round,
+    // 27863.06545 and 9 faces (the round ends at r11, not at r10 under a step); in by 1 and 3,
+    // the same with R = 9 and 7. A rim round r2, the wall in to R = 3: the ball rolls inside a
+    // boss of radius 3, the top keeps a disc of radius 1; to R = 2: the ball's centre is on the
+    // axis, the top goes and the round is the hemispherical end (8 faces), the same formula's
+    // limit; to R = 1.5: no ball of r2 fits inside a boss of radius 1.5 (its centre would lie
+    // beyond the axis, the round a spindle torus through itself), SMLIB_ERR_NO_ROOM. Both rounds
+    // together follow the wall too. The boss's top moved instead takes its rim round along: as
+    // a boss built that high and rounded (the local operation continues the wall's cylinder
+    // past its domain by a G1 extension, within 3e-7 of the cylinder here, and so is not exact:
+    // 2e-6 relative).
     {
         smlib_brep *plate = box(0, 0, 0, 60, 40, 10);
         const double at[3] = {30, 20, 10};
         smlib_brep *boss = nullptr;
         smlib_brep *joined = nullptr;
-        smlib_brep *rounded = nullptr;
+        smlib_brep *foot = nullptr;
+        smlib_brep *rim = nullptr;
+        smlib_brep *both = nullptr;
         CHECK(smlib_make_cylinder(at, 10.0, 10.0, &boss) == SMLIB_OK);
         CHECK(smlib_boolean(plate, boss, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
         const double base[3] = {30, 30, 10};
-        CHECK(smlib_fillet(joined, base, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK && sound(rounded));
-        const double wall[3] = {30, 30, 16};
-        CHECK(smlib_offset_faces(rounded, wall, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK && sound(r));
-        if (r != nullptr)
+        const double top_rim[3] = {30, 30, 20};
+        const double both_rims[6] = {30, 30, 10, 30, 30, 20};
+        CHECK(smlib_fillet(joined, base, 1, 0.1, 2.0, &foot, nullptr) == SMLIB_OK && sound(foot));
+        CHECK(smlib_fillet(joined, top_rim, 1, 0.1, 2.0, &rim, nullptr) == SMLIB_OK && sound(rim));
+        CHECK(smlib_fillet(joined, both_rims, 2, 0.1, 2.0, &both, nullptr) == SMLIB_OK && sound(both));
+        const double corner = 4.0 * (1.0 - PI / 4.0);
+        const double centroid = 8.0 * (5.0 / 6.0 - PI / 4.0) / corner;
+        auto boss_of = [&](double R, bool at_foot, bool at_rim)
         {
-            CHECK(near(volume_of(r), volume_of(rounded) + PI * 21.0 * 8.0, 1e-6));
-            done(r);
+            return 24000.0 + PI * R * R * 10.0 + (at_foot ? 2.0 * PI * (R + centroid) * corner : 0.0) -
+                   (at_rim ? 2.0 * PI * (R - centroid) * corner : 0.0);
+        };
+        CHECK(near(boss_of(11, true, false), 27863.06545197909, 1e-12));
+        const double wall[3] = {30, 30, 15};
+        for (double R : {11.0, 9.0, 7.0})
+        {
+            CHECK(smlib_offset_faces(foot, wall, 1, 0.1, R - 10.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(R, true, false), 1e-9));
+                CHECK(r->p->GetNumFaces() == 9);
+                done(r);
+            }
+        }
+        for (double R : {3.0, 2.0})
+        {
+            CHECK(smlib_offset_faces(rim, wall, 1, 0.1, R - 10.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(R, false, true), 1e-9));
+                CHECK(r->p->GetNumFaces() == (R == 2.0 ? 8u : 9u));
+                done(r);
+            }
+        }
+        CHECK(smlib_offset_faces(rim, wall, 1, 0.1, 1.5 - 10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        for (double R : {11.0, 7.0})
+        {
+            CHECK(smlib_offset_faces(both, wall, 1, 0.1, R - 10.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(R, true, true), 1e-9));
+                CHECK(r->p->GetNumFaces() == 10);
+                done(r);
+            }
+        }
+        const double cap[3] = {30, 20, 20};
+        for (double up : {1.0, -1.0})
+        {
+            CHECK(smlib_offset_faces(rim, cap, 1, 0.1, up, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(10, false, true) + PI * 100.0 * up, 2e-6));
+                CHECK(r->p->GetNumFaces() == 9);
+                done(r);
+            }
         }
         smlib_brep *block = box(0, 0, 0, 60, 40, 20);
         smlib_brep *cutter = box(30, -1, 10, 40, 42, 20);
@@ -1746,7 +1810,131 @@ int main()
         CHECK(near(volume_of(r), 48000.0 - 1200.0, 1e-6));
         smlib_brep_free(r);
         r = nullptr;
-        for (smlib_brep *b : {plate, boss, joined, rounded, block, cutter, split})
+        for (smlib_brep *b : {plate, boss, joined, foot, rim, both, block, cutter, split})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // Blends with ends follow too. A 60 x 40 x 20 block, its top front edge rounded r2: the top
+    // up or down 1 adds or takes 60 x 40 x 1, the round (its section's corner region, A, along
+    // the 60) as it was. A 40 x 30 x 20 block, its four upright edges rounded r3, the side
+    // x = 40 moved in: the rounds on it follow, a W x 30 rounded rectangle 20 high,
+    // (30 W - 4 A) 20 with A = 9 (1 - pi/4). At W = 10 the front and back keep 4 of their flat;
+    // at W = 6 they keep none, the rounds meet tangentially (8 faces); at W = 5 the rounds of
+    // r3 no longer fit beside each other (a ball of r3 in a slab 5 thick): SMLIB_ERR_NO_ROOM.
+    // At W = 1.5 the side would cut into the rounds that stay at x = 0: the local operation
+    // refuses it (as it does for a block with no rounds on the moved side).
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        smlib_brep *rounded = nullptr;
+        const double front_top[3] = {30, 0, 20};
+        CHECK(smlib_fillet(block, front_top, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
+        const double top[3] = {30, 20, 20};
+        for (double up : {1.0, -1.0})
+        {
+            CHECK(smlib_offset_faces(rounded, top, 1, 0.1, up, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), 2400.0 * (20.0 + up) - 60.0 * 4.0 * (1.0 - PI / 4.0), 1e-9));
+                CHECK(r->p->GetNumFaces() == 7);
+                done(r);
+            }
+        }
+        smlib_brep *slab = box(0, 0, 0, 40, 30, 20);
+        smlib_brep *corners = nullptr;
+        const double uprights[12] = {0, 0, 10, 40, 0, 10, 40, 30, 10, 0, 30, 10};
+        CHECK(smlib_fillet(slab, uprights, 4, 0.1, 3.0, &corners, nullptr) == SMLIB_OK);
+        const double side[3] = {40, 15, 10};
+        for (double W : {10.0, 6.0})
+        {
+            CHECK(smlib_offset_faces(corners, side, 1, 0.1, W - 40.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), (30.0 * W - 36.0 * (1.0 - PI / 4.0)) * 20.0, 1e-9));
+                CHECK(r->p->GetNumFaces() == (W == 6.0 ? 8u : 10u));
+                done(r);
+            }
+        }
+        CHECK(smlib_offset_faces(corners, side, 1, 0.1, 5.0 - 40.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        CHECK(smlib_offset_faces(corners, side, 1, 0.1, 1.5 - 40.0, &r, nullptr) != SMLIB_OK && r == nullptr);
+        // tangency-labs/solidcraft#4492: a 40 x 30 x 10 block, its four top edges rounded r3,
+        // mitred where they meet, the top moved: the rounds, which meet at their ends, come off
+        // together (the planes round them extended) and go back on the moved top. Each round
+        // takes its section's corner region A = 9 (1 - pi/4) along its edge; at a corner the
+        // two overlap in the corner cube: of the 2 A r both count there, the mitred corner
+        // takes r^3 / 3 (the half of the cube nearer each face, the region outside the round's
+        // quarter disc weighted by its distance from the other face: r^3 / 6 each). Up 19 (29
+        // high) and down 6 (4 high); the same as the block built that high and rounded.
+        smlib_brep *top_rounded = nullptr;
+        smlib_brep *low = box(0, 0, 0, 40, 30, 10);
+        const double top_edges[12] = {20, 0, 10, 20, 30, 10, 0, 15, 10, 40, 15, 10};
+        CHECK(smlib_fillet(low, top_edges, 4, 0.1, 3.0, &top_rounded, nullptr) == SMLIB_OK);
+        const double low_top[3] = {20, 15, 10};
+        const double A3 = 9.0 * (1.0 - PI / 4.0);
+        for (double up : {19.0, -6.0})
+        {
+            CHECK(smlib_offset_faces(top_rounded, low_top, 1, 0.1, up, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                // to the volume's own accuracy (1e-7: the mitre faces' integration)
+                CHECK(near(volume_of(r), 1200.0 * (10.0 + up) - A3 * 140.0 + 4.0 * (2.0 * A3 * 3.0 - 9.0), 1e-7));
+                CHECK(r->p->GetNumFaces() == 10);
+                done(r);
+            }
+        }
+        for (smlib_brep *b : {low, top_rounded})
+        {
+            smlib_brep_free(b);
+        }
+        for (smlib_brep *b : {block, rounded, slab, corners})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // The blend that follows keeps the history of the blend it replaces: the r2 foot round of
+    // the boss above, tagged, its wall out by 1: one result face comes from the round, kept
+    // (its boundary the round's own edges), and its rails from the round's.
+    {
+        smlib_brep *plate = box(0, 0, 0, 60, 40, 10);
+        const double at[3] = {30, 20, 10};
+        smlib_brep *boss = nullptr;
+        smlib_brep *joined = nullptr;
+        smlib_brep *foot = nullptr;
+        smlib_brep *tagged = nullptr;
+        CHECK(smlib_make_cylinder(at, 10.0, 10.0, &boss) == SMLIB_OK);
+        CHECK(smlib_boolean(plate, boss, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+        const double base[3] = {30, 30, 10};
+        CHECK(smlib_fillet(joined, base, 1, 0.1, 2.0, &foot, nullptr) == SMLIB_OK);
+        CHECK(smlib_history_tag(foot, 0, &tagged) == SMLIB_OK);
+        const double wall[3] = {30, 30, 15};
+        CHECK(smlib_offset_faces(tagged, wall, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            std::vector<int64_t> h(100000);
+            int64_t len = 0;
+            CHECK(smlib_history_read(r, h.data(), static_cast<int64_t>(h.size()), &len) == SMLIB_OK);
+            // [version, faces, edges, per face: change, n, (operand, index) x n, ...]
+            int64_t nf = h[1];
+            int64_t generated = 0;
+            size_t at_rec = 3;
+            for (int64_t f = 0; f < nf; ++f)
+            {
+                int64_t change = h[at_rec];
+                int64_t n = h[at_rec + 1];
+                if (n == 0 || change == SMLIB_CHANGE_GENERATED)
+                {
+                    generated++;
+                }
+                at_rec += 2 + 2 * static_cast<size_t>(n);
+            }
+            // every result face comes from an input face: none is new
+            CHECK(generated == 0);
+            CHECK(r->p->GetNumFaces() == 9);
+            done(r);
+        }
+        for (smlib_brep *b : {plate, boss, joined, foot, tagged})
         {
             smlib_brep_free(b);
         }

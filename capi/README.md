@@ -461,8 +461,8 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   segment to the vertex (it must lie on the face's surface) or, for a step down, is trimmed to
   it, and edges running past the wall's corners are split there, so the stitch closes the body.
   A 40 x 30 x 10 block with its top split at x = 20, the piece x < 20 up by 2: 8 faces, 13200.
-  A face that turns instead (a draft) or leaves a round (a boss wall moved off its base round)
-  still fails.
+  A face that turns instead (a draft) still fails; a round beside the moved face follows it
+  (below, "The blends on a moved face follow it").
 - **An inward shell with no cavity** (`SmOffsetExecutive.cpp`, `ShellBrep`): an inward wall at
   or past the body's inradius leaves an empty offset (or one that is no closed solid), and the
   difference then handed the body back unhollowed as a success. Such a shell now fails
@@ -1162,3 +1162,20 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   failed in the merge after it (1001). A fillet whose two rails run opposite ways at the same
   parameter now fails `SM_FILERR_NO_ROOM` (`SMLIB_ERR_NO_ROOM`); at R = 2 the ball is centred on
   the axis and the round is the hemispherical end, as before.
+- **The blends on a moved face follow it** (new `SmOffsetFaces.cpp`, `SmOffsetFacesExecutive`;
+  `SmFilletRemoval.cpp`, `SmFilletRemoval::SetExactOnly`; `smlib_ops.cpp`, `move_faces`): a
+  boss wall moved off its foot round kept the round at the old radius and built a step on it
+  (5d428ae; rig case shell/3468: the r10 boss's wall out by 1, 27725.72 and 10 faces). The owner
+  has decided that a blend tangent to a moved face follows it at its own radius. Each blend
+  beside a moved face across a tangent edge that `SmFace::IdentifyFillet` recognises (two tangent
+  rails, the faces it rolls on meeting at an angle) is taken off to its sharp edge
+  (`SmRingFilletRemoval`; `SmFilletRemoval` exact only: side edges run on along their lines,
+  faces grow within their surfaces' domains or on planes; blends meeting at their ends, mitred
+  rounds, come off together by `SmFeatureExecutive` where the faces round them are planes),
+  the faces are moved, the sharp edges
+  blended again in one fillet call (constant radius, or constant chord where only the chord is
+  constant), and the new blend faces and their edges take the old ones' attributes (history).
+  3468: 27863.06545, 9 faces. Refused: a kind SMLib cannot recover exactly (variable radius,
+  curvature-continuous or other sections) or a blend it cannot take off, `SMLIB_ERR_UNSUPPORTED`;
+  a removal needing a non-planar surface or a curved edge continued, `SMLIB_ERR_NOT_EXACT`; a blend
+  that no longer fits the moved faces, `SMLIB_ERR_NO_ROOM` (the fillet's own rules).
