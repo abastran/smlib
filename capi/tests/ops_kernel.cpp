@@ -2067,6 +2067,46 @@ int main()
     CHECK(smlib_thicken(nullptr, 1.0, 0, &r) == SMLIB_ERR_ARG);
     CHECK(smlib_thicken(cube, NAN, 0, &r) == SMLIB_ERR_ARG);
 
+    // Rig case shell/5326: an L-shaped sheet, two walls 30 and 20 long at a right angle and 20
+    // deep, thickened 2 into its inside corner and 2 out of it: an L-shaped prism, 8 faces. The
+    // thicken builds one side wall per edge of the sheet, and the two along each end of the L lie
+    // in one plane: they came back as two faces, split along the edge from the corner to its
+    // offset (10 faces). The walls now come out as one face where consecutive walls lie on one
+    // surface, each put on its plane first (a wall beside the corner is a trapezoid, a bilinear
+    // patch), so the volumes are exact: (30 + 20 -+ 2) * 2 * 20. The sheet's own splits stay: a
+    // flat sheet of two faces side by side (a profile of two lines on one line, extruded)
+    // thickened 1 keeps both faces and their offsets apart, its walls along the split edges one
+    // face each: 8 faces, 20 * 20 * 1.
+    {
+        const int64_t kinds[2] = {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE};
+        const double ell[12] = {0, 0, 0, 30, 0, 0, 30, 0, 0, 30, 20, 0}, split[12] = {0, 0, 0, 10, 0, 0, 10, 0, 0, 20, 0, 0};
+        const double up[3] = {0, 0, 1};
+        for (const double *profile : {ell, split})
+        {
+            smlib_brep *sheet = nullptr;
+            CHECK(smlib_extrude(kinds, 2, profile, 12, up, 20.0, 0.0, 0, 0, &sheet, nullptr) == SMLIB_OK);
+            for (double t : {-2.0, 2.0})
+            {
+                if (profile == split)
+                {
+                    t /= 2.0;
+                }
+                CHECK(sheet != nullptr && smlib_thicken(sheet, t, 0, &r) == SMLIB_OK);
+                if (r == nullptr)
+                {
+                    continue;
+                }
+                int64_t counts[3] = {0, 0, 0};
+                double v = 0.0;
+                CHECK(smlib_brep_counts(r, counts) == SMLIB_OK && smlib_brep_volume(r, 1e-10, &v) == SMLIB_OK);
+                const double want = profile == ell ? (50.0 + (t < 0.0 ? -2.0 : 2.0)) * 2.0 * 20.0 : 400.0;
+                std::printf("%s sheet thickened %+g: %lld faces, volume %.9f\n", profile == ell ? "L" : "split", t, static_cast<long long>(counts[0]), v);
+                CHECK(counts[0] == 8 && near(v, want, 1e-12));
+                done(r);
+            }
+            smlib_brep_free(sheet);
+        }
+    }
 
     // Two holes 6 apart cut one after the other through a disc: the second hole's wall meets the
     // first's (trimmed to the disc) in two lines. Parallel cylinders are intersected by

@@ -14,6 +14,7 @@
 
 #include <SmOffsetExecutive.h>
 #include <SmSurfaceCache.h>
+#include <SmCopyBrepMap.h>
 #include <SmMerge.h>
 #include <SmStitch.h>
 #include <SmGeomUtility.h>
@@ -132,6 +133,69 @@ SmStatus SmOffsetExecutive::OffsetBrep
     return SM_SUCCESS;
 
 } // end SmOffsetExecutive::OffsetBrep
+
+/*******************************************************************//**
+PURPOSE: Static helper: put a face whose surface is planar, but not a
+   plane, onto its plane.
+
+NOTES: SolidCraft fork. A planar B-spline patch (such as a bilinear
+   trapezoid) parameterizes its plane non-linearly: straight lines are
+   curves in its parameters. The face gets an SmPlane through its surface,
+   normal the same way, over a domain that holds the face, and its UV trim
+   curves are made anew from its edges (SmBrep::ReplaceSurface). A face on
+   a plane already, or on a surface that is not planar (its control points
+   off one plane), is left as it is.
+***********************************************************************/
+static SmStatus sm_PutPlanarFaceOnItsPlane
+  (const SmContext & crContext,   // in : context for the new plane
+   SmBrep          & rBrep,       // i/o: the face's Brep
+   SmFace          * pFace)       // i/o: the face
+{
+  NER(pFace);
+  SmSurface *pSurface = pFace->GetSurface(); NER(pSurface);
+  if (pSurface->IsKindOf(SmPlane_TYPE)) { return SM_SUCCESS; }
+  SmPoint3d  sOrigin;
+  SmVector3d sNormal;
+  if (!pSurface->IsPlanar(SM_EFF_ZERO, &sOrigin, &sNormal)) { return SM_SUCCESS; }
+
+  // the normal the face's surface has
+  SmVector3d sSurfaceNormal;
+  SER(pSurface->EvaluateNormal(pFace->GetUVDomain().GetMid(), FALSE, FALSE, sSurfaceNormal));
+  if (sSurfaceNormal.Dot(sNormal) < 0.0) { sNormal = -sNormal; }
+  SER(sNormal.Unitize());
+
+  // axes in the plane: x along the coordinate axis least along the normal
+  SmVector3d sAlong(1.0, 0.0, 0.0);
+  if (smos_Fabs(sNormal.y) < smos_Fabs(sNormal.x) && smos_Fabs(sNormal.y) <= smos_Fabs(sNormal.z)) { sAlong = SmVector3d(0.0, 1.0, 0.0); }
+  else if (smos_Fabs(sNormal.z) < smos_Fabs(sNormal.x))                                            { sAlong = SmVector3d(0.0, 0.0, 1.0); }
+  SmVector3d sXAxis = sAlong - sNormal * sAlong.Dot(sNormal);
+  SER(sXAxis.Unitize());
+  SmVector3d sYAxis = sNormal * sXAxis; // cross product: XAxis x YAxis = Normal
+  SER(sYAxis.Unitize());
+
+  // a domain holding the face: its box's corners in the plane's parameters, and as much again round them
+  SmExtent3d sBox;
+  SER(pFace->CalculateBoundingBox(sBox, TRUE));
+  SmTArray<SmPoint3d> sCorners;
+  sBox.GetCorners(sCorners);
+  double dUMin = SM_BIG_DOUBLE, dUMax = -SM_BIG_DOUBLE, dVMin = SM_BIG_DOUBLE, dVMax = -SM_BIG_DOUBLE;
+  for (ULONG kk=0; kk<sCorners.GetSize(); kk++)
+    {
+      SmVector3d sTo = sCorners[kk] - sOrigin;
+      dUMin = smos_Min(dUMin, sTo.Dot(sXAxis)); dUMax = smos_Max(dUMax, sTo.Dot(sXAxis));
+      dVMin = smos_Min(dVMin, sTo.Dot(sYAxis)); dVMax = smos_Max(dVMax, sTo.Dot(sYAxis));
+    }
+  double dMargin = smos_Max(dUMax - dUMin, dVMax - dVMin);
+  SmExtent2d sDomain(dUMin - dMargin, dVMin - dMargin, dUMax + dMargin, dVMax + dMargin);
+
+  SmPlane *pPlane = new (crContext) SmPlane(sOrigin, sXAxis, sYAxis, SmVector2d(1.0, 1.0), sDomain, &crContext);
+  NER(pPlane);
+  SmStatus eStat = pPlane->MakeNurb();
+  if (eStat != SM_SUCCESS) { delete pPlane; SER(eStat); }
+  SER(rBrep.ReplaceSurface(pFace, pPlane, FALSE, NULL, TRUE));
+  return SM_SUCCESS;
+
+} // end sm_PutPlanarFaceOnItsPlane
 
 /*******************************************************************//**
 PURPOSE: Static High Level Function to Shell a Brep.
@@ -318,7 +382,20 @@ SmStatus SmOffsetExecutive::ShellBrep
 #endif // SM_DEBUG_CODE
 
       // combine topology without any intersection or coincidence checking
-      SER(pBrepShell->MergeBrep(*pBrepToShell));
+      SmCopyBrepMap sSheetToCopy; // the sheet's topology -> its copy in pBrepShell
+      SER(pBrepShell->MergeBrep(*pBrepToShell, NULL, &sSheetToCopy));
+      // the sheet's faces as copied (faces outlive the stitch below, which joins edges)
+      std::unordered_set<SmFace*> sSheetFaces;
+      {
+        SmTArray<SmFace*> sFaces;
+        pBrepToShell->GetFaces(sFaces);
+        for (ULONG ff=0; ff<sFaces.GetSize(); ff++)
+          {
+            SmFace *pCopy = SM_CAST_PTR(SmFace, sSheetToCopy.GetAt(sFaces[ff]));
+            NER(pCopy);
+            sSheetFaces.insert(pCopy);
+          }
+      }
       SM_ASSERT(pBrepToShell != NULL) ; delete pBrepToShell ; pBrepToShell = NULL ;
       rbInputOwnershipTransferred = TRUE;
 
@@ -343,6 +420,67 @@ SmStatus SmOffsetExecutive::ShellBrep
 #ifdef SM_VALIDATE_TOPOLOGY
       pBrepShell->ValidatePointers();
 #endif // SM_VALIDATE_TOPOLOGY
+
+      // SolidCraft change: the side walls come out as one face where consecutive walls lie on one
+      // surface. The walls are built one per lamina edge (BuildSideWallOfEdgeuse), so where two
+      // consecutive lamina edges and their offsets lie in one plane their walls were two faces on
+      // it, split along the edge from the sheet's vertex to its offset: an L-shaped sheet
+      // thickened came back with each L-shaped end as two faces (tangency-labs/solidcraft#5326).
+      // SMLib's other operations leave no topological edge of their own making (booleans in
+      // SmMerge::BooleanPostProcess, fillets keeping only the body's own), and a solid's shell
+      // gets that from its boolean; the sheet's merge here had nothing. Only edges between two
+      // walls go: the sheet's own splits (two faces of it on one surface) and their offsets stay.
+      {
+        // the walls: the faces along the sheet's boundary, other than the sheet's own
+        std::unordered_set<SmFace*> sWalls;
+        SmTArray<SmEdge*> sEdges;
+        SmTArray<SmFace*> sEdgeFaces;
+        pBrepShell->GetEdges(sEdges);
+        for (ULONG ee=0; ee<sEdges.GetSize(); ee++)
+          {
+            sEdges[ee]->GetFaces(sEdgeFaces);
+            SmBoolean bAlongSheet = FALSE;
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize(); ff++)
+              { if (sSheetFaces.count(sEdgeFaces[ff]) > 0) { bAlongSheet = TRUE; } }
+            if (!bAlongSheet) { continue; }
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize(); ff++)
+              { if (sSheetFaces.count(sEdgeFaces[ff]) == 0) { sWalls.insert(sEdgeFaces[ff]); } }
+          }
+
+        // keep every topological edge but those between two walls, and every topological vertex
+        SmTArray<SmEdge*>   sKeepEdges;
+        SmTArray<SmVertex*> sKeepVertices;
+        SmTArray<SmEdge*>   sTopoEdges;
+        pBrepShell->GetTopologicalEdges(sTopoEdges);
+        pBrepShell->GetTopologicalVertices(sKeepVertices);
+        std::vector<SmFace*> vMerging;
+        for (ULONG ee=0; ee<sTopoEdges.GetSize(); ee++)
+          {
+            sTopoEdges[ee]->GetFaces(sEdgeFaces);
+            SmBoolean bBetweenWalls = (sEdgeFaces.GetSize() == 2);
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize() && bBetweenWalls; ff++)
+              { bBetweenWalls = (sWalls.count(sEdgeFaces[ff]) > 0); }
+            if (!bBetweenWalls) { sKeepEdges.Add(sTopoEdges[ee]); continue; }
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize(); ff++)
+              {
+                if (std::find(vMerging.begin(), vMerging.end(), sEdgeFaces[ff]) == vMerging.end())
+                  { vMerging.push_back(sEdgeFaces[ff]); }
+              }
+          }
+        if (!vMerging.empty())
+          {
+            // A wall is the ruled surface between a lamina edge and its offset, over its whole
+            // domain: a planar wall that is not a parallelogram (along one side of a corner the
+            // edge and its offset differ in length) is a bilinear patch, not a plane, and the
+            // merge would extend it over its neighbour, where the neighbour's straight edges are
+            // curves in its parameters. Each such wall goes onto its plane first, where they are
+            // straight, so the merged face is exact.
+            SmTemporaryChangeValue<SmBoolean> sEditing(pBrepShell->m_bEditingEnabled, TRUE);
+            for (size_t ff=0; ff<vMerging.size(); ff++)
+              { SER_DELETE(sm_PutPlanarFaceOnItsPlane(crContext, *pBrepShell, vMerging[ff]), pBrepShell); }
+            SER_DELETE(pBrepShell->RemoveTopologicalEdgesAndVertices(&sKeepEdges, &sKeepVertices), pBrepShell);
+          }
+      }
 
       rpShellBrep = pBrepShell;
     }

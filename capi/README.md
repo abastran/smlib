@@ -1089,3 +1089,12 @@ This fork changes upstream SMLib (NVIDIA usd-brep, Apache-2.0) as follows:
   of ladder 09/011). The test is now made on the merged offset, whose faces lie wholly on the
   offset or wholly in the excess, for solid inputs whatever `m_bCreateOffsetSolid` says (a
   sheet's side walls would be taken for excess, and keep it off for sheets).
+- **A thickened sheet's coplanar side walls are one face** (`SmOffsetExecutive.cpp`,
+  `ShellBrep`): the thicken builds a ruled wall per open edge, and where consecutive walls lie
+  on one surface (the ends of an L-shaped sheet) they came back as two faces, split along the
+  edge from the sheet's vertex to its offset (rig case shell/5326); SMLib's other operations
+  leave no topological edge of their own making, and a solid's shell gets that from its boolean.
+  The edges between two walls now go (`RemoveTopologicalEdgesAndVertices`, keeping every other
+  topological edge, so the sheet's own splits and their offsets stay), each wall first put on its
+  plane when it is a planar patch that is not one (a trapezoid wall is a bilinear patch, on which
+  its neighbour's straight edges would be curves): the merged face is exact.
