@@ -396,6 +396,30 @@ void nudged_loft_join()
     }
 }
 
+// Rig case booleans/562: Press Pull of the floor of a 60 x 40 x 10 box whose four vertical edges
+// are rounded r3, as the union with the prism of the floor's outline, 1 mm deep (both bodies as
+// SolidCraft hands them over, tests/data/rounded-case*.txt). Each round meets the prism's own
+// round coaxially at z = 0, and the post-process merges the two faces. Where the box's round, a
+// cone of semi-angle 0, covered the prism's, SmCone::GetApex answered SM_ERR for a cylinder, so
+// GetMaxAnalyticDomain kept the round's v-domain at z 0..10: the merged face's domain was clipped
+// to it, and the joined tangent edges z -1..10 got UV trims 1 mm off it (edge tolerances 2 mm,
+// SmBrep test 59). V = the floor area (2400 - 9 (4 - pi)) times 11.
+void rounded_case_floor_pull()
+{
+    smlib_brep *box_ = from_flat_file(SMLIB_TEST_DATA "/rounded-case.txt");
+    smlib_brep *prism = from_flat_file(SMLIB_TEST_DATA "/rounded-case-floor-prism.txt");
+    CHECK(box_ != nullptr && prism != nullptr);
+    if (box_ != nullptr && prism != nullptr)
+    {
+        const double floor = 2400.0 - 9.0 * (4.0 - PI);
+        CHECK(near(volume(box_), floor * 10.0, 1e-7));
+        CHECK(near(volume(prism), floor, 1e-7));
+        expect("rounded case floor pull", box_, prism, SMLIB_BOOLEAN_UNION, floor * 11.0, 1e-7, 1);
+    }
+    smlib_brep_free(box_);
+    smlib_brep_free(prism);
+}
+
 int main(int argc, char **argv)
 {
     struct Case
@@ -407,6 +431,7 @@ int main(int argc, char **argv)
         {"tangent_cylinders", tangent_cylinders},
         {"rational_cylinder_cut", rational_cylinder_cut},
         {"nudged_loft_join", nudged_loft_join},
+        {"rounded_case_floor_pull", rounded_case_floor_pull},
     };
     for (const Case &c : cases)
     {

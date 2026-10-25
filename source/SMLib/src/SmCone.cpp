@@ -495,6 +495,12 @@ PURPOSE: Find and return cone apex
 NOTES: When cone is secretly a cylinder it has
   no apex and the cone origin is returned.  Check the
   bCylinder flag before using.
+  SolidCraft change: that answer is a success, as the cone's is. It was
+  SM_ERR, so a caller passing statuses on never reached its cylinder case:
+  GetMaxAnalyticDomain kept a cylinder's v-domain at its current height, a
+  boolean merging two coaxial cylinder faces clipped the merged face's
+  domain to it, and the edge rebuilt on that face sat 1 mm off its surface.
+  SM_ERR is now only the generator line failing to invert the apex.
 ***********************************************************************/
 SmStatus SmCone::GetApex
   (SmBoolean &bIsCylinder,     // out: FALSE = shape is a cone and has an apex point
@@ -508,7 +514,7 @@ SmStatus SmCone::GetApex
   {
       rApexPoint = m_vPosition.GetOriginRef();
       dApexParam = 0.0;
-      return(SM_ERR);
+      return(SM_SUCCESS);
   }
   else
   {
