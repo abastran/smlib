@@ -823,6 +823,36 @@ int main()
         CHECK(b == nullptr);
     }
 
+    // Rig booleans/4505: a round-wire coil through a cylinder wall, joined. The r 76 cylinder,
+    // and a wire of radius 2.5 centred at r 75.5, pitch 10, 8 turns from z 10, its profile
+    // starting at angle `start`. The rational walls' control points along a turn lie farther
+    // apart than the 5 mm between neighbouring turns, so the nearest control point to a point
+    // on the cylinder's seam was on the next turn, and the point solve found no point there
+    // (1001). A screw sweep's volume is its profile's turned moment, so the union is the
+    // cylinder plus 8 turns of the wire's segment outside r 76: 2 pi (75.5 A + (2/3) (r^2 -
+    // d^2)^(3/2)) a turn, with r 2.5, d 0.5 and A = r^2 acos(d / r) - d sqrt(r^2 - d^2).
+    {
+        const double R = 76.0, rc = 75.5, rw = 2.5, d = R - rc, pitch = 10.0, turns = 8.0;
+        const double seg = rw * rw * std::acos(d / rw) - d * std::sqrt(rw * rw - d * d);
+        const double moment = rc * seg + 2.0 / 3.0 * std::pow(rw * rw - d * d, 1.5);
+        const double v = PI * R * R * 100.0 + turns * 2 * PI * moment;
+        for (double start : {0.0, -10.0, -35.0, 90.0, -20.0, 5.0})
+        {
+            const double t = start * PI / 180, c = std::cos(t), s = std::sin(t);
+            List wire = circle(rc * c, rc * s, 10.0, -s, c, 0.0, c, s, 0.0, rw);
+            smlib_brep *coil = nullptr, *cyl = nullptr;
+            CHECK(smlib_screw_sweep(wire.kinds.data(), wire.nk(), wire.reals.data(), wire.nr(), O, Z, pitch, turns, 1e-3, &coil) == SMLIB_OK);
+            CHECK(smlib_make_cylinder(O, R, 100.0, &cyl) == SMLIB_OK);
+            b = nullptr;
+            int32_t joined = coil != nullptr && cyl != nullptr ? smlib_boolean(cyl, coil, SMLIB_BOOLEAN_UNION, &b) : SMLIB_ERR_ARG;
+            char name[64];
+            std::snprintf(name, sizeof name, "coil through r 76 wall, start %g", start);
+            expect(name, joined, &b, v, 1e-7);
+            smlib_brep_free(coil);
+            smlib_brep_free(cyl);
+        }
+    }
+
     // tangency-labs/solidcore#434: two walls 12 thick and 60 tall swept along half circles,
     // wall A r 44..56 over 0..180 degrees, wall B r 52..64 over 90..270, overlapping over a
     // quarter turn and sharing the planes z = 0 and z = 60. Wall A's frame started with its z in

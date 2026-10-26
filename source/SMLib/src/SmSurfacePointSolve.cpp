@@ -785,6 +785,15 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
   // If PolygonTriangleGuess is suspicious, also check distance.
   rbSuspicious = FALSE;
 
+  // A suspicious triangle guess stays a candidate: the per-control-point
+  // guess below can be worse.  Nearest control point is a poor proxy when
+  // the control net is coarser than the gaps between distant parts of the
+  // surface, e.g. a helical wall whose control points along a turn are
+  // farther apart than its neighbouring turns.
+  SmBoolean bHaveTriangleGuess = FALSE;
+  SmPoint2d sTriangleUVGuess;
+  ULONG     lTriangleIdxU = 0, lTriangleIdxV = 0;
+
   constexpr SmBoolean sbDoTriangleGuess=TRUE;
   if ( sbDoTriangleGuess )
     {
@@ -825,6 +834,16 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
       if ( ! rbSuspicious )
         {
           return SM_SUCCESS;
+        }
+
+      // Keep the suspicious guess for comparison with the one found below.
+      if(   eStat       == SM_SUCCESS
+         && m_eSolverOp != SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
+        {
+          bHaveTriangleGuess = TRUE;
+          sTriangleUVGuess   = m_sDomain.ClampPoint2d( rUVGuess );
+          lTriangleIdxU      = rlBestIdxU;
+          lTriangleIdxV      = rlBestIdxV;
         }
     } // end asked to guess from ControlPointMesh Triangles check
 
@@ -997,6 +1016,16 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
 
   // set output
   rUVGuess = m_sDomain.ClampPoint2d( rUVGuess );
+
+  // Return the better of the triangle guess and the control-point guess,
+  // judged on the surface itself.
+  if ( bHaveTriangleGuess
+    && CalcFuncVal( sTriangleUVGuess ) < CalcFuncVal( rUVGuess ) )
+    {
+      rUVGuess   = sTriangleUVGuess;
+      rlBestIdxU = lTriangleIdxU;
+      rlBestIdxV = lTriangleIdxV;
+    }
 
   // all done
   return SM_SUCCESS;
