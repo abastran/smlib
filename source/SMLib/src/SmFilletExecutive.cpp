@@ -502,6 +502,7 @@ SmFilletExecutive::SmFilletExecutive
    m_bDoTopologyInsertion(TRUE),
    m_bDoGlobalMerge(FALSE),
    m_bBlendCurveAtThirds(FALSE),
+   m_bMarkCornerPatches(FALSE),
    m_bDoTrimming(TRUE),
    m_bDoClassification(TRUE),
    m_pAttributeE(NULL)
@@ -3704,6 +3705,26 @@ SmBoolean bDebugMe = FALSE ;
   // SolidCraft change: remember the fillet surfaces that turn at a radius corner, whose faces
   // DoFillet splits there once they are in the target Brep.
   SER( NoteRadiusCornerSurfaces() );
+
+  // SolidCraft change: mark the faces of each set-back corner's patch, which the merge copies
+  // into the target Brep with their attributes (SetMarkCornerPatches).
+  if ( m_bMarkCornerPatches )
+    {
+      for (ULONG i=0; i<m_vFilletCorners.GetSize(); i++)
+        {
+          SmFilletCorner * pCorner = m_vFilletCorners[i];
+          if ( pCorner == NULL || !(pCorner->GetSetBackDist() > 0.0) )
+            { continue; }
+          SmTArray<SmFace*> sPatch;
+          SER( pCorner->GetPatchFaces(sPatch) );
+          for (ULONG j=0; j<sPatch.GetSize(); j++)
+            {
+              SmTagAttribute * pMark = new (m_crContext) SmTagAttribute(SM_AI_FILLET_CORNER_FACE, (long)i);
+              NER( pMark );
+              sPatch[j]->AddAttribute(pMark);
+            }
+        }
+    }
 
   SmTemporaryChangeValue<SmBoolean> sChange(m_pTargetBrep->m_bEditingEnabled,TRUE);
 

@@ -260,6 +260,11 @@ protected:
                                                     //        contacts' tangent lines meet (SmBlendCurveCrossSectionFSG).
                                                     // FALSE= the fairest equally spaced Hermite scaled by the thumbweight.
 
+  SmBoolean                 m_bMarkCornerPatches;   // SolidCraft change: TRUE = each face of a set-back corner's patch carries an
+                                                    //        SM_AI_FILLET_CORNER_FACE SmTagAttribute whose primary ID is the corner's
+                                                    //        index in m_vFilletCorners (set before the merge, so it travels with the
+                                                    //        copy the merge gives the target Brep). FALSE= no marks.
+
   SmBoolean                 m_bDoTrimming;          // TRUE = Remove original m_pTargetBrep pieces trimmed away by the filleting operation.
                                                     // FALSE= no trimming; Only imprint FilletGeometry onto original m_pTargetBrep
 
@@ -478,6 +483,8 @@ public:
   void     SetDoGlobalMerge          (SmBoolean bDoGlobalMerge)    { m_bDoGlobalMerge       = bDoGlobalMerge; }
   // Before SetFilletParameters, which creates the section generators with it.
   void     SetBlendCurveAtThirds     (SmBoolean bAtThirds)         { m_bBlendCurveAtThirds  = bAtThirds; }
+  // SolidCraft change: before DoFilleting; the caller removes the marks (SM_AI_FILLET_CORNER_FACE) once read.
+  void     SetMarkCornerPatches      (SmBoolean bMark)             { m_bMarkCornerPatches   = bMark; }
   void     SetDoTrimming             (SmBoolean bDoTrim)           { m_bDoTrimming          = bDoTrim; }
   SmStatus SetBevelCorner            (SmVertex * pCornerVert);
   SmStatus SetFilletBrepEdgeMap      ();

@@ -183,6 +183,9 @@ public:
   SmFilletExecutive * GetFilletExecutive()                             { return m_pExecutive; }
   void                GetFilletEdges(SmTArray<SmFilletEdge*> & rEdges) { rEdges.Append(m_vEdges); }
   void                GetFilletVertices(SmTArray<SmFilletVertex*> & rVerts) { rVerts.Append(m_vVertices); }
+  // SolidCraft change: the faces made on the surfaces this corner made (its patch's, or its end
+  // caps'), while they are still in the executive's m_pFilletBrep, before the merge.
+  SmStatus            GetPatchFaces(SmTArray<SmFace*> & rFaces) const;
   const SmVertex    * GetFilletedVertex()                              { return m_cpVertex; }
   double              GetSetBackDist()                                 { return m_dSetBackDist; }
   SmFilStatus         GetStatus()                                      { return m_eStatus; }

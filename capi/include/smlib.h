@@ -644,6 +644,24 @@ int32_t smlib_blend_setback(const smlib_brep *brep, int32_t kind, const double *
                             const double *corners, const double *setbacks, int64_t n_corners, double tolerance, smlib_brep **out,
                             int64_t *out_failed_point, int64_t *out_failed_corner);
 
+/* As smlib_blend_setback, with each set-back corner left open for the caller to fill: the patch
+ * SMLib builds between the corner's setback sections is removed (its faces, with the edges and
+ * vertices only they used), so `*out` is a sheet whose only free edges are those round the
+ * holes. `holes` (`cap` values) receives, for each point in `corners` in order, n and then n
+ * triples (edge, face, forward): the edges round that corner's hole as the faces beside it run
+ * them, counter-clockwise about their outward normal (the solid's before the patch went), each
+ * edge starting where the one before it ends; `edge` its index in `*out`'s edge order, `face`
+ * the face beside it in its face order, `forward` 1 where that face runs the edge from its start
+ * vertex to its end, else 0. The hole runs through every section's ends and the face curves
+ * between them, each as SMLib split it. The length goes to *out_len; when it is more than
+ * `cap`, no body is made and the call returns SMLIB_ERR_BUFFER (call again with a buffer that
+ * big). A corner whose patch SMLib does not build as a disc of faces of its own (its hole would
+ * not be one loop of edges between the patch and the faces beside it) is
+ * SMLIB_ERR_UNSUPPORTED. */
+int32_t smlib_blend_setback_open(const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, int64_t n_points,
+                                 const double *corners, const double *setbacks, int64_t n_corners, double tolerance, smlib_brep **out,
+                                 int64_t *holes, int64_t cap, int64_t *out_len, int64_t *out_failed_point, int64_t *out_failed_corner);
+
 /* A new body: `brep` with the one edge `point` selects rounded by a circular
  * cross-section whose radius varies along it: a clamped B-spline of `degree` (1 to 3) over the
  * position along the edge, 0 at its end nearest `start` and 1 at the other, with `n_knots`

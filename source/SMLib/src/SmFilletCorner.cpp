@@ -1143,6 +1143,28 @@ SmFilletCorner::~SmFilletCorner()
 } // end SmFilletCorner::~SmFilletCorner
 
 /*******************************************************************//**
+PURPOSE: The faces made on the surfaces in m_vSurfaces.
+
+NOTES: SolidCraft change. MakeFaceBrep makes one face of m_pFilletBrep on each
+   of them, which owns it; valid until the merge moves the fillet faces into
+   the target Brep (as copies) and deletes m_pFilletBrep.
+***********************************************************************/
+SmStatus SmFilletCorner::GetPatchFaces(SmTArray<SmFace*> & rFaces) const
+{
+  for (ULONG i=0; i<m_vSurfaces.GetSize(); i++)
+    {
+      SmSurface * pSurface = m_vSurfaces[i];
+      NER(pSurface);
+      SmObject * pOwner = pSurface->GetOwner();
+      SmFace   * pFace  = (pOwner != NULL && pOwner->IsKindOf(SmFace_TYPE)) ? (SmFace*)pOwner : NULL;
+      NER(pFace);
+      rFaces.Add(pFace);
+    }
+  return SM_SUCCESS;
+
+} // end SmFilletCorner::GetPatchFaces
+
+/*******************************************************************//**
 PURPOSE: Register the OriginalFace/ExtSurface pair in the
      SmFilletExecutive::m_vExtendedSurfacesMap list of pairs.
 

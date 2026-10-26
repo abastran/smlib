@@ -73,6 +73,7 @@ enum SmBooleanOperationType ;
 #define SM_AI_REPLACE_COMPOSITES 126  // NonPersistent attribute used to replace CompositeFace tracking with Attribute tracking
 #define SM_AI_FILLET_EDGECURVE   128  // SolidCraft change: a fillet surface's filleted edge, during a piecewise merge
 #define SM_AI_FOLLOWED_BLEND     130  // SolidCraft change: SmOffsetFacesExecutive's marks, during one call
+#define SM_AI_FILLET_CORNER_FACE 132  // SolidCraft change: a face of a set-back fillet corner's patch (SmFilletExecutive::SetMarkCornerPatches)
                                       //   after a boolean every AObject with this attribute is a child of the AObject originally marked
                                       //   When tracking one AObject (a face) use SmAttribute, when tracking many faces use 
                                       //   SmLongAttribute or SmPointerAttribute so that children of different parents can be identified.
