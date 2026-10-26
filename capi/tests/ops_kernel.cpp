@@ -365,6 +365,56 @@ void corner_setback_open()
     smlib_brep_free(part);
 }
 
+// The inner corner of a 20 x 20 x 10 notch cut from the top corner (60, 40, 20) of the 60 x 40 x
+// 20 box: its three concave edges, meeting at (40, 20, 10), rounded r5 and set back 7.5, left
+// open (one hole of twelve edges, a sheet SMLib's check passes) and closed (SMLib's patch, a
+// valid solid). At (60, 20, 10) two convex edges meet the concave one: a mixed corner, which
+// SMLib sets back with the same-convexity topology and gets wrong, refused.
+void concave_corner_setback()
+{
+    smlib_brep *part = box(0, 0, 0, 60, 40, 20);
+    smlib_brep *block = box(40, 20, 10, 30, 30, 20);
+    smlib_brep *notched = nullptr;
+    CHECK(smlib_boolean(part, block, SMLIB_BOOLEAN_SUBTRACT, &notched) == SMLIB_OK && notched != nullptr);
+    smlib_brep_free(part);
+    smlib_brep_free(block);
+    if (notched == nullptr)
+    {
+        return;
+    }
+    const double inner[9] = {50, 20, 10, 40, 30, 10, 40, 20, 15};
+    const double radii[3] = {5, 5, 5};
+    const double corner[3] = {40, 20, 10};
+    const double setback = 7.5;
+    smlib_brep *r = nullptr;
+    int64_t holes[64];
+    int64_t len = -1;
+    CHECK(smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, inner, radii, 3, corner, &setback, 1, 0.1, &r, holes, 64, &len, nullptr,
+                                   nullptr) == SMLIB_OK &&
+          r != nullptr && len == 1 + 3 * 12 && holes[0] == 12);
+    if (r != nullptr)
+    {
+        int32_t closed = -1;
+        CHECK(smlib_brep_is_manifold_solid(r, &closed) == SMLIB_OK && closed == 0);
+        done(r);
+    }
+    CHECK(smlib_blend_setback(notched, SMLIB_BLEND_ROUND, inner, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, nullptr) == SMLIB_OK &&
+          r != nullptr);
+    if (r != nullptr)
+    {
+        done(r);
+    }
+    const double mixed[9] = {50, 20, 10, 60, 30, 10, 60, 20, 15};
+    const double mixed_corner[3] = {60, 20, 10};
+    CHECK(smlib_blend_setback(notched, SMLIB_BLEND_ROUND, mixed, radii, 3, mixed_corner, &setback, 1, 0.1, &r, nullptr, nullptr) ==
+              SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    CHECK(smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, mixed, radii, 3, mixed_corner, &setback, 1, 0.1, &r, holes, 64, &len, nullptr,
+                                   nullptr) == SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    smlib_brep_free(notched);
+}
+
 void shelled_tapered_box_rounds()
 {
     const std::vector<int64_t> kinds = {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE, SMLIB_CURVE_LINE, SMLIB_CURVE_LINE};
@@ -3203,6 +3253,7 @@ int main()
     shelled_dome_rim();
     corner_setback();
     corner_setback_open();
+    concave_corner_setback();
     shelled_tapered_box_rounds();
 
     if (failures != 0)

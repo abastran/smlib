@@ -453,7 +453,8 @@ bool closed_nonmanifold(const SmBrep &r)
 // constant-distance solver). `laws` (one per edge, or empty) makes each edge's radius vary.
 // `setbacks` holds corner vertices of `b` with the distance along each of their edges at which
 // the corner's patch starts (SmFilletCorner's setback): each must be a corner where every edge
-// is rounded (SMLib's N x N corners, the only ones that build a setback). With `patches`, the
+// is rounded, all of one convexity (SMLib's same-convexity N x N corners, the only ones that
+// build a setback). With `patches`, the
 // faces of each setback corner's patch in `b` afterwards (one list per setback, in order): the
 // faces on the surfaces that corner made.
 int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &sizes, int32_t kind,
@@ -524,8 +525,14 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
         {
             return SMLIB_ERR_ARG;
         }
+        // SMLib sets back an N x N corner whose edges all have one convexity (its
+        // SmFilletConvexNxNCorner, convex or concave alike). A mixed one (SmFilletConcaveNxNCorner)
+        // hands its setback to that same topology, which takes the rails of neighbouring rounds to
+        // meet within their edges; at a mixed corner those on the face between the two rounds of
+        // one convexity do not, and its sections there come out kinked (a coincident pair of
+        // control points) and the result no solid.
         SmFilletCornerType type = corner->GetCornerType();
-        if (type != SM_FCR_N_x_N_CONVEX && type != SM_FCR_N_x_N_CONCAVE)
+        if (type != SM_FCR_N_x_N_CONVEX)
         {
             return SMLIB_ERR_UNSUPPORTED;
         }
