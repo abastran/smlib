@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 SolidCraft contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Choosing edges and faces by points (include/smlib.h, "Selecting edges and faces"), shared by
+// Choosing edges, faces and vertices by points (include/smlib.h, "Selecting edges and faces"), shared by
 // the shims that take a selection: each point picks the edge (face) nearest to it, which must lie
 // within the caller's tolerance and be nearer than any other by more than the body's modelling
 // tolerance. Internal to the library.
@@ -14,6 +14,7 @@
 #include <SmApiQueries.h>
 #include <SmEdge.h>
 #include <SmFace.h>
+#include <SmVertex.h>
 
 #include <vector>
 
@@ -87,6 +88,12 @@ inline bool edge_distance(SmEdge *e, const SmPoint3d &p, double &d)
     return SmApiEdgeClosestPoint(e, p, q, t, d) == SM_SUCCESS;
 }
 
+inline bool vertex_distance(SmVertex *v, const SmPoint3d &p, double &d)
+{
+    d = (v->GetPoint() - p).Length();
+    return true;
+}
+
 inline bool face_distance(SmFace *f, const SmPoint3d &p, double &d)
 {
     SmPoint3d q;
@@ -106,6 +113,14 @@ inline int32_t pick_faces(SmBrep *b, const double *points, int64_t n, double tol
     SmTArray<SmFace *> all;
     b->GetFaces(all);
     return pick(all, points, n, tol, static_cast<double>(b->GetTolerance()), face_distance, out, failed);
+}
+
+inline int32_t pick_vertices(SmBrep *b, const double *points, int64_t n, double tol, std::vector<SmVertex *> &out, int64_t *failed,
+                              std::vector<int64_t> *first = nullptr)
+{
+    SmTArray<SmVertex *> all;
+    b->GetVertices(all);
+    return pick(all, points, n, tol, static_cast<double>(b->GetTolerance()), vertex_distance, out, failed, first);
 }
 
 } // namespace smlib_pick

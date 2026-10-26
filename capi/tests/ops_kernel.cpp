@@ -25,6 +25,7 @@
 #include <SmSphere.h>
 #include <SmSurfOfRevolution.h>
 #include <SmVector3d.h>
+#include <SmVertex.h>
 
 #include <algorithm>
 #include <array>
@@ -260,6 +261,95 @@ void shelled_tapered_box_rounds()
 // (2/3) pi (20^3 - 18^3). The offset used to intersect the two faces' tangent (G1R) B-spline
 // extensions, marching a cubic within 6.5e-7 of the circle; SolidCraft read that back as a circle
 // off the axis, whose seam then sat 1.1e-7 from the dome's in the union that joins the rim back in.
+// Three R5 rounds at the corner (60, 40, 20) of a 60 x 40 x 20 box, the corner set back 8 along
+// each edge (smlib_blend_setback). Each round runs whole to its cross-section 8 from the vertex,
+// and the patch between those sections meets each face in a curve between the two rounds'
+// contact lines: the six vertices where the patch meets the faces are those sections' ends
+// (on the top face (52, 35, 20) and (55, 32, 20), and so on). Outside the corner cube C =
+// [52, 60] x [32, 40] x [12, 20] the body is that of the corner without a setback, the sphere
+// corner (ladder 07-fillets/009: V0 = 47377.120025868, of which 512 - 225 (1 - pi/4) -
+// 125 (1 - pi/6) in C). The body is convex, so inside C it holds the hull of its points on C's
+// faces (the three sections and the box's corners outside the patch: 299.0201, by a hull of
+// them sampled, below the true hull) and lies within every plane tangent to it along the
+// sections, the three rounds' prisms: 512 - 225 (1 - pi/4) - 125 (sqrt 2 - 1), the corner cube
+// of r keeping the three cylinders' common octant, (2 - sqrt 2) r^3, in place of the sphere's.
+void corner_setback()
+{
+    smlib_brep *part = box(0, 0, 0, 60, 40, 20);
+    const double edges[9] = {30, 40, 20, 60, 20, 20, 60, 40, 10};
+    const double radii[3] = {5, 5, 5};
+    const double corner[3] = {60, 40, 20};
+    const double setback = 8.0;
+    smlib_brep *r = nullptr;
+    int64_t failed = -1;
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, &failed) == SMLIB_OK);
+    if (r != nullptr)
+    {
+        const double in_c_sphere = 512.0 - 225.0 * (1.0 - PI / 4.0) - 125.0 * (1.0 - PI / 6.0);
+        const double outside = 47377.120025868 - in_c_sphere;
+        const double hull = 299.0201;
+        const double prisms = 512.0 - 225.0 * (1.0 - PI / 4.0) - 125.0 * (std::sqrt(2.0) - 1.0);
+        double v = volume_of(r);
+        std::fprintf(stderr, "  corner setback: volume %.9g in [%.9g, %.9g]\n", v, outside + hull, outside + prisms);
+        CHECK(v > outside + hull && v < outside + prisms);
+        // The box's six faces, the three rounds and the patch, which SMLib builds as two
+        // quadrilaterals per side (2 x 3), each pair split at the middle of its side (its
+        // section's or face curve's) and all six meeting at the patch's centre. Vertices: the
+        // box's four corners untouched, two at each round's far end, the six section ends, the
+        // six side middles and the centre (23); edges by Euler's formula, 23 + 15 - 2.
+        int64_t counts[3] = {0, 0, 0};
+        CHECK(smlib_brep_counts(r, counts) == SMLIB_OK);
+        CHECK(counts[0] == 15 && counts[1] == 36 && counts[2] == 23);
+        double lo[3];
+        double hi[3];
+        CHECK(smlib_brep_bounds(r, lo, hi) == SMLIB_OK);
+        // The box's own: the patch stays inside the corner.
+        const double want_hi[3] = {60, 40, 20};
+        for (int k = 0; k < 3; ++k)
+        {
+            CHECK(std::fabs(lo[k]) <= 1e-9 && std::fabs(hi[k] - want_hi[k]) <= 1e-9);
+        }
+        // The patch's extent along each edge: where it meets the faces, the setback sections'
+        // ends, each a vertex of the body.
+        const double ends[6][3] = {{52, 35, 20}, {52, 40, 15}, {55, 32, 20}, {60, 32, 15}, {55, 40, 12}, {60, 35, 12}};
+        SmTArray<SmVertex *> vs;
+        r->p->GetVertices(vs);
+        for (const auto &e : ends)
+        {
+            double best = HUGE_VAL;
+            for (ULONG k = 0; k < vs.GetSize(); ++k)
+            {
+                best = std::min(best, (vs[k]->GetPoint() - SmPoint3d(e[0], e[1], e[2])).Length());
+            }
+            if (best > 1e-6)
+            {
+                std::fprintf(stderr, "  corner setback: no vertex at (%g, %g, %g), nearest %.3g off\n", e[0], e[1], e[2], best);
+            }
+            CHECK(best <= 1e-6);
+        }
+        done(r);
+    }
+    // One setback per corner, past where the rounds meet: a vertex no point picks, a point at
+    // a vertex no blended edge meets, a setback as long as an edge there, a chamfer.
+    const double far_corner[3] = {0, 0, 0};
+    const double off[3] = {59, 39, 19};
+    const double too_long = 20.0;
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, off, &setback, 1, 0.1, &r, nullptr, &failed) == SMLIB_ERR_PICK_NONE &&
+          failed == 0 && r == nullptr);
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, far_corner, &setback, 1, 0.1, &r, nullptr, nullptr) == SMLIB_ERR_ARG &&
+          r == nullptr);
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, corner, &too_long, 1, 0.1, &r, nullptr, nullptr) == SMLIB_ERR_NO_ROOM &&
+          r == nullptr);
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_CHAMFER, edges, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, nullptr) ==
+              SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    // Two of the corner's three edges rounded: SMLib builds a setback only where all are.
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 2, corner, &setback, 1, 0.1, &r, nullptr, nullptr) ==
+              SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    smlib_brep_free(part);
+}
+
 void shelled_dome_rim()
 {
     std::vector<int64_t> kinds = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE};
@@ -2924,6 +3014,7 @@ int main()
 
     analytic_step_inversion();
     shelled_dome_rim();
+    corner_setback();
     shelled_tapered_box_rounds();
 
     if (failures != 0)

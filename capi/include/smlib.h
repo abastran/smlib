@@ -622,6 +622,27 @@ int32_t smlib_chamfer(const smlib_brep *brep, const double *points, int64_t n_po
 int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, int64_t n_points,
                     double tolerance, smlib_brep **out, int64_t *out_failed_point);
 
+/* As smlib_blend, with corner setbacks: each of the `n_corners` (>= 1) points in `corners` picks
+ * the vertex nearest it (within `tolerance`, as a point picks an edge; a vertex picked twice
+ * takes the first point's setback), a corner where every edge is blended, and moves where that
+ * corner's patch meets each blend `setbacks[j]` (> 0) along the edge from the vertex (arc
+ * length on the edge's curve): each blend runs whole to its cross-section there, and the patch
+ * between those cross-sections meets each face in a curve joining the two blends' contact lines.
+ * One setback holds for every edge at a corner: SMLib keeps one distance per corner, not one
+ * per edge. A point that picks no vertex or several is SMLIB_ERR_PICK_NONE or
+ * SMLIB_ERR_PICK_AMBIGUOUS (its index in `out_failed_corner`, if not NULL); a vertex where no
+ * blended edge meets is SMLIB_ERR_ARG; a corner where some edge is not blended (SMLib builds a
+ * setback only where all are) is SMLIB_ERR_UNSUPPORTED, as is any setback on a chamfer (its
+ * corners are bevelled). A setback as long as an edge at its corner, or two on the ends of one
+ * edge that together are, is SMLIB_ERR_NO_ROOM. The setback must reach past where the corner's
+ * blends meet without one (on a corner of rounds of radius r between faces square to each other,
+ * past r), else SMLib fails (its status): the patch does not join contact lines that already
+ * cross. Known limit: on that corner a setback beyond about 2 r gives a patch that bulges past
+ * the faces it meets (by 0.002 at 2.2 r, 0.25 at 3 r). */
+int32_t smlib_blend_setback(const smlib_brep *brep, int32_t kind, const double *points, const double *sizes, int64_t n_points,
+                            const double *corners, const double *setbacks, int64_t n_corners, double tolerance, smlib_brep **out,
+                            int64_t *out_failed_point, int64_t *out_failed_corner);
+
 /* A new body: `brep` with the one edge `point` selects rounded by a circular
  * cross-section whose radius varies along it: a clamped B-spline of `degree` (1 to 3) over the
  * position along the edge, 0 at its end nearest `start` and 1 at the other, with `n_knots`
