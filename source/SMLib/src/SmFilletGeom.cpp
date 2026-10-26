@@ -3336,28 +3336,19 @@ SmStatus SmFilletVertex::CalcSetBackVert()
   SmEdgeuse * pEU = pFilSolver->GetEdgeuse(0);
   SmEdge * pE = pEU->GetEdge();
   SmCurve * pCurve = pE->GetCurve(); NER(pCurve);
-  SmExtent1d sIvl = pCurve->GetNaturalInterval();
+  // SolidCraft change: walk dSetBackDist along the edge from the filleted vertex, over the
+  // edge's own interval from the end that vertex marks: GetStartVertex() marks the interval's
+  // start. (GetVertex() is the primary edgeuse's vertex, the curve's end where that edgeuse
+  // runs against the curve, and the curve's natural interval need not be the edge's: the
+  // setback was measured from the far vertex on such an edge.)
+  SmExtent1d sIvl = pE->GetInterval();
+  SmBoolean bFromStart = (pE->GetStartVertex() == cpVertex);
   double dEndParam = SM_BIG_DOUBLE;
   SmVector3d sPV[2];
-  // Walk along the curve for dSetBackDist
-  if (pE->GetVertex() == cpVertex) {
-      double dStartParam = sIvl.GetMin();
-      SER( pCurve->FindParameterAtArcLength(
-              dStartParam, dSetBackDist, dEndParam ));
-      SER( pCurve->Evaluate( dEndParam, 1, TRUE, sPV ));
-  }
-  else {
-      const SmContext & crContext = m_cpCorner->GetContext();
-      SmCurve * pNewCurve = NULL;
-      SER(pCurve->Copy( crContext, pNewCurve ));
-      SmObjDelete sDelete( pNewCurve );
-      SmExtent1d sNewIvl;
-      SER( pNewCurve->ReverseParameterization( sIvl, sNewIvl ));
-      double dStartParam = sNewIvl.GetMin();
-      SER( pNewCurve->FindParameterAtArcLength(
-              dStartParam, dSetBackDist, dEndParam ));
-      SER( pNewCurve->Evaluate( dEndParam, 1, TRUE, sPV ));
-  }
+  SER( pCurve->FindParameterAtArcLength(
+          bFromStart ? sIvl.GetMin() : sIvl.GetMax(),
+          bFromStart ? dSetBackDist : -dSetBackDist, dEndParam ));
+  SER( pCurve->Evaluate( dEndParam, 1, TRUE, sPV ));
   SmPoint3d sPlaneOrig = sPV[0];
   SmVector3d sPlaneNormal = sPV[1];
 
