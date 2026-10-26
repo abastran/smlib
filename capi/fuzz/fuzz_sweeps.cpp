@@ -4,9 +4,9 @@
 // libFuzzer target for the sweeps (src/smlib_sweeps.cpp): curve lists made from the input, half
 // of them well-formed loops (rectangles, discs, polygons and NURBS pieces of random sizes, places
 // and orientations) so SMLib's sweeps run, the rest arbitrary kinds and numbers; each one through
-// smlib_extrude, smlib_revolve, smlib_sweep, smlib_loft, smlib_loft_to_point, smlib_screw_sweep and
-// smlib_sweep_stations with arbitrary or near-sane options. Any status is fine; a crash, hang, leak or
-// exception is not.
+// smlib_extrude, smlib_revolve, smlib_sweep, smlib_loft, smlib_loft_to_point, smlib_screw_sweep,
+// smlib_screw_sweep_radial and smlib_sweep_stations with arbitrary or near-sane options. Any
+// status is fine; a crash, hang, leak or exception is not.
 //
 //   cmake -S capi -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DSMLIB_CAPI_FUZZ=ON -DSMLIB_CAPI_TESTS=OFF
 //   cmake --build build-fuzz --target smlib_fuzz_sweeps && build-fuzz/smlib_fuzz_sweeps -max_total_time=120
@@ -256,7 +256,21 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     default:
     {
         double o[3] = {in.in(-200, 200), in.in(-200, 200), in.in(-200, 200)};
-        drop(smlib_screw_sweep(pk, nk, pr, nr, o, dir, in.in(-20.0, 20.0), in.in(0.0, 6.0), in.in(1e-7, 1.0), &b), b);
+        if (in.byte() % 2 == 0)
+        {
+            drop(smlib_screw_sweep(pk, nk, pr, nr, o, dir, in.in(-20.0, 20.0), in.in(0.0, 6.0), in.in(1e-7, 1.0), &b), b);
+            break;
+        }
+        // A radial law of a few (turn, offset) pairs, ascending or not.
+        double turns = in.in(0.0, 6.0);
+        int n = 1 + in.byte() % 6;
+        std::vector<double> law;
+        for (int i = 0; i < n; ++i)
+        {
+            law.push_back(in.byte() % 4 == 0 ? in.in(-1.0, 7.0) : turns * (i + in.in(0.0, 1.0)) / n);
+            law.push_back(in.in(-50.0, 50.0));
+        }
+        drop(smlib_screw_sweep_radial(pk, nk, pr, nr, o, dir, in.in(-20.0, 20.0), turns, law.data(), n, in.in(1e-7, 1.0), &b), b);
     }
     }
     return 0;

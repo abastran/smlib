@@ -961,6 +961,26 @@ int32_t smlib_planar_faces(const int64_t *kinds, int64_t n_kinds, const double *
 int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
                           const double direction[3], double pitch, double turns, double tolerance, smlib_brep **out);
 
+/* smlib_screw_sweep with the section moved off the axis as it turns: a thread's groove fading in
+ * or out over a runout, or a taper. At turn t (0 to `turns`) every point of the profile is first
+ * moved offset(t) mm away from the axis (negative: towards it) within the profile's half-plane,
+ * then carried by the screw motion. offset is piecewise linear through the `n_law` (1 to
+ * SMLIB_SCREW_MAX_LAW) pairs (turn, offset) of `law`, turns strictly ascending within
+ * [0, `turns`], and held at its first and last offsets before and after them. A groove cut from
+ * a shaft that runs out over its first r turns at full depth h: law {0, h, r, 0} (the profile
+ * moved out by h at the start, past the shaft's surface, sinks in to full depth over r turns);
+ * at both ends {0, h, r, 0, turns - r, 0, turns, h}; inward for a bore. The profile must lie in a
+ * half-plane bounded by the axis (every control point within 1e-9 of it) and stay at least 1e-6
+ * off the axis at every offset. The walls stay within `tolerance` of the true surfaces swept, the
+ * ends are capped by the profile placed there exactly, and a profile line parallel to the axis
+ * sweeps an exact cylinder over the turns where the offset holds. The volume is the integral
+ * over the angle turned of the profile's area times its centroid's distance from the axis there.
+ * Otherwise as smlib_screw_sweep; SMLIB_ERR_ARG for any other input. */
+#define SMLIB_SCREW_MAX_LAW 1024
+int32_t smlib_screw_sweep_radial(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
+                                 const double direction[3], double pitch, double turns, const double *law, int64_t n_law, double tolerance,
+                                 smlib_brep **out);
+
 /* The ends of smlib_sweep_stations: left open (the swept sheet), capped by the first and last
  * sections (a closed manifold solid), or joined, the last section lying on the first (a sweep
  * round a closed path: the walls' ends are glued to their starts into a closed manifold solid). */

@@ -122,7 +122,8 @@ surfaces where the curve sweep fits B-splines), `smlib_loft`
 (`SmApiCreateSkinPrimitive`: a section's loops, outline then holes, are one profile, each lofted to
 the loop in the same place in the next section), `smlib_loft_to_point` (a pyramid: the planar
 base and a triangle from each of its lines to the apex, stitched and oriented as
-`SmApiCreatePyramid` builds its own), `smlib_screw_sweep` and `smlib_sweep_stations`.
+`SmApiCreatePyramid` builds its own), `smlib_screw_sweep`, `smlib_screw_sweep_radial` and
+`smlib_sweep_stations`.
 `smlib_project_curves` projects a curve list onto one picked face along a direction
 (`SmBrep::CreateParallelProjectionCurves` restricted to that face, as `SmApiProjectCurve` runs it
 on all of them) and hands back the projected curves as the B-splines SMLib made
@@ -145,8 +146,13 @@ span), the spans narrow enough for the caller's tolerance; the caps are the prof
 exactly where the motion starts and ends, all stitched and oriented. A profile line parallel to
 the axis sweeps an exact `SmCylinder` (`SmBrep::CreateFacesWithCurves`, bounded by the line at
 both ends and the paths of its ends, which lie on it exactly); a cylinder face cannot turn on
-itself, so then every wall comes in faces of half a turn.
-SM_API's curve sweep has no twist and its scale law is uniform in the path's parameter, and nothing in SM_API follows guide rails round a closed profile; `smlib_sweep_stations` takes the
+itself, so then every wall comes in faces of half a turn. `smlib_screw_sweep_radial` moves the
+profile off the axis as it turns by a piecewise linear law of the turn (a groove running out, a
+taper): each span carries the offset as it carries the lift, its spans narrower where the offset
+changes (the arc's offset strays by the change across a span times about h / 8), and a piece
+breaks wherever the law bends.
+SM_API's curve sweep has no twist and its scale law is uniform in the path's parameter, and
+nothing in SM_API follows guide rails round a closed profile; `smlib_sweep_stations` takes the
 caller's stations instead (affine maps: the profile twisted, scaled or stretched and carried
 along the path), places the profile exactly by each (its control points mapped), skins the walls
 through the sections (`SmApiCreateSkinPrimitive`, cubic) and caps them, or, round a closed path

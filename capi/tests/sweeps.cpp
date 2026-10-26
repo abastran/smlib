@@ -149,8 +149,29 @@ struct Meridian
 // taken in its meridian plane, to the profile the screw motion carries there, which bounds its
 // distance to the screw surface in space from above. `cylinders` counts the cylinder faces; each
 // must be exactly about the axis, of the radius of one of the profile's lines along the axis.
-static double screw_deviation(const smlib_brep *b, const Meridian &m, double pitch, double turns, int *cylinders)
+static double screw_deviation(const smlib_brep *b, const Meridian &m, double pitch, double turns, int *cylinders,
+                              const std::vector<double> &law = {})
 {
+    // The radial offset at `turn` (smlib_screw_sweep_radial's law: piecewise linear, held beyond).
+    auto offset = [&](double turn)
+    {
+        if (law.empty())
+        {
+            return 0.0;
+        }
+        if (turn <= law[0])
+        {
+            return law[1];
+        }
+        for (size_t i = 2; i < law.size(); i += 2)
+        {
+            if (turn <= law[i])
+            {
+                return law[i - 1] + (law[i + 1] - law[i - 1]) * (turn - law[i - 2]) / (law[i] - law[i - 2]);
+            }
+        }
+        return law.back();
+    };
     smlib_flat *flat = nullptr;
     if (smlib_brep_export(b, &flat) != SMLIB_OK)
     {
@@ -185,9 +206,9 @@ static double screw_deviation(const smlib_brep *b, const Meridian &m, double pit
             for (size_t i = 0; !m.round && i < m.rz.size(); i += 2)
             {
                 size_t j = (i + 2) % m.rz.size();
-                if (m.rz[i] == m.rz[j])
+                for (size_t l = 0; m.rz[i] == m.rz[j] && l <= law.size(); l += 2)
                 {
-                    off = std::min(off, std::fabs(cyl_r[c] - m.rz[i]));
+                    off = std::min(off, std::fabs(cyl_r[c] - m.rz[i] - (l < law.size() ? law[l + 1] : 0.0)));
                 }
             }
             if (!(off <= 1e-12 && std::hypot(cyl_o[3 * c], cyl_o[3 * c + 1]) <= 1e-12 && std::fabs(std::fabs(cyl_k[3 * c + 2]) - 1.0) <= 1e-12))
@@ -231,7 +252,7 @@ static double screw_deviation(const smlib_brep *b, const Meridian &m, double pit
                                 {
                                     continue;
                                 }
-                                best = std::min(best, m.distance(r, q[2] - pitch * angle / (2 * PI)));
+                                best = std::min(best, m.distance(r - offset(angle / (2 * PI)), q[2] - pitch * angle / (2 * PI)));
                             }
                             worst = std::max(worst, best);
                         }
@@ -719,6 +740,87 @@ int main()
             }
             smlib_brep_free(b);
         }
+    }
+
+    // A thread's groove running out over 1.5 turns at each end (smlib_screw_sweep_radial): the
+    // M10x1.5 groove above moved out by 0.8 at both ends of 23 / 1.5 turns, back to full depth
+    // 1.5 turns in. Its walls stay within the tolerance of the true surfaces swept, the root and
+    // crest are exact cylinders where the offset holds, and its volume is the integral over the
+    // angle of the groove's area times its centroid's radius there:
+    // A * 2 pi * (centroid * turns + 1.5 * 0.8), the runouts adding A * 2 pi * 2 * (1.5 * 0.8 / 2).
+    {
+        const double p = 1.5, h = p * std::sqrt(3.0) / 2.0, slope = std::tan(PI / 6.0);
+        const double r0 = 5.0 - 5.0 * h / 8.0, w0 = p / 8.0, r1 = 5.0 + 0.05 * p, w1 = (p / 4.0 + 2.0 * (r1 - r0) * slope) / 2.0;
+        Meridian groove;
+        groove.rz = {r0, -p - w0, r1, -p - w1, r1, -p + w1, r0, -p + w0};
+        double area = 0.0, moment = 0.0;
+        for (size_t i = 0; i < groove.rz.size(); i += 2)
+        {
+            size_t j = (i + 2) % groove.rz.size();
+            double cross = groove.rz[i] * groove.rz[j + 1] - groove.rz[j] * groove.rz[i + 1];
+            area += cross / 2.0;
+            moment += (groove.rz[i] + groove.rz[j]) * cross / 6.0;
+        }
+        const double centroid = moment / area, turns = 23.0 / 1.5, run = 1.5, out = 0.8, tol = p * 1e-4;
+        const std::vector<double> law = {0.0, out, run, 0.0, turns - run, 0.0, turns, out};
+        std::vector<double> pts;
+        for (size_t i = 0; i < groove.rz.size(); i += 2)
+        {
+            pts.insert(pts.end(), {groove.rz[i], 0.0, groove.rz[i + 1]});
+        }
+        List prof;
+        prof.polygon(pts);
+        b = nullptr;
+        int32_t st = smlib_screw_sweep_radial(prof.kinds.data(), prof.nk(), prof.reals.data(), prof.nr(), O, Z, p, turns, law.data(), 4, tol, &b);
+        int cylinders = 0;
+        double dev = st == SMLIB_OK ? screw_deviation(b, groove, p, turns, &cylinders, law) : 1e300;
+        std::printf("%-34s walls within %.3g of the surfaces swept (asked %.3g), %d cylinders\n", "M10x1.5 groove run out", dev, tol, cylinders);
+        CHECK(dev <= tol && cylinders > 0);
+        expect("M10x1.5 groove run out", st, &b, std::fabs(area) * 2 * PI * (centroid * turns + run * out), 1e-6);
+        // The groove cut from a 10 mm shaft 20 long, running out over 1.5 turns at both ends from
+        // past the surface (out 0.9, the root at 5.088) to full depth, so it fades away inside the
+        // shaft. At offset d the groove cuts f(d), the integral of its width (linear in r) times r
+        // from its root r0 + d to the surface; f is a cubic in d down to d = 5 - r0 and nought
+        // beyond, so Simpson's rule integrates it exactly over each runout.
+        {
+            const double turns_cut = 16.0 / 1.5, deep = 5.0 - r0, past = 0.9, R = 5.0;
+            const double sw = (w1 - w0) / (r1 - r0);
+            auto f = [&](double d)
+            {
+                auto g = [&](double r) { return 2.0 * ((w0 - sw * (r0 + d)) * r * r / 2.0 + sw * r * r * r / 3.0); };
+                return d >= deep ? 0.0 : 2 * PI * (g(R) - g(r0 + d));
+            };
+            const double simpson = deep / 6.0 * (f(0.0) + 4.0 * f(deep / 2.0) + f(deep));
+            const double removed = f(0.0) * (turns_cut - 2.0 * run) + 2.0 * (run / past) * simpson;
+            std::vector<double> lifted;
+            for (size_t i = 0; i < groove.rz.size(); i += 2)
+            {
+                lifted.insert(lifted.end(), {groove.rz[i], 0.0, groove.rz[i + 1] + p + 2.0});
+            }
+            List g2;
+            g2.polygon(lifted);
+            const std::vector<double> fade = {0.0, past, run, 0.0, turns_cut - run, 0.0, turns_cut, past};
+            smlib_brep *tool = nullptr, *shaft = nullptr;
+            CHECK(smlib_screw_sweep_radial(g2.kinds.data(), g2.nk(), g2.reals.data(), g2.nr(), O, Z, p, turns_cut, fade.data(), 4, tol, &tool) ==
+                  SMLIB_OK);
+            CHECK(smlib_make_cylinder(O, R, 20.0, &shaft) == SMLIB_OK);
+            b = nullptr;
+            int32_t cut = tool != nullptr && shaft != nullptr ? smlib_boolean(shaft, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG;
+            expect("M10x1.5 cut, run out both ends", cut, &b, PI * R * R * 20.0 - removed, 1e-6);
+            smlib_brep_free(tool);
+            smlib_brep_free(shaft);
+        }
+        // Refused: a turn outside the turns or out of order, an offset that takes the profile
+        // onto the axis, and a profile off a half-plane through the axis.
+        const double late[4] = {0.0, out, turns + 0.1, 0.0}, back[4] = {1.0, out, 0.5, 0.0}, onto[2] = {0.0, -r0};
+        b = nullptr;
+        CHECK(smlib_screw_sweep_radial(prof.kinds.data(), prof.nk(), prof.reals.data(), prof.nr(), O, Z, p, turns, late, 2, tol, &b) == SMLIB_ERR_ARG);
+        CHECK(smlib_screw_sweep_radial(prof.kinds.data(), prof.nk(), prof.reals.data(), prof.nr(), O, Z, p, turns, back, 2, tol, &b) == SMLIB_ERR_ARG);
+        CHECK(smlib_screw_sweep_radial(prof.kinds.data(), prof.nk(), prof.reals.data(), prof.nr(), O, Z, p, turns, onto, 1, tol, &b) == SMLIB_ERR_ARG);
+        List skew;
+        skew.polygon({4, 0, 0, 4.4, 0.3, 0, 4.4, 0.3, 0.4, 4, 0, 0.4});
+        CHECK(smlib_screw_sweep_radial(skew.kinds.data(), skew.nk(), skew.reals.data(), skew.nr(), O, Z, p, 2.0, law.data(), 1, tol, &b) == SMLIB_ERR_ARG);
+        CHECK(b == nullptr);
     }
 
     // tangency-labs/solidcore#434: two walls 12 thick and 60 tall swept along half circles,
