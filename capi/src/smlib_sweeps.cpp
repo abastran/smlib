@@ -963,10 +963,16 @@ struct Screw
         }
         return offsets.back();
     }
+    // The move off the axis at angle a, before the turn: e * offset(a), or none without a law
+    // (e is then unset).
+    SmVector3d shift(double a) const
+    {
+        return offsets.empty() ? SmVector3d(0, 0, 0) : e * offset(a);
+    }
     // Where p goes at angle a.
     SmPoint3d at(const SmPoint3d &p, double a) const
     {
-        return o + turn(p - o + e * offset(a), a) + k * lift(a);
+        return o + turn(p - o + shift(a), a) + k * lift(a);
     }
     // How far p lies from the axis.
     double reach(const SmPoint3d &p) const
@@ -978,7 +984,7 @@ struct Screw
     // o - R o + R e offset + k lift.
     SmAxis2Placement placement(double a) const
     {
-        SmPoint3d origin = o - turn(SmVector3d(o.x, o.y, o.z), a) + turn(e * offset(a), a) + k * lift(a);
+        SmPoint3d origin = o - turn(SmVector3d(o.x, o.y, o.z), a) + turn(shift(a), a) + k * lift(a);
         return SmAxis2Placement(origin, turn(SmVector3d(1, 0, 0), a), turn(SmVector3d(0, 1, 0), a));
     }
 };
@@ -1075,7 +1081,7 @@ std::vector<SmPoint3d> path(const Screw &m, const SmPoint3d &p, const Stations &
         if (i < st.spans())
         {
             double mid = 0.5 * (st.t[i] + st.t[i + 1]);
-            D.push_back(m.o + m.turn(radial + m.e * m.offset(mid), mid) * (1.0 / std::cos(st.half)) + m.k * (axial + m.lift(mid)));
+            D.push_back(m.o + m.turn(radial + m.shift(mid), mid) * (1.0 / std::cos(st.half)) + m.k * (axial + m.lift(mid)));
         }
     }
     return D;
