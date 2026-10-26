@@ -950,10 +950,10 @@ int32_t smlib_planar_faces(const int64_t *kinds, int64_t n_kinds, const double *
 
 /* The profile carried by a screw motion about the axis through `origin` along `direction`:
  * `turns` (0.001 to SMLIB_SCREW_MAX_TURNS) turns right-handed about the axis, rising `pitch`
- * (signed, non-zero) per turn, capped at both ends: a thread's groove or a coil. The walls are
- * skinned (cubic) through the profile placed by the screw motion at stations close enough that
- * they stay within about `tolerance` (>= 1e-6 mm) of the true screw surfaces; at most
- * SMLIB_SCREW_MAX_STATIONS stations, else SMLIB_ERR_ARG. */
+ * (signed, non-zero) per turn, capped at both ends: a thread's groove or a coil. Each wall is its
+ * profile curve turned exactly (rational quadratic arcs across the turns: every point of it lies
+ * as far from the axis as its profile point) and lifted within `tolerance` (>= 1e-6 mm) of its
+ * true screw surface, end to end; at most SMLIB_SCREW_MAX_STATIONS spans, else SMLIB_ERR_ARG. */
 #define SMLIB_SCREW_MAX_TURNS 200.0
 #define SMLIB_SCREW_MAX_STATIONS 12000.0
 int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],

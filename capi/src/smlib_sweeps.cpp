@@ -19,6 +19,7 @@
 #include <SmApiPrimitives.h>
 #include <SmApiTrimmedSurfaces.h>
 #include <SmBSplineCurve.h>
+#include <SmBSplineSurface.h>
 #include <NL_Geometry.h>
 #include <NL_Nurbsdef.h>
 #include <SmCircle.h>
@@ -27,6 +28,7 @@
 #include <SmPrimitiveCreation.h>
 
 #include <memory>
+#include <vector>
 
 using namespace smlib_shim;
 
@@ -917,6 +919,183 @@ extern "C" int32_t smlib_loft_to_point(const int64_t *kinds, int64_t n_kinds, co
     );
 }
 
+namespace
+{
+
+// The screw motion of smlib_screw_sweep: about the axis through `o` along unit `k`, rising
+// `pitch` per turn, the section carried by angle a (radians, right-handed about k).
+struct Screw
+{
+    SmPoint3d o;
+    SmVector3d k;
+    double pitch = 0.0;
+
+    // Rodrigues: v turned right-handed about k by angle a.
+    SmVector3d turn(const SmVector3d &v, double a) const
+    {
+        return v * std::cos(a) + (k * v) * std::sin(a) + k * (k.Dot(v) * (1.0 - std::cos(a)));
+    }
+    double lift(double a) const
+    {
+        return pitch * a / TWO_PI;
+    }
+    // Where p goes at angle a.
+    SmPoint3d at(const SmPoint3d &p, double a) const
+    {
+        return o + turn(p - o, a) + k * lift(a);
+    }
+    // How far p lies from the axis.
+    double reach(const SmPoint3d &p) const
+    {
+        SmVector3d w = p - o;
+        return (w - k * w.Dot(k)).Length();
+    }
+    // The motion as a placement of the section: p -> o + R (p - o) + k lift, its origin o - R o + k lift.
+    SmAxis2Placement placement(double a) const
+    {
+        SmPoint3d origin = o - turn(SmVector3d(o.x, o.y, o.z), a) + k * lift(a);
+        return SmAxis2Placement(origin, turn(SmVector3d(1, 0, 0), a), turn(SmVector3d(0, 1, 0), a));
+    }
+};
+
+// The stations of a piece of the turns: n spans of h radians each, from t[0] to t[n]. Each span
+// carries the profile round as an exact rational quadratic arc does a point (its middle control
+// point at the span's middle angle, out by 1 / cos(h / 2), weighted cos(h / 2)), and lifts it by
+// the same rational quadratic of the lifts at the span's ends and middle. So every point of a
+// wall lies exactly as far from the axis as its profile point and exactly at the angle the
+// arc turns it to, only lifted off the screw surface there, the same for the whole profile: by
+// at most |pitch| / (2 pi) * lift_error(h).
+struct Stations
+{
+    std::vector<double> t;
+    double half = 0.0; // h / 2
+
+    Stations(double from, double to, size_t n)
+    {
+        for (size_t i = 0; i <= n; ++i)
+        {
+            t.push_back(i == n ? to : from + (to - from) * static_cast<double>(i) / static_cast<double>(n));
+        }
+        half = 0.5 * (to - from) / static_cast<double>(n);
+    }
+    size_t spans() const
+    {
+        return t.size() - 1;
+    }
+    // The knots across the stations, as unique values and multiplicities: double inside (the
+    // arcs meet tangent), triple at the ends.
+    void knots(SmTArray<double> &unique, SmTArray<ULONG> &mult) const
+    {
+        for (size_t i = 0; i < t.size(); ++i)
+        {
+            unique.Add(t[i]);
+            mult.Add(i == 0 || i + 1 == t.size() ? 3 : 2);
+        }
+    }
+    // The weight of control point j (of 2 * spans + 1) across the stations.
+    double weight(size_t j) const
+    {
+        return j % 2 == 0 ? 1.0 : std::cos(half);
+    }
+};
+
+// How far, in radians of turn, the rational quadratic lift of a span of half-angle `half` leads
+// or lags the true lift, at most. A point at s in [-1, 1] across the span turns
+// 2 atan(tan(half / 2) s) from the span's middle and is lifted as by half * s / (1 - (1 - s^2)
+// (1 - cos half) / 2) radians; their difference is smooth, odd in s and nought at s = 0 and +-1
+// (about 0.008 h^3), so a fine sampling finds its largest.
+double lift_error(double half)
+{
+    double worst = 0.0;
+    for (int i = 0; i <= 2048; ++i)
+    {
+        double s = static_cast<double>(i) / 2048.0;
+        double lift = half * s / (1.0 - (1.0 - s * s) * (1.0 - std::cos(half)) / 2.0);
+        worst = std::max(worst, std::fabs(lift - 2.0 * std::atan(std::tan(half / 2.0) * s)));
+    }
+    return worst;
+}
+
+// The control points of p's path under the screw motion over `st` (2 * spans + 1 of them).
+std::vector<SmPoint3d> path(const Screw &m, const SmPoint3d &p, const Stations &st)
+{
+    SmVector3d w = p - m.o;
+    double axial = w.Dot(m.k);
+    SmVector3d radial = w - m.k * axial;
+    std::vector<SmPoint3d> D;
+    for (size_t i = 0; i <= st.spans(); ++i)
+    {
+        D.push_back(m.at(p, st.t[i]));
+        if (i < st.spans())
+        {
+            double mid = 0.5 * (st.t[i] + st.t[i + 1]);
+            D.push_back(m.o + m.turn(radial, mid) * (1.0 / std::cos(st.half)) + m.k * (axial + m.lift(mid)));
+        }
+    }
+    return D;
+}
+
+// A profile curve as the NURBS its control points pair up in.
+struct Nurbs
+{
+    ULONG degree = 0;
+    SmTArray<SmPoint3d> points;
+    SmTArray<ULONG> mult;
+    SmTArray<double> unique;
+    SmTArray<double> weights;
+};
+
+int32_t nurbs_of(const SmCurve *x, Nurbs &out)
+{
+    const SmBSplineCurve *b = SM_CAST_PTR(SmBSplineCurve, x);
+    ULONG dim = 0;
+    SmBSplineCurveForm form = SM_CF_UNSPECIFIED;
+    SmKnotType kt = SM_KT_UNSPECIFIED;
+    if (b == nullptr || b->GetCanonical(dim, out.degree, out.points, form, out.mult, out.unique, kt, out.weights) != SM_SUCCESS || dim != 3)
+    {
+        return static_cast<int32_t>(SM_ERR);
+    }
+    return SMLIB_OK;
+}
+
+// The wall one profile curve sweeps over `st`: across the profile curve its NURBS, across the
+// turns each control point's path, the weights the curve's times the arcs'. A wall's point is
+// the curve's weighted mean of its control points' paths at the same parameter, which all turn
+// and lift alike, so the wall is the profile curve turned and lifted as one.
+int32_t screw_wall(const SmContext &ctx, const Screw &m, const Nurbs &c, const Stations &st, SmBSplineSurface *&out)
+{
+    ULONG count = c.points.GetSize();
+    ULONG across = static_cast<ULONG>(2 * st.spans() + 1);
+    SmTArray<SmPoint3d> net;
+    SmTArray<double> weights;
+    net.SetSize(count * across);
+    weights.SetSize(count * across);
+    for (ULONG l = 0; l < count; ++l)
+    {
+        std::vector<SmPoint3d> D = path(m, c.points[l], st);
+        for (ULONG j = 0; j < across; ++j)
+        {
+            net[l * across + j] = D[j];
+            weights[l * across + j] = (c.weights.GetSize() > 0 ? c.weights[l] : 1.0) * st.weight(j);
+        }
+    }
+    SmTArray<ULONG> vmult;
+    SmTArray<double> vknots;
+    st.knots(vknots, vmult);
+    SmBSplineSurface *s = nullptr;
+    SmStatus status_ = SmBSplineSurface::CreateCanonical(ctx, c.degree, 2, net, SM_SF_UNSPECIFIED, c.mult, vmult, c.unique, vknots,
+                                                         SM_KT_UNSPECIFIED, &weights, nullptr, s);
+    if (status_ != SM_SUCCESS || s == nullptr)
+    {
+        delete s;
+        return status_ != SM_SUCCESS ? status(status_) : static_cast<int32_t>(SM_ERR);
+    }
+    out = s;
+    return SMLIB_OK;
+}
+
+} // namespace
+
 extern "C" int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],
                                      const double axis[3], double pitch, double turns, double tolerance, smlib_brep **out)
 {
@@ -932,11 +1111,13 @@ extern "C" int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, cons
     return c.run(
         [&]
         {
-            SmVector3d k;
-            if (!unit(axis, k))
+            Screw m;
+            if (!unit(axis, m.k))
             {
                 return SMLIB_ERR_ARG;
             }
+            m.o = SmPoint3d(origin[0], origin[1], origin[2]);
+            m.pitch = pitch;
             Curves profile;
             int32_t s = parse(kinds, n_kinds, reals, n_reals, profile);
             if (s != SMLIB_OK)
@@ -944,54 +1125,61 @@ extern "C" int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, cons
                 return s;
             }
             // SM_API's curve sweep carries the profile on its own frame along a path, which along a
-            // helix turns the profile away from the screw motion. So the profile is placed by the
-            // screw motion itself at stations along the turns, and the walls are skinned through
-            // them (cubic across the stations, which they interpolate).
-            SmPoint3d o(origin[0], origin[1], origin[2]);
+            // helix turns the profile away from the screw motion. So each profile curve's wall is
+            // built from the motion itself (Stations, screw_wall): turned exactly, lifted within
+            // |pitch| / (2 pi) * lift_error(h) of the screw surface, the spans h no wider than
+            // that keeps within `tolerance`, nor than an eighth of a turn.
+            std::vector<Nurbs> walls(profile.v.size());
             double reach = 0.0;
-            for (SmCurve *x : profile.v)
+            for (size_t i = 0; i < profile.v.size(); ++i)
             {
-                SmExtent1d ivl = x->GetNaturalInterval();
-                for (int j = 0; j <= 16; ++j)
+                s = nurbs_of(profile.v[i], walls[i]);
+                if (s != SMLIB_OK)
                 {
-                    SmPoint3d p;
-                    if (x->EvaluatePoint(ivl.Evaluate(j / 16.0), p) != SM_SUCCESS)
-                    {
-                        return static_cast<int32_t>(SM_ERR);
-                    }
-                    SmVector3d w = p - o;
-                    reach = std::max(reach, (w - k * w.Dot(k)).Length());
+                    return s;
+                }
+                for (ULONG l = 0; l < walls[i].points.GetSize(); ++l)
+                {
+                    reach = std::max(reach, m.reach(walls[i].points[l]));
                 }
             }
             if (!(reach > 1e-6))
             {
                 return SMLIB_ERR_ARG;
             }
-            // A cubic through stations h radians apart strays about reach * h^4 / 384 from the
-            // circle each point turns on.
-            double h = std::pow(384.0 * tolerance / reach, 0.25);
-            double per_turn = std::max(12.0, std::ceil(TWO_PI / std::min(h, TWO_PI)));
-            double n = std::ceil(turns * per_turn);
-            if (!(n >= 2.0 && n <= SMLIB_SCREW_MAX_STATIONS))
+            const double total = TWO_PI * turns;
+            const double rise = std::fabs(pitch) / TWO_PI;
+            double n = std::ceil(total / std::min(TWO_PI / 8.0, std::cbrt(tolerance / (0.008 * rise))));
+            while (n <= SMLIB_SCREW_MAX_STATIONS && rise * lift_error(0.5 * total / n) > tolerance)
+            {
+                n += 1.0;
+            }
+            if (!(n >= 1.0 && n <= SMLIB_SCREW_MAX_STATIONS))
             {
                 return SMLIB_ERR_ARG;
             }
-            ULONG stations = static_cast<ULONG>(n) + 1;
+            Stations st(0.0, total, static_cast<size_t>(n));
             const SmContext &ctx = *SmApiGetOrCreateContext();
-            Curves placed;
-            SmTArray<ULONG> counts;
-            SmTArray<const SmCurve *> all;
-            // Rodrigues: v turned right-handed about k by angle a.
-            auto turn = [&](const SmVector3d &v, double a) { return v * std::cos(a) + (k * v) * std::sin(a) + k * (k.Dot(v) * (1.0 - std::cos(a))); };
-            for (ULONG i = 0; i < stations; ++i)
+            std::unique_ptr<SmBrep> brep(new (ctx) SmBrep());
+            for (const Nurbs &w : walls)
             {
-                double f = static_cast<double>(i) / static_cast<double>(stations - 1);
-                double a = TWO_PI * turns * f;
-                SmVector3d x = turn(SmVector3d(1, 0, 0), a);
-                SmVector3d y = turn(SmVector3d(0, 1, 0), a);
-                // p -> o + R (p - o) + k * lift, as a placement: origin o - R o + k * lift.
-                SmPoint3d at = o - turn(o, a) + k * (pitch * turns * f);
-                SmAxis2Placement motion(at, x, y);
+                SmBSplineSurface *surface = nullptr;
+                s = screw_wall(ctx, m, w, st, surface);
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+                SmFace *face = nullptr;
+                s = status(brep->CreateFaceFromSurface(surface, surface->GetNaturalUVDomain(), face));
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+            }
+            // The caps: the profile where the motion starts and where it ends, placed exactly.
+            for (double a : {0.0, total})
+            {
+                Curves cap;
                 for (SmCurve *src : profile.v)
                 {
                     SmCurve *copy = nullptr;
@@ -1000,23 +1188,26 @@ extern "C" int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, cons
                         delete copy;
                         return static_cast<int32_t>(SM_ERR);
                     }
-                    placed.v.push_back(copy);
-                    if (copy->Transform(motion) != SM_SUCCESS)
+                    cap.v.push_back(copy);
+                    if (a != 0.0 && copy->Transform(m.placement(a)) != SM_SUCCESS)
                     {
                         return static_cast<int32_t>(SM_ERR);
                     }
-                    all.Add(copy);
                 }
-                counts.Add(static_cast<ULONG>(profile.v.size()));
+                SmTArray<SmFace *> faces;
+                s = status(brep->CreatePlanarFacesWith3DCurves(brep->GetInfiniteRegion(), cap.array(), brep->GetTolerance(), faces));
+                if (s != SMLIB_OK)
+                {
+                    return s;
+                }
+                cap.v.clear(); // the faces took the curves over
             }
-            SmBrep *r = nullptr;
-            s = status(SmApiCreateSkinPrimitive(counts, all, 3, TRUE, r, nullptr, nullptr, nullptr));
+            s = status(brep->StitchAndOrient());
             if (s != SMLIB_OK)
             {
-                delete r;
                 return s;
             }
-            return finish(r, true, out);
+            return finish(brep.release(), true, out);
         }
     );
 }

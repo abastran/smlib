@@ -137,10 +137,13 @@ side (positive in, negative out), not the 90 to 180 degrees `SmApiBrep.h` docume
 outward draft, and asserts a single chain of curves, so a drafted profile must be one loop. Its
 curve sweep carries the profile on its own frame along the path, which along a helix turns the
 profile away from a screw motion (3 turns of a thread's tooth came out 1 to 2% off in volume);
-`smlib_screw_sweep` therefore places the profile by the screw motion itself at stations along
-the turns and skins the walls through them, cubic, the stations close enough for the caller's
-tolerance. SM_API's curve sweep has no twist and its scale law is uniform in the path's parameter,
-and nothing in SM_API follows guide rails round a closed profile; `smlib_sweep_stations` takes the
+`smlib_screw_sweep` therefore builds each wall itself from the screw motion: across the turns
+every control point of its profile curve goes round as an exact rational quadratic arc does, span
+by span, and is lifted by the same rational quadratic of the true lifts, so a wall is its profile
+curve turned exactly and lifted within `|pitch| / (2 pi) * 0.008 h^3` of the screw surface (h the
+span), the spans narrow enough for the caller's tolerance; the caps are the profile placed
+exactly where the motion starts and ends, all stitched and oriented.
+SM_API's curve sweep has no twist and its scale law is uniform in the path's parameter, and nothing in SM_API follows guide rails round a closed profile; `smlib_sweep_stations` takes the
 caller's stations instead (affine maps: the profile twisted, scaled or stretched and carried
 along the path), places the profile exactly by each (its control points mapped), skins the walls
 through the sections (`SmApiCreateSkinPrimitive`, cubic) and caps them, or, round a closed path

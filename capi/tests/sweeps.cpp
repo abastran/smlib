@@ -115,6 +115,123 @@ static void expect(const char *name, int32_t s, smlib_brep *const *out, double v
     smlib_brep_free(b);
 }
 
+// A screw sweep's profile in the half-plane y = 0, x > 0 (as (r, z)): polygon corners, or one
+// circle (centre r, z and radius).
+struct Meridian
+{
+    std::vector<double> rz;
+    double circle[3] = {0, 0, 0};
+    bool round = false;
+
+    // The distance in the meridian plane from (r, z) to the profile's boundary.
+    double distance(double r, double z) const
+    {
+        if (round)
+        {
+            return std::fabs(std::hypot(r - circle[0], z - circle[1]) - circle[2]);
+        }
+        double best = 1e300;
+        size_t n = rz.size() / 2;
+        for (size_t i = 0; i < n; ++i)
+        {
+            size_t j = (i + 1) % n;
+            double ax = rz[2 * i], az = rz[2 * i + 1], dx = rz[2 * j] - ax, dz = rz[2 * j + 1] - az;
+            double t = std::clamp(((r - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz), 0.0, 1.0);
+            best = std::min(best, std::hypot(r - ax - t * dx, z - az - t * dz));
+        }
+        return best;
+    }
+};
+
+// The farthest the walls of `b`, a screw sweep about +z through the origin (`pitch` per turn,
+// `turns` turns), stray from the true screw surfaces of `m`: every NURBS face's surface sampled
+// over its whole domain, five points across each knot span both ways. A point's distance is
+// taken in its meridian plane, to the profile the screw motion carries there, which bounds its
+// distance to the screw surface in space from above. `cylinders` counts the cylinder faces.
+static double screw_deviation(const smlib_brep *b, const Meridian &m, double pitch, double turns, int *cylinders)
+{
+    smlib_flat *flat = nullptr;
+    if (smlib_brep_export(b, &flat) != SMLIB_OK)
+    {
+        return 1e300;
+    }
+    const int64_t *type = nullptr, *form = nullptr, *nu = nullptr, *nv = nullptr, *ou = nullptr, *ov = nullptr;
+    const double *cvs = nullptr, *ku = nullptr, *kv = nullptr, *w = nullptr;
+    int64_t n_faces = 0, n_form = 0, len = 0;
+    smlib_flat_get_i64(flat, SMLIB_FLAT_FACE_SURFACE_TYPE, &type, &n_faces);
+    smlib_flat_get_i64(flat, SMLIB_FLAT_FACE_NURBS_FORM, &form, &n_form);
+    smlib_flat_get_i64(flat, SMLIB_FLAT_FACE_NURBS_U_VERTEX_COUNT, &nu, &len);
+    smlib_flat_get_i64(flat, SMLIB_FLAT_FACE_NURBS_V_VERTEX_COUNT, &nv, &len);
+    smlib_flat_get_i64(flat, SMLIB_FLAT_FACE_NURBS_U_ORDER, &ou, &len);
+    smlib_flat_get_i64(flat, SMLIB_FLAT_FACE_NURBS_V_ORDER, &ov, &len);
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_CVS, &cvs, &len);
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_U_KNOTS, &ku, &len);
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_V_KNOTS, &kv, &len);
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_WEIGHTS, &w, &len);
+    double worst = 0.0;
+    int64_t block = 0, at_cv = 0, at_ku = 0, at_kv = 0;
+    *cylinders = 0;
+    for (int64_t f = 0; f < n_faces; ++f)
+    {
+        *cylinders += type[f] == SMLIB_FLAT_SURFACE_CYLINDER ? 1 : 0;
+        if (type[f] != SMLIB_FLAT_SURFACE_NURBS && !(n_form > 0 && form[f] == 1))
+        {
+            continue;
+        }
+        const int64_t cu = nu[block], cv = nv[block], du = ou[block] - 1, dv = ov[block] - 1;
+        smlib_surface *s = nullptr;
+        if (type[f] == SMLIB_FLAT_SURFACE_NURBS &&
+            smlib_surface_nurbs(static_cast<int32_t>(du), static_cast<int32_t>(dv), static_cast<int32_t>(cu), static_cast<int32_t>(cv),
+                                ku + at_ku, cu + du + 1, kv + at_kv, cv + dv + 1, cvs + 3 * at_cv, w + at_cv, &s) == SMLIB_OK)
+        {
+            const double *U = ku + at_ku, *V = kv + at_kv;
+            for (int64_t i = du; i < cu; ++i)
+            {
+                for (int64_t j = dv; j < cv; ++j)
+                {
+                    for (int a = 0; a <= 4; ++a)
+                    {
+                        for (int c = 0; c <= 4; ++c)
+                        {
+                            double u = U[i] + (U[i + 1] - U[i]) * a / 4.0, v = V[j] + (V[j + 1] - V[j]) * c / 4.0;
+                            double q[3];
+                            if (U[i + 1] <= U[i] || V[j + 1] <= V[j] || smlib_surface_evaluate(s, u, v, q) != SMLIB_OK)
+                            {
+                                continue;
+                            }
+                            double r = std::hypot(q[0], q[1]);
+                            double theta = std::atan2(q[1], q[0]);
+                            theta = theta < 0.0 ? theta + 2 * PI : theta;
+                            double best = 1e300;
+                            for (int k = -1; k <= static_cast<int>(turns) + 1; ++k)
+                            {
+                                double angle = theta + 2 * PI * k;
+                                if (angle < -1e-9 || angle > 2 * PI * turns + 1e-9)
+                                {
+                                    continue;
+                                }
+                                best = std::min(best, m.distance(r, q[2] - pitch * angle / (2 * PI)));
+                            }
+                            worst = std::max(worst, best);
+                        }
+                    }
+                }
+            }
+        }
+        else if (type[f] == SMLIB_FLAT_SURFACE_NURBS)
+        {
+            worst = 1e300;
+        }
+        smlib_surface_free(s);
+        at_cv += cu * cv;
+        at_ku += cu + du + 1;
+        at_kv += cv + dv + 1;
+        block++;
+    }
+    smlib_flat_free(flat);
+    return worst;
+}
+
 static const double Z[3] = {0, 0, 1};
 static const double O[3] = {0, 0, 0};
 
@@ -525,6 +642,59 @@ int main()
     b = nullptr;
     expect("screw sweep down", smlib_screw_sweep(tooth.kinds.data(), tooth.nk(), tooth.reals.data(), tooth.nr(), O, Z, -1.0, 3.0, 1e-4, &b), &b,
            screw, 2e-3);
+
+    // A screw sweep's walls stay within the tolerance asked of the true screw surfaces, end to
+    // end. SolidCraft's coil of case 2552 (a 0.9 square from r 4.1 to 5, pitch 1.5, 10 high,
+    // within a ten-thousandth of the pitch), the groove of an M10x1.5 thread (ISO 68-1, as cut
+    // below) and a round wire (its circle a rational profile). The skin through the stations
+    // had its end spans free: 2552's last span strayed 1.07e-3 against the 1.5e-4 asked.
+    {
+        const double p = 1.5, h = p * std::sqrt(3.0) / 2.0, slope = std::tan(PI / 6.0);
+        const double r0 = 5.0 - 5.0 * h / 8.0, w0 = p / 8.0, r1 = 5.0 + 0.05 * p, w1 = (p / 4.0 + 2.0 * (r1 - r0) * slope) / 2.0;
+        Meridian coil, groove, wire;
+        coil.rz = {4.1, 0, 5.0, 0, 5.0, 0.9, 4.1, 0.9};
+        groove.rz = {r0, -p - w0, r1, -p - w1, r1, -p + w1, r0, -p + w0};
+        wire.round = true;
+        wire.circle[0] = 4.55;
+        wire.circle[1] = 0.45;
+        wire.circle[2] = 0.4;
+        struct Case
+        {
+            const char *name;
+            const Meridian *m;
+            double turns;
+        };
+        const Case cases[] = {{"coil 2552", &coil, 10.0 / 1.5}, {"M10x1.5 groove", &groove, 23.0 / 1.5}, {"round wire", &wire, 2.25}};
+        for (const Case &k : cases)
+        {
+            List prof;
+            if (k.m->round)
+            {
+                prof.arc(k.m->circle[0], 0, k.m->circle[1], 0, 1, 0, 1, 0, 0, k.m->circle[2], 0.0, 2 * PI);
+            }
+            else
+            {
+                std::vector<double> pts;
+                for (size_t i = 0; i < k.m->rz.size(); i += 2)
+                {
+                    pts.insert(pts.end(), {k.m->rz[i], 0.0, k.m->rz[i + 1]});
+                }
+                prof.polygon(pts);
+            }
+            const double tol = p * 1e-4;
+            b = nullptr;
+            CHECK(smlib_screw_sweep(prof.kinds.data(), prof.nk(), prof.reals.data(), prof.nr(), O, Z, p, k.turns, tol, &b) == SMLIB_OK);
+            int cylinders = 0;
+            double dev = b != nullptr ? screw_deviation(b, *k.m, p, k.turns, &cylinders) : 1e300;
+            std::printf("%-34s walls within %.3g of the screw surfaces (asked %.3g), %d cylinders\n", k.name, dev, tol, cylinders);
+            if (!(dev <= tol))
+            {
+                std::fprintf(stderr, "%s: a wall strays %g from its screw surface, %g asked\n", k.name, dev, tol);
+                failures++;
+            }
+            smlib_brep_free(b);
+        }
+    }
 
     // tangency-labs/solidcore#434: two walls 12 thick and 60 tall swept along half circles,
     // wall A r 44..56 over 0..180 degrees, wall B r 52..64 over 90..270, overlapping over a
