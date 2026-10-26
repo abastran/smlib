@@ -2391,6 +2391,40 @@ SmBoolean bDebugMe=FALSE;
         }
     }
 
+  // A ProtoVertex that absorbed a degenerate ProtoEdge (SmProtoEdge::Resolve) is one Vertex for
+  // a curve that ran a little way through it, so the Edges ending there end on that curve, not
+  // on the Vertex's point. Fit each such Vertex to its Edges, as CombineCoincidentVertices()
+  // does when it squeezes a short Edge away: their intervals end as near the Vertex as their
+  // curves go, and its tolerance covers what is left. Its two Vertices, one in each Brep, each
+  // lie on their own Brep's topology and will be related as one, so each tolerance also covers
+  // the other's: the other's point and what its own tolerance reaches from there.
+  lNumObjs = rPVs.GetSize();
+  for(ii=0;ii<lNumObjs;ii++)
+    {
+      SmProtoVertex *pPV = rPVs[ii];
+      if(!pPV->AbsorbedProtoEdge())
+        { continue; }
+      SmTArray< SmVertexDefinition* > & rVDs = pPV->GetVertexDefinitions();
+      for(jj=0;jj<rVDs.GetSize();jj++)
+        {
+          SmVertex *apVtx[2] = { rVDs[jj]->GetFinalVertex( 1), rVDs[jj]->GetFinalVertex( 2) };
+          for(int iBrep = 0; iBrep < 2; iBrep++)
+            {
+              if(apVtx[iBrep] == NULL || apVtx[iBrep]->GetBrep() == NULL)
+                { continue; }
+              eStat = apVtx[iBrep]->GetBrep()->UpdateVertexEdgeIntervals( apVtx[iBrep]) ;
+              if(eStat != SM_SUCCESS && eRetStat == SM_SUCCESS) // Record the first problem.
+                { eRetStat = eStat; }
+            }
+          if(apVtx[0] == NULL || apVtx[1] == NULL)
+            { continue; }
+          SM_OLDTOL_LINE double dApart = apVtx[0]->GetPoint().DistanceBetween( apVtx[1]->GetPoint()) ;
+          SM_OLDTOL_LINE double adTol[2] = { apVtx[0]->GetTolerance(), apVtx[1]->GetTolerance() };
+          SM_OLDTOL_LINE apVtx[0]->SetTolerance( adTol[1] + 2.0*dApart) ; // Will set it only if larger.
+          SM_OLDTOL_LINE apVtx[1]->SetTolerance( adTol[0] + 2.0*dApart) ;
+        }
+    }
+
   // At this point, there might be coincident Vertices and Edges in the Breps.
   // The rest of ManifoldBoolean() expects coincident Vertices to be glued
   // (although not coincident Edges).  So do that.  [Offset demo 2]

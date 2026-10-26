@@ -436,6 +436,7 @@ class SM_EXPORT SmProtoVertex : public SmTopology
   SmTArray<SmVertexDefinition *> m_sVertexDefinitions ;   // list of VertexDefinitions
   SmTArray<SmProtoEdge *>        m_sProtoEdges ;          // array of ProtoEdges connected to this ProtoVertex
   SmProtoTopologyManager       * m_pProtoTopoMgr;         // Back-pointer to owning object.
+  SmBoolean                      m_bAbsorbedProtoEdge = FALSE; // a degenerate ProtoEdge of ours was dropped: its Vertices stand for its curve
 
  public:
   // constructor with 1 VD
@@ -462,6 +463,9 @@ class SM_EXPORT SmProtoVertex : public SmTopology
   SmZoneTol3d                       GetTolerance              ()                                  const { return m_dTol ; }
   SmVertexDefinition              * GetClosestVertexDefinition(const SmPoint3d & crPosition)      const ;
   double                            GetCaptureDistance        ()                                  const ;
+  double                            GetContainmentRadius      ()                                  const ; // radius of ContainsPoint(): max(m_dTol, CaptureDistance)
+  SmBoolean                         AbsorbedProtoEdge         ()                                  const { return m_bAbsorbedProtoEdge ; }
+  void                              SetAbsorbedProtoEdge      ()                                        { m_bAbsorbedProtoEdge = TRUE ; }
   SmProtoTopologyManager          * GetProtoTopologyManager   ()                                  const { return m_pProtoTopoMgr ; }
   SmVertex                        * GetFinalVertex            (int iWhichBrep,                                        // in : 
                                                                const SmEdgeDefinition * pEdgeDef,         // in : 

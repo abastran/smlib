@@ -12,7 +12,9 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace
@@ -441,6 +443,123 @@ void cylinder_grazing_box_edge()
     smlib_brep_free(cyl);
 }
 
+// A ruled loft between two star outlines of 48 corners at heights z0 and z1 (x y pairs), capped.
+smlib_brep *star_loft(const double *lo, double z0, const double *hi, double z1)
+{
+    std::vector<int64_t> kinds;
+    std::vector<double> reals;
+    for (const auto &[p, z] : {std::make_pair(lo, z0), std::make_pair(hi, z1)})
+    {
+        for (int i = 0; i < 48; ++i)
+        {
+            int j = (i + 1) % 48;
+            kinds.push_back(SMLIB_CURVE_LINE);
+            reals.insert(reals.end(), {p[2 * i], p[2 * i + 1], z, p[2 * j], p[2 * j + 1], z});
+        }
+    }
+    const int64_t sizes[2] = {48, 48};
+    smlib_brep *b = nullptr;
+    CHECK(smlib_loft(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), sizes, 2, 1, 1,
+                     &b) == SMLIB_OK);
+    return b;
+}
+
+// The area of a star outline (shoelace).
+double star_area(const double *p)
+{
+    double a = 0.0;
+    for (int i = 0; i < 48; ++i)
+    {
+        int j = (i + 1) % 48;
+        a += p[2 * i] * p[2 * j + 1] - p[2 * j] * p[2 * i + 1];
+    }
+    return 0.5 * a;
+}
+
+// A ruled loft between corresponding corners of two parallel outlines is a prismatoid:
+// V = h (A0 + 4 Amid + A1) / 6, Amid the outline of the corners' midpoints.
+double star_loft_volume(const double *lo, double z0, const double *hi, double z1)
+{
+    double mid[96];
+    for (int i = 0; i < 96; ++i)
+    {
+        mid[i] = 0.5 * (lo[i] + hi[i]);
+    }
+    return (z1 - z0) * (star_area(lo) + 4.0 * star_area(mid) + star_area(hi)) / 6.0;
+}
+
+// Rig case booleans/4623: the join of two pleated skins (lofts between 24-pleat star outlines,
+// less the same loft moved in, tests/data/pleated-skins.txt), a narrowing cone and a flaring lip
+// whose pleat creases cross at z = -0.3. Where a crease of one passes 1e-5 from a crease of the
+// other, the strip faces next to them meet along 1.4e-5 between the two creases: both ends fall
+// in one ProtoVertex (the capture distance is 0.01 mm), on its one VertexDefinition, the
+// creases' crossing. SmProtoEdge::Resolve kept that as a closed Edge, being longer than twice its
+// own tolerance, and imprinted it from that one Vertex back to itself across a pleat strip: the
+// strip split off a speck face 8.5e-9 by 1.6e-7 in UV that kept a 15 mm intersection Edge in its
+// loop, whose trim dropped 0.86 mm off the face (edge tolerances 1.7 mm, SmBrep test 59), and the
+// join lost 11.6 mm^3. The join and the overlap have no closed form, only their sum: the skins.
+void pleated_skins_join()
+{
+    double z[8];
+    double xy[8][96];
+    FILE *f = std::fopen(SMLIB_TEST_DATA "/pleated-skins.txt", "r");
+    CHECK(f != nullptr);
+    if (f == nullptr)
+    {
+        return;
+    }
+    char line[8192];
+    int n = 0;
+    while (n < 8 && std::fgets(line, sizeof line, f) != nullptr)
+    {
+        if (line[0] == '#')
+        {
+            continue;
+        }
+        char *s = line;
+        z[n] = std::strtod(s, &s);
+        for (double &v : xy[n])
+        {
+            v = std::strtod(s, &s);
+        }
+        n++;
+    }
+    std::fclose(f);
+    CHECK(n == 8);
+    if (n != 8)
+    {
+        return;
+    }
+
+    smlib_brep *lofts[4] = {};
+    for (int i = 0; i < 4; ++i)
+    {
+        lofts[i] = star_loft(xy[2 * i], z[2 * i], xy[2 * i + 1], z[2 * i + 1]);
+        CHECK(lofts[i] != nullptr && near(volume(lofts[i]), star_loft_volume(xy[2 * i], z[2 * i], xy[2 * i + 1], z[2 * i + 1]), 1e-9));
+    }
+    smlib_brep *cone = nullptr, *lip = nullptr, *join = nullptr, *overlap = nullptr;
+    if (lofts[0] != nullptr && lofts[1] != nullptr && lofts[2] != nullptr && lofts[3] != nullptr)
+    {
+        CHECK(smlib_boolean(lofts[0], lofts[1], SMLIB_BOOLEAN_SUBTRACT, &cone) == SMLIB_OK && sound(cone));
+        CHECK(smlib_boolean(lofts[2], lofts[3], SMLIB_BOOLEAN_SUBTRACT, &lip) == SMLIB_OK && sound(lip));
+    }
+    if (cone != nullptr && lip != nullptr)
+    {
+        CHECK(smlib_boolean(cone, lip, SMLIB_BOOLEAN_UNION, &join) == SMLIB_OK && sound(join));
+        CHECK(smlib_boolean(cone, lip, SMLIB_BOOLEAN_INTERSECT, &overlap) == SMLIB_OK && sound(overlap));
+        int64_t solids = -1;
+        CHECK(join != nullptr && smlib_brep_solid_count(join, &solids) == SMLIB_OK && solids == 1);
+        if (join != nullptr && overlap != nullptr)
+        {
+            CHECK(near(volume(join) + volume(overlap), volume(cone) + volume(lip), 1e-7));
+        }
+    }
+    for (smlib_brep *b : {lofts[0], lofts[1], lofts[2], lofts[3], cone, lip, join, overlap})
+    {
+        smlib_brep_free(b);
+    }
+}
+
 int main(int argc, char **argv)
 {
     struct Case
@@ -454,6 +573,7 @@ int main(int argc, char **argv)
         {"nudged_loft_join", nudged_loft_join},
         {"rounded_case_floor_pull", rounded_case_floor_pull},
         {"cylinder_grazing_box_edge", cylinder_grazing_box_edge},
+        {"pleated_skins_join", pleated_skins_join},
     };
     for (const Case &c : cases)
     {

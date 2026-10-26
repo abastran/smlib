@@ -2242,14 +2242,22 @@ double SmProtoVertex::GetCaptureDistance() const
 { return m_pProtoTopoMgr->GetCaptureDistance(); }
 
 /*******************************************************************//**
+PURPOSE: Radius of the ball around m_sPosition whose points are 'in' this ProtoVertex.
+
+USAGE NOTES---- 
+   m_dTol >= Local object Tols. Takes precedence over CaptureDistance [B673]
+***********************************************************************/
+double SmProtoVertex::GetContainmentRadius() const
+{ return smos_Max(m_dTol, GetCaptureDistance()); }
+
+/*******************************************************************//**
 PURPOSE: Determine whether a position shoould be considered 'in' this ProtoVertex.
 
 USAGE NOTES---- 
 ***********************************************************************/
 SmBoolean SmProtoVertex::ContainsPoint( const SmPoint3d &crPosition )
 {
-  // m_dTol >= Local object Tols. Takes precedence over CaptureDistance [B673]
-  return ( m_sPosition.CloserThan( smos_Max(m_dTol, GetCaptureDistance()), crPosition )) ;
+  return ( m_sPosition.CloserThan( GetContainmentRadius(), crPosition )) ;
 
 } // end SmProtoVertex::ContainsPoint
 
@@ -2919,6 +2927,7 @@ SmStatus SmProtoVertex::CombineProtoVertex( SmProtoVertex *pOtherPV ) // SolidCr
     { return SM_SUCCESS; }
 
   m_dTol = smos_Max( m_dTol, pOtherPV->m_dTol) ;
+  m_bAbsorbedProtoEdge = m_bAbsorbedProtoEdge || pOtherPV->m_bAbsorbedProtoEdge;
 
   // We will have to update m_sPosition: it will be the average of all VDs.
   // Start with what is here already.
@@ -3774,11 +3783,26 @@ SmStatus SmProtoEdge::Resolve()
     {
       SmCurve *pIntCurve = m_sEdgeDefs[0]->GetXSectCurve3d();
       double dLen = pIntCurve->ApproximateLength( m_pXSectInterval, 5) ;
+      SmPoint3d sPt0, sPt1;
+      pIntCurve->GetEnds(sPt0, sPt1) ;
+      SmVertexDefinition *pVD0 = m_pStartPV->GetClosestVertexDefinition( sPt0) ;
 
-      if(dLen < 2*m_dTol)
+      // Ends that find one VertexDefinition become one Vertex in each Brep. They are both on
+      // this ProtoVertex because each is within its containment radius (ContainsPoint), which
+      // the CaptureDistance usually sets, far above our m_dTol: a curve shorter than that ball
+      // is wide is that Vertex, not a closed Edge on it. Ends on two VertexDefinitions become
+      // two Vertices, which the curve joins unless it is shorter than our own tolerance.
+      double dDegenerateLen = ( pVD0 == m_pStartPV->GetClosestVertexDefinition( sPt1) )
+                            ? 2*m_pStartPV->GetContainmentRadius()
+                            : 2*m_dTol;
+
+      if(dLen < dDegenerateLen)
         {
           // Delete ourself?  Actually, we can just remove all of our EdgeDefinitions.
           // If the caller chooses, they can check if we come back empty, and delete if so.
+          // The Edges that end on our ProtoVertex end on our curve, up to its length away from
+          // the Vertex: ImprintIntersections() fits the Vertex to them.
+          m_pStartPV->SetAbsorbedProtoEdge();
           for(ii=0;ii<lNumEDs;ii++)
             {
               pED1 = m_sEdgeDefs[ii];
@@ -3796,15 +3820,11 @@ SmStatus SmProtoEdge::Resolve()
           // We would do that by adding a VertexDef to the ProtoVertex.
           //   (Or possibly split the PV into two?  Adding a VD would be more in keeping w/ philosophy.)
           // Check start & end points.
-          SmPoint3d sPt0, sPt1;
-          pIntCurve->GetEnds(sPt0, sPt1) ;
           double dDist = sPt0.DistanceBetween( sPt1) ;
           if(dDist > 2*m_dTol)
             {
               // Check whether there are two VertexDefs, one for each end of the int curves.
               SmBoolean bAddVtxDef = FALSE;
-              // We'll need this later:
-              SmVertexDefinition *pVD0 = m_pStartPV->GetClosestVertexDefinition( sPt0) ;
               if(m_pStartPV->GetNumVertexDefinitions() < 2 )
                 { bAddVtxDef = TRUE; }
               else
