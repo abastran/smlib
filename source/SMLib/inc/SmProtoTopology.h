@@ -172,6 +172,8 @@ class SM_EXPORT SmVertexDefinition : public SmTopology
                                                  
   SmVertex              * m_pFinalVtx1 ;         // Vertex in brep1 for this XSection after resolve and imprint
   SmVertex              * m_pFinalVtx2 ;         // Vertex in brep2 for this XSection after resolve and imprint
+  double                  m_dCrossingSine = -1.0 ; // SolidCraft: sine of the angle at which the intersection curve that placed
+                                                 // this XSection crosses its source Edge; -1 = not placed by such a crossing
 
 public:
   // Constructor, Destructor:
@@ -213,6 +215,10 @@ public:
                            
   void     SetPosition       (SmPoint3d      sPosition)           { m_sPosition = sPosition ; }
   void     SetProtoVertex    (SmProtoVertex *pPV)                 { m_pMyProtoVertex = pPV; }
+  SmStatus PlaceByCrossing   (const SmPointClassification & crPC1,
+                              const SmPointClassification & crPC2,
+                              double                        dCrossingSine,
+                              SmBoolean                   & rbMoved) ;
   SmStatus SetPointParameters() ;
   SmStatus SetSrcTopo        (int iWhichBrep, 
                               SmPointClassificationType eType, 
@@ -508,6 +514,11 @@ class SM_EXPORT SmProtoVertex : public SmTopology
                                    SmVertexDefinition *& pNewVtxDef,               // out: default [NULL]
                                    SmBoolean           * pbWasCreated = NULL) ;    // out: optional flag: TRUE = rpNewVD was created, NULL to ignore, default:[NULL]
                                                                                    //                     FALSE= rpNewVD was found
+
+  // An intersection curve crossing an Edge at the XSection of rPC1 and rPC2 at angle asin(dCrossingSine)
+  SmStatus AddCrossing           ( SmPointClassification  & rPC1,                  // in : Brep1 PointClassification of the crossing
+                                   SmPointClassification  & rPC2,                  // in : Brep2 PointClassification of the crossing
+                                   double                   dCrossingSine) ;       // in : sine of the crossing angle
 
   void     AddProtoEdge          ( SmProtoEdge * pPE ) { m_sProtoEdges.Add( pPE) ; } // DD1: Even if already there.
   SmStatus RemoveVertexDefinition( SmVertexDefinition *pVD) ;

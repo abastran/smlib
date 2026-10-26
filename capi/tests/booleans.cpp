@@ -560,6 +560,81 @@ void pleated_skins_join()
     }
 }
 
+// A list of line and arc curves, as smlib_extrude and smlib_loft take them.
+struct Curves
+{
+    std::vector<int64_t> kinds;
+    std::vector<double> reals;
+    Curves &line(double ax, double ay, double az, double bx, double by, double bz)
+    {
+        kinds.push_back(SMLIB_CURVE_LINE);
+        reals.insert(reals.end(), {ax, ay, az, bx, by, bz});
+        return *this;
+    }
+    // Centre c, unit normal n, unit x direction u, radius r, from angle a0 to a1 about n.
+    Curves &arc(const double c[3], const double n[3], const double u[3], double r, double a0, double a1)
+    {
+        kinds.push_back(SMLIB_CURVE_ARC);
+        reals.insert(reals.end(), {c[0], c[1], c[2], n[0], n[1], n[2], u[0], u[1], u[2], r, a0, a1});
+        return *this;
+    }
+    smlib_brep *extrude(const double direction[3], double h) const
+    {
+        smlib_brep *b = nullptr;
+        CHECK(smlib_extrude(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), direction, h, 0.0,
+                            SMLIB_DRAFT_CORNER_CURVATURE, 1, &b, nullptr) == SMLIB_OK);
+        return b;
+    }
+};
+
+// tangency-labs/solidcore#1059 (rig crashes/4092): a rib, a rod r 1.5 along x with its bottom at
+// z 36, joined to a slab whose B-spline wall leans against the rod's bottom, then a pad (x -8..8,
+// z 36..40) whose bottom edges along y are rounded r 3, so its rounds and the rod touch at
+// (+-5, 19.5, 36). Where the slab's edge on the rod meets a round, the wall/round curve runs
+// along that edge at 5 degrees and the rod/round curve crosses it at 40. The wall/round curve
+// was intersected first and its crossing, which fixes the vertex along the edge only to its gap
+// over sin 5 degrees, placed it; the rod/round edge then ended 4.2e-5 from it (SmBrep test 61).
+// The vertex is now placed by the crossing that fixes it more closely.
+void grazing_edge_crossing()
+{
+    const double x0 = -5.068, y0 = 19.4517, z0 = 36.00078;
+    Curves wall;
+    std::vector<int64_t> sizes;
+    for (double x : {-20.0, -5.0, 10.0})
+    {
+        // The wall about y = y0 + 0.1246 (x - x0) + 0.1351 (z - z0), bent across x.
+        auto w = [&](double z) { return y0 + 0.1246 * (x - x0) + 0.1351 * (z - z0) - 0.01 * (x - x0) * (x - x0); };
+        wall.line(x, 0, 30, x, w(30), 30).line(x, w(30), 30, x, w(45), 45).line(x, w(45), 45, x, 0, 45).line(x, 0, 45, x, 0, 30);
+        sizes.push_back(4);
+    }
+    smlib_brep *slab = nullptr;
+    CHECK(smlib_loft(wall.kinds.data(), static_cast<int64_t>(wall.kinds.size()), wall.reals.data(), static_cast<int64_t>(wall.reals.size()), sizes.data(),
+                     static_cast<int64_t>(sizes.size()), 2, 1, &slab) == SMLIB_OK);
+    const double rod_c[3] = {-15, 19.5, 37.5}, ex[3] = {1, 0, 0}, ey[3] = {0, 1, 0}, my[3] = {0, -1, 0};
+    smlib_brep *rod = Curves().arc(rod_c, ex, ey, 1.5, 0, 2 * PI).extrude(ex, 30);
+    smlib_brep *ribbed = nullptr;
+    CHECK(slab != nullptr && rod != nullptr && smlib_boolean(slab, rod, SMLIB_BOOLEAN_UNION, &ribbed) == SMLIB_OK && sound(ribbed));
+    const double right[3] = {5, 10, 39}, left[3] = {-5, 10, 39};
+    smlib_brep *pad = Curves()
+                          .line(-5, 10, 36, 5, 10, 36)
+                          .arc(right, my, ex, 3, -PI / 2, 0)
+                          .line(8, 10, 39, 8, 10, 40)
+                          .line(8, 10, 40, -8, 10, 40)
+                          .line(-8, 10, 40, -8, 10, 39)
+                          .arc(left, my, ex, 3, PI, 1.5 * PI)
+                          .extrude(ey, 20);
+    smlib_brep *r = nullptr;
+    if (ribbed != nullptr && pad != nullptr)
+    {
+        CHECK(smlib_boolean(ribbed, pad, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK && sound(r));
+        CHECK(r != nullptr && volume(r) > volume(ribbed) && volume(r) < volume(ribbed) + volume(pad));
+    }
+    for (smlib_brep *b : {slab, rod, ribbed, pad, r})
+    {
+        smlib_brep_free(b);
+    }
+}
+
 int main(int argc, char **argv)
 {
     struct Case
@@ -574,6 +649,7 @@ int main(int argc, char **argv)
         {"rounded_case_floor_pull", rounded_case_floor_pull},
         {"cylinder_grazing_box_edge", cylinder_grazing_box_edge},
         {"pleated_skins_join", pleated_skins_join},
+        {"grazing_edge_crossing", grazing_edge_crossing},
     };
     for (const Case &c : cases)
     {

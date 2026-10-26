@@ -612,6 +612,89 @@ SmVertexDefinition::SmVertexDefinition
 } // end SmVertexDefinition constructor
 
 /*******************************************************************//**
+PURPOSE: How far along its Edge a crossing at angle asin(dCrossingSine), whose
+         points lie dGap apart, may misplace a VertexDefinition: dGap over the
+         sine, or SM_BIG_DOUBLE when the curve runs along the Edge (parallel to
+         it within SMLib's angular tolerance) or the angle is unknown.
+
+USAGE NOTES---- SolidCraft fork, for SmVertexDefinition::PlaceByCrossing.
+***********************************************************************/
+static double sm_CrossingError
+ (double dGap,           // in : distance between the crossing's points on its two source objects
+  double dCrossingSine)  // in : sine of the angle at which the curve crosses the Edge, < 0 unknown
+{
+  if(!(dCrossingSine >= smos_SinRad( SmTol::GetAngTolRad())) )
+    { return SM_BIG_DOUBLE; }
+  return smos_Max( dGap, 0.0) / dCrossingSine;
+
+} // end static sm_CrossingError
+
+/*******************************************************************//**
+PURPOSE: Place this VertexDefinition by another intersection curve's crossing
+         of its source Edge when that crossing fixes it more closely.
+
+USAGE NOTES---- SolidCraft fork, for SmProtoVertex::AddCrossing. The source
+  topology of crPC1 and crPC2 is this VertexDefinition's. A crossing may
+  misplace it along the Edge by its gap over the sine of its angle
+  (sm_CrossingError); the first crossing is kept unless a later one's bound is
+  smaller. Then only the point parameters on the source objects, the position,
+  the gap and the crossing angle change; the classifications (which Face each
+  point was classified against) stay. rbMoved says whether it was placed again.
+***********************************************************************/
+SmStatus SmVertexDefinition::PlaceByCrossing
+ (const SmPointClassification & crPC1,         // in : Brep1 PointClassification of the crossing
+  const SmPointClassification & crPC2,         // in : Brep2 PointClassification of the crossing
+  double                        dCrossingSine, // in : sine of the angle at which the curve crosses the Edge
+  SmBoolean                   & rbMoved)       // out: TRUE = placed by this crossing
+{
+  rbMoved = FALSE;
+  if(m_dCrossingSine < 0.0 )
+    {
+      // The first crossing to reach this VertexDefinition placed it.
+      m_dCrossingSine = dCrossingSine;
+      return SM_SUCCESS;
+    }
+
+  // This VertexDefinition with the crossing's point parameters.
+  SmPointClassification sPC1( m_dTol, GetContext()), sPC2( m_dTol, GetContext()) ;
+  sPC1 = m_sPC1;
+  sPC2 = m_sPC2;
+  SmPointClassification       *apPC[2]   = { &sPC1, &sPC2 };
+  const SmPointClassification *acpNew[2] = { &crPC1, &crPC2 };
+  for(int iPC = 0; iPC < 2; iPC++)
+    {
+      if(!acpNew[iPC]->AreParametersSet() )
+        { return SM_SUCCESS; }
+      switch(apPC[iPC]->GetPointClass() )
+        {
+          case SM_PC_EDGE : apPC[iPC]->SetTParam( acpNew[iPC]->GetTParam()) ;   break;
+          case SM_PC_FACE : apPC[iPC]->SetUVParam( acpNew[iPC]->GetUVParam()) ; break;
+          default         : continue;
+        }
+      apPC[iPC]->SetGap3d( acpNew[iPC]->GetGap3d()) ;
+    }
+  SmPoint3d sPt1, sPt2;
+  SER( sPC1.FindObjPoint3d( sPt1) );
+  SER( sPC2.FindObjPoint3d( sPt2) );
+  double dGap = smos_3Max( sPt1.DistanceBetween( sPt2), sPC1.GetGap3d(), sPC2.GetGap3d()) ;
+  if(!(sm_CrossingError( dGap, dCrossingSine) < sm_CrossingError( m_dGap, m_dCrossingSine)) )
+    { return SM_SUCCESS; }
+
+  SmPoint3d sPt;
+  double    dDev = 0.0;
+  SER( sm_FindPositionFromPCs( sPC1, sPC2, sPt, dDev) );
+  m_sPC1          = sPC1;
+  m_sPC2          = sPC2;
+  m_sPosition     = sPt;
+  m_dTol          = smos_Max( m_dTol, dDev) ;
+  m_dGap          = dGap;
+  m_dCrossingSine = dCrossingSine;
+  rbMoved         = TRUE;
+  return SM_SUCCESS;
+
+} // end SmVertexDefinition::PlaceByCrossing
+
+/*******************************************************************//**
 PURPOSE: SmVertexDefinition destructor
 
 USAGE NOTES---- 
@@ -2914,6 +2997,48 @@ SmStatus SmProtoVertex::AddVertexDefinition
 } // end SmProtoVertex::AddVertexDefinition
 
 /*******************************************************************//**
+PURPOSE: Record that an intersection curve crosses an Edge at this
+         ProtoVertex, and place the matching VertexDefinition by the
+         crossing that determines it best.
+
+USAGE NOTES---- SolidCraft fork, for SmProtoTopologyManager::FindOrCreateProtoEdge.
+  An Edge of one Brep meets a Face of the other at one point, and the
+  intersection curves of that Face with both Faces of the Edge end there:
+  each finds the point by crossing the Edge. A curve that crosses the Edge
+  at a grazing angle fixes the point along the Edge only to its gap divided
+  by the sine of that angle, so the VertexDefinition takes its position from
+  the crossing that fixes it most closely (SmVertexDefinition::PlaceByCrossing),
+  whichever curve was intersected first. rPC1 and rPC2 must have their
+  parameters set.
+***********************************************************************/
+SmStatus SmProtoVertex::AddCrossing
+ (SmPointClassification & rPC1,          // in : Brep1 PointClassification of the crossing
+  SmPointClassification & rPC2,          // in : Brep2 PointClassification of the crossing
+  double                  dCrossingSine) // in : sine of the angle at which the curve crosses the Edge
+{
+  if(!(dCrossingSine >= 0.0) )
+    { return SM_SUCCESS; }
+  SmTopology *pTopo1 = SM_CAST_PTR( SmTopology, rPC1.GetObject()) ;
+  SmTopology *pTopo2 = SM_CAST_PTR( SmTopology, rPC2.GetObject()) ;
+  SmVertexDefinition *pVD = this->FindMatchingVertexDefinition( pTopo1, pTopo2) ;
+  if(pVD == NULL )
+    { return SM_SUCCESS; }
+
+  // Placed again by a crossing that fixes it more closely, it moves this ProtoVertex, the average
+  // of its VertexDefinitions, with it.
+  SmPoint3d sOld   = pVD->GetPosition() ;
+  SmBoolean bMoved = FALSE;
+  SER( pVD->PlaceByCrossing( rPC1, rPC2, dCrossingSine, bMoved) );
+  if(bMoved )
+    {
+      m_sPosition += (pVD->GetPosition() - sOld) / (double)m_sVertexDefinitions.GetSize() ;
+      m_dTol       = smos_Max( m_dTol, (double)pVD->GetTolerance()) ;
+    }
+  return SM_SUCCESS;
+
+} // end SmProtoVertex::AddCrossing
+
+/*******************************************************************//**
 PURPOSE: Combine two ProtoVertices: Add in the contents of another ProtoVertex into this ProtoVertex.
 
 USAGE NOTES---- 
@@ -5149,6 +5274,56 @@ USAGE NOTES----
    Looks for existing ProtoVertices for each end, and creates new if not found.
    Adds the new ProtoEdge to 'this', and returns it as rpNewPE.
 ***********************************************************************/
+/*******************************************************************//**
+PURPOSE: The sine of the angle at which a CurveInterval's curve crosses the
+         Edge that one of its end PointClassifications lies on, or -1 when
+         that end is not on an Edge or the angle is undefined.
+
+USAGE NOTES---- SolidCraft fork, for SmProtoTopologyManager::FindOrCreateProtoEdge.
+***********************************************************************/
+static double sm_EdgeCrossingSine
+ (const SmCurveInterval       & crCI,    // in : CurveInterval from a face pair XSection
+  const SmPointClassification & crPC,    // in : its start or end PointClassification
+  SmBoolean                     bAtEnd)  // in : TRUE = crPC is the interval's end, FALSE = its start
+{
+  const SmEdge  *pEdge  = crPC.GetEdgeObject() ;
+  const SmCurve *pCurve = crCI.GetCurve() ;
+  if(pEdge == NULL || pEdge->GetCurve() == NULL || pCurve == NULL || !crPC.AreParametersSet() )
+    { return -1.0; }
+  double dT = crPC.GetPreSnapParam() ;
+  if(dT == SM_BIG_DOUBLE || dT == SM_UNDEF_DOUBLE )
+    { dT = bAtEnd ? crCI.m_vInterval.GetMax() : crCI.m_vInterval.GetMin() ; }
+  SmVector3d asC[2], asE[2];
+  if(   pCurve->Evaluate( dT, 1, !bAtEnd, asC) != SM_SUCCESS
+     || pEdge->GetCurve()->Evaluate( crPC.GetTParam(), 1, TRUE, asE) != SM_SUCCESS )
+    { return -1.0; }
+  double dLen = asC[1].Length() * asE[1].Length() ;
+  if(!(dLen > 0.0) )
+    { return -1.0; }
+  return (asC[1] * asE[1]).Length() / dLen;
+
+} // end static sm_EdgeCrossingSine
+
+/*******************************************************************//**
+PURPOSE: The sine of the angle at which a face pair intersection curve crosses
+         an Edge at one end of a CurveInterval pair: the smaller of the two
+         when both ends lie on Edges, -1 when neither does.
+
+USAGE NOTES---- SolidCraft fork, for SmProtoTopologyManager::FindOrCreateProtoEdge.
+***********************************************************************/
+static double sm_CrossingSine
+ (const SmCurveInterval & crCI1,  // in : Face1 CrvInterval classification
+  const SmCurveInterval & crCI2,  // in : Face2 CrvInterval classification
+  SmBoolean               bAtEnd) // in : TRUE = the intervals' ends, FALSE = their starts
+{
+  double dSine1 = sm_EdgeCrossingSine( crCI1, bAtEnd ? crCI1.m_vEnd : crCI1.m_vStart, bAtEnd) ;
+  double dSine2 = sm_EdgeCrossingSine( crCI2, bAtEnd ? crCI2.m_vEnd : crCI2.m_vStart, bAtEnd) ;
+  if(dSine1 < 0.0 ) { return dSine2; }
+  if(dSine2 < 0.0 ) { return dSine1; }
+  return smos_Min( dSine1, dSine2) ;
+
+} // end static sm_CrossingSine
+
 SmStatus SmProtoTopologyManager::FindOrCreateProtoEdge
  (SmCurveInterval & rCI1,          // in : Face1 CrvInterval classification from a face pair XSection
   SmCurveInterval & rCI2,          // in : Face2 CrvInterval classification from a face pair XSection
@@ -5224,6 +5399,8 @@ SmStatus SmProtoTopologyManager::FindOrCreateProtoEdge
          && sm_CanImprint(eStartType2))
         {
           eStat = this->FindOrCreateProtoVertex( rCI1.m_vStart, rCI2.m_vStart, pStartPV) ;
+          if(eStat == SM_SUCCESS && pStartPV != NULL )
+            { SER( pStartPV->AddCrossing( rCI1.m_vStart, rCI2.m_vStart, sm_CrossingSine( rCI1, rCI2, FALSE)) ); }
         }
     
       // End EndPt
@@ -5234,6 +5411,8 @@ SmStatus SmProtoTopologyManager::FindOrCreateProtoEdge
          && sm_CanImprint(eEndType2))
         {
           eStat = this->FindOrCreateProtoVertex( rCI1.m_vEnd, rCI2.m_vEnd, pEndPV) ;
+          if(eStat == SM_SUCCESS && pEndPV != NULL )
+            { SER( pEndPV->AddCrossing( rCI1.m_vEnd, rCI2.m_vEnd, sm_CrossingSine( rCI1, rCI2, TRUE)) ); }
         }
     
       // Q: If something fails, do we want to keep the new PVs?
