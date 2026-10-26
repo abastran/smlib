@@ -215,6 +215,59 @@ int main()
         expect(name, smlib_revolve(off.kinds.data(), off.nk(), off.reals.data(), off.nr(), O, Z, 2 * PI * turn, 1, &b), &b,
                2 * PI * turn * 7.0 * 4.0, 1e-5);
     }
+    // A quarter disc of radius 20 turned a whole turn: a dome. Its arc is a sketch's arc through
+    // (20, 0), a rounded (14.142136, 14.142136) and (0, 20), so its centre is 1.28e-6 off the axis
+    // and its radius 1.28e-6 short of 20 (SolidCraft rig shell/4847). Within tolerance of the
+    // axis it is a sphere through the profile's corners: centred on the axis, its pole the arc's
+    // end on the axis, its row of control points there that one point. The sphere had been the
+    // arc's own circle moved onto the axis, which missed both corners, and its pole a parallel of
+    // radius 1.26e-6: a hole in a face whose loop runs up the seam to a pole.
+    {
+        const double c = 1.2846627950203038e-06, r = 19.99999871533725, a0 = -6.42331438769116e-08;
+        List dome;
+        dome.line(0, 0, 0, 20, 0, 0).arc(c, 0, c, 0, -1, 0, 1, 0, 0, r, a0, a0 + 1.5707964552611844).line(0, 0, 20, 0, 0, 0);
+        b = nullptr;
+        CHECK(smlib_revolve(dome.kinds.data(), dome.nk(), dome.reals.data(), dome.nr(), O, Z, 2 * PI, 1, &b) == SMLIB_OK && b != nullptr);
+        smlib_flat *f = nullptr;
+        CHECK(b != nullptr && smlib_brep_export(b, &f) == SMLIB_OK && f != nullptr);
+        const int64_t *form = nullptr, *nu = nullptr, *nv = nullptr;
+        const double *cvs = nullptr, *vertices = nullptr;
+        int64_t n_form = 0, n_nurbs = 0, n_cvs = 0, n_vertices = 0;
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_FACE_NURBS_FORM, &form, &n_form) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_FACE_NURBS_U_VERTEX_COUNT, &nu, &n_nurbs) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_i64(f, SMLIB_FLAT_FACE_NURBS_V_VERTEX_COUNT, &nv, &n_nurbs) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_f64(f, SMLIB_FLAT_FACE_NURBS_CVS, &cvs, &n_cvs) == SMLIB_OK);
+        CHECK(f != nullptr && smlib_flat_get_f64(f, SMLIB_FLAT_VERTEX_POSITION, &vertices, &n_vertices) == SMLIB_OK);
+        // The faces with a NURBS form: the sphere alone (the disc is a plane).
+        CHECK(n_form == 2 && n_nurbs == 1 && n_cvs == 3 * nu[0] * nv[0]);
+        // The pole row: of the two rows at the ends of v, the one at the top (z 20).
+        double spread = 0.0;
+        const int64_t j = (n_nurbs == 1 && cvs[2] > 10.0) ? 0 : nv[0] - 1;
+        for (int64_t i = 1; n_nurbs == 1 && i < nu[0]; ++i)
+        {
+            const double *p = cvs + 3 * (i * nv[0] + j), *q = cvs + 3 * j;
+            spread = std::max(spread, std::hypot(p[0] - q[0], std::hypot(p[1] - q[1], p[2] - q[2])));
+        }
+        // The vertices: the pole on the axis, the rim's 20 from it.
+        CHECK(n_vertices == 6);
+        double pole_off = 1.0, rim = 0.0;
+        for (int64_t i = 0; i + 2 < n_vertices; i += 3)
+        {
+            double off = std::hypot(vertices[i], vertices[i + 1]);
+            if (vertices[i + 2] > 10.0)
+            {
+                pole_off = off;
+            }
+            else
+            {
+                rim = off;
+            }
+        }
+        std::printf("%-34s pole row spread %.3g, pole off axis %.3g, rim radius %.12g\n", "revolve rounded quarter disc", spread, pole_off, rim);
+        CHECK(spread <= 1e-12 && pole_off <= 1e-12 && std::fabs(rim - 20.0) <= 1e-12);
+        smlib_flat_free(f);
+        expect("revolve rounded quarter disc", SMLIB_OK, &b, 2.0 / 3.0 * PI * 8000.0, 1e-6);
+    }
     (void)Y;
     // A half disc of radius 14 on the far side of a diameter 14 from the axis (the whole circle
     // would be a horn torus), its arc running counter-clockwise about +y, turned part way: the

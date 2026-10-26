@@ -1161,16 +1161,32 @@ SmStatus SmRotationalSweepGeometry::AnalyticSurface
   double     dMajor     = sCenterOff.Length();
   if (dMajor <= dEps)
     {
-      // A sphere: latitude from -90 at the bottom pole to 90 at the top one.
-      auto latitude = [&](const SmPoint3d & p)
-        { double s = SmVector3d(p - sCenter).Dot(crAxis) / dRadius;
-          return SM_RAD2DEG(asin(smos_Max(-1.0, smos_Min(1.0, s)))); };
-      double dLat0 = latitude(sStart), dLat1 = latitude(sEnd);
+      // A sphere centred on the axis through the curve's two ends, which the profile's
+      // neighbouring edges share. Its centre's height h, from the arc centre's, makes
+      // (a - h)^2 + r^2 the same at both ends. The arc's own centre and radius are off such a
+      // sphere by up to dEps; taken as they were, the sphere missed the ends by that much, and
+      // an end on the axis fell short of the pole by a parallel of radius about
+      // sqrt(2 dEps R): a hole in a face whose loop runs up the seam to a pole.
+      double dA0 = axial(sStart) - axial(sCenter), dA1 = axial(sEnd) - axial(sCenter);
+      double dR0 = radial(sStart).Length(), dR1 = radial(sEnd).Length();
+      double dH  = (smos_Fabs(dA1 - dA0) > dEps)
+                 ? 0.5 * (dA0 + dA1) + 0.5 * (dR1 - dR0) * (dR1 + dR0) / (dA1 - dA0) : 0.0;
+      SmPoint3d sSphereCenter = crBasePt + (axial(sCenter) + dH) * crAxis;
+      dA0 -= dH;
+      dA1 -= dH;
+      dRadius = 0.5 * (sqrt(dA0 * dA0 + dR0 * dR0) + sqrt(dA1 * dA1 + dR1 * dR1));
+      // Latitude from -90 at the bottom pole to 90 at the top one. An end the sweep takes to be
+      // on the axis (sm_CheckEdgeVerticesOnAxis, within dEps) is the pole.
+      auto latitude = [&](double dA, double dR)
+        { if (dR < dEps)
+            { return (dA < 0.0) ? -90.0 : 90.0; }
+          return SM_RAD2DEG(atan2(dA, dR)); };
+      double dLat0 = latitude(dA0, dR0), dLat1 = latitude(dA1, dR1);
       SER(sDomain.SetMinMax(0.0, smos_Min(dLat0, dLat1), dAngleDeg, smos_Max(dLat0, dLat1)));
       // Built on its domain, as SmSphere::CreateCanonical builds the whole sphere: a whole
       // sphere trimmed to it (AdjustSTEPUVDomain) is reparameterised, and a boolean's trim
       // curves on that came out with near-cusps SMLib's own check refuses.
-      SmSphere* pSphere = new (crContext) SmSphere(crBasePt + axial(sCenter) * crAxis, sX, crAxis * sX, sDomain, dRadius);
+      SmSphere* pSphere = new (crContext) SmSphere(sSphereCenter, sX, crAxis * sX, sDomain, dRadius);
       NER(pSphere);
       if (pSphere->MakeNurb() != SM_SUCCESS || pSphere->GetGwNurbPointer() == NULL)
         { delete pSphere; SER(SM_ERR); }
