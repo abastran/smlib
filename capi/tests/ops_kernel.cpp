@@ -1507,6 +1507,56 @@ int main()
         smlib_brep_free(pin);
     }
 
+    // A round run up a box's vertical edge into the corner where two smaller rounds of the top
+    // meet (SolidCraft ladder 07-fillets/016): the 60 x 40 x 20 box, its top edge at y = 40
+    // rounded r5, 60 25 (1 - pi/4) off, then its top edge at x = 60 rounded r3 (the r5 round
+    // ends it at y = 35: between 35 and 40 lengths of 9 (1 - pi/4) off), then the vertical edge
+    // at x = 60, y = 40 with the edges tangent to it up into the corner: the side's edge on the
+    // r5 round (a circular arc of radius 5 about the round's axis, y = 35, z = 15) and the edge
+    // between the two rounds. A round of r there rolls on the side and on the r5 round, its rail
+    // on the side the arc offset in by r, a circle of radius 5 - r: past r = 5 it lies beyond
+    // the axis and runs against the rail on the round (the round a spindle torus through
+    // itself, its ball curving less than the r5 round around it). On the edge between the
+    // rounds the ball rolls around the r3 round, which past r = 3 curves tighter than the ball
+    // (the two rounds' offsets, of radii 5 - r and r - 3 about axes 2 apart, then meet only in
+    // a point). No ball over r3 fits: r3.1, r4, r5 and r7 are SMLIB_ERR_NO_ROOM (r7 failed in
+    // the corner's vertex, looking on the side for a rail end that is not there, with SMLib's
+    // generic error, and so did r4 and r5); r1 and r2 build and take off at least
+    // the 15 straight lengths of r^2 (1 - pi/4) below the top rounds and less than twice that.
+    {
+        const double quarter = 1.0 - PI / 4.0;
+        smlib_brep *slab = box(0, 0, 0, 60, 40, 20);
+        const double top_edge[3] = {30, 40, 20};
+        const double end_edge[3] = {60, 20, 20};
+        smlib_brep *top = nullptr;
+        smlib_brep *both = nullptr;
+        CHECK(smlib_fillet(slab, top_edge, 1, 0.1, 5.0, &top, nullptr) == SMLIB_OK && sound(top));
+        CHECK(near(volume_of(top), 48000.0 - 60.0 * 25.0 * quarter, 1e-9));
+        CHECK(smlib_fillet(top, end_edge, 1, 0.1, 3.0, &both, nullptr) == SMLIB_OK && sound(both));
+        const double rounded = volume_of(both);
+        CHECK(rounded < volume_of(top) - 35.0 * 9.0 * quarter && rounded > volume_of(top) - 40.0 * 9.0 * quarter);
+        const double up[9] = {60, 40, 7.5, 60, 35.0 + std::sqrt(24.0), 16, 58.931891825700852, 37.55984948554854, 19.294016994391871};
+        for (double radius : {3.1, 4.0, 5.0, 7.0})
+        {
+            smlib_brep *corner = nullptr;
+            CHECK(smlib_fillet(both, up, 3, 0.1, radius, &corner, nullptr) == SMLIB_ERR_NO_ROOM && corner == nullptr);
+        }
+        for (double radius : {1.0, 2.0})
+        {
+            smlib_brep *corner = nullptr;
+            CHECK(smlib_fillet(both, up, 3, 0.1, radius, &corner, nullptr) == SMLIB_OK);
+            if (corner != nullptr)
+            {
+                const double off = rounded - volume_of(corner);
+                CHECK(off > 15.0 * radius * radius * quarter && off < 30.0 * radius * radius * quarter);
+                done(corner);
+            }
+        }
+        smlib_brep_free(both);
+        smlib_brep_free(top);
+        smlib_brep_free(slab);
+    }
+
     // tangency-labs/solidcore#419: an offset surface evaluated beyond its
     // base surface's domain extends the base, and the extension's shape depends on its length.
     // It was made to reach just past the first point evaluated there, and extended again from

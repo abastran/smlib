@@ -6342,57 +6342,116 @@ SmStatus SmFilletSolver::RailsFitTheirFaces
 } // end SmFilletSolver::RailsFitTheirFaces
 
 /*******************************************************************//**
-PURPOSE: SolidCraft change. Whether the two rails of this solver's fillet
-    run the same way, section by section.
+PURPOSE: SolidCraft change. Whether this solver's rolling ball fits the
+    faces it rolls on, section by section.
 
-NOTES: A rail is the filleted edge offset into its face by the blend's
-    setback there; its tangent is the edge's, scaled by 1 - k s (k the edge's
-    curvature in that face, s the setback). Past the edge's centre of
-    curvature in the face (s > 1/k) the offset turns back on itself: a round
-    of r2 on the rim of a pin of radius 1.5 has its ball centred on the far
-    side of the axis, its rail on the top a circle of radius 0.5 traced
-    against the rim, the round a spindle torus through itself. No rolling
-    ball of that size fits there. The rails of a fillet geometry share their
-    parameter (CalcFilletGeom builds them section by section, a torus or
-    cylinder revolves or sweeps one section), so where one runs against the
-    other at the same parameter one has turned back: rbTogether is FALSE. A
-    rail that is a point (a round as wide as the face it closes) runs no
-    way and is not compared (FacesOutlastTheirBlends judges it).
+NOTES: The ball touches each face where the face's offset surface (its
+    points moved along the normal, toward the ball's centre, by the ball's
+    radius r) passes through the centre. Along a direction in which the face
+    curves by k toward the ball's side the offset is stretched by 1 - r k;
+    past the face's centre of curvature (r > 1/k) the stretch is negative:
+    the face curves tighter than the ball, the ball cuts through it, and the
+    blend's rail there runs back against the filleted edge, the blend passing
+    through itself. A round of r2 on the rim of a pin of radius 1.5 (its
+    ball centred on the far side of the axis, the round a spindle torus); a
+    round of r7 run up a box's vertical edge into a round of r5 on the top
+    edge (its ball rolling on the r5 round, 1 - 7/5 around it), and any
+    round over r3 run on into a round of r3 (the r5 round's offset and the
+    r3 round's meet only in a point: 5 - r + r - 3 is the 2 between their
+    axes). rbFits is FALSE where a stretch is negative.
+
+    For CreateFilletBrep, before the corners (which look for a rail's end
+    where it cannot be). Nine sections along the edge are judged, each
+    through an edge point in the plane normal to the edge there
+    (PointOnPlaneSolve, its ball at the radius the solver has there). On
+    each face, with B its surface and O the offset, O's derivatives in B's,
+    Ou = m11 Bu + m12 Bv and Ov = m21 Bu + m22 Bv, give the stretches as the
+    eigenvalues of M, real (M is I - r S, S the face's shape operator): both
+    at least zero when det M and trace M are. A stretch of zero (a ball as
+    wide as the face's curve, its centre on an axis: the hemispherical end
+    of a pin as wide as the round, two rounds' corner ball) fits, by a
+    millionth. A section the solve does not find, or at a pole of a surface
+    (a parameter direction that does not move), judges nothing.
 ***********************************************************************/
-SmStatus SmFilletSolver::RailsRunTogether
-  (SmBoolean & rbTogether) const  // out: FALSE = a rail runs against the other: the ball does not fit
+SmStatus SmFilletSolver::BallFitsItsFaces
+  (SmBoolean & rbFits)  // out: FALSE = a face curves tighter than the ball at a section
 {
-  rbTogether = TRUE;
+  rbFits = TRUE;
+  SmOffsetSurface * apOffset[2] = { GetSurface(0), GetSurface(1) };
+  if ( apOffset[0] == NULL || apOffset[1] == NULL )
+    { return SM_SUCCESS; }
+  const SmSurface * apBase[2] = { apOffset[0]->GetBaseSurface(), apOffset[1]->GetBaseSurface() };
+  NER( apBase[0] );
+  NER( apBase[1] );
+  SmExtent2d asDomain[2] = { apBase[0]->GetNaturalUVDomain(), apBase[1]->GetNaturalUVDomain() };
+  NER( GetEdgeuse(0) );
+  const SmEdge  * pEdge  = GetEdgeuse(0)->GetEdge();  NER( pEdge );
+  const SmCurve * pCurve = pEdge->GetCurve();         NER( pCurve );
+  const double dFit = 1.0e-6;
   const ULONG lNumSamples = 9;
-  for (ULONG k=0; k<m_vFilletGeoms.GetSize() && rbTogether; k++)
+  for (ULONG j=0; j<lNumSamples && rbFits; j++)
     {
-      SmFilletGeom * pFG = m_vFilletGeoms[k];
-      if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
+      SmVector3d sPV[2];
+      SER( pCurve->Evaluate( pEdge->GetInterval().Evaluate( (j + 0.5) / lNumSamples ), 1, TRUE, sPV ));
+      if ( !( sPV[1].Length() > SM_EFF_ZERO ))
         { continue; }
-      SmFilletEdge * pRail0 = pFG->GetRail(0);   NER(pRail0);
-      SmFilletEdge * pRail1 = pFG->GetRail(1);   NER(pRail1);
-      SmCurve * pCurve0 = pRail0->GetCurve();    NER(pCurve0);
-      SmCurve * pCurve1 = pRail1->GetCurve();    NER(pCurve1);
-      if (pCurve0->IsDegenerate( GetThisApproxTol3d() ) || pCurve1->IsDegenerate( GetThisApproxTol3d() ))
-        { continue; }
-      SmExtent1d sIvl0 = pCurve0->GetNaturalInterval();
-      SmExtent1d sIvl1 = pCurve1->GetNaturalInterval();
-      for (ULONG j=0; j<lNumSamples && rbTogether; j++)
+      SER( sPV[1].Unitize() );
+
+      // the edge point on each face's surface: the section's guess
+      SmVector2d asGuess[2];
+      SmBoolean  bDropped = TRUE;
+      for (ULONG k=0; k<2 && bDropped; k++)
         {
-          double dAt = (j + 0.5) / lNumSamples;
-          SmVector3d sPV0[2], sPV1[2];
-          SER( pCurve0->Evaluate( sIvl0.Evaluate( dAt ), 1, TRUE, sPV0 ));
-          SER( pCurve1->Evaluate( sIvl1.Evaluate( dAt ), 1, TRUE, sPV1 ));
-          double dLen0 = sPV0[1].Length(), dLen1 = sPV1[1].Length();
-          // a rail that stops there (a point of it) runs no way
-          if (!(dLen0 > SM_EFF_ZERO) || !(dLen1 > SM_EFF_ZERO))
+          SmBoolean bMulti = FALSE;
+          SmPoint2d sUV;
+          double    dGap = SM_BIG_DOUBLE;
+          SER( apBase[k]->DropPoint( sPV[0], asDomain[k], NULL, bDropped, sUV, dGap, bMulti ));
+          asGuess[k] = SmVector2d( sUV.x, sUV.y );
+        }
+      if ( !bDropped )
+        { continue; }
+
+      // the section through it
+      SmTsectPnt sSection;
+      SmBoolean  bFound = FALSE;
+      SER( PointOnPlaneSolve( sPV[0], sPV[1], asDomain[0], asDomain[1], asGuess[0], asGuess[1], bFound, sSection ));
+      if ( !bFound )
+        { continue; }
+      if ( OffsetRadiiCanChange() )
+        { SER( SetupOffsetValues( sSection )); }
+
+      // the derivatives of the offset (O) and base (B) surfaces there (Evaluate's 1,1 in its
+      // 1d order: [0] the point, [1] Dv, [2] Du; exact tangents)
+      SmVector3d asO[2][4], asB[2][4];
+      for (ULONG k=0; k<2; k++)
+        {
+          SER( apOffset[k]->Evaluate( sSection.UVPos(k), 1, 1, TRUE, TRUE, TRUE, asO[k], FALSE ));
+          SER( apBase[k]->Evaluate( sSection.UVPos(k), 1, 1, TRUE, TRUE, TRUE, asB[k], FALSE ));
+        }
+      if ( OffsetRadiiCanChange() )
+        { ReloadSurfaceOffsets(); }
+
+      // each face's stretches: M = H G^-1, G = [Bi.Bj], H = [Oi.Bj]
+      for (ULONG k=0; k<2 && rbFits; k++)
+        {
+          const SmVector3d & sB1 = asB[k][1];
+          const SmVector3d & sB2 = asB[k][2];
+          const SmVector3d & sO1 = asO[k][1];
+          const SmVector3d & sO2 = asO[k][2];
+          double dG11 = sB1.Dot( sB1 ), dG12 = sB1.Dot( sB2 ), dG22 = sB2.Dot( sB2 );
+          double dDetG = dG11 * dG22 - dG12 * dG12;
+          // a pole (a parameter direction that does not move) has no stretch to judge
+          if ( !( dDetG > SM_EFF_ZERO * dG11 * dG22 ))
             { continue; }
-          if (sPV0[1].Dot( sPV1[1] ) < 0.0)
-            { rbTogether = FALSE; }
+          double dH11 = sO1.Dot( sB1 ), dH12 = sO1.Dot( sB2 ), dH21 = sO2.Dot( sB1 ), dH22 = sO2.Dot( sB2 );
+          double dDetM   = ( dH11 * dH22 - dH12 * dH21 ) / dDetG;
+          double dTraceM = ( dH11 * dG22 - dH12 * dG12 - dH21 * dG12 + dH22 * dG11 ) / dDetG;
+          if ( dDetM < -dFit || dTraceM < -dFit )
+            { rbFits = FALSE; }
         }
     }
   return SM_SUCCESS;
-} // end SmFilletSolver::RailsRunTogether
+} // end SmFilletSolver::BallFitsItsFaces
 
 /*******************************************************************//**
 PURPOSE: SolidCraft change. Whether a rail leaves the face it rolls on, at crLeave (rail
