@@ -23,6 +23,7 @@
 #include <NL_Geometry.h>
 #include <NL_Nurbsdef.h>
 #include <SmCircle.h>
+#include <SmCylinder.h>
 #include <SmFace.h>
 #include <SmLine.h>
 #include <SmPrimitiveCreation.h>
@@ -1058,6 +1059,131 @@ int32_t nurbs_of(const SmCurve *x, Nurbs &out)
     return SMLIB_OK;
 }
 
+// The path of p over `st` as a curve: the edge a profile vertex traces, exactly as the walls
+// on either side of it have it.
+int32_t path_curve(const SmContext &ctx, const Screw &m, const SmPoint3d &p, const Stations &st, SmCurve *&out)
+{
+    std::vector<SmPoint3d> D = path(m, p, st);
+    SmTArray<SmPoint3d> points;
+    SmTArray<double> weights;
+    for (size_t j = 0; j < D.size(); ++j)
+    {
+        points.Add(D[j]);
+        weights.Add(st.weight(j));
+    }
+    SmTArray<ULONG> mult;
+    SmTArray<double> knots;
+    st.knots(knots, mult);
+    SmBSplineCurve *c = nullptr;
+    SmStatus status_ = SmBSplineCurve::CreateCanonical(ctx, 3, 2, points, SM_CF_UNSPECIFIED, mult, knots, SM_KT_UNSPECIFIED, &weights, nullptr, c);
+    if (status_ != SM_SUCCESS || c == nullptr)
+    {
+        delete c;
+        return status_ != SM_SUCCESS ? status(status_) : static_cast<int32_t>(SM_ERR);
+    }
+    out = c;
+    return SMLIB_OK;
+}
+
+// A profile line parallel to the axis sweeps the cylinder its points turn on (no point of it
+// leaves that cylinder), between the helices its ends trace and the line where the motion starts
+// and ends. `radius` is that cylinder's when `line` runs within a thousandth of `tolerance` of
+// parallel to the axis, at least 1e-6 off it; 0 otherwise.
+double axial_radius(const Screw &m, const SmCurve *line, double tolerance)
+{
+    if (SM_CAST_PTR(SmLine, line) == nullptr)
+    {
+        return 0.0;
+    }
+    SmPoint3d a, b;
+    line->GetEnds(a, b);
+    // How far a point of the line strays from the axis lies between the ends' and the nearest
+    // point's (the distance is convex along the line).
+    SmVector3d w = a - m.o, d = b - a;
+    SmVector3d wp = w - m.k * w.Dot(m.k), dp = d - m.k * d.Dot(m.k);
+    double t = dp.Dot(dp) > 0.0 ? std::clamp(-wp.Dot(dp) / dp.Dot(dp), 0.0, 1.0) : 0.0;
+    double ra = m.reach(a), rb = m.reach(b), nearest = (wp + dp * t).Length();
+    double far = std::max(ra, rb), near = std::min(nearest, std::min(ra, rb));
+    if (!(near >= 1e-6 && far - near <= 1e-3 * tolerance))
+    {
+        return 0.0;
+    }
+    return 0.5 * (ra + rb);
+}
+
+// The piece of the cylinder of `radius` the profile line from `a` to `b` sweeps over the stations
+// of `st` (at most 202.5 degrees of turn): an exact SmCylinder about the axis, bounded by the
+// line placed at both ends of the piece and its ends' paths. The cylinder's own turn starts a
+// quarter turn before the piece and its height runs past it, so the piece lies inside its domain.
+int32_t cylinder_piece(SmBrep &brep, const SmContext &ctx, const Screw &m, const SmPoint3d &a, const SmPoint3d &b, double radius,
+                       const Stations &st)
+{
+    const double a0 = st.t.front(), a1 = st.t.back();
+    SmVector3d w = a - m.o;
+    SmVector3d e = w - m.k * w.Dot(m.k);
+    e = e * (1.0 / e.Length());
+    SmVector3d x = m.turn(e, a0 - 0.25 * TWO_PI);
+    SmVector3d y = m.k * x;
+    double z0 = std::min((a - m.o).Dot(m.k), (b - m.o).Dot(m.k)) + std::min(m.lift(a0), m.lift(a1));
+    double z1 = std::max((a - m.o).Dot(m.k), (b - m.o).Dot(m.k)) + std::max(m.lift(a0), m.lift(a1));
+    double margin = 0.25 * (z1 - z0) + 1e-3;
+    SmPoint3d base = m.o + m.k * (z0 - margin);
+    SmCylinder *cylinder = new (ctx) SmCylinder(base, x, y, radius, 0.0, 360.0, z1 - z0 + 2.0 * margin, FALSE, FALSE, FALSE, &ctx);
+    if (cylinder == nullptr)
+    {
+        return status(SM_ERR_OUT_OF_MEMORY);
+    }
+    Curves loop;
+    auto line = [&](double at) -> int32_t
+    {
+        SmLine *l = nullptr;
+        SmStatus st = SmLine::CreateLineSegment(ctx, 3, m.at(a, at), m.at(b, at), l);
+        if (st != SM_SUCCESS || l == nullptr)
+        {
+            delete l;
+            return st != SM_SUCCESS ? status(st) : static_cast<int32_t>(SM_ERR);
+        }
+        loop.v.push_back(l);
+        return SMLIB_OK;
+    };
+    SmCurve *pa = nullptr, *pb = nullptr;
+    int32_t s = line(a0);
+    if (s == SMLIB_OK && (s = path_curve(ctx, m, b, st, pb)) == SMLIB_OK)
+    {
+        loop.v.push_back(pb);
+        s = line(a1);
+    }
+    if (s == SMLIB_OK && (s = path_curve(ctx, m, a, st, pa)) == SMLIB_OK)
+    {
+        loop.v.push_back(pa);
+    }
+    if (s != SMLIB_OK)
+    {
+        delete cylinder;
+        return s;
+    }
+    SmTArray<ULONG> counts;
+    counts.Add(4);
+    SmTArray<SmCurve *> curves = loop.array();
+    SmTArray<SmOrientType> orient;
+    orient.Add(SM_OT_SAME);
+    orient.Add(SM_OT_SAME);
+    orient.Add(SM_OT_OPPOSITE);
+    orient.Add(SM_OT_OPPOSITE);
+    SmShell *shell = nullptr;
+    SmTArray<SmFace *> faces;
+    s = status(brep.CreateFacesWithCurves(brep.GetInfiniteRegion(), counts, &curves, orient, cylinder, shell, faces));
+    if (s == SMLIB_OK)
+    {
+        loop.v.clear(); // the face took the curves and the cylinder over
+        if (faces.GetSize() != 1)
+        {
+            return static_cast<int32_t>(SM_ERR);
+        }
+    }
+    return s;
+}
+
 // The wall one profile curve sweeps over `st`: across the profile curve its NURBS, across the
 // turns each control point's path, the weights the curve's times the arcs'. A wall's point is
 // the curve's weighted mean of its control points' paths at the same parameter, which all turn
@@ -1147,33 +1273,71 @@ extern "C" int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, cons
             {
                 return SMLIB_ERR_ARG;
             }
+            // Walls of lines parallel to the axis are exact cylinders, which cannot turn on
+            // themselves: then every wall comes in pieces of half a turn (the last one up to an
+            // eighth longer), each its own face, so the walls on both sides of an edge share its
+            // vertices.
+            std::vector<double> radius(profile.v.size());
+            bool cylinders = false;
+            for (size_t i = 0; i < profile.v.size(); ++i)
+            {
+                radius[i] = axial_radius(m, profile.v[i], tolerance);
+                cylinders = cylinders || radius[i] > 0.0;
+            }
             const double total = TWO_PI * turns;
+            std::vector<double> breaks = {0.0};
+            for (double half = 0.5 * TWO_PI; cylinders && half < total - TWO_PI / 16.0; half += 0.5 * TWO_PI)
+            {
+                breaks.push_back(half);
+            }
+            breaks.push_back(total);
             const double rise = std::fabs(pitch) / TWO_PI;
-            double n = std::ceil(total / std::min(TWO_PI / 8.0, std::cbrt(tolerance / (0.008 * rise))));
-            while (n <= SMLIB_SCREW_MAX_STATIONS && rise * lift_error(0.5 * total / n) > tolerance)
+            double h = std::min(TWO_PI / 8.0, std::cbrt(tolerance / (0.008 * rise)));
+            while (rise * lift_error(0.5 * h) > tolerance)
             {
-                n += 1.0;
+                h *= 0.99;
             }
-            if (!(n >= 1.0 && n <= SMLIB_SCREW_MAX_STATIONS))
+            std::vector<Stations> pieces;
+            double spans = 0.0;
+            for (size_t j = 0; j + 1 < breaks.size(); ++j)
             {
-                return SMLIB_ERR_ARG;
+                double n = std::ceil((breaks[j + 1] - breaks[j]) / h);
+                spans += n;
+                if (!(spans <= SMLIB_SCREW_MAX_STATIONS))
+                {
+                    return SMLIB_ERR_ARG;
+                }
+                pieces.emplace_back(breaks[j], breaks[j + 1], static_cast<size_t>(n));
             }
-            Stations st(0.0, total, static_cast<size_t>(n));
             const SmContext &ctx = *SmApiGetOrCreateContext();
             std::unique_ptr<SmBrep> brep(new (ctx) SmBrep());
-            for (const Nurbs &w : walls)
+            for (const Stations &st : pieces)
             {
-                SmBSplineSurface *surface = nullptr;
-                s = screw_wall(ctx, m, w, st, surface);
-                if (s != SMLIB_OK)
+                for (size_t i = 0; i < walls.size(); ++i)
                 {
-                    return s;
-                }
-                SmFace *face = nullptr;
-                s = status(brep->CreateFaceFromSurface(surface, surface->GetNaturalUVDomain(), face));
-                if (s != SMLIB_OK)
-                {
-                    return s;
+                    if (radius[i] > 0.0)
+                    {
+                        SmPoint3d a, b;
+                        profile.v[i]->GetEnds(a, b);
+                        s = cylinder_piece(*brep, ctx, m, a, b, radius[i], st);
+                        if (s != SMLIB_OK)
+                        {
+                            return s;
+                        }
+                        continue;
+                    }
+                    SmBSplineSurface *surface = nullptr;
+                    s = screw_wall(ctx, m, walls[i], st, surface);
+                    if (s != SMLIB_OK)
+                    {
+                        return s;
+                    }
+                    SmFace *face = nullptr;
+                    s = status(brep->CreateFaceFromSurface(surface, surface->GetNaturalUVDomain(), face));
+                    if (s != SMLIB_OK)
+                    {
+                        return s;
+                    }
                 }
             }
             // The caps: the profile where the motion starts and where it ends, placed exactly.

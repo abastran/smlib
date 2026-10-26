@@ -953,7 +953,9 @@ int32_t smlib_planar_faces(const int64_t *kinds, int64_t n_kinds, const double *
  * (signed, non-zero) per turn, capped at both ends: a thread's groove or a coil. Each wall is its
  * profile curve turned exactly (rational quadratic arcs across the turns: every point of it lies
  * as far from the axis as its profile point) and lifted within `tolerance` (>= 1e-6 mm) of its
- * true screw surface, end to end; at most SMLIB_SCREW_MAX_STATIONS spans, else SMLIB_ERR_ARG. */
+ * true screw surface, end to end. A profile line parallel to the axis sweeps an exact cylinder;
+ * then every wall comes in faces of half a turn (a cylinder face cannot turn on itself). At most
+ * SMLIB_SCREW_MAX_STATIONS spans, else SMLIB_ERR_ARG. */
 #define SMLIB_SCREW_MAX_TURNS 200.0
 #define SMLIB_SCREW_MAX_STATIONS 12000.0
 int32_t smlib_screw_sweep(const int64_t *kinds, int64_t n_kinds, const double *reals, int64_t n_reals, const double origin[3],

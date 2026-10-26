@@ -147,7 +147,8 @@ struct Meridian
 // `turns` turns), stray from the true screw surfaces of `m`: every NURBS face's surface sampled
 // over its whole domain, five points across each knot span both ways. A point's distance is
 // taken in its meridian plane, to the profile the screw motion carries there, which bounds its
-// distance to the screw surface in space from above. `cylinders` counts the cylinder faces.
+// distance to the screw surface in space from above. `cylinders` counts the cylinder faces; each
+// must be exactly about the axis, of the radius of one of the profile's lines along the axis.
 static double screw_deviation(const smlib_brep *b, const Meridian &m, double pitch, double turns, int *cylinders)
 {
     smlib_flat *flat = nullptr;
@@ -168,12 +169,32 @@ static double screw_deviation(const smlib_brep *b, const Meridian &m, double pit
     smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_U_KNOTS, &ku, &len);
     smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_V_KNOTS, &kv, &len);
     smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_NURBS_WEIGHTS, &w, &len);
+    const double *cyl_o = nullptr, *cyl_k = nullptr, *cyl_r = nullptr;
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_CYLINDER_ORIGIN, &cyl_o, &len);
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_CYLINDER_AXIS, &cyl_k, &len);
+    smlib_flat_get_f64(flat, SMLIB_FLAT_FACE_CYLINDER_RADIUS, &cyl_r, &len);
     double worst = 0.0;
     int64_t block = 0, at_cv = 0, at_ku = 0, at_kv = 0;
     *cylinders = 0;
     for (int64_t f = 0; f < n_faces; ++f)
     {
-        *cylinders += type[f] == SMLIB_FLAT_SURFACE_CYLINDER ? 1 : 0;
+        if (type[f] == SMLIB_FLAT_SURFACE_CYLINDER)
+        {
+            const int c = (*cylinders)++;
+            double off = 1e300;
+            for (size_t i = 0; !m.round && i < m.rz.size(); i += 2)
+            {
+                size_t j = (i + 2) % m.rz.size();
+                if (m.rz[i] == m.rz[j])
+                {
+                    off = std::min(off, std::fabs(cyl_r[c] - m.rz[i]));
+                }
+            }
+            if (!(off <= 1e-12 && std::hypot(cyl_o[3 * c], cyl_o[3 * c + 1]) <= 1e-12 && std::fabs(std::fabs(cyl_k[3 * c + 2]) - 1.0) <= 1e-12))
+            {
+                worst = 1e300;
+            }
+        }
         if (type[f] != SMLIB_FLAT_SURFACE_NURBS && !(n_form > 0 && form[f] == 1))
         {
             continue;
@@ -647,7 +668,8 @@ int main()
     // end. SolidCraft's coil of case 2552 (a 0.9 square from r 4.1 to 5, pitch 1.5, 10 high,
     // within a ten-thousandth of the pitch), the groove of an M10x1.5 thread (ISO 68-1, as cut
     // below) and a round wire (its circle a rational profile). The skin through the stations
-    // had its end spans free: 2552's last span strayed 1.07e-3 against the 1.5e-4 asked.
+    // had its end spans free: 2552's last span strayed 1.07e-3 against the 1.5e-4 asked. The
+    // profile's lines along the axis sweep exact cylinders.
     {
         const double p = 1.5, h = p * std::sqrt(3.0) / 2.0, slope = std::tan(PI / 6.0);
         const double r0 = 5.0 - 5.0 * h / 8.0, w0 = p / 8.0, r1 = 5.0 + 0.05 * p, w1 = (p / 4.0 + 2.0 * (r1 - r0) * slope) / 2.0;
@@ -687,6 +709,9 @@ int main()
             int cylinders = 0;
             double dev = b != nullptr ? screw_deviation(b, *k.m, p, k.turns, &cylinders) : 1e300;
             std::printf("%-34s walls within %.3g of the screw surfaces (asked %.3g), %d cylinders\n", k.name, dev, tol, cylinders);
+            // The lines along the axis (the coil's inner and outer walls, the groove's root and
+            // crest) are exact cylinders.
+            CHECK(k.m->round ? cylinders == 0 : cylinders > 0);
             if (!(dev <= tol))
             {
                 std::fprintf(stderr, "%s: a wall strays %g from its screw surface, %g asked\n", k.name, dev, tol);

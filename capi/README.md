@@ -142,7 +142,10 @@ every control point of its profile curve goes round as an exact rational quadrat
 by span, and is lifted by the same rational quadratic of the true lifts, so a wall is its profile
 curve turned exactly and lifted within `|pitch| / (2 pi) * 0.008 h^3` of the screw surface (h the
 span), the spans narrow enough for the caller's tolerance; the caps are the profile placed
-exactly where the motion starts and ends, all stitched and oriented.
+exactly where the motion starts and ends, all stitched and oriented. A profile line parallel to
+the axis sweeps an exact `SmCylinder` (`SmBrep::CreateFacesWithCurves`, bounded by the line at
+both ends and the paths of its ends, which lie on it exactly); a cylinder face cannot turn on
+itself, so then every wall comes in faces of half a turn.
 SM_API's curve sweep has no twist and its scale law is uniform in the path's parameter, and nothing in SM_API follows guide rails round a closed profile; `smlib_sweep_stations` takes the
 caller's stations instead (affine maps: the profile twisted, scaled or stretched and carried
 along the path), places the profile exactly by each (its control points mapped), skins the walls
