@@ -9032,6 +9032,9 @@ static ULONG lDebugCount2= 0 ;
           && rCrvIvl.m_vEnd.GetPointClass()   == SM_PC_UNKNOWN)
         { continue ; }
 
+      // an interval running along a boundary edge between two points on it is on that edge
+      SER( rCurveClassification.ClassifyEdgeInterval( ii ));
+
       // classify the interval - avoiding point classification if possible
       if ( rCrvIvl.m_vMid.GetPointClass() == SM_PC_UNKNOWN )
         {

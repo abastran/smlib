@@ -18880,6 +18880,85 @@ SmStatus SmCurveClassification::MergeIntervals
 } // end SmCurveClassification::MergeIntervals
 
 /*******************************************************************//**
+PURPOSE: Classify an interval that runs along a face boundary edge between
+    two points on it as on that edge.
+
+NOTES: The interval's ends come from the curve's intersections with the face's
+    vertices and edges (IntersectVertices, IntersectEdges). An edge the curve
+    stays within tolerance of over a stretch gives a range solution there, and
+    sm_InsertSolutions classifies that stretch to the edge. A curve can also meet
+    an edge at two separate solutions, as a circle tangent to a line at one point
+    and passing within tolerance of the line's end vertex at another. The
+    interval between them then has both ends on the edge, and when the curve stays
+    within tolerance of the edge over it the interval is coincident with the edge
+    as a range solution's is, so its Mid classifies to the edge. Classifying it to
+    the face instead would split the face along a curve within tolerance of its own
+    boundary, leaving a face whose edges coincide.
+
+    Both ends are on edge E when each classifies to E or to one of E's two
+    vertices, and at least one classifies to E itself. The interval lies between
+    consecutive intersections with the face boundary, so it does not meet E in
+    between, and its MidPt within XSectTol3d of E puts all of it there.
+
+    Only 3D classification curves: a 2D curve's intervals are classified in the
+    surface's UV space (IntersectTSBound). An interval whose Mid is already
+    classified is left as it is.
+***********************************************************************/
+SmStatus SmCurveClassification::ClassifyEdgeInterval
+ (ULONG lIntervalIndex)  // in : index of interval in 'this' to classify
+{
+  SmCurveInterval & rIvl = (*this)[lIntervalIndex];
+
+  // no work - Mid already classified, or a 2D classification curve
+  if (   rIvl.m_vMid.GetPointClass() != SM_PC_UNKNOWN
+      || m_cpCurve->GetDim() != 3 )
+    { return SM_SUCCESS ; }
+
+  // the edge one of the interval's ends classifies to
+  SmEdge * pEdge = NULL ;
+  if      ( rIvl.m_vStart.GetPointClass() == SM_PC_EDGE ) { pEdge = (SmEdge*)rIvl.m_vStart.GetObject() ; }
+  else if ( rIvl.m_vEnd  .GetPointClass() == SM_PC_EDGE ) { pEdge = (SmEdge*)rIvl.m_vEnd  .GetObject() ; }
+  if ( pEdge == NULL )
+    { return SM_SUCCESS ; }
+
+  // no work - the other end is not on pEdge (on the edge itself or on one of its vertices)
+  const SmPointClassification * apEnds[2] = { &rIvl.m_vStart, &rIvl.m_vEnd } ;
+  for ( ULONG ii=0; ii<2; ii++ )
+    {
+      const SmPointClassification & rEnd = *apEnds[ii] ;
+      SmBoolean bOnEdge =    (   rEnd.GetPointClass() == SM_PC_EDGE
+                              && rEnd.GetObject()     == pEdge )
+                          || (   rEnd.GetPointClass() == SM_PC_VERTEX
+                              && (   rEnd.GetObject() == pEdge->GetStartVertex()
+                                  || rEnd.GetObject() == pEdge->GetEndVertex() )) ;
+      if ( !bOnEdge )
+        { return SM_SUCCESS ; }
+    }
+
+  // Drop the interval's MidPt to pEdge (a vertex end has no param on pEdge: no guess, global solve)
+  SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d( SmTol::GetSrcZoneTol3d(this), SmTol::GetZoneTol3d(pEdge) ) ;
+  SmPoint3d    sMidPt ;
+  SER( m_cpCurve->EvaluatePoint( rIvl.m_vInterval.GetMid(), sMidPt ) );
+  SmBoolean bSuccess = FALSE ;
+  double    dDroppedParam, dDist ;
+  SER( pEdge->GetCurve()->DropPoint( pEdge->GetInterval(), // in : target curve allowed domain
+                                     sMidPt,               // in : Point to drop to curve
+                                     NULL,                 // in : no snapping
+                                     sXSectTol3d,          // in : SnapDist
+                                     NULL,                 // in : no guess: GlobalPointSolve()
+                                     bSuccess,             // out: TRUE = found a drop point
+                                     dDroppedParam,        // out: found drop curve param
+                                     dDist ) );            // out: found drop distance
+
+  // when MidPt is within tol of pEdge - the interval runs along pEdge
+  if ( bSuccess && dDist < sXSectTol3d )
+    { rIvl.m_vMid.SetClassObject( SM_PC_EDGE, pEdge ); }
+
+  return SM_SUCCESS ;
+
+} // end SmCurveClassification::ClassifyEdgeInterval
+
+/*******************************************************************//**
 PURPOSE: Given an interval known to lie on a Face classify it 
          relative to the tgtFace and its composite Face siblings.
 

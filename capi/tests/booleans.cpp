@@ -420,6 +420,27 @@ void rounded_case_floor_pull()
     smlib_brep_free(prism);
 }
 
+// tangency-labs/solidcore#1057 (rig case booleans/1279): the square column [0,1.5]^2, z -3.9..3.2,
+// minus an r1.5 cylinder about x = 0.0003, y = 0. The cylinder touches the face y = 1.5 along
+// x = 0.0003 and passes 3e-8 inside the column's edge at x = 0, y = 1.5, so on each cap its arc
+// meets the edge y = 1.5 twice: tangent at x = 0.0003, and at the edge's vertex at x = 0. The arc
+// between them, within 3e-8 of the edge, was classified inside the cap: SMLib split the caps along
+// it and kept a solid 3e-8 thick, whose cap faces had coincident edges (SmFace tests 33/34). The
+// column goes in as SMLib makes it and through the flat arrays, as SolidCraft hands it over. V =
+// 7.1 (2.25 - the integral of sqrt(1.5^2 - u^2) over u = -0.0003..1.4997).
+void cylinder_grazing_box_edge()
+{
+    smlib_brep *column = box(0, 0, -3.9, 1.5, 1.5, 3.2);
+    smlib_brep *column_flat = through_flat(column);
+    smlib_brep *cyl = cylinder(2, 0.0003, 0, -4, 1.5, 7.5);
+    const double want = 7.1 * (2.25 - half_disc(1.5, -0.0003, 1.5 - 0.0003));
+    expect("cylinder grazing box edge", column, cyl, SMLIB_BOOLEAN_SUBTRACT, want, 1e-7, 1);
+    expect("cylinder grazing flat box edge", column_flat, cyl, SMLIB_BOOLEAN_SUBTRACT, want, 1e-7, 1);
+    smlib_brep_free(column);
+    smlib_brep_free(column_flat);
+    smlib_brep_free(cyl);
+}
+
 int main(int argc, char **argv)
 {
     struct Case
@@ -432,6 +453,7 @@ int main(int argc, char **argv)
         {"rational_cylinder_cut", rational_cylinder_cut},
         {"nudged_loft_join", nudged_loft_join},
         {"rounded_case_floor_pull", rounded_case_floor_pull},
+        {"cylinder_grazing_box_edge", cylinder_grazing_box_edge},
     };
     for (const Case &c : cases)
     {

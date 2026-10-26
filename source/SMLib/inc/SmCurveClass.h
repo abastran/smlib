@@ -859,6 +859,10 @@ public:
                                                                            //    : FALSE= don't use UVSpace because UVTrimCurves are not known to be valid, default:[TRUE]       
                                 ULONG         lFaceIndx=SM_UNDEF_ULONG) ;  // in : When rFaceProps is available to caller, pass rFaceProps->m_lFaceIndx to debug a target face
                                                                            //      SM_UNDEF_ULONG to ignore, default:[SM_UNDEF_ULONG]
+
+  // classify an interval whose two ends lie on one edge (on the edge or on one of its vertices)
+  // and that stays within tolerance of it as running along that edge
+  SmStatus ClassifyEdgeInterval(ULONG lIntervalIndex) ;                    // in : index of interval in 'this' to classify
                               
   // when two curveClassifications lie along two edges from two faces that are partially coincident 
   //  - make a new curve that is the coincident sub-interval 
