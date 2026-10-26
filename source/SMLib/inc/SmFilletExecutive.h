@@ -421,7 +421,6 @@ public:
   SmBoolean GetCliffOverflow() const { return m_bCliffOverflow; }
   SmStatus  NoteOpenEnd(SmFilletSolver * pSolver, SmVertex * pVertex, SmFace * pEndFace); // an end the Nx1 corner left uncut
   SmStatus  SubtractRemovalRegion();          // close m_pFilletBrep into the region the blends remove, subtract it from m_pTargetBrep
-  SmStatus  NoteUnbuiltOverflow(SmFilletErrorInfo * pOptFilletErrorInfo); // after a failure in an overflow: too large (SM_FILERR_NO_ROOM)
 private:
   SmStatus  CutFilletAtOpenEnd(const SmFilletOpenEnd & crEnd); // cut the fillet off by the end face's surface continued
   SmStatus  CloseRemovalRegion();             // add the faces on the target's surfaces that close m_pFilletBrep

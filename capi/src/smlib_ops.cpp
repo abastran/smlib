@@ -233,7 +233,7 @@ std::string g_blend_why;
 // The status a blend that failed with status `s` reports, its reason noted (g_blend_why): a
 // blend the executive found larger than its faces allow (SM_FILERR_NO_ROOM: a concave blend whose
 // rail leaves the face it rolls on, a round whose rail runs on into the body's material, a cliff
-// overflow the subtraction does not build) is SMLIB_ERR_NO_ROOM; a convex blend overflowing a
+// overflow with no room on its faces' continuations) is SMLIB_ERR_NO_ROOM; a convex blend overflowing a
 // cliff that needs a continuation SMLib cannot make exactly (SM_FILERR_NOT_EXACT)
 // SMLIB_ERR_NOT_EXACT; any other failure `s`.
 int32_t blend_failure(SmFilletExecutive &exec, int32_t s)

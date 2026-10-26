@@ -3575,9 +3575,12 @@ SmStatus SmFilletExecutive::DoFilleting
       // Note, do not NoteFilletError here, that has presumably
       // been done, at a point where they knew more about it
       // than we do here.
-      // SolidCraft change: but a cliff overflow that cannot be built is too large for its faces
-      // (as it was before the overflow was built at all), unless a continuation was not exact.
-      SER( NoteUnbuiltOverflow( pOptFilletErrorInfo ));
+      // SolidCraft change: that holds in a cliff overflow too: a step of the overflow that finds
+      // no room notes SM_FILERR_NO_ROOM itself, and any other failure keeps its own error.
+      if ( pOptFilletErrorInfo != NULL )
+        {
+          *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
+        }
       FILEXEC_ERR(_T("Error Creating Fillet Brep"));
     }
 
@@ -3704,10 +3707,15 @@ SmBoolean bDebugMe = FALSE ;
   // remove and subtracts it from the target, instead of merging the fillet faces in.
   if ( m_bCliffOverflow )
     {
-      if ( SubtractRemovalRegion() != SM_SUCCESS )
+      SmStatus eSubtracted = SubtractRemovalRegion();
+      if ( eSubtracted != SM_SUCCESS )
         {
-          SER( NoteUnbuiltOverflow( pOptFilletErrorInfo ));
-          SER( SM_ERR );
+          // the error the subtraction noted stands (SM_FILERR_NO_ROOM only where it found no room)
+          if ( pOptFilletErrorInfo != NULL )
+            {
+              *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
+            }
+          SER( eSubtracted );
         }
       if ( pOptFilletErrorInfo != NULL )
         {

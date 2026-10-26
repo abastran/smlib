@@ -306,30 +306,6 @@ SmStatus SmFilletExecutive::NoteOpenEnd
 } // end SmFilletExecutive::NoteOpenEnd
 
 /*******************************************************************//**
-PURPOSE: SolidCraft change. After a failure, in a cliff overflow: the blend
-    could not be built on its faces' continuations, and is too large for
-    its faces (SM_FILERR_NO_ROOM), as it was before the overflow was built.
-
-NOTES: For DoFilleting. An error already noted as SM_FILERR_NO_ROOM or
-    SM_FILERR_NOT_EXACT stands; any other (a corner, the trace, the boolean)
-    becomes SM_FILERR_NO_ROOM, its comment kept. Outside an overflow nothing
-    changes. Copies the error info out when asked, as DoFilleting does.
-***********************************************************************/
-SmStatus SmFilletExecutive::NoteUnbuiltOverflow
-  (SmFilletErrorInfo * pOptFilletErrorInfo)   // out: optional copy of the error info
-{
-  if ( m_bCliffOverflow )
-    {
-      SmFilletErrorInfo * pInfo = GetFilletErrorInfo();
-      if ( pInfo->GetErrorCode() != SM_FILERR_NO_ROOM && pInfo->GetErrorCode() != SM_FILERR_NOT_EXACT )
-        { pInfo->SetErrorCode( SM_FILERR_NO_ROOM ); }
-    }
-  if ( pOptFilletErrorInfo != NULL )
-    { *pOptFilletErrorInfo = *( GetFilletErrorInfo() ); }
-  return SM_SUCCESS;
-} // end SmFilletExecutive::NoteUnbuiltOverflow
-
-/*******************************************************************//**
 PURPOSE: SolidCraft change. Cut the fillet off at an end its Nx1 corner left
     uncut, by the end face's surface continued.
 

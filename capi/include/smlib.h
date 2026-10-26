@@ -577,7 +577,8 @@ int32_t smlib_brep_solid_count(const smlib_brep *brep, int64_t *out);
  * planar, concave blends in the same call, a variable round whose surface traced on the
  * continued faces misses its law), SMLIB_ERR_NO_ROOM; an overflow that needs a face's surface
  * other than a plane continued past its domain, or a side edge other than a line continued past
- * its end, SMLIB_ERR_NOT_EXACT. Blends that take the whole of a face at an angle are SMLIB_ERR_NO_ROOM
+ * its end, SMLIB_ERR_NOT_EXACT; any other failure to build an overflow is its own status, not
+ * SMLIB_ERR_NO_ROOM. Blends that take the whole of a face at an angle are SMLIB_ERR_NO_ROOM
  * too: every edge of a loop of it blended, each blend's rail on it a point, some blend there a
  * chamfer (a cylinder's top rim
  * chamfered as wide as the top, which would end in a cone's point). So is a blend whose rolling
