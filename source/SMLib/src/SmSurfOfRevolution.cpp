@@ -474,8 +474,12 @@ NOTES: This method requires a point exactly on the surface.
    to the guess.  If no guess was given, it will be set to the low end
    of the closed domain.
 
-RETURNS --- SM_ERR for points outside the domain
-            SM_SUCCESS for points inside the domain
+RETURNS --- SM_SUCCESS for points inside the domain
+            SolidCraft change (planar generator): SM_ERR_OUTSIDE_OF_DOMAIN for
+            a point outside the sweep, with its parameters placed;
+            SM_ERR_NOT_WITHIN_TOLERANCE for a point whose rotation into the
+            generator's plane is not on the generator, with only U placed and
+            reLocation SM_LT_EXTERIOR. Any other status is a failure.
 
 METHOD --- 1. Rotate Point around rotation axis    - use rotation angle in degrees as U parameter.
            2. Intersect RotatedPoint with GenCurve - use GenCurve STEP Param as V parameter.
@@ -591,10 +595,10 @@ SmStatus SmSurfOfRevolution::STEPInversion
                                         d3DTolerance, NULL, NULL,
                                         SM_SR_ALL, sSolutions));
 
-  // error - rotated point not on GenCurve
+  // rotated point not on GenCurve: the point is not on the surface
   if (sSolutions.GetSize() == 0)
     { reLocation = SM_LT_EXTERIOR ;
-      return SM_ERR;
+      return SM_ERR_NOT_WITHIN_TOLERANCE;
     }
 
   // set output U Coordinate
@@ -622,7 +626,7 @@ SmStatus SmSurfOfRevolution::STEPInversion
     } // end point on closed genCurve Seam check
 
   // all done
-  return( bInside ? SM_SUCCESS : SM_ERR) ;
+  return( bInside ? SM_SUCCESS : SM_ERR_OUTSIDE_OF_DOMAIN) ;
 
 } // end SmSurfOfRevolution::STEPInversion
 

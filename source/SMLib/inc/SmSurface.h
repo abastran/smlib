@@ -1711,7 +1711,12 @@ public:
                             SE( SM_ERR ) ; return SM_ERR;
                           }
 
-  // given a point on the surface find its corresponding analytic UV-parameter
+  // given a point on the surface find its corresponding analytic UV-parameter.
+  // SolidCraft change: the analytic implementations (SmSphere, and SmSurfOfRevolution with a
+  // planar generator, so SmCone) answer a point that is not on the surface with
+  // SM_ERR_NOT_WITHIN_TOLERANCE, and SmSurfOfRevolution one outside its sweep with
+  // SM_ERR_OUTSIDE_OF_DOMAIN (SmSphere: SM_SUCCESS and SM_LT_EXTERIOR), each with reLocation set;
+  // any other status but SM_SUCCESS is a failure. See STEPInversionAnswered().
   virtual SmStatus STEPInversion(const SmExtent2d & crAnalUVDomain,                    // in :    
                                  const SmPoint3d  & crPointOnSurf,                     // in :    
                                  double             dDistanceTolerance,                // in :    
@@ -1722,6 +1727,15 @@ public:
                                 {
                                   SM_REF6( crAnalUVDomain, crPointOnSurf, dDistanceTolerance, rdAnalUVParameter, reLocation, pUVGuess ) ;
                                   return SM_ERR;
+                                }
+
+  // TRUE when an analytic STEPInversion() answered: the point is on the surface, off it, or on
+  // it outside its domain, with reLocation set
+  static SmBoolean STEPInversionAnswered(SmStatus eStat)
+                                {
+                                  return (   eStat == SM_SUCCESS
+                                          || eStat == SM_ERR_NOT_WITHIN_TOLERANCE
+                                          || eStat == SM_ERR_OUTSIDE_OF_DOMAIN) ? TRUE : FALSE ;
                                 }
 
   virtual SmStatus SwapUV()                                            

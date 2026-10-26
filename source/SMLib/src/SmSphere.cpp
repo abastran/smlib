@@ -1102,10 +1102,11 @@ SmStatus SmSphere::GlobalPointSolveSTEP
   // Get Sphere NearUVPoint in Spherical Coordinates (degrees)
   SmLocationType eLoc ;
   SmPoint2d sNearUVPoint ;
-  // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-  // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-  // placed; the code reads the location.
-  (void)STEPInversion(m_vAnalUVDomain, crTestPoint, dDistanceTolerance, sNearUVPoint, eLoc);
+  // SolidCraft change: for a test point off the sphere (the usual case here) the inversion answers
+  // SM_ERR_NOT_WITHIN_TOLERANCE with the parameters of the point dropped to the sphere, which
+  // is what is used below; any other status is a failure
+  SmStatus eInv = STEPInversion(m_vAnalUVDomain, crTestPoint, dDistanceTolerance, sNearUVPoint, eLoc);
+  if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
   double dU = sNearUVPoint.x ;
   double dV = sNearUVPoint.y ;
@@ -1865,14 +1866,15 @@ SmBoolean bDebugMe = FALSE ;
           SER( pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMin(), sTestPoint)  );
           if(crSphere.IsClosedU() && crSphere.IsClosedV())
                { eLoc = SM_LT_INTERIOR ; }  // Every point is interior.
-          else { // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-          // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-          // placed; the code reads the location.
-          (void)crSphere.STEPInversion(crSphere.m_vAnalUVDomain,
-                                        sTestPoint,
-                                        SM_EFF_ZERO,
-                                        sPointUV,
-                                        eLoc);
+          else {
+                 // SolidCraft change: an off-surface answer sets the location read below;
+                 // any other status is a failure
+                 SmStatus eInv = crSphere.STEPInversion(crSphere.m_vAnalUVDomain,
+                                                        sTestPoint,
+                                                        SM_EFF_ZERO,
+                                                        sPointUV,
+                                                        eLoc);
+                 if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
                }
 
           // when degenerateCurvePoint is inside of other surface
@@ -2002,14 +2004,15 @@ SmBoolean bDebugMe = FALSE ;
       SmBoolean bIsContained ;
       if (bSphereClosedU && bSphereClosedV)
            { bIsContained = TRUE ; }
-      else { // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-      // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-      // placed; the code reads the location.
-      (void)STEPInversion(m_vAnalUVDomain,
-                           sTestPoint,
-                           SM_EFF_ZERO,
-                           sUVPoint,
-                           eLocation);
+      else {
+             // SolidCraft change: an off-surface answer sets the location read below;
+             // any other status is a failure
+             SmStatus eInv = STEPInversion(m_vAnalUVDomain,
+                                           sTestPoint,
+                                           SM_EFF_ZERO,
+                                           sUVPoint,
+                                           eLocation);
+             if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
               bIsContained =   (eLocation != SM_LT_EXTERIOR)
                              ? TRUE
                              : FALSE ;
@@ -2200,14 +2203,14 @@ SmBoolean bDebugMe = FALSE ;
             }
 
           // Test the point. Tol loosened [B661]
-          // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-          // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-          // placed; the code reads the location.
-          (void)STEPInversion(m_vAnalUVDomain,
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain,
                            sTestPoint,
                            SM_EFF_ZERO_PARAM,
                            sUVPoint,
                            eLocation);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
           bIsContained =   (eLocation != SM_LT_EXTERIOR)
                          ? TRUE
                          : FALSE ;
@@ -2295,10 +2298,10 @@ SmBoolean bDebugMe = FALSE ;
           // project the point into Spherical position Coordinates
           SmPoint2d sUVPoint ;
           SmLocationType eLoc ;
-          // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-          // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-          // placed; the code reads the location.
-          (void)STEPInversion(m_vAnalUVDomain, sMidArcPoint, dTol3d, sUVPoint, eLoc);
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain, sMidArcPoint, dTol3d, sUVPoint, eLoc);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // when test point is on Surface and within domain boundaries
           if(eLoc != SM_LT_EXTERIOR)
@@ -2355,10 +2358,10 @@ SmBoolean bDebugMe = FALSE ;
           // get spherical coordinates for ArcPoint
           SmPoint2d sUVPoint;
           SmLocationType eLoc;
-          // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-          // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-          // placed; the code reads the location.
-          (void)STEPInversion(m_vAnalUVDomain, sArcPoint, dTol3d,sUVPoint, eLoc );
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain, sArcPoint, dTol3d,sUVPoint, eLoc );
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // skip points not within sphere boundaries
           if(eLoc == SM_LT_EXTERIOR)
@@ -2665,10 +2668,10 @@ SmBoolean bDebugMe = FALSE ;
           // get UV point for Sphere
           SmPoint2d sUVPoint ;
           SmLocationType eLoc ;
-          // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-          // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-          // placed; the code reads the location.
-          (void)STEPInversion(m_vAnalUVDomain, sPoint, dScaledZero, sUVPoint, eLoc);
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain, sPoint, dScaledZero, sUVPoint, eLoc);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // add degenerate curve to output
           if(   eLoc != SM_LT_EXTERIOR
@@ -3475,10 +3478,14 @@ NOTES:
   except for a point coincident with the sphere's origin.
 
 RETURNS ---
-  SM_SUCCESS when the point is on the sphere and within both the sphere's
-              and the give AnalUVDomain limits.
+  SM_SUCCESS when the point is on the sphere (within d3DTolerance).
   Points which can be mapped outside the surface's
   trim domain are mapped and reLocation is set to SM_LT_EXTERIOR
+  SolidCraft change: SM_ERR_NOT_WITHIN_TOLERANCE for a point off the sphere,
+  with the parameters and reLocation of the point dropped to it; for the
+  centre, which is equally far from every point of the sphere, (0, 0) and
+  SM_LT_EXTERIOR. SM_ERR only for the centre of a sphere no larger than
+  d3DTolerance, which is on it but has no parameters.
 
   If the result is on the seam of a closed surface, and a guess was
   given, the output will be set to whichever side of the seam is closer
@@ -3523,9 +3530,9 @@ SmStatus SmSphere::STEPInversion
   SmVector3d sVec = crPointOnSurf - rOrigin ;
   double  dLength = sVec.Length() ;
 
-  // Origin Points are errors
+  // the centre: off the sphere by its radius, and no point of the sphere is nearer than another
   if(dLength < dScaledZero)
-    { return(SM_ERR) ; }
+    { return (m_dRadius > d3DTolerance) ? SM_ERR_NOT_WITHIN_TOLERANCE : SM_ERR ; }
 
   // drop point to Sphere - Remember when Point was not initially on Surface
   sVec       = sVec * (m_dRadius / dLength) ;
@@ -3570,7 +3577,7 @@ SmStatus SmSphere::STEPInversion
     }
 
   // all done
-  return(bOnSurf ? SM_SUCCESS : SM_ERR) ;
+  return(bOnSurf ? SM_SUCCESS : SM_ERR_NOT_WITHIN_TOLERANCE) ;
 
 } // end SmSphere::STEPInversion
 

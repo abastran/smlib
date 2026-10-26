@@ -2970,16 +2970,14 @@ SmBoolean bDebugMe = FALSE;
               SmPoint2d      sThisStepUV, sOtherStepUV ;
               SmPoint2d      sThisNurbUV, sOtherNurbUV ;
               SmLocationType eThisLoc, eOtherLoc ;
-              // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-              // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-              // placed; the code reads the location.
-              (void)STEPInversion(m_vAnalUVDomain, sLinePt, dScaledZero, 
-                            sThisStepUV, eThisLoc); 
-              // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-              // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-              // placed; the code reads the location.
-              (void)crOtherCone.STEPInversion(crOtherCone.m_vAnalUVDomain, sLinePt, dScaledZero, 
-                                        sOtherStepUV, eOtherLoc);
+              // SolidCraft change: an off-surface or out-of-domain answer sets the location read below;
+              // any other status is a failure
+              SmStatus eThisInv = STEPInversion(m_vAnalUVDomain, sLinePt, dScaledZero,
+                                                sThisStepUV, eThisLoc);
+              if(!SmSurface::STEPInversionAnswered(eThisInv)) { SER(eThisInv) ; }
+              SmStatus eOtherInv = crOtherCone.STEPInversion(crOtherCone.m_vAnalUVDomain, sLinePt, dScaledZero,
+                                                             sOtherStepUV, eOtherLoc);
+              if(!SmSurface::STEPInversionAnswered(eOtherInv)) { SER(eOtherInv) ; }
               if(   eThisLoc  == SM_LT_EXTERIOR
                  || eOtherLoc == SM_LT_EXTERIOR)
                  { continue ; }
@@ -3180,10 +3178,9 @@ SmBoolean bDebugMe = FALSE;
               double dAnalParam ;
               SmCurveLocationType eLoc ;
               SmBSplineCurve *pIntersectCurve = (SmBSplineCurve *)pOpt3DCurves->GetAt(jj) ;
-              // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-              // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-              // placed; the code reads the location.
-              (void)pIntersectCurve->STEPInversion(sPoint, dAnalParam, &eLoc);
+              // SolidCraft change: the analytic curves answer every point with SM_SUCCESS (off the
+              // curve: SM_CL_EXTERIOR); any other status is a failure, with eLoc unset
+              SER( pIntersectCurve->STEPInversion(sPoint, dAnalParam, &eLoc) );
 
               // when point is on Curve - its not unique
               if(eLoc != SM_CL_EXTERIOR)
@@ -5325,27 +5322,31 @@ NOTES: SmCone::STEPInversion ignores its domain argument and only
        reports whether the point is inside the whole cone, so the
        trim domain limits are checked here.
 ***********************************************************************/
-static SmBoolean sm_IsConePointInTrimDomain
+static SmStatus sm_IsConePointInTrimDomain
   (const SmCone      & crCone,          // in : cone the point lies on
    const SmExtent2d  & crAnalUVDomain,  // in : STEP trim domain of the cone
    const SmPoint3d   & crPoint,         // in : point on the cone
-   double              dTol)            // in : 3d tolerance
+   double              dTol,            // in : 3d tolerance
+   SmBoolean         & rbInside)        // out: TRUE = the point is inside crAnalUVDomain
 {
+  rbInside = FALSE ;
   SmPoint2d      sSTEPUV ;
   SmLocationType eLoc ;
-  // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-  // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-  // placed; the code reads the location.
-  (void)crCone.STEPInversion(crAnalUVDomain, crPoint, dTol, sSTEPUV, eLoc) ;
+  // SolidCraft change: an off-surface or out-of-domain answer sets the location read below;
+  // any other status is a failure
+  SmStatus eInv = crCone.STEPInversion(crAnalUVDomain, crPoint, dTol, sSTEPUV, eLoc) ;
+  if(!SmSurface::STEPInversionAnswered(eInv))
+    { SER(eInv) ; }
   if(eLoc == SM_LT_EXTERIOR)
-    { return FALSE ; }
+    { return SM_SUCCESS ; }
 
   if(!crAnalUVDomain.GetVInterval().ContainsValue(sSTEPUV.y, dTol))
-    { return FALSE ; }
+    { return SM_SUCCESS ; }
 
   // the sweep angle is arbitrary at a pole
-  return(   eLoc == SM_LT_POLE
-         || crAnalUVDomain.GetUInterval().ContainsPeriodicValue(sSTEPUV.x, 360.0)) ;
+  rbInside = (   eLoc == SM_LT_POLE
+              || crAnalUVDomain.GetUInterval().ContainsPeriodicValue(sSTEPUV.x, 360.0)) ;
+  return SM_SUCCESS ;
 
 } // end sm_IsConePointInTrimDomain
 
@@ -5517,10 +5518,10 @@ static ULONG lDebugCount = 0 ;
          || (ii >=2 && lNumTsect2 == 2))
         {
           // map XSectPoint to ConeUV point
-          // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-          // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-          // placed; the code reads the location.
-          (void)crCone.STEPInversion(sAnalUVDomain, sTsectPoints[ii], dTol, sConeSTEPUV, eLoc);
+          // SolidCraft change: an off-surface or out-of-domain answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = crCone.STEPInversion(sAnalUVDomain, sTsectPoints[ii], dTol, sConeSTEPUV, eLoc);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // when ConeUV is cone trim boundaries
           //      skip circle instersections on seams because the line intersections will catch seam intersections
@@ -5617,7 +5618,9 @@ static ULONG lDebugCount = 0 ;
       SER( sFullEllipse.EvaluateSTEPPoint(sSegmentMidAngDeg, sSegmentMidPoint)  );
 
       // Remember if segment MidPointUV is within cone trim boundaries
-      bInside[iThis] = sm_IsConePointInTrimDomain(crCone, sAnalUVDomain, sSegmentMidPoint, dTol) ;
+      SmBoolean bMidInside ;
+      SER( sm_IsConePointInTrimDomain(crCone, sAnalUVDomain, sSegmentMidPoint, dTol, bMidInside) );
+      bInside[iThis] = bMidInside ;
 
     } // end iter every interval to classify it
 
@@ -5822,10 +5825,9 @@ SmStatus sm_AddEllipseIntervalsTrimmedToTwoCones
                       // map Point to Ellipse
                       double dAnalParam ;
                       SmCurveLocationType eLoc ;
-                      // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-                      // (or curve) inside its domain, with the location set (SM_LT_EXTERIOR) and the best parameter
-                      // placed; the code reads the location.
-                      (void)pCurve->STEPInversion(sEllipsePoint, dAnalParam, &eLoc);
+                      // SolidCraft change: the analytic curves answer every point with SM_SUCCESS (off the
+                      // curve: SM_CL_EXTERIOR); any other status is a failure, with eLoc unset
+                      SER( pCurve->STEPInversion(sEllipsePoint, dAnalParam, &eLoc) );
 
                       // when point is on any existing curve - its not unique
                       if(eLoc != SM_CL_EXTERIOR)

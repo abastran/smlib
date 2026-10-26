@@ -17,6 +17,8 @@
 #include <SmFace.h>
 #include <SmFilletExecutive.h>
 #include <SmOffsetSurface.h>
+#include <SmAxis2Placement.h>
+#include <SmSphere.h>
 #include <SmSurfOfRevolution.h>
 #include <SmVector3d.h>
 
@@ -213,6 +215,43 @@ smlib_brep *cube_sphere(double r)
     CHECK(smlib_brep_import(f, &out) == SMLIB_OK);
     smlib_flat_free(f);
     return out;
+}
+
+// The analytic STEPInversion() answers: SM_SUCCESS on the surface, SM_ERR_OUTSIDE_OF_DOMAIN
+// outside a cylinder's sweep, SM_ERR_NOT_WITHIN_TOLERANCE off the surface (a sphere's with the
+// dropped point's parameters), each with its location; SMLib's callers pass any other status on.
+void analytic_step_inversion()
+{
+    const SmContext &ctx = *SmApiGetOrCreateContext();
+    const double tol = 1e-6;
+    SmPoint2d uv;
+    SmLocationType loc = SM_LT_INTERIOR;
+    SmCylinder *cyl = new (ctx) SmCylinder(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0), 1.0, 0.0, 90.0, 2.0, FALSE, FALSE,
+                                           FALSE, &ctx);
+    const SmExtent2d cd = cyl->GetSTEPUVDomain();
+    const double h = std::sqrt(0.5);
+    CHECK(cyl->STEPInversion(cd, SmPoint3d(h, h, 1), tol, uv, loc) == SM_SUCCESS && loc == SM_LT_INTERIOR);
+    CHECK(std::fabs(uv.x - 45.0) < 1e-9 && std::fabs(uv.y - 1.0) < 1e-9);
+    CHECK(cyl->STEPInversion(cd, SmPoint3d(-1, 0, 1), tol, uv, loc) == SM_ERR_OUTSIDE_OF_DOMAIN && loc == SM_LT_EXTERIOR);
+    CHECK(std::fabs(uv.y - 1.0) < 1e-9);
+    CHECK(cyl->STEPInversion(cd, SmPoint3d(2, 0.1, 1), tol, uv, loc) == SM_ERR_NOT_WITHIN_TOLERANCE && loc == SM_LT_EXTERIOR);
+    delete cyl;
+
+    SmSphere *sphere = nullptr;
+    CHECK(SmSphere::CreateCanonical(ctx, SmAxis2Placement(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0)), 2.0, sphere) ==
+          SM_SUCCESS);
+    if (sphere != nullptr)
+    {
+        const SmExtent2d sd = sphere->GetSTEPUVDomain();
+        CHECK(sphere->STEPInversion(sd, SmPoint3d(0, 2, 0), tol, uv, loc) == SM_SUCCESS && loc == SM_LT_INTERIOR);
+        CHECK(std::fabs(uv.x - 90.0) < 1e-9 && std::fabs(uv.y) < 1e-9);
+        CHECK(sphere->STEPInversion(sd, SmPoint3d(0, 3, 0), tol, uv, loc) == SM_ERR_NOT_WITHIN_TOLERANCE && loc == SM_LT_INTERIOR);
+        CHECK(std::fabs(uv.x - 90.0) < 1e-9 && std::fabs(uv.y) < 1e-9);
+        CHECK(sphere->STEPInversion(sd, SmPoint3d(0, 0, 0), tol, uv, loc) == SM_ERR_NOT_WITHIN_TOLERANCE && loc == SM_LT_EXTERIOR);
+        delete sphere;
+    }
+    CHECK(SmSurface::STEPInversionAnswered(SM_ERR_NOT_WITHIN_TOLERANCE) && SmSurface::STEPInversionAnswered(SM_ERR_OUTSIDE_OF_DOMAIN));
+    CHECK(!SmSurface::STEPInversionAnswered(SM_ERR) && !SmSurface::STEPInversionAnswered(SM_ERR_NOT_CONVERGING));
 }
 
 } // namespace
@@ -2529,6 +2568,9 @@ int main()
     {
         smlib_brep_free(b);
     }
+
+    analytic_step_inversion();
+
     if (failures != 0)
     {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
