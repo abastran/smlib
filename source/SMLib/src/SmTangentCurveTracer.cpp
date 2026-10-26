@@ -748,7 +748,9 @@ SmStatus SmSurfaceIntersector::FindTangentCurves
 
       std::vector<TcV> sDirs;
       int lNumDirs = sTr.Probe(p, sDirs);
-      if (lNumDirs < 0) break;      // coincident surfaces: not ours to handle
+      // the surfaces coincide around p: that region is not a tangential curve, so this seed
+      // gives none, but seeds elsewhere on a partly coincident pair still can
+      if (lNumDirs < 0) continue;
       if (lNumDirs == 0)
         {
           // no tangential curve here: a touching point, or a point where
@@ -852,9 +854,10 @@ SmStatus SmSurfaceIntersector::FindTangentCurves
       for (size_t ic=0; ic<sCharts.size(); ic++)
     {
       TcPt N = sCharts[ic];
-      std::vector<TcV> sDirs;
-      if (ic == 0) sDirs = sNodeDirs[in];
-      else if (sTr.Probe(N, sDirs) < 0) sDirs.clear();
+      // the node's own chart has its directions already (sNodeDirs grows only above)
+      std::vector<TcV> sChartDirs;
+      if (ic > 0 && sTr.Probe(N, sChartDirs) < 0) sChartDirs.clear();
+      const std::vector<TcV> & sDirs = (ic == 0) ? sNodeDirs[in] : sChartDirs;
       for (size_t k=0; k<sDirs.size(); k++)
         {
           TcV Pr = N.P + sDirs[k]*dProbeR;
