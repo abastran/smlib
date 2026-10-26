@@ -733,6 +733,55 @@ int main()
               b == nullptr);
     }
 
+    // SolidCraft rig sweeps/4305: a 0.6 x 1 groove swept as a cut round the wall of a 50 x 30
+    // pocket with r5 corners, 15 deep in a 60 x 40 x 20 box, along the path at z = 10. The path
+    // is SolidCraft's: its arcs come from three points rounded to 6 digits (centres 3.2e-7 off),
+    // so the profile turns by 3.2e-8 rad where they meet the lines, and the walls swept along
+    // the lines are planar trapezoids, not parallelograms. The cut turns each into an SmPlane
+    // (SmPlane::IsNurbSurfacePlane, the wall's parameterization on v 4..5), whose origin was
+    // placed along YAxis before YAxis was made perpendicular to XAxis: the walls' corners came
+    // out 5.1e-6 and 6.4e-6 mm off their vertices (SmBrep test 3, tolerance 5e-6). Pappus: the
+    // groove removes 0.6 * 1 * (2 * 40 + 2 * 20 + 2 pi 5.3).
+    {
+        List pocket;
+        pocket.line(10, 5, 20, 50, 5, 20).arc(50, 10, 20, 0, 0, 1, 1, 0, 0, 5, -PI / 2, 0).line(55, 10, 20, 55, 30, 20);
+        pocket.arc(50, 30, 20, 0, 0, 1, 1, 0, 0, 5, 0, PI / 2).line(50, 35, 20, 10, 35, 20);
+        pocket.arc(10, 30, 20, 0, 0, 1, 1, 0, 0, 5, PI / 2, PI).line(5, 30, 20, 5, 10, 20);
+        pocket.arc(10, 10, 20, 0, 0, 1, 1, 0, 0, 5, PI, 3 * PI / 2);
+        List groove;
+        groove.polygon({10, 4.4, 9.5, 10, 5, 9.5, 10, 5, 10.5, 10, 4.4, 10.5});
+        const int64_t path_kinds[8] = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC,
+                                       SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC};
+        const double path[72] = {
+            10, 5, 10, 50, 5, 10,
+            50.000000321165778, 9.9999996788342767, 10, 0, 0, 1, -6.4233159809166417e-08, -0.99999999999999789, 0, 4.9999996788342873, 0, 1.5707964552612053,
+            55, 10, 10, 55, 30, 10,
+            50.000000321165693, 30.0000003211657, 10, 0, 0, 1, 0.99999999999999789, -6.4233144177224832e-08, 0, 4.9999996788343175, 0, 1.5707964552611835,
+            50, 35, 10, 10, 35, 10,
+            9.9999996788343033, 30.000000321165725, 10, 0, 0, 1, 6.423314346668247e-08, 0.99999999999999789, 0, 4.9999996788342855, 0, 1.5707964552611893,
+            5, 30, 10, 5, 10, 10,
+            9.9999996788343051, 9.9999996788343051, 10, 0, 0, 1, -0.99999999999999789, 6.42331427561393e-08, 0, 4.9999996788343157, 0, 1.5707964552611822};
+        const double box_o[3] = {0, 0, 0};
+        const double box_s[3] = {60, 40, 20};
+        const double down[3] = {0, 0, -1};
+        smlib_brep *box = nullptr, *cut = nullptr, *walled = nullptr, *tool = nullptr;
+        CHECK(smlib_make_box(box_o, box_s, &box) == SMLIB_OK);
+        CHECK(smlib_extrude(pocket.kinds.data(), pocket.nk(), pocket.reals.data(), pocket.nr(), down, 15.0, 0.0,
+                            SMLIB_DRAFT_CORNER_TANGENT, 1, &cut, nullptr) == SMLIB_OK);
+        CHECK(box != nullptr && cut != nullptr && smlib_boolean(box, cut, SMLIB_BOOLEAN_SUBTRACT, &walled) == SMLIB_OK);
+        CHECK(smlib_sweep(groove.kinds.data(), groove.nk(), groove.reals.data(), groove.nr(), path_kinds, 8, path, 72,
+                          SMLIB_SWEEP_FOLLOW, 1, &tool) == SMLIB_OK);
+        const double pocketed = 48000.0 - (1500.0 - (4.0 - PI) * 25.0) * 15.0;
+        const double removed = 0.6 * (2 * 40.0 + 2 * 20.0 + 2 * PI * 5.3);
+        b = nullptr;
+        int32_t s = walled != nullptr && tool != nullptr ? smlib_boolean(walled, tool, SMLIB_BOOLEAN_SUBTRACT, &b) : SMLIB_ERR_ARG;
+        expect("groove swept round a pocket wall", s, &b, pocketed - removed, 1e-7);
+        for (smlib_brep *x : {box, cut, walled, tool})
+        {
+            smlib_brep_free(x);
+        }
+    }
+
     // Hostile lists: nothing is built, nothing crashes.
     const int64_t bad_kind[1] = {9};
     const double six[6] = {0, 0, 0, 1, 0, 0};

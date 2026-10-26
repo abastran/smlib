@@ -2833,18 +2833,23 @@ SmBoolean SmPlane::IsNurbSurfacePlane
   SE(sXAxis.Unitize());
   SE(sYAxis.Unitize());
 
-  // Move the origin to correspond to the zero [u=0, v=0] parameter.
-  SmPoint3d sNewOrigin =   sOrigin
-                         - sUVDomain.GetMin().x * sXAxis * sUVScale.x
-                         - sUVDomain.GetMin().y * sYAxis * sUVScale.y;
-
   // Force XAxis and YAxis to be nicely perpendicular
   //   without this you can get failures in SmAxis2Placement, and still return
   //   a non-null rpPlane value
   if ( smos_Fabs( sXAxis.Dot( sYAxis ) ) > SM_EFF_ZERO )
     { sYAxis = sXAxis * sYAxis * sXAxis; // Force them to be nicely perpendicular
-      SER(sYAxis.Unitize());  
+      SER(sYAxis.Unitize());
     }
+
+  // Move the origin to correspond to the zero [u=0, v=0] parameter.
+  // SolidCraft change: along the axes the plane is built with, after YAxis is made perpendicular
+  // (it was moved along the axis before that). The plane maps the domain's corner sOrigin onto
+  // itself only when its origin is placed along its own axes; with a domain far from zero a turn
+  // of YAxis was multiplied by the distance to the origin (a swept wall on v 4..5, 40 mm long,
+  // turned 3.2e-8 rad: its corners 5.1e-6 and 6.4e-6 mm off, over half its vertices' tolerance).
+  SmPoint3d sNewOrigin =   sOrigin
+                         - sUVDomain.GetMin().x * sXAxis * sUVScale.x
+                         - sUVDomain.GetMin().y * sYAxis * sUVScale.y;
 
   // construct temporary new plane (m_pNurb == NULL)
   pPlane = new (crContext) SmPlane(sNewOrigin,sXAxis,sYAxis,sUVScale,sUVDomain);
