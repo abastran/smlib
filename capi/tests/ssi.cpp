@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // smlib_surface_* and smlib_ssi on cases from the SSI corpus (plane x cylinder ellipse, plane x
-// sphere circle, two NURBS paraboloids, a sphere touching a plane), checking curve counts, types
-// and that each curve, evaluated from its exact B-spline, lies on both surfaces; then hostile
-// inputs, which must be rejected.
+// sphere circle, two NURBS paraboloids, a sphere touching a plane) and on cases of their own (a
+// pair that partly coincides and touches along a line elsewhere, a sphere crossing a cone just
+// beyond its end), checking curve counts, types and that each curve, evaluated from its exact
+// B-spline, lies on both surfaces; then hostile inputs, which must be rejected.
 
 #include "smlib.h"
 
@@ -395,6 +396,53 @@ static void partly_coincident_with_tangent_line(bool mirror)
     smlib_surface_free(bump);
 }
 
+// A sphere centred on a cone's axis crosses the cone's straight line just beyond its top end:
+// by 2 tol along the line, so 2 tol cos 70 (under tol) above the top in height, with the line's
+// end within tol of the sphere. That crossing is the cone's top circle, on both surfaces to
+// within tol; the line's other crossing gives a second circle lower down.
+// SmSphere::IntersectWithCone hands the point beyond the end to
+// SmCone::CreateIsoCircleFromPoint, whose circle must then be the top one.
+static void sphere_cone_top_circle()
+{
+    const double tol = 1e-3, half = 70.0, ht[2] = {0, 1};
+    const double rad = half * 3.14159265358979323846 / 180.0;
+    const double ta = std::tan(rad), sa = std::sin(rad), ca = std::cos(rad);
+    const double c[3] = {0, 0, 6};
+    const double p[3] = {ta + 2 * tol * sa, 0, 1 + 2 * tol * ca};
+    const double radius = dist(p, c), lon[2] = {0, 360}, lat[2] = {-90, 90};
+    smlib_surface *sphere = nullptr, *cone = nullptr;
+    CHECK(smlib_surface_sphere(c, X, Y, radius, lon, lat, &sphere) == SMLIB_OK);
+    CHECK(smlib_surface_cone(O, X, Y, half, ht, &cone) == SMLIB_OK);
+    const double top[3] = {ta, 0, 1};
+    CHECK(std::fabs(dist(top, c) - radius) < tol);
+    smlib_ssi_result *r = nullptr;
+    CHECK(smlib_ssi(sphere, cone, SMLIB_SSI_GLOBAL, tol, &r) == SMLIB_OK);
+    if (r != nullptr)
+    {
+        CHECK(count(r) == 2);
+        bool at_top = false;
+        for (int32_t i = 0; i < count(r); ++i)
+        {
+            CHECK(type(r, i) == SMLIB_SSI_CROSSING);
+            Samples s = curve(r, i);
+            double zlo = 1e300, zhi = -1e300;
+            for (int32_t k = 0; k < s.n; ++k)
+            {
+                zlo = std::min(zlo, s.xyz[3 * k + 2]);
+                zhi = std::max(zhi, s.xyz[3 * k + 2]);
+            }
+            at_top = at_top || (std::fabs(zlo - 1.0) < tol && std::fabs(zhi - 1.0) < tol);
+        }
+        CHECK(at_top);
+        check_on_both(r, sphere, cone, 2 * tol, [&](const double *q) {
+            return std::max(std::fabs(dist(q, c) - radius), std::fabs(std::hypot(q[0], q[1]) * ca - q[2] * sa));
+        });
+        smlib_ssi_result_free(r);
+    }
+    smlib_surface_free(sphere);
+    smlib_surface_free(cone);
+}
+
 static void hostile()
 {
     smlib_surface *s = nullptr;
@@ -471,6 +519,7 @@ int main()
     sphere_touching_plane();
     partly_coincident_with_tangent_line(false);
     partly_coincident_with_tangent_line(true);
+    sphere_cone_top_circle();
     hostile();
     if (failures != 0)
     {

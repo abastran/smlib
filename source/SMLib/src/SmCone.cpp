@@ -1647,18 +1647,6 @@ SmStatus SmCone::CreateIsoCircleFromPoint
   if(!sHeightStepIvl.ContainsValue(dParam, d3DTolerance))
     { return(SM_SUCCESS) ; }
 
-  // build Step Point on Surface for Point
-  double dRadius            = GetRadius(dParam) ;
-  SmPoint3d  sCenter        = rOrigin + dParam * sZAxis ;
-  SmVector3d sVec           = crReferencePoint - sCenter ;
-  if ( sVec.LengthSquared() < 2 * SM_EFF_ZERO_SQ )
-  {
-      // Given point is on our axis.
-      sVec = m_vPosition.GetXAxis();
-  }
-  (void)sVec.Unitize(); // SolidCraft: a zero vector stays zero
-  SmPoint3d sPointOnSurface = sCenter + dRadius * sVec ;
-
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
   // draw 
@@ -1674,18 +1662,18 @@ SmBoolean bDebugMe = FALSE ;
       smgfx_SetLook(1,2, 0,0,0) ; if(pFace) pFace->Draw(SM_DM_CROSSHATCH) ; sm_GraphicsLoop() ;
       smgfx_SetLook(3,4, 1,1,0) ; m_pGenCurve->Draw() ; sm_GraphicsLoop() ; 
       smgfx_SetLook(5,6, 1,0,0) ; crReferencePoint.Draw() ; sm_GraphicsLoop() ;
-      smgfx_SetLook(7,8, 0,1,0) ; sPointOnSurface.Draw() ; sm_GraphicsLoop() ;
       sm_GraphicsLoop() ;
     }
 #endif // SM_DEBUG_CODE
 
-  // map Point to StepUV
-  SmLocationType eloc ;
-  SmPoint2d sStepUV, sNurbUV ;
-  // SolidCraft: (void). By its implementation SM_ERR here means the point is not on the surface
-  // inside its domain, with the best parameter placed; the iso curve is built through that.
-  (void)STEPInversion(m_vAnalUVDomain, sPointOnSurface, d3DTolerance, sStepUV, eloc) ;
-  
+  // the circle's StepV is its height dParam (the cone's v is the distance along its axis, see
+  // GetRadius): a reference point within d3DTolerance beyond an end is on that end's circle.
+  // SolidCraft change: this was STEPInversion() of the reference point moved onto the cone at
+  // that height, with its status voided. For a point beyond an end, that point lies beyond the
+  // generator's end by up to d3DTolerance/cos(semi angle), farther than the d3DTolerance the
+  // inversion solves to, and the inversion left StepV unset; the iso circle was built through it.
+  SmPoint2d sStepUV(m_vAnalUVDomain.GetMin().x, sHeightStepIvl.ClampValue(dParam)), sNurbUV ;
+
   // map StepUV to NurbUV
   SER( ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV)  ); 
 
