@@ -14,6 +14,8 @@
 #include <SmBSplineCurve.h>
 #include <SmCylinder.h>
 #include <SmExtent3d.h>
+#include <SmEdge.h>
+#include <SmEdgeuse.h>
 #include <SmFace.h>
 #include <SmFaceuse.h>
 #include <SmFilletExecutive.h>
@@ -272,6 +274,65 @@ class NoOffsetCylinder : public SmCylinder
     }
 };
 
+// The largest gap, over every edgeuse's UV trim curve, between the curve lifted onto its face's
+// surface and its edge's curve at the same parameter, as a multiple of the edge's tolerance
+// (sampled at 33 points per edgeuse).
+double worst_pcurve_gap(const smlib_brep *b)
+{
+    SmTArray<SmEdgeuse *> uses;
+    b->p->GetEdgeuses(uses);
+    double worst = 0.0;
+    for (ULONG i = 0; i < uses.GetSize(); i++)
+    {
+        SmEdgeuse *use = uses[i];
+        SmBSplineCurve *uv = use->GetUVTrimCurvePointer();
+        if (uv == nullptr || use->GetFaceuse() == nullptr)
+        {
+            continue;
+        }
+        SmEdge *e = use->GetEdge();
+        SmSurface *s = use->GetFaceuse()->GetFace()->GetSurface();
+        SmExtent1d ivl = e->GetInterval();
+        for (int k = 0; k <= 32; k++)
+        {
+            double t = ivl.GetMin() + ivl.GetLength() * k / 32.0;
+            SmPoint3d c, q, w;
+            CHECK(e->GetCurve()->EvaluatePoint(t, c) == SM_SUCCESS && uv->EvaluatePoint(t, w) == SM_SUCCESS &&
+                  s->EvaluatePoint(SmPoint2d(w.x, w.y), q) == SM_SUCCESS);
+            worst = std::max(worst, c.DistanceBetween(q) / e->GetTolerance());
+        }
+    }
+    return worst;
+}
+
+// A planar profile (lines and arcs about +z, in the plane z0) extruded `h` up.
+struct Profile
+{
+    std::vector<int64_t> kinds;
+    std::vector<double> reals;
+    Profile &line(double ax, double ay, double bx, double by, double z0)
+    {
+        kinds.push_back(SMLIB_CURVE_LINE);
+        reals.insert(reals.end(), {ax, ay, z0, bx, by, z0});
+        return *this;
+    }
+    // About +z (nz 1) counter-clockwise from a0 to a1, or about -z (nz -1).
+    Profile &arc(double cx, double cy, double z0, double nz, double r, double a0, double a1)
+    {
+        kinds.push_back(SMLIB_CURVE_ARC);
+        reals.insert(reals.end(), {cx, cy, z0, 0, 0, nz, 1, 0, 0, r, a0, a1});
+        return *this;
+    }
+    smlib_brep *extrude(double h) const
+    {
+        const double up[3] = {0, 0, 1};
+        smlib_brep *b = nullptr;
+        CHECK(smlib_extrude(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), up, h, 0.0,
+                            SMLIB_DRAFT_CORNER_CURVATURE, 1, &b, nullptr) == SMLIB_OK);
+        return b;
+    }
+};
+
 } // namespace
 
 int main()
@@ -282,6 +343,37 @@ int main()
     // SMLib defect 1 (SmProtoEdge's destructor left a pointer to itself in a ProtoVertex that
     // bounds both its ends; ~SmProtoTopologyManager then wrote through it): a box minus a
     // through cylinder.
+    // A stadium ring base (arcs r 3 and 5, centres 20 apart, 2 thick) joined with two half-annulus
+    // lips (r 4..5, 18 tall) standing on it with their walls 0.0001 off the base's (SolidCraft rig
+    // booleans/2928): the base's top arc is split 3.5e-6 of its parameter before the knot of its
+    // UV curve, on a plane whose UV runs 38 times shorter than its 3D size. The split left that
+    // short span of the UV curve; trimming used to drop it as degenerate (a 3D tolerance read in
+    // UV units) and the pcurve lifted 2.5 times the edge tolerance off its edge.
+    {
+        const double e = 1e-4;
+        Profile base, lip1, lip2;
+        base.line(5, -10, 5, 10, 0).arc(0, 10, 0, 1, 5, 0, PI).line(-5, 10, -5, -10, 0).arc(0, -10, 0, 1, 5, PI, 2 * PI);
+        base.line(3, -10, 3, 10, 0).arc(0, 10, 0, 1, 3, 0, PI).line(-3, 10, -3, -10, 0).arc(0, -10, 0, 1, 3, PI, 2 * PI);
+        lip1.arc(e, 10, 2, 1, 5, 0, PI).line(-5 + e, 10, -4 + e, 10, 2).arc(e, 10, 2, -1, 4, -PI, 0).line(4 + e, 10, 5 + e, 10, 2);
+        lip2.arc(-e, -10, 2, 1, 5, PI, 2 * PI).line(5 - e, -10, 4 - e, -10, 2).arc(-e, -10, 2, -1, 4, -2 * PI, -PI).line(-4 - e, -10, -5 - e, -10, 2);
+        smlib_brep *b = base.extrude(2.0), *l1 = lip1.extrude(18.0), *l2 = lip2.extrude(18.0), *one = nullptr, *two = nullptr;
+        CHECK(smlib_boolean(b, l1, SMLIB_BOOLEAN_UNION, &one) == SMLIB_OK);
+        CHECK(one != nullptr && smlib_boolean(one, l2, SMLIB_BOOLEAN_UNION, &two) == SMLIB_OK);
+        if (two != nullptr)
+        {
+            // Base 2 * (80 + 16 pi), lips 2 * 18 * 4.5 pi, not overlapping.
+            CHECK(near(volume_of(two), 160.0 + 194.0 * PI, 1e-6));
+            CHECK(sound(two));
+            double worst = worst_pcurve_gap(two);
+            std::printf("lips on a stadium ring: worst pcurve gap %.3g edge tolerances\n", worst);
+            CHECK(worst <= 1.0);
+        }
+        for (smlib_brep *x : {b, l1, l2, one, two})
+        {
+            smlib_brep_free(x);
+        }
+    }
+
     smlib_brep *rod = cylinder(10, 10, -1, 4, 22);
     CHECK(smlib_boolean(cube, rod, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
     CHECK(near(volume_of(r), 8000.0 - PI * 16.0 * 20.0, 1e-6));
