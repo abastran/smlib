@@ -1874,17 +1874,19 @@ SmBoolean bDebugMe4 = FALSE;
 } // end SmOffsetGeometryCreation::ExtendTrimEdges
 
 /*******************************************************************//**
-PURPOSE: SolidCraft: extend a plane, cylinder, cone, sphere or torus as
-    itself: a copy over its STEP domain grown by dDist (3D) on each side
-    that is not a singularity, as far as the surface itself reaches (a
-    sphere to its poles, a cone to its apex, an angle to a full turn).
-    Returns rpExtended NULL for any other surface.
+PURPOSE: SolidCraft: a plane, cylinder, cone, sphere or torus copied
+    and extended as itself where the offset's extended surfaces
+    (SmOffsetExecutive::GetCreateExtendedSurface, tangent (G1R) B-spline
+    extensions) still are that surface: a plane all round, a cylinder or
+    cone along its rulings (a cone up to its apex), each side by dDist (3D)
+    unless it is a singularity. Not round a turn, where the tangent
+    extension leaves the surface. Returns rpExtended NULL for any other
+    surface.
 
-NOTES: The extended surfaces the offset builds on are B-splines (their
-    parameters must extend the faces' own, tangent (G1R) past the faces'
-    boundaries); their intersection is marched and approximated. MateEdges
-    intersects these analytic copies exactly and takes each exact piece
-    that lies on both B-splines.
+NOTES: The extended surfaces are B-splines (their parameters must extend
+    the faces' own); their intersection is marched and approximated.
+    MateEdges intersects these analytic copies exactly and takes each
+    exact piece that lies on both B-splines.
 ***********************************************************************/
 static SmStatus sm_CreateAnalyticExtension
  (const SmContext & crContext,   // in : context for new object construction
@@ -1904,6 +1906,8 @@ static SmStatus sm_CreateAnalyticExtension
   SmPoint2d sNewMin = sDomain.GetMin(), sNewMax = sDomain.GetMax();
   for (int iDir = 0; iDir < 2; iDir++) // 0 = u, 1 = v
     {
+      if (!bPlane && (iDir == 0 || eType == SmSphere_TYPE || eType == SmTorus_TYPE))
+        { continue; } // a turn: the faces' extensions are not the surface there
       const double dLo  = (iDir == 0) ? sDomain.GetMin().x : sDomain.GetMin().y;
       const double dHi  = (iDir == 0) ? sDomain.GetMax().x : sDomain.GetMax().y;
       const double dMid = (iDir == 0) ? 0.5 * (sDomain.GetMin().y + sDomain.GetMax().y)
@@ -1920,27 +1924,11 @@ static SmStatus sm_CreateAnalyticExtension
             { dGrow[iSide] = dDist / dSpeed; }
         }
       double dNewLo = dLo - dGrow[0], dNewHi = dHi + dGrow[1];
-      if (!bPlane)
+      if (!bPlane) // a cylinder's or cone's rulings, as far as the cone reaches (its apex)
         {
-          const double dMaxLo = (iDir == 0) ? sMax.GetMin().x : sMax.GetMin().y;
-          const double dMaxHi = (iDir == 0) ? sMax.GetMax().x : sMax.GetMax().y;
-          // A turn (a revolved surface's angle, a torus's tube) grows to at most one full turn
-          // wherever it starts; any other parameter only as far as the surface reaches.
-          if (iDir == 0 || eType == SmTorus_TYPE)
-            {
-              const double dRoom = (dMaxHi - dMaxLo) - (dHi - dLo);
-              if (dGrow[0] + dGrow[1] > dRoom)
-                {
-                  const double dScale = (dRoom > 0.0) ? dRoom / (dGrow[0] + dGrow[1]) : 0.0;
-                  dNewLo = dLo - dGrow[0] * dScale;
-                  dNewHi = dHi + dGrow[1] * dScale;
-                }
-            }
-          else
-            {
-              dNewLo = smos_Max(dNewLo, smos_Min(dLo, dMaxLo));
-              dNewHi = smos_Min(dNewHi, smos_Max(dHi, dMaxHi));
-            }
+          const double dMaxLo = sMax.GetMin().y, dMaxHi = sMax.GetMax().y;
+          dNewLo = smos_Max(dNewLo, smos_Min(dLo, dMaxLo));
+          dNewHi = smos_Min(dNewHi, smos_Max(dHi, dMaxHi));
         }
       if (iDir == 0) { sNewMin.x = dNewLo; sNewMax.x = dNewHi; }
       else           { sNewMin.y = dNewLo; sNewMax.y = dNewHi; }

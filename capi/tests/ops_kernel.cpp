@@ -221,6 +221,39 @@ smlib_brep *cube_sphere(double r)
     return out;
 }
 
+// A 120 x 80 x 40 box drafted 5 degrees inward with its four sloping edges rounded r 4, shelled 2
+// open at the top (SolidCraft rig shell/3576). The offset's analytic copy of each round (a cone
+// spanning a quarter turn) was grown round its axis to a full turn, which SmCone's NURBS rebuild
+// refuses (SM_ERR_INVALID_INPUT); MateEdges failed at every round, the rounds' walls were
+// left unmated and the piecewise merge hit a missing vertex (SM_ERR_NULL_POINTER, 1006). The
+// copy is grown only along the rulings, where the offset's tangent extension is still the cone.
+void shelled_tapered_box_rounds()
+{
+    const std::vector<int64_t> kinds = {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE, SMLIB_CURVE_LINE, SMLIB_CURVE_LINE};
+    const std::vector<double> reals = {-60, -40, 0, 60, -40, 0, 60, -40, 0, 60, 40, 0,
+                                       60, 40, 0, -60, 40, 0, -60, 40, 0, -60, -40, 0};
+    const double up[3] = {0, 0, 1};
+    smlib_brep *box5 = nullptr, *round = nullptr, *shell = nullptr;
+    CHECK(smlib_extrude(kinds.data(), 4, reals.data(), static_cast<int64_t>(reals.size()), up, 40.0, 5.0 * PI / 180.0,
+                        SMLIB_DRAFT_CORNER_CURVATURE, 1, &box5, nullptr) == SMLIB_OK);
+    if (box5 == nullptr)
+    {
+        return;
+    }
+    const double in = 20.0 * std::tan(5.0 * PI / 180.0); // the sloping edges' midpoints, at z 20
+    const double edges[12] = {60 - in, 40 - in, 20, 60 - in, -(40 - in), 20, -(60 - in), 40 - in, 20, -(60 - in), -(40 - in), 20};
+    CHECK(smlib_fillet(box5, edges, 4, 0.1, 4.0, &round, nullptr) == SMLIB_OK);
+    if (round != nullptr)
+    {
+        const double top[3] = {0, 0, 40};
+        CHECK(smlib_shell(round, top, 1, 0.1, -2.0, &shell, nullptr) == SMLIB_OK);
+        CHECK(shell != nullptr && sound(shell));
+    }
+    smlib_brep_free(shell);
+    smlib_brep_free(round);
+    smlib_brep_free(box5);
+}
+
 // A dome (a quarter disc r 20 revolved about Z: a sphere and a plane) shelled 2 inward, open at
 // its base (SolidCraft rig shell/4847). The offset meets the base plane at the inner sphere's
 // equator, the circle r 18: its edge is that circle exactly, and the shell's volume is
@@ -2891,6 +2924,7 @@ int main()
 
     analytic_step_inversion();
     shelled_dome_rim();
+    shelled_tapered_box_rounds();
 
     if (failures != 0)
     {
