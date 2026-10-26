@@ -528,6 +528,44 @@ SmStatus SmCone::GetApex
 } // end SmCone::GetApex
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. The bottom and top radii of the cone's offset by
+    dSignedOffsetDistance (negative or zero where the offset passes the axis).
+***********************************************************************/
+void SmCone::GetOffsetRadii
+(
+  double   dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double & rdBotRadius,            // out: the offset's bottom radius
+  double & rdTopRadius             // out: the offset's top radius
+) const
+{
+  // When UVs are swapped - reverse orientation of offset
+  // When InsideOut       - reverse orientation of offset
+  double dOffsetSign =   1.0
+                       * (m_bSwapUV    ? -1.0 : 1.0)
+                       * (m_bInsideOut ? -1.0 : 1.0) ;
+  double dOffRadDist = smos_Cosine(m_dSemiAngleDeg * SM_PI / 180.0) * dOffsetSign * dSignedOffsetDistance ;
+  rdBotRadius = GetBotRadius() + dOffRadDist;
+  rdTopRadius = GetTopRadius() + dOffRadDist;
+} // end SmCone::GetOffsetRadii
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when the offset by dSignedOffsetDistance
+    shrinks the cone (or cylinder) onto its axis or past it: both of the
+    offset's radii below dTol (SmSurface::OffsetCollapses).
+***********************************************************************/
+SmBoolean SmCone::OffsetCollapses
+(
+  double dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double dTol                    // in : the radius below which the offset is the axis
+) const
+{
+  double dBotRadius = 0.0;
+  double dTopRadius = 0.0;
+  GetOffsetRadii(dSignedOffsetDistance, dBotRadius, dTopRadius);
+  return dBotRadius < dTol && dTopRadius < dTol;
+} // end SmCone::OffsetCollapses
+
+/*******************************************************************//**
 PURPOSE: Create an offset surface(s) for the cone.
 
 NOTES: The offset Nurb and Step domains map from old to new
@@ -592,15 +630,16 @@ SmBoolean bDebugMe = FALSE ;
   // get new Bot and Top radii from Old and dOffRadDist
   double dOldBotRadius = GetBotRadius();
   double dOldTopRadius = GetTopRadius();
-  double dNewBotRadius = dOldBotRadius + dOffRadDist;
-  double dNewTopRadius = dOldTopRadius + dOffRadDist;
+  double dNewBotRadius = 0.0;
+  double dNewTopRadius = 0.0;
+  GetOffsetRadii(dSignedOffsetDistance, dNewBotRadius, dNewTopRadius);
 
   // In the case of negative or interior offset cones
   // Old behavior: Don't create result AND return success
   // New behavior: Create new SmCone AND return success
   // If both top and bottom are negative then don't create result like before
-  if(   dNewBotRadius < dThisApproxTol3d 
-     && dNewTopRadius < dThisApproxTol3d) 
+  // (SolidCraft: the offset collapses onto the axis, OffsetCollapses)
+  if ( OffsetCollapses(dSignedOffsetDistance, dThisApproxTol3d) )
     { return SM_SUCCESS ; }
 
   // only the BotRadius or TopRadius has gone negative

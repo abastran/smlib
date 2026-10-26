@@ -648,8 +648,10 @@ SmStatus SmOffsetFacesExecutive::OffsetFaces( const SmTArray<SmFace*> & crFaces,
           { pFU = pFU->GetMate(); }
         SmSurface * pSurf = NULL;
         SmSSIData   sCrossings;
-        SmStatus eStat = ( pFU == NULL ) ? SM_ERR_INVALID_INPUT : sMake.FaceuseOffset( m_crContext, pFU, TRUE, pSurf, sCrossings );
-        if ( eStat != SM_SUCCESS || pSurf == NULL )
+        SmBoolean   bCollapses = FALSE;
+        SmStatus eStat = ( pFU == NULL ) ? SM_ERR_INVALID_INPUT : sMake.FaceuseOffset( m_crContext, pFU, TRUE, pSurf, sCrossings, bCollapses );
+        // A face whose offset collapses onto its spine has no surface to move to.
+        if ( eStat != SM_SUCCESS || bCollapses )
           {
             delete pSurf;
             for ( ULONG kk = 0; kk < sSurfaces.GetSize(); kk++ )

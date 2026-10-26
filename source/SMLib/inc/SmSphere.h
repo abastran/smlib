@@ -175,6 +175,9 @@ public:
     SmSurface* &           rOffsetSurface           ///< [out]: Offset Surf Approx, may have self-intersections                                <br>
   ) const;
 
+  // SolidCraft change: the offset's radius below dTol (SmSurface::OffsetCollapses)
+  virtual SmBoolean OffsetCollapses(double dSignedOffsetDistance, double dTol) const;
+
   // create IsoParamCurve from underlying Nurb Surface definition - use analytic params to return as SmCircle
   virtual SmStatus CreateIsoParametricCurve
   (

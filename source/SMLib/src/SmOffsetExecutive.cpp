@@ -709,14 +709,16 @@ SmBoolean bDrawFaces = FALSE;
           //                              bSkipSelfIntersection == TRUE.
           //  - when bSkipSelfIntersection == FALSE single surface offsets are checked for self intersections
           sOffsetSurface = NULL;
+          SmBoolean bCollapses = FALSE;
           SER_DELETE(m_rGeometryCreation.FaceuseOffset(m_crContext,       // in : context for new obj construction
                                                 pFU,               // in : Faceuse->Surface to copy and offset
                                                 TRUE,              // in : TRUE =
                                                                    //      FALSE=
                                                 sOffsetSurface,    // out: New Surface (more than 1 for self-XSect cases)
-                                                sIntData),       // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                sIntData,          // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                bCollapses),       // out: TRUE = the offset shrinks the face onto its spine: no surface
                                                 sOffsetSurface) ;  // JLMCC hunting memory leaks
-          if ( sOffsetSurface == NULL )
+          if ( bCollapses )
             { continue; }
 
           // build a face in m_pOffsetBrep made with sOffsetSurface and pFU->Edge->UVTrimCurves. 
@@ -1488,16 +1490,19 @@ SmBoolean bDebugMeAll = FALSE ;
             { pFU = pFU->GetMate(); }
 
           // create the offset surface for this faceuse - OutSurface(s) domains = InSurface domain, but may be trimmed for singularites.
+          SmBoolean bCollapses = FALSE;
           SER(m_rGeometryCreation.FaceuseOffset(m_crContext,        // in : context for new obj construction
                                                 pFU,                // in : Faceuse->Surface to copy and offset
                                                 TRUE,               // in : TRUE =
                                                                     //      FALSE=
                                                 sOffsetSurface,     // out: New Surface (more than 1 for self-XSect cases)
-                                                sIntData)) ;        // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                sIntData,           // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                bCollapses)) ;      // out: TRUE = the offset shrinks the face onto its spine: no surface
                                                                   
-          // An inset face whose offset collapses (a convex round thinner than the wall) gets no
-          // offset face: the faces beside it are mated across it below, as at a sharp edge.
-          if (sOffsetSurface == NULL) 
+          // An inset face whose offset collapses onto its spine (a convex round no thicker than
+          // the wall) gets no offset face: the faces beside it are mated across it below, as at a
+          // sharp edge. Any other offset has its surface (FaceuseOffset fails otherwise).
+          if (bCollapses) 
             {
               if (m_bInset && m_bExtendConvexEdges)
                 {

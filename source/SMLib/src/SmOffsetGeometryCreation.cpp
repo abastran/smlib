@@ -38,11 +38,13 @@ SmStatus SmLocalOperationGeometryCreation::FaceuseOffset
   SmBoolean               bSkipSelfIntersection, // NotUsed: in : TRUE =  
                                                  //      FALSE=  
   SmSurface*            & rNewSurface,           // out: New Surface 
-  SmSSIData             & rSelfIntersections)    // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmSSIData             & rSelfIntersections,    // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmBoolean             & rbCollapses)           // out: always FALSE: the surfaces are given
  const
 {
   SM_REF1(bSkipSelfIntersection) ;
   // init output
+  rbCollapses = FALSE;
   rSelfIntersections.m_v3DCurves.ReSet();
   rSelfIntersections.m_vUVCurves1.ReSet();
   rSelfIntersections.m_vUVCurves2.ReSet();
@@ -121,8 +123,9 @@ SmStatus SmOffsetGeometryCreation::FaceuseOffset
   const SmFaceuse       * pOriginalFaceuse,      // in : Faceuse->Surface to copy and offset  
   SmBoolean               bSkipSelfIntersection, // in : TRUE =  
                                                  //      FALSE=  
-  SmSurface *           & rNewSurface,           // out: New Surface  
-  SmSSIData             & rSelfIntersections     // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmSurface *           & rNewSurface,           // out: New Surface; NULL when, and only when, rbCollapses
+  SmSSIData             & rSelfIntersections,    // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmBoolean             & rbCollapses            // out: TRUE = the offset shrinks the surface onto its spine or past it
 ) const
 {
   // init output
@@ -132,6 +135,7 @@ SmStatus SmOffsetGeometryCreation::FaceuseOffset
   rSelfIntersections.m_vCurveTypes.ReSet();
   rSelfIntersections.m_vDeviations.ReSet();
   rNewSurface = NULL;
+  rbCollapses = FALSE;
 
   // locals
   double     dSign =   (pOriginalFaceuse->GetOrientation() == SM_OT_OPPOSITE)
@@ -157,6 +161,15 @@ static ULONG lDebugCount  = 0;
     }
 #endif // SM_DEBUG_CODE
 
+  // SolidCraft change: an offset that shrinks the surface onto its spine or past it (a convex
+  // round no thicker than the distance) is no surface, as the surface says; every other offset is
+  // one, and an offset construction that gives none has failed.
+  if ( pSur->OffsetCollapses(dSign*m_dOffsetDistance, m_dThisApproxTol3d/10.0) )
+    {
+      rbCollapses = TRUE;
+      return SM_SUCCESS;
+    }
+
   // construct an offset surface from this surface - 
   SER_DELETE(pSur->CreateOffsetSurface(crContext,               // in : context for new obj construction 
                                 dSign*m_dOffsetDistance, // in : offset dist, (neg val = Offset dir opposite surface normal) 
@@ -165,7 +178,7 @@ static ULONG lDebugCount  = 0;
                                 rNewSurface); // JLMCC hunting memory leaks
 
   if ( rNewSurface == NULL )
-    { return SM_SUCCESS; }
+    { SER(SM_ERR); }
 
   // when working with analytics - 
   // replace all current appropriate BSplineSurface

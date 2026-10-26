@@ -284,7 +284,13 @@ public:
     double                 dSignedOffsetDistance,   ///< [in] : offset dist, (neg val = Offset dir opposite surface normal)                <br>
     SmApproxTol3d          sApproxTol3d,            ///< [in] : Max Dist between ApproxOffsetSurface and ideal offset shape                <br>
     SmSurface* &           rOffsetSurface           ///< [out]: Offset Surf Approx, may have self-intersections                            <br>
-  ) const ; 
+  ) const ;
+
+  // SolidCraft change: both radii of the offset below dTol (SmSurface::OffsetCollapses)
+  virtual SmBoolean OffsetCollapses(double dSignedOffsetDistance, double dTol) const;
+
+  // SolidCraft change: the bottom and top radii of the offset by dSignedOffsetDistance
+  void GetOffsetRadii(double dSignedOffsetDistance, double & rdBotRadius, double & rdTopRadius) const;
 
   // create IsoParamCurve from underlying NurbSurfaceConvertUVFromSTEPToNURBS
   // uses analytic params to return SmLine or SmCircle when possible

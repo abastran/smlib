@@ -224,6 +224,22 @@ SmStatus SmTorus::CreateCanonical
 } // end SmTorus::CreateCanonical
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when the offset by dSignedOffsetDistance
+    shrinks the torus onto its centre circle or past it: the offset's minor
+    radius below dTol (SmSurface::OffsetCollapses).
+***********************************************************************/
+SmBoolean SmTorus::OffsetCollapses
+(
+  double dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double dTol                    // in : the radius below which the offset is the centre circle
+) const
+{
+  // When UVs are swapped - reverse orientation of offset
+  double dOffsetSign = m_bSwapUV ? -1.0 : 1.0 ;
+  return m_dMinorRadius + dOffsetSign * dSignedOffsetDistance < dTol;
+} // end SmTorus::OffsetCollapses
+
+/*******************************************************************//**
 PURPOSE: Create an offset torus for the torus.
 
 NOTES: 
@@ -298,7 +314,8 @@ SmBoolean bDebugMe = FALSE ;
   // skip building degenerate or negative radius minor circles
   // gwc: currently we can construct self intersection tori when
   //      majorRadius < minorRadius.  A warning is signaled in the constructor.
-  if(   dNewMinRadius < dThisApproxTol3d)
+  // (SolidCraft: the offset collapses onto the centre circle, OffsetCollapses)
+  if ( OffsetCollapses(dSignedOffsetDistance, dThisApproxTol3d) )
     { return SM_SUCCESS; }
 
   // copy the current torus

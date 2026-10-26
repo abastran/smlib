@@ -244,6 +244,25 @@ SmStatus SmSphere::GetCanonical
 } // end SmSphere::GetCanonical
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when the offset by dSignedOffsetDistance
+    shrinks the sphere onto its centre or past it: the offset's radius below
+    dTol (SmSurface::OffsetCollapses).
+***********************************************************************/
+SmBoolean SmSphere::OffsetCollapses
+(
+  double dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double dTol                    // in : the radius below which the offset is the centre
+) const
+{
+  // When UVs are swapped - reverse orientation of offset
+  // When InsideOut       - reverse orientation of offset
+  double dOffsetSign =   1.0
+                       * (m_bSwapUV    ? -1.0 : 1.0)
+                       * (m_bInsideOut ? -1.0 : 1.0) ;
+  return m_dRadius + dOffsetSign * dSignedOffsetDistance < dTol;
+} // end SmSphere::OffsetCollapses
+
+/*******************************************************************//**
 PURPOSE: Create an offset sphere for the sphere.
 
 NOTES:
@@ -318,7 +337,8 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // skip building degenerate or negative radius surfaces
-  if(dNewRadius < dThisApproxTol3d)
+  // (SolidCraft: the offset collapses onto the centre, OffsetCollapses)
+  if ( OffsetCollapses(dSignedOffsetDistance, dThisApproxTol3d) )
     { return SM_SUCCESS; }
 
   // copy the current sphere

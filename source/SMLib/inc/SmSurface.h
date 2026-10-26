@@ -683,8 +683,16 @@ public:
   virtual SmStatus CreateOffsetSurface(const SmContext      & crContext,               // in : context for new obj construction                                           
                                        double                 dSignedOffsetDistance,   // in : offset dist, (neg val = Offset dir opposite surface normal)                
                                        SmApproxTol3d          sApproxTol3d,            // NotUsed: in : Max Dist between ApproxOffsetSurface and ideal offset shape                
-                                       SmSurface* &           rOffsetSurface)          // out: Offset Surf Approx, may have self-intersections                            
-                                      const ; 
+                                       SmSurface* &           rOffsetSurface)          // out: Offset Surf Approx, may have self-intersections
+                                      const ;
+
+  // SolidCraft change: TRUE when the offset by dSignedOffsetDistance shrinks this surface onto its
+  // spine or past it, its radius below dTol (a cylinder or cone onto its axis, a torus onto its centre
+  // circle, a sphere onto its centre): a convex round no thicker than the distance, whose offset
+  // is no surface, so CreateOffsetSurface gives none. FALSE for every surface whose offset is one.
+  virtual SmBoolean OffsetCollapses(double dSignedOffsetDistance,   // in : offset dist, (neg val = Offset dir opposite surface normal)
+                                    double dTol)                    // in : the radius below which the offset is its spine
+                                   const { SM_REF2(dSignedOffsetDistance, dTol); return FALSE; }
 
   virtual SmStatus CreateParallelProjectionCurves(const SmContext      & crContext,                 // in : context for new object construction                        
                                                   const SmExtent2d     & crUVDomain,                // in : surface domain limit                                       

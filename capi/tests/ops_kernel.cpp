@@ -15,7 +15,9 @@
 #include <SmCylinder.h>
 #include <SmExtent3d.h>
 #include <SmFace.h>
+#include <SmFaceuse.h>
 #include <SmFilletExecutive.h>
+#include <SmOffsetGeometryCreation.h>
 #include <SmOffsetSurface.h>
 #include <SmAxis2Placement.h>
 #include <SmSphere.h>
@@ -253,6 +255,22 @@ void analytic_step_inversion()
     CHECK(SmSurface::STEPInversionAnswered(SM_ERR_NOT_WITHIN_TOLERANCE) && SmSurface::STEPInversionAnswered(SM_ERR_OUTSIDE_OF_DOMAIN));
     CHECK(!SmSurface::STEPInversionAnswered(SM_ERR) && !SmSurface::STEPInversionAnswered(SM_ERR_NOT_CONVERGING));
 }
+
+// A cylinder whose offset construction gives no surface although the offset does not collapse
+// (the cylinder's radius is larger than the distance): an offset that is missing for any other
+// reason than a collapse.
+class NoOffsetCylinder : public SmCylinder
+{
+  public:
+    explicit NoOffsetCylinder(const SmCylinder &c) : SmCylinder(c)
+    {
+    }
+    SmStatus CreateOffsetSurface(const SmContext &, double, SmApproxTol3d, SmSurface *&rOffset) const override
+    {
+        rOffset = nullptr;
+        return SM_SUCCESS;
+    }
+};
 
 } // namespace
 
@@ -1682,6 +1700,112 @@ int main()
             smlib_brep_free(round);
         }
         smlib_brep_free(block);
+    }
+
+    // An offset is no surface exactly where it shrinks its surface onto its spine (a cylinder or
+    // cone onto its axis, a torus onto its centre circle, a sphere onto its centre): radius 2,
+    // offset 2.1 inward collapses, 1.9 does not, and outward never; the cone (radii 2 and 1 over
+    // 5) collapses only when both its radii do, at 2.1 (cos of its semi-angle 0.98), not at 1.5,
+    // where only its top passes the axis.
+    {
+        SmContext *ctx = SmApiGetOrCreateContext();
+        SmSurface *cyl = nullptr, *cone = nullptr, *tor = nullptr;
+        CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 2.0, 5.0, cyl) == SM_SUCCESS && cyl != nullptr);
+        CHECK(SmApiCreateCone(SmVector3d(0, 0, 0), 2.0, 1.0, 5.0, cone) == SM_SUCCESS && cone != nullptr);
+        CHECK(SmApiCreateTorus(SmVector3d(0, 0, 0), 10.0, 2.0, tor) == SM_SUCCESS && tor != nullptr);
+        SmBrep *ball = nullptr;
+        CHECK(SmApiCreateSphere(SmVector3d(0, 0, 0), 2.0, ball) == SM_SUCCESS && ball != nullptr);
+        SmTArray<SmFace *> ball_faces;
+        ball->GetFaces(ball_faces);
+        CHECK(ball_faces.GetSize() > 0);
+        const SmSurface *sph = ball_faces.GetSize() > 0 ? ball_faces[0]->GetSurface() : nullptr;
+        const double tol = 1e-4;
+        for (const SmSurface *s : {static_cast<const SmSurface *>(cyl), static_cast<const SmSurface *>(cone), static_cast<const SmSurface *>(tor), sph})
+        {
+            if (s == nullptr)
+            {
+                continue;
+            }
+            int collapsed = 0;
+            for (double d : {-2.1, 2.1, -1.9, 1.9, -1.5, 1.5})
+            {
+                SmSurface *off = nullptr;
+                CHECK(s->CreateOffsetSurface(*ctx, d, tol, off) == SM_SUCCESS);
+                const bool collapses = s->OffsetCollapses(d, tol) != FALSE;
+                CHECK((off == nullptr) == collapses);
+                if (collapses)
+                {
+                    collapsed++;
+                    CHECK(std::fabs(d) > 2.0);
+                }
+                delete off;
+            }
+            CHECK(collapsed == 1);
+        }
+        delete cyl;
+        delete cone;
+        delete tor;
+        delete ball;
+    }
+
+    // The offset of a face: no surface only for a collapse, flagged as one; an offset construction
+    // that gives none otherwise fails. A cylinder r5: inset 6 it collapses (one of its two
+    // faceuses offsets toward the axis), inset 2 it is a cylinder r3; with a construction that
+    // gives nothing, inset 2 fails on both sides and is no collapse.
+    {
+        smlib_brep *rod = cylinder(0, 0, 0, 5, 10);
+        SmTArray<SmFace *> faces;
+        rod->p->GetFaces(faces);
+        SmFace *side = nullptr;
+        for (ULONG i = 0; i < faces.GetSize(); i++)
+        {
+            if (faces[i]->GetSurface()->IsKindOf(SmCylinder_TYPE))
+            {
+                side = faces[i];
+            }
+        }
+        CHECK(side != nullptr);
+        if (side != nullptr)
+        {
+            const SmContext &ctx = *SmApiGetOrCreateContext();
+            const SmFaceuse *uses[2] = {side->GetUpwardFaceuse(), side->GetUpwardFaceuse()->GetMate()};
+            auto offset = [&](double d, const SmFaceuse *fu, SmBoolean &collapses, SmSurface *&surface)
+            {
+                SmOffsetGeometryCreation make(d, rod->p->GetTolerance());
+                SmSSIData crossings;
+                surface = nullptr;
+                collapses = FALSE;
+                return make.FaceuseOffset(ctx, fu, TRUE, surface, crossings, collapses);
+            };
+            int collapsed = 0;
+            for (const SmFaceuse *fu : uses)
+            {
+                SmBoolean collapses = FALSE;
+                SmSurface *surface = nullptr;
+                CHECK(offset(6.0, fu, collapses, surface) == SM_SUCCESS);
+                CHECK((surface == nullptr) == (collapses != FALSE));
+                collapsed += collapses ? 1 : 0;
+                delete surface;
+                CHECK(offset(2.0, fu, collapses, surface) == SM_SUCCESS && !collapses && surface != nullptr);
+                delete surface;
+            }
+            CHECK(collapsed == 1);
+            SmSurface *own = side->GetSurface();
+            const SmExtent2d domain = side->GetUVDomain();
+            NoOffsetCylinder *none = new (ctx) NoOffsetCylinder(*static_cast<const SmCylinder *>(own));
+            side->SetSurface(none);
+            for (const SmFaceuse *fu : uses)
+            {
+                SmBoolean collapses = FALSE;
+                SmSurface *surface = nullptr;
+                CHECK(offset(2.0, fu, collapses, surface) != SM_SUCCESS && !collapses && surface == nullptr);
+            }
+            side->SetSurface(own);
+            side->SetUVDomain(domain);
+            delete none;
+            CHECK(sound(rod));
+        }
+        smlib_brep_free(rod);
     }
 
     // A box 20 x 10 x 30 open at the top with walls 4 thick: the sides need room 4 from each
