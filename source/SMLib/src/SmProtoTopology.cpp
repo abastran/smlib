@@ -636,8 +636,8 @@ PURPOSE: Place this VertexDefinition by another intersection curve's crossing
 USAGE NOTES---- SolidCraft fork, for SmProtoVertex::AddCrossing. The source
   topology of crPC1 and crPC2 is this VertexDefinition's. A crossing may
   misplace it along the Edge by its gap over the sine of its angle
-  (sm_CrossingError); the first crossing is kept unless a later one's bound is
-  smaller. Then only the point parameters on the source objects, the position,
+  (sm_CrossingError); the first crossing is kept unless a later one, whose
+  points lie within their objects' tolerance of each other, has a smaller bound. Then only the point parameters on the source objects, the position,
   the gap and the crossing angle change; the classifications (which Face each
   point was classified against) stay. rbMoved says whether it was placed again.
 ***********************************************************************/
@@ -677,6 +677,13 @@ SmStatus SmVertexDefinition::PlaceByCrossing
   SER( sPC1.FindObjPoint3d( sPt1) );
   SER( sPC2.FindObjPoint3d( sPt2) );
   double dGap = smos_3Max( sPt1.DistanceBetween( sPt2), sPC1.GetGap3d(), sPC2.GetGap3d()) ;
+
+  // Points farther apart than both source objects' tolerances are no point on both: the crossing
+  // is another point that the ProtoVertex's containment radius took in (the far end of a short
+  // curve it absorbs), not this VertexDefinition placed again.
+  double dObjTol = smos_Max( (double)SmTol::GetZoneTol3d( sPC1.GetObject()), (double)SmTol::GetZoneTol3d( sPC2.GetObject())) ;
+  if(!(dGap <= dObjTol) )
+    { return SM_SUCCESS; }
   if(!(sm_CrossingError( dGap, dCrossingSine) < sm_CrossingError( m_dGap, m_dCrossingSine)) )
     { return SM_SUCCESS; }
 
