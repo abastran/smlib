@@ -230,6 +230,33 @@ int main()
         expect(name, smlib_revolve(horn.kinds.data(), horn.nk(), horn.reals.data(), horn.nr(), O, Z, 2 * PI * turn, 1, &b), &b,
                2 * PI * turn * (14.0 + 56.0 / (3.0 * PI)) * PI * 98.0, 1e-6);
     }
+    // An open chain of two curves (a line out from r 6 to 8, then up 2) turned part way into a
+    // sheet (cap 0): the two curves share their meeting vertex, so the sweep gives two faces
+    // joined along one edge (SolidCraft rig booleans/4879). Area: turn * (8^2 - 6^2) / 2 for the
+    // flat ring sector plus turn * 8 * 2 for the cylinder.
+    {
+        List chain;
+        chain.line(6, 0, 0, 8, 0, 0).line(8, 0, 0, 8, 0, 2);
+        for (double turn : {100.0 / 360.0, 0.5, 0.75})
+        {
+            b = nullptr;
+            CHECK(smlib_revolve(chain.kinds.data(), chain.nk(), chain.reals.data(), chain.nr(), O, Z, 2 * PI * turn, 0, &b) == SMLIB_OK);
+            if (b == nullptr)
+            {
+                continue;
+            }
+            int64_t counts[3] = {0, 0, 0};
+            CHECK(smlib_brep_counts(b, counts) == SMLIB_OK && counts[0] == 2);
+            double area = 0.0;
+            CHECK(smlib_brep_area(b, 1e-8, &area) == SMLIB_OK);
+            CHECK(std::fabs(area - 2 * PI * turn * 30.0) <= 1e-6 * area);
+            int64_t len = 0, bad = -1;
+            char buf[4096] = {0};
+            CHECK(smlib_brep_check(b, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK && bad == 0);
+            std::printf("revolve open chain %.3f turn: faces %lld area %.6f check %s\n", turn, (long long)counts[0], area, bad == 0 ? "valid" : buf);
+            smlib_brep_free(b);
+        }
+    }
 
     // Sweeps: a disc along a line (a cylinder), along a quarter arc (a quarter torus), and off
     // the path's start (the profile keeps its offset: Pappus about the arc's centre).

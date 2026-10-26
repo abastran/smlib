@@ -1873,6 +1873,57 @@ SmBoolean bDebugMe = FALSE ;
 } // end SmPrimitiveCreation::CreateLinearSweepSimple( curves )
 
 /*******************************************************************//**
+PURPOSE: The profile curves as wire edges of pBrep, joined where they meet: a curve's end
+    within the Brep's tolerance of an end of an earlier curve shares that curve's vertex.
+    The curves are consumed.
+
+NOTES: SolidCraft: the sweeps' fallback for a profile that bounds no planar face (an open
+    chain swept into a sheet) made each curve a wire edge of its own, so two curves meeting at
+    a point left two coincident vertices there. The topology sweep requires a profile with no
+    stitchable parts (SmSweepStitchCallback::SelectTopologyToKeep): the copies swept from two
+    such vertices came out coincident with a preimage each, and the stitch refused them, so a
+    partial revolve of a profile of more than one curve failed.
+***********************************************************************/
+static SmStatus sm_CreateJoinedWireEdges
+  (SmBrep             * pBrep,     // in : target brep, its tolerance the distance ends are joined within
+   SmTArray<SmCurve*> & r3DCurves, // in : profile curves, consumed
+   SmTArray<SmEdge*>  & rEdges)    // out: one wire edge per curve, in the curves' order
+{
+  NER(pBrep);
+  double dTol = pBrep->GetTolerance();
+  SmTArray<SmVertex*> sVertices;   // the distinct vertices made so far
+  for (ULONG ii = 0; ii < r3DCurves.GetSize(); ii++)
+    {
+      SmCurve *pCurve = r3DCurves[ii];
+      NER(pCurve);
+      SmEdge *pEdge = NULL;
+      SER(pBrep->CreateWireEdgeFromCurve(pCurve, pCurve->GetNaturalInterval(), pEdge));
+      NER(pEdge);
+      rEdges.Add(pEdge);
+      SmVertex *apEnds[2] = { pEdge->GetStartVertex(), NULL };
+      NER(apEnds[0]);
+      apEnds[1] = pEdge->GetOtherVertex(apEnds[0]);
+      for (ULONG kk = 0; kk < 2; kk++)
+        {
+          SmVertex *pV = apEnds[kk];
+          if (pV == NULL || (kk == 1 && pV == apEnds[0]))
+            { continue; }
+          SmVertex *pMatch = NULL;
+          for (ULONG jj = 0; jj < sVertices.GetSize() && pMatch == NULL; jj++)
+            {
+              if (sVertices[jj]->GetPoint().DistanceBetween(pV->GetPoint()) <= dTol)
+                { pMatch = sVertices[jj]; }
+            }
+          if (pMatch == NULL)
+            { sVertices.Add(pV); }
+          else
+            { SER(pBrep->GlueVertices(pMatch, pV)); }
+        }
+    }
+  return SM_SUCCESS;
+} // end sm_CreateJoinedWireEdges
+
+/*******************************************************************//**
 PURPOSE: Creates a planar face from the given curves, and sweeps them,
          possibly into a solid. The face may have internal loops.
 
@@ -1990,20 +2041,8 @@ SmBoolean bDebugMe = FALSE ;
                                            aFaces ) != SM_SUCCESS )
     {
       
-      // in which case, for every input curve - create a wire
-      // which we know will fail for open loops and non-planar curves
-      for ( ULONG ii = 0; ii < cr3DCurves.GetSize(); ii++ )
-        {
-          SmEdge  *pEdge = NULL;
-          SmCurve *pCurve = cr3DCurves[ii];
-          if(pCurve == NULL)
-            { return SM_ERR; }
-
-          // build and save the wire
-          if(pBrep->CreateWireEdgeFromCurve(pCurve, pCurve->GetNaturalInterval(), pEdge) != SM_SUCCESS)
-            { return SM_ERR; }
-          sEdges.Add(pEdge);
-        } // end iter every input curve building wires
+      // in which case the input curves become wires, joined where they meet
+      SER(sm_CreateJoinedWireEdges(pBrep, cr3DCurves, sEdges));
 
       aFaces.SetSize(0);
     } // end input curves don't form coplanar closed loops branch
@@ -2778,17 +2817,8 @@ SmBoolean bDebugMe = FALSE ;
   // This consumes the input curves (if successful).
   if (pBrep->CreatePlanarFacesWith3DCurves(m_pRegion, r3DCurves, dTol, aFaces) != SM_SUCCESS) 
     {
-      for (ULONG i=0; i<r3DCurves.GetSize(); i++) 
-        {
-          // This also consumes the input curve (if successful).
-          SmCurve *pCurve = r3DCurves   [i];
-          SmEdge *pEdge = NULL;
-          if (pBrep->CreateWireEdgeFromCurve(pCurve,pCurve->GetNaturalInterval(),pEdge) != SM_SUCCESS) 
-            {
-              return SM_ERR;
-            }
-          sEdges.Add(pEdge);
-        }
+      // The curves become wires, joined where they meet (this also consumes them).
+      SER(sm_CreateJoinedWireEdges(pBrep, r3DCurves, sEdges));
       aFaces.SetSize(0);
     }
 
@@ -3035,14 +3065,7 @@ SmStatus SmPrimitiveCreation::CreateDraftSweep
   SmTArray<SmFace*> aFaces;
   SmTArray<SmEdge*> sEdges;
   if (pBrep->CreatePlanarFacesWith3DCurves(m_pRegion, cr3DCurves, dTol, aFaces) != SM_SUCCESS) {
-      for (ULONG i=0; i<cr3DCurves.GetSize(); i++) {
-          SmCurve *pCurve = cr3DCurves[i];
-          SmEdge *pEdge = NULL;
-          if (pBrep->CreateWireEdgeFromCurve(pCurve,pCurve->GetNaturalInterval(),pEdge) != SM_SUCCESS) {
-              return SM_ERR;
-          }
-          sEdges.Add(pEdge);
-      }
+      SER(sm_CreateJoinedWireEdges(pBrep, cr3DCurves, sEdges));
       aFaces.SetSize(0);
   }
   else {
