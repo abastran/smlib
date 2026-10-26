@@ -1874,6 +1874,154 @@ SmBoolean bDebugMe4 = FALSE;
 } // end SmOffsetGeometryCreation::ExtendTrimEdges
 
 /*******************************************************************//**
+PURPOSE: SolidCraft: extend a plane, cylinder, cone, sphere or torus as
+    itself: a copy over its STEP domain grown by dDist (3D) on each side
+    that is not a singularity, as far as the surface itself reaches (a
+    sphere to its poles, a cone to its apex, an angle to a full turn).
+    Returns rpExtended NULL for any other surface.
+
+NOTES: The extended surfaces the offset builds on are B-splines (their
+    parameters must extend the faces' own, tangent (G1R) past the faces'
+    boundaries); their intersection is marched and approximated. MateEdges
+    intersects these analytic copies exactly and takes each exact piece
+    that lies on both B-splines.
+***********************************************************************/
+static SmStatus sm_CreateAnalyticExtension
+ (const SmContext & crContext,   // in : context for new object construction
+  const SmSurface & crSurface,   // in : surface to extend
+  double            dDist,       // in : 3D distance to extend each side by
+  SmSurface      *& rpExtended)  // out: the extended copy, NULL when crSurface is not one of the above
+{
+  rpExtended = NULL;
+  const SM_TYPE eType = crSurface.GetType();
+  const SmBoolean bPlane = (eType == SmPlane_TYPE);
+  if (   !bPlane && eType != SmCylinder_TYPE && eType != SmCone_TYPE
+      && eType != SmSphere_TYPE && eType != SmTorus_TYPE)
+    { return SM_SUCCESS; }
+
+  const SmExtent2d sDomain = crSurface.GetSTEPUVDomain();
+  const SmExtent2d sMax    = bPlane ? sDomain : crSurface.GetMaxAnalyticDomain();
+  SmPoint2d sNewMin = sDomain.GetMin(), sNewMax = sDomain.GetMax();
+  for (int iDir = 0; iDir < 2; iDir++) // 0 = u, 1 = v
+    {
+      const double dLo  = (iDir == 0) ? sDomain.GetMin().x : sDomain.GetMin().y;
+      const double dHi  = (iDir == 0) ? sDomain.GetMax().x : sDomain.GetMax().y;
+      const double dMid = (iDir == 0) ? 0.5 * (sDomain.GetMin().y + sDomain.GetMax().y)
+                                      : 0.5 * (sDomain.GetMin().x + sDomain.GetMax().x);
+      double dGrow[2] = { 0.0, 0.0 };
+      for (int iSide = 0; iSide < 2; iSide++)
+        {
+          const double dAt = (iSide == 0) ? dLo : dHi;
+          const SmPoint2d sUV = (iDir == 0) ? SmPoint2d(dAt, dMid) : SmPoint2d(dMid, dAt);
+          SmVector3d sDers[4]; // [D, Dv, Du, Duv]
+          SER(crSurface.EvaluateSTEP(sUV, 1, 1, iSide == 0, iSide == 0, FALSE, sDers));
+          const double dSpeed = (iDir == 0) ? sDers[2].Length() : sDers[1].Length();
+          if (dSpeed > SM_EFF_ZERO) // no extension through a singularity
+            { dGrow[iSide] = dDist / dSpeed; }
+        }
+      double dNewLo = dLo - dGrow[0], dNewHi = dHi + dGrow[1];
+      if (!bPlane)
+        {
+          const double dMaxLo = (iDir == 0) ? sMax.GetMin().x : sMax.GetMin().y;
+          const double dMaxHi = (iDir == 0) ? sMax.GetMax().x : sMax.GetMax().y;
+          // A turn (a revolved surface's angle, a torus's tube) grows to at most one full turn
+          // wherever it starts; any other parameter only as far as the surface reaches.
+          if (iDir == 0 || eType == SmTorus_TYPE)
+            {
+              const double dRoom = (dMaxHi - dMaxLo) - (dHi - dLo);
+              if (dGrow[0] + dGrow[1] > dRoom)
+                {
+                  const double dScale = (dRoom > 0.0) ? dRoom / (dGrow[0] + dGrow[1]) : 0.0;
+                  dNewLo = dLo - dGrow[0] * dScale;
+                  dNewHi = dHi + dGrow[1] * dScale;
+                }
+            }
+          else
+            {
+              dNewLo = smos_Max(dNewLo, smos_Min(dLo, dMaxLo));
+              dNewHi = smos_Min(dNewHi, smos_Max(dHi, dMaxHi));
+            }
+        }
+      if (iDir == 0) { sNewMin.x = dNewLo; sNewMax.x = dNewHi; }
+      else           { sNewMin.y = dNewLo; sNewMax.y = dNewHi; }
+    }
+
+  SmSurface * pCopy = NULL;
+  SER(crSurface.Copy(crContext, pCopy)); NER(pCopy);
+  SmObjDelete sCleanCopy(pCopy);
+  SER(pCopy->AdjustSTEPUVDomain(SmExtent2d(sNewMin, sNewMax)));
+  sCleanCopy.Clear();
+  rpExtended = pCopy;
+  return SM_SUCCESS;
+
+} // end sm_CreateAnalyticExtension
+
+/*******************************************************************//**
+PURPOSE: SolidCraft: the exact line or conic of crExact that crMarched
+    (a marched intersection piece) approximates, as a copy over the same
+    span: from crMarched's start point to its end point, the way round
+    through its middle (all of a closed conic for a closed piece).
+    rpPiece is NULL when no line or conic of crExact runs through all
+    three points within dTol.
+***********************************************************************/
+static SmStatus sm_ExactPiece
+ (const SmContext          & crContext,  // in : context for new object construction
+  const SmCurve            & crMarched,  // in : marched intersection piece
+  const SmTArray<SmCurve*> & crExact,    // in : exact intersection curves of the same surfaces
+  double                     dTol,       // in : 3D distance within which a point is on a curve
+  SmCurve                 *& rpPiece)    // out: the exact piece, NULL when none
+{
+  rpPiece = NULL;
+  const SmExtent1d sIvl = crMarched.GetNaturalInterval();
+  SmPoint3d sP[3]; // start, middle, end
+  SER(crMarched.EvaluatePoint(sIvl.GetMin(),        sP[0]));
+  SER(crMarched.EvaluatePoint(sIvl.Evaluate(0.5),   sP[1]));
+  SER(crMarched.EvaluatePoint(sIvl.GetMax(),        sP[2]));
+  for (ULONG ii = 0; ii < crExact.GetSize(); ii++)
+    {
+      const SmCurve * pExact = crExact[ii];
+      const SmBoolean bLine  = pExact->IsKindOf(SmLine_TYPE);
+      if (!bLine && !pExact->IsKindOf(SmEllipse_TYPE))
+        { continue; }
+      double dT[3];
+      SmBoolean bOn = TRUE;
+      for (int k = 0; k < 3 && bOn; k++)
+        {
+          SmPoint3d sOn;
+          SER(pExact->STEPInversion(sP[k], dT[k]));
+          SER(pExact->EvaluateSTEPPoint(dT[k], sOn));
+          bOn = (sOn.DistanceBetween(sP[k]) <= dTol);
+        }
+      if (!bOn)
+        { continue; }
+      SmExtent1d sSpan;
+      if (bLine)
+        { sSpan = SmExtent1d(smos_Min(dT[0], dT[2]), smos_Max(dT[0], dT[2])); }
+      else // a conic: its STEP parameter is its angle in degrees
+        {
+          const double dTurn = 360.0;
+          auto sAfter = [dTurn](double dAngle, double dFrom) // dAngle moved into (dFrom, dFrom + dTurn]
+            { while (dAngle <= dFrom) { dAngle += dTurn; } while (dAngle > dFrom + dTurn) { dAngle -= dTurn; } return dAngle; };
+          if (sP[0].DistanceBetween(sP[2]) <= dTol)
+            { sSpan = SmExtent1d(dT[0], dT[0] + dTurn); }
+          else if (sAfter(dT[1], dT[0]) < sAfter(dT[2], dT[0]))
+            { sSpan = SmExtent1d(dT[0], sAfter(dT[2], dT[0])); }
+          else
+            { sSpan = SmExtent1d(dT[2], sAfter(dT[0], dT[2])); }
+        }
+      SmCurve * pCopy = NULL;
+      SER(pExact->Copy(crContext, pCopy)); NER(pCopy);
+      SmObjDelete sCleanCopy(pCopy);
+      SER(pCopy->AdjustSTEPInterval(sSpan));
+      sCleanCopy.Clear();
+      rpPiece = pCopy;
+      return SM_SUCCESS;
+    }
+  return SM_SUCCESS;
+
+} // end sm_ExactPiece
+
+/*******************************************************************//**
 PURPOSE:  Mate a couple of edges by extension and intersection.
 
 NOTES: 
@@ -1963,7 +2111,68 @@ SmBoolean bDebugMe = FALSE;
                                                       &sSurface2UVCurves, 
                                                       NULL, NULL));
 #endif // no SM_VALIDATE_INTERSECTORS
-  
+
+  // SolidCraft: two analytic surfaces meet on lines and conics. The marched intersection of their
+  // B-spline extensions gives the pieces (bounded by the extended domains and seams) and their UV
+  // curves; each piece that lies on both extended surfaces as the exact curve between the same
+  // ends (within the analytic surfaces, not on a tangent extension) is replaced by that curve, its
+  // UV curves dropped from it.
+  const double dExtDist = smos_Fabs(GetOffsetDistance()) * 5.0;
+  SmSurface * pAnalytic1 = NULL, * pAnalytic2 = NULL;
+  SER(sm_CreateAnalyticExtension(crContext, *pOffsetEdgeuse->GetFace()->GetSurface(),      dExtDist, pAnalytic1));
+  SmObjDelete sCleanAnalytic1(pAnalytic1);
+  SER(sm_CreateAnalyticExtension(crContext, *pOtherOffsetEdgeuse->GetFace()->GetSurface(), dExtDist, pAnalytic2));
+  SmObjDelete sCleanAnalytic2(pAnalytic2);
+  if (pAnalytic1 != NULL && pAnalytic2 != NULL && s3DCurves.GetSize() > 0)
+    {
+      SmTArray<SmCurve*> sExact, sExactUV1, sExactUV2;
+      SmObjsDelete<SmCurve*> sCleanE(&sExact), sCleanEU1(&sExactUV1), sCleanEU2(&sExactUV2);
+      SER(pAnalytic1->GlobalSurfaceIntersect(crContext,
+                                             pAnalytic1->GetNaturalUVDomain(),
+                                             *pAnalytic2, pAnalytic2->GetNaturalUVDomain(),
+                                             bUseSurfaceEdges, &sSSITol, &d20DegRad,
+                                             &sExact, &sExactUV1, &sExactUV2, NULL, NULL));
+      const double dTol = pEdgeuse->GetEdge()->GetBrep()->GetTolerance();
+      for(ii=0;ii<s3DCurves.GetSize();ii++)
+        {
+          if (s3DCurves[ii]->IsDegenerate())
+            { continue; }
+          SmCurve * pPiece = NULL;
+          SER(sm_ExactPiece(crContext, *s3DCurves[ii], sExact, dTol, pPiece));
+          if (pPiece == NULL)
+            { continue; }
+          SmObjDelete sCleanPiece(pPiece);
+          SmCurve * pUV[2] = { NULL, NULL };
+          for(int iSurf=0;iSurf<2;iSurf++)
+            {
+              const SmSurface  * pExtSurface = (iSurf == 0) ? pExtSurface1 : pExtSurface2;
+              const SmExtent2d & rDomain     = (iSurf == 0) ? sDomain1     : sDomain2;
+              double dMaxDrop = 0.0, dMaxDev = 0.0;
+              SmTArray<SmBSplineCurve*> sDropped;
+              SmObjsDelete<SmBSplineCurve*> sCleanDropped(&sDropped);
+              SER(pExtSurface->DropCurve(crContext, rDomain, *pPiece, pPiece->GetNaturalInterval(),
+                                         sSSITol, dMaxDrop, dMaxDev, sDropped));
+              if (sDropped.GetSize() == 1 && dMaxDrop <= dTol)
+                {
+                  pUV[iSurf] = sDropped[0];
+                  sDropped.RemoveAt(0,1);
+                }
+            }
+          if (pUV[0] == NULL || pUV[1] == NULL)
+            {
+              // The piece leaves an extended surface where it is a tangent (G1R) extension, not
+              // the analytic surface: there the marched piece is these surfaces' intersection.
+              delete pUV[0];
+              delete pUV[1];
+              continue;
+            }
+          sCleanPiece.Clear();
+          delete s3DCurves[ii];        s3DCurves[ii]        = pPiece;
+          delete sSurface1UVCurves[ii]; sSurface1UVCurves[ii] = pUV[0];
+          delete sSurface2UVCurves[ii]; sSurface2UVCurves[ii] = pUV[1];
+        }
+    }
+
   // Now see if we have an intersection curve that has proper trimming
 
   // locals for

@@ -221,6 +221,65 @@ smlib_brep *cube_sphere(double r)
     return out;
 }
 
+// A dome (a quarter disc r 20 revolved about Z: a sphere and a plane) shelled 2 inward, open at
+// its base (SolidCraft rig shell/4847). The offset meets the base plane at the inner sphere's
+// equator, the circle r 18: its edge is that circle exactly, and the shell's volume is
+// (2/3) pi (20^3 - 18^3). The offset used to intersect the two faces' tangent (G1R) B-spline
+// extensions, marching a cubic within 6.5e-7 of the circle; SolidCraft read that back as a circle
+// off the axis, whose seam then sat 1.1e-7 from the dome's in the union that joins the rim back in.
+void shelled_dome_rim()
+{
+    std::vector<int64_t> kinds = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE};
+    std::vector<double> reals = {0, 0, 0, 20, 0, 0,                                // (0,0,0) -> (20,0,0)
+                                 0, 0, 0, 0, -1, 0, 1, 0, 0, 20, 0, PI / 2,      // the arc, about -Y from +X to +Z
+                                 0, 0, 20, 0, 0, 0};                             // (0,0,20) -> (0,0,0)
+    const double origin[3] = {0, 0, 0}, up[3] = {0, 0, 1};
+    smlib_brep *dome = nullptr, *shell = nullptr;
+    CHECK(smlib_revolve(kinds.data(), 3, reals.data(), static_cast<int64_t>(reals.size()), origin, up, 2 * PI, 1, &dome) == SMLIB_OK);
+    if (dome == nullptr)
+    {
+        return;
+    }
+    const double base[3] = {10, 0, 0};
+    CHECK(smlib_shell(dome, base, 1, 0.01, -2.0, &shell, nullptr) == SMLIB_OK);
+    if (shell != nullptr)
+    {
+        char buf[4096];
+        int64_t len = 0, bad = -1;
+        CHECK(smlib_brep_check(shell, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK && bad == 0);
+        double volume = 0;
+        CHECK(smlib_brep_volume(shell, 1e-8, &volume) == SMLIB_OK);
+        CHECK(std::fabs(volume - 2.0 / 3.0 * PI * (8000.0 - 5832.0)) < 1e-5);
+
+        // The rim's inner edge: on the base, at radius 18 to rounding.
+        SmTArray<SmEdge *> edges;
+        shell->p->GetEdges(edges);
+        int rims = 0;
+        for (ULONG i = 0; i < edges.GetSize(); i++)
+        {
+            SmExtent1d ivl = edges[i]->GetInterval();
+            SmPoint3d mid;
+            CHECK(edges[i]->GetCurve()->EvaluatePoint(ivl.Evaluate(0.5), mid) == SM_SUCCESS);
+            if (std::fabs(mid.z) > 1e-6 || std::hypot(mid.x, mid.y) > 19.0)
+            {
+                continue;
+            }
+            rims++;
+            double worst = 0;
+            for (int k = 0; k <= 256; k++)
+            {
+                SmPoint3d p;
+                CHECK(edges[i]->GetCurve()->EvaluatePoint(ivl.Evaluate(k / 256.0), p) == SM_SUCCESS);
+                worst = std::max(worst, std::fabs(std::hypot(p.x, p.y) - 18.0) + std::fabs(p.z));
+            }
+            CHECK(worst < 1e-12);
+        }
+        CHECK(rims == 1);
+    }
+    smlib_brep_free(shell);
+    smlib_brep_free(dome);
+}
+
 // The analytic STEPInversion() answers: SM_SUCCESS on the surface, SM_ERR_OUTSIDE_OF_DOMAIN
 // outside a cylinder's sweep, SM_ERR_NOT_WITHIN_TOLERANCE off the surface (a sphere's with the
 // dropped point's parameters), each with its location; SMLib's callers pass any other status on.
@@ -2831,6 +2890,7 @@ int main()
     }
 
     analytic_step_inversion();
+    shelled_dome_rim();
 
     if (failures != 0)
     {
