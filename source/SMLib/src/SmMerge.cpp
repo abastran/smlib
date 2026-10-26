@@ -853,6 +853,14 @@ SmBoolean bDebugMe=FALSE;
   double      dDistBetween = SM_BIG_DOUBLE ;
   ULONG       lNumEdges = sEdges.GetSize();
 
+  // SolidCraft: the edges checked so far, and those the merging below left with one face on both
+  // sides. Removing an intersection edge merges its two faces; an edge of either operand between
+  // two faces that this way become one (a wall extruded from half arcs, both halves merged into
+  // the face they stand on) then bounds the merged face on both sides: a slit, removable by the
+  // same test, but no intersection edge, so it is checked as well.
+  std::unordered_set<SmEdge*> sQueued( sEdges.GetDataArray(), sEdges.GetDataArray() + lNumEdges );
+  std::unordered_set<SmEdge*> sLeftInsideFace;
+
   // for every edge - find and remove topological edges (maybe merging faces) without changing the Brep shape
   for ( ii=0; ii<lNumEdges; ii++ )
     {
@@ -869,7 +877,7 @@ SmBoolean bDebugMe=FALSE;
 #endif // SM_DEBUG_CODE
 
       // pEdge may have been deleted.  If so, it will have been removed from the maps.
-      if ( ! bCheckAllEdges )
+      if ( ! bCheckAllEdges && sLeftInsideFace.count( pEdge ) == 0 )
         {
           SmObject *pOtherObj = m_vTI.GetOtherMate( pEdge );
           if ( pOtherObj == NULL )
@@ -1159,6 +1167,22 @@ SmBoolean bDebugMe=FALSE;
 
       // Preserve the face-domain union across DeleteEdge's possible surface swap.
       pSurfToKeep->GetFace()->SetUVDomain(sMergedFaceDomain);
+
+      // SolidCraft: the merged face's edges that now have it on both sides are checked too (sLeftInsideFace).
+      SmTArray<SmEdge*> sFaceEdges;
+      pSurfToKeep->GetFace()->GetEdges( sFaceEdges );
+      for ( ULONG fe=0; fe<sFaceEdges.GetSize(); fe++ )
+        {
+          SmEdge *pFaceEdge = sFaceEdges[fe];
+          SM_PTR_ARRAY(sSides, SmFace, 4);
+          pFaceEdge->GetFaces( sSides );
+          if ( sSides.GetSize() == 1 && sQueued.insert( pFaceEdge ).second )
+            {
+              sEdges.Add( pFaceEdge );
+              sLeftInsideFace.insert( pFaceEdge );
+            }
+        }
+      lNumEdges = sEdges.GetSize();
 
 #ifdef SM_DEBUG_CODE
       if (bDebugMe)

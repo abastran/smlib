@@ -374,6 +374,51 @@ int main()
         }
     }
 
+    // A revolved hub (r 8..30, flange 6 tall, boss r 8..18 to 22) and its flange's top annulus
+    // extruded 5 up from its edges, each circle two half arcs (SolidCraft rig sweeps/494), joined.
+    // The ring's outer wall halves merge into the flange's cylinder; the line between them at 180
+    // degrees then has that face on both sides, and used to stay as a slit (it is no intersection
+    // edge, which were all BooleanPostProcess checked). Left: the three seams. Pappus:
+    // pi (30^2 - 8^2) 6 + pi (18^2 - 8^2) 16 + pi (30^2 - 18^2) 5 = 12056 pi.
+    {
+        const double outline[6][2] = {{8, 0}, {30, 0}, {30, 6}, {18, 6}, {18, 22}, {8, 22}};
+        std::vector<int64_t> kinds;
+        std::vector<double> reals;
+        for (int i = 0; i < 6; i++)
+        {
+            const double *p = outline[i], *q = outline[(i + 1) % 6];
+            kinds.push_back(SMLIB_CURVE_LINE);
+            reals.insert(reals.end(), {p[0], 0, p[1], q[0], 0, q[1]});
+        }
+        const double origin[3] = {0, 0, 0}, up[3] = {0, 0, 1};
+        smlib_brep *hub = nullptr, *ring = nullptr, *joined = nullptr;
+        CHECK(smlib_revolve(kinds.data(), 6, reals.data(), static_cast<int64_t>(reals.size()), origin, up, 2 * PI, 1, &hub) == SMLIB_OK);
+        Profile annulus;
+        annulus.arc(0, 0, 6, 1, 30, 0, PI).arc(0, 0, 6, 1, 30, PI, 2 * PI).arc(0, 0, 6, -1, 18, -PI, 0).arc(0, 0, 6, -1, 18, -2 * PI, -PI);
+        ring = annulus.extrude(5.0);
+        CHECK(hub != nullptr && ring != nullptr && smlib_boolean(hub, ring, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+        if (joined != nullptr)
+        {
+            CHECK(near(volume_of(joined), 12056.0 * PI, 1e-6));
+            CHECK(sound(joined));
+            SmTArray<SmEdge *> edges;
+            joined->p->GetEdges(edges);
+            int inside = 0;
+            for (ULONG i = 0; i < edges.GetSize(); i++)
+            {
+                SmTArray<SmFace *> sides;
+                edges[i]->GetFaces(sides);
+                inside += sides.GetSize() == 1 ? 1 : 0;
+            }
+            std::printf("hub joined with a half-arc ring: %lu edges, %d with one face\n", static_cast<unsigned long>(edges.GetSize()), inside);
+            CHECK(inside == 3);
+        }
+        for (smlib_brep *x : {hub, ring, joined})
+        {
+            smlib_brep_free(x);
+        }
+    }
+
     smlib_brep *rod = cylinder(10, 10, -1, 4, 22);
     CHECK(smlib_boolean(cube, rod, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
     CHECK(near(volume_of(r), 8000.0 - PI * 16.0 * 20.0, 1e-6));
