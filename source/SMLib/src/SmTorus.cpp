@@ -1015,6 +1015,43 @@ SmStatus SmTorus::GetCanonical
 } // end SmTorus::GetCanonical
 
 /*******************************************************************//**
+PURPOSE: The generating circle's analytic interval, in degrees, from the NURB surface's
+    first and last points, each given by its circle's X axis (from the torus axis out to the
+    circle's centre) and the vector from that centre to the point. The angle of a point is
+    measured counter-clockwise from X toward the torus's Z axis, as SmTorus::EvaluateSTEP
+    measures V, over a whole turn; an inside-out torus runs its generating NURB the other way
+    round, so its first point ends the interval and its last one starts it.
+
+NOTES: SolidCraft: upstream measured both angles with AngleBetween, which is unsigned (0 to
+    180 degrees): an interval below the torus's equator or past 180 degrees came out mirrored
+    (-90..90 as 90..450, the inner half of the tube), so a face's torus rebuilt from its NURB by
+    SmFace::SwapUV (the sweep orienting its faces) no longer matched it.
+***********************************************************************/
+static SmStatus sm_TorusGenCurveInterval
+  (const SmVector3d & crXAxisForFirst,  // in : unit X of the first point's generating circle
+   const SmVector3d & crVecFirst,       // in : from that circle's centre to the first point
+   const SmVector3d & crXAxisForLast,   // in : unit X of the last point's generating circle
+   const SmVector3d & crVecLast,        // in : from that circle's centre to the last point
+   const SmVector3d & crTorusZAxis,     // in : the torus's axis
+   SmBoolean          bInsideOut,       // in : TRUE = the NURB runs against the analytic angle
+   double             dZeroDeg,         // in : angles this close to 0 or to a whole turn snap to it
+   double           & rdLowDeg,         // out: the interval's start
+   double           & rdHighDeg)        // out: the interval's end, above the start by at most 360
+{
+  double dFirstRad = 0.0, dLastRad = 0.0;
+  SER((crXAxisForFirst * crTorusZAxis).CCWAngleBetween(crXAxisForFirst, crVecFirst, dFirstRad));
+  SER((crXAxisForLast * crTorusZAxis).CCWAngleBetween(crXAxisForLast, crVecLast, dLastRad));
+  double dFirstDeg = 180.0 * dFirstRad / SM_PI;
+  double dLastDeg  = 180.0 * dLastRad / SM_PI;
+  rdLowDeg  = bInsideOut ? dLastDeg : dFirstDeg;
+  rdHighDeg = bInsideOut ? dFirstDeg : dLastDeg;
+  if (smos_Fabs(rdLowDeg) < dZeroDeg)  { rdLowDeg = 0.0; }
+  if (smos_Fabs(rdHighDeg) < dZeroDeg) { rdHighDeg = 0.0; }
+  if (rdHighDeg < rdLowDeg + dZeroDeg) { rdHighDeg += 360.0; }
+  return SM_SUCCESS;
+} // end sm_TorusGenCurveInterval
+
+/*******************************************************************//**
 PURPOSE: Static function to determine if a given nurbs is a Torus.
             If it is a Torus then one is created.
 
@@ -1183,16 +1220,9 @@ static ULONG lDebugCount = 0 ;
 
   // get GenCurve min and max angles measured from each GenCurve's origin and start vector
   double dGenAngleMin, dGenAngleMax;
-  SE(sStartForMinAngle.AngleBetween(sVecMin,dGenAngleMin));
-  SE(sStartForMaxAngle.AngleBetween(sVecMax,dGenAngleMax));
-  dGenAngleMin = 180.0 * dGenAngleMin / SM_PI;
-  dGenAngleMax = 180.0 * dGenAngleMax / SM_PI;
-
-  // snap to ends for small tolerances
-  if(   smos_Fabs(dGenAngleMin) < SM_EFF_ZERO)       { dGenAngleMin = 0.0 ; }
-  if(   smos_Fabs(dGenAngleMax) < SM_EFF_ZERO
-     || smos_Fabs(dGenAngleMax-360.0) < SM_EFF_ZERO) { dGenAngleMax = 360.0 ; }
-  if(dGenAngleMax < dGenAngleMin) { dGenAngleMax += 360.0 ; }
+  if (sm_TorusGenCurveInterval(sStartForMinAngle, sVecMin, sStartForMaxAngle, sVecMax, sTorusZAxis, bInsideOut,
+                               SM_EFF_ZERO, dGenAngleMin, dGenAngleMax) != SM_SUCCESS)
+    { return FALSE ; }
 
   // define Torus domain
   SmExtent2d sAnalUVDomain(pSweepIvl->GetMin(), dGenAngleMin, pSweepIvl->GetMax(), dGenAngleMax);
@@ -1441,16 +1471,8 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
 
   // get GenCurve min and max angles measured from each GenCurve's origin and start vector
   double dGenAngleMin, dGenAngleMax;
-  SE(sStartForMinAngle.AngleBetween(sVecMin,dGenAngleMin));
-  SE(sStartForMaxAngle.AngleBetween(sVecMax,dGenAngleMax));
-  dGenAngleMin = 180.0 * dGenAngleMin / SM_PI;
-  dGenAngleMax = 180.0 * dGenAngleMax / SM_PI;
-
-  // snap to ends for small tolerances
-  if(   smos_Fabs(dGenAngleMin) < SM_EFF_ZERO_DEG)       { dGenAngleMin  =   0.0; }
-  if(   smos_Fabs(dGenAngleMax) < SM_EFF_ZERO_DEG
-     || smos_Fabs(dGenAngleMax-360.0) < SM_EFF_ZERO_DEG) { dGenAngleMax  = 360.0; }
-  if ( dGenAngleMax < dGenAngleMin+SM_EFF_ZERO_DEG )     { dGenAngleMax += 360.0; }
+  SER(sm_TorusGenCurveInterval(sStartForMinAngle, sVecMin, sStartForMaxAngle, sVecMax, sTorusZAxis, bInsideOut,
+                               SM_EFF_ZERO_DEG, dGenAngleMin, dGenAngleMax));
 
   // define Torus domain
   SmExtent2d sAnalUVDomain(pSweepIvl->GetMin(), dGenAngleMin, pSweepIvl->GetMax(), dGenAngleMax);

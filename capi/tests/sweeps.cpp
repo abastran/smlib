@@ -216,6 +216,20 @@ int main()
                2 * PI * turn * 7.0 * 4.0, 1e-5);
     }
     (void)Y;
+    // A half disc of radius 14 on the far side of a diameter 14 from the axis (the whole circle
+    // would be a horn torus), its arc running counter-clockwise about +y, turned part way: the
+    // sweep orients the torus face by swapping its parameters, which rebuilds the torus from its
+    // NURB (SolidCraft rig sweeps/4007). Pappus: turn * (14 + 4 * 14 / (3 pi)) * pi 14^2 / 2.
+    List horn;
+    horn.arc(14, 0, 0, 0, 1, 0, 1, 0, 0, 14, -PI / 2, PI / 2).line(14, 0, -14, 14, 0, 14);
+    for (double turn : {0.25, 0.5, 0.75})
+    {
+        char name[64];
+        std::snprintf(name, sizeof name, "revolve horn half disc %.2f turn", turn);
+        b = nullptr;
+        expect(name, smlib_revolve(horn.kinds.data(), horn.nk(), horn.reals.data(), horn.nr(), O, Z, 2 * PI * turn, 1, &b), &b,
+               2 * PI * turn * (14.0 + 56.0 / (3.0 * PI)) * PI * 98.0, 1e-6);
+    }
 
     // Sweeps: a disc along a line (a cylinder), along a quarter arc (a quarter torus), and off
     // the path's start (the profile keeps its offset: Pappus about the arc's centre).
