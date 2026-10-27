@@ -6052,16 +6052,23 @@ static ULONG lDebugCount = 0 ;
   double dDropParamO = 0.0, dDistToCurveO = 0.0;
   double dGuessTB = sPointClassB.GetTParam() ;
   double dGuessTO = sPointClassO.GetTParam() ;
+  // The drop tolerances, chosen here: a directive may not stand inside SER's argument (MSVC).
+#ifdef SM_USE_NEWTOL
+  SM_NEWTOL_LINE const double dDropTolB = 10.0 * sPointClassB.GetGap3d() ;
+#else // SM_USE_OLDTOL
+  SM_OLDTOL_LINE const double dDropTolB = 10.0 * sPointClassB.GetDeviation() ;
+#endif // SM_USE_OLDTOL
+#ifdef SM_USE_OLDTOL
+  SM_OLDTOL_LINE const double dDropTolO = 10.0 * sPointClassO.GetGap3d() ;
+#else // SM_USE_NEWTOL
+  SM_NEWTOL_LINE const double dDropTolO = 10.0 * sPointClassO.GetDeviation() ;
+#endif // SM_USE_NEWTOL
   SER( cpClassificationCurve->DropPoint(sIvl,                                               // in : target curve allowed domain
                                    sPointClassB.GetVertexObject()->GetPoint(),         // in : Point to drop to curve
                                    NULL,                                               // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                                                        //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
                                                                                        //      Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-#ifdef SM_USE_NEWTOL
-                                   SM_NEWTOL_LINE 10.0 * sPointClassB.GetGap3d(),      // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-#else // SM_USE_OLDTOL
-                                   SM_OLDTOL_LINE 10.0 * sPointClassB.GetDeviation(),  //      sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-#endif // SM_USE_OLDTOL
+                                   dDropTolB,                                          // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
                                                                                        //      sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
                                                                                        //      sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
                                    &dGuessTB,                                          // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()
@@ -6078,11 +6085,7 @@ static ULONG lDebugCount = 0 ;
                                    NULL,                                               // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                                                        //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
                                                                                        //      Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-#ifdef SM_USE_OLDTOL
-                                   SM_OLDTOL_LINE 10.0 * sPointClassO.GetGap3d(),      // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-#else // SM_USE_NEWTOL
-                                   SM_NEWTOL_LINE 10.0 * sPointClassO.GetDeviation(),  //      sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-#endif // SM_USE_NEWTOL
+                                   dDropTolO,                                          // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
                                                                                        //      sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
                                                                                        //      sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
                                    &dGuessTO,                                          // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()

@@ -12741,12 +12741,13 @@ SmBoolean bDebugMe = FALSE;
       if (pIndex && pIndex->m_bOK)
         {
           const double dFaceTol = this->GetTolerance() ;
-          const double dPad = smos_Max( smos_Max( dFaceTol, pIndex->m_dMaxVertexTol ),
     #ifdef SM_USE_NEWTOL
-                                        rPointClassification.GetGap3d() ) ;
+          const double dPointTol = rPointClassification.GetGap3d() ;
     #else // SM_USE_OLDTOL
-                                        (double)rPointClassification.GetTolerance() ) ;
+          const double dPointTol = (double)rPointClassification.GetTolerance() ;
     #endif // SM_USE_OLDTOL
+          // A directive may not stand inside a macro's argument (MSVC): the tolerance is chosen above.
+          const double dPad = smos_Max( smos_Max( dFaceTol, pIndex->m_dMaxVertexTol ), dPointTol ) ;
           std::vector<ULONG> sNear ;
           if (std::isfinite(dPad) && pIndex->m_sSearch.Query( SmExtent3d( sSurfPt ), dPad, sNear ))
             {
