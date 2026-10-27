@@ -35,7 +35,7 @@ jobs:
           - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04 }
           - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm }
           - { target: aarch64-apple-darwin, runner: macos-14, cmake: '-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' }
-          - { target: x86_64-apple-darwin, runner: macos-14, cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.12', cross: true }
+          - { target: x86_64-apple-darwin, runner: macos-14, cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0', cross: true }
           - { target: x86_64-pc-windows-msvc, runner: windows-latest, cmake: '-A x64' }
           - { target: i686-pc-windows-msvc, runner: windows-latest, cmake: '-A Win32', cross: true }
           - { target: aarch64-pc-windows-msvc, runner: windows-11-arm, cmake: '-A ARM64' }
@@ -52,11 +52,14 @@ jobs:
       - name: Configure
         shell: bash
         run: |
+          # macOS 11.0: SolidCraft's deployment target (packaging/macos/package.sh there).
           args=(-DCMAKE_BUILD_TYPE=Release -DSMLIB_RAND_SEED=20240101)
+          # A target this runner cannot run builds no tests.
+          if [ -n "${{ matrix.cross }}" ]; then args+=(-DSMLIB_CAPI_TESTS=OFF); fi
           if [ -n "${{ matrix.wasm }}" ]; then
             # The exnref encoding of wasm exceptions, as wasi-sdk's libc++ and Rust use.
             eh="-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false"
-            args+=(-DSMLIB_CAPI_TESTS=OFF -DWASI_SDK_PREFIX="$WASI_SDK" -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk-p1.cmake"
+            args+=(-DWASI_SDK_PREFIX="$WASI_SDK" -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk-p1.cmake"
               "-DCMAKE_C_FLAGS=$eh" "-DCMAKE_CXX_FLAGS=$eh")
           fi
           cmake -S capi -B build "${args[@]}" ${{ matrix.cmake }}
