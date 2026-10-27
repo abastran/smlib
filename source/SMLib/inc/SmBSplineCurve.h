@@ -229,7 +229,7 @@ public:
   
   static SmStatus CreateCanonical(const SmContext           & crContext,            ///< [in] : context for new object construction                            <br>
                                   ULONG                       lDimension,           ///< [in] : valid dimension - 2 or 3                                       <br>
-                                  ULONG                       lDegree,              ///< [in] : valid degree - 1 through 32                                    <br>
+                                  ULONG                       lDegree,              ///< [in] : valid degree - 1 through 17                                    <br>
                                   const SmTArray<SmPoint3d> & crControlPointsList,  ///< [in] : Euclidian form of the control points.                          <br>
                                   SmBSplineCurveForm          eBSplineCurveForm,    ///< [in] : oneof  SM_CF_POLYLINE_FORM,  SM_CF_PARABOLIC_ARC,              <br>
                                                                                     ///<      :    SM_CF_CIRCULAR_ARC,   SM_CF_HYPERBOLIC_ARC,                 <br>
@@ -546,7 +546,7 @@ public:
   SmStatus                 GetNullSegments         (SmTArray<double> & rSegments) const; // rtn: param pairs bounding intervals of zero 1st derivative values
   
   gw_CURVE *               GetGwNurbPointer        () const { return m_pNurb ; }  // retrieve the NLIB NURB struct
-  gw_CURVE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {MakeNurb() ; }
+  gw_CURVE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {(void)MakeNurb() ; } // SolidCraft: an accessor; a curve without its nurb returns NULL, which callers check
                                                               SM_ASSERT(m_pNurb != NULL) ;
                                                               return m_pNurb ;
                                                             }
@@ -732,6 +732,11 @@ public:
   virtual SmBoolean PassesValidityCheck(SmValidityCheckType   eChecks,           ///< [in] :                             <br>
                                         SmValidityCheckType & reCheckFailed)     ///< [out]: is the check which failed   <br>
                                        const ;
+  // PassesValidityCheck(SM_VC_REVERSE_DIRECTION) for a UV curve on crSurface, the turn at each
+  // end judged on the surface (its first fundamental form there), not in (u, v). Same side effect.
+  SmBoolean PassesReverseDirectionCheckOn(const SmSurface     & crSurface,         ///< [in] : surface the UV curve lies on  <br>
+                                          SmValidityCheckType & reCheckFailed)     ///< [out]: is the check which failed     <br>
+                                         const ;
   
   static SmStatus PiecewiseArcInterpolate(const SmContext           & crContext,          ///< [in] :                             <br>
                                           const SmTArray<SmPoint3d> & crPoints,           ///< [in] :                             <br>

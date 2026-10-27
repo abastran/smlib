@@ -436,8 +436,8 @@ SM_EXPORT SmStatus smgu_TrianglePointDistance
 
       double dDist1,  dDist2;
       // This routine behaves ok if pts are coincident:
-      smgu_SegmentPointDistance( crPt0, crPt1, crTestPt, dDist1, rdParamU );
-      smgu_SegmentPointDistance( crPt0, crPt2, crTestPt, dDist2, rdParamV );
+      SER( smgu_SegmentPointDistance( crPt0, crPt1, crTestPt, dDist1, rdParamU ) );
+      SER( smgu_SegmentPointDistance( crPt0, crPt2, crTestPt, dDist2, rdParamV ) );
 
       if ( dDist1 <= dDist2 )
       {
@@ -475,7 +475,7 @@ SM_EXPORT SmStatus smgu_TrianglePointDistance
   }
   else if ( rdParamU + rdParamV > 1 )
   {
-      smgu_SegmentPointDistance( crPt1, crPt2, crTestPt, rdDistToTriangle, rdParamV );
+      SER( smgu_SegmentPointDistance( crPt1, crPt2, crTestPt, rdDistToTriangle, rdParamV ) );
       rdParamU = 1 - rdParamV;
   }
 
@@ -1735,7 +1735,7 @@ SM_EXPORT SmStatus smgu_CircleFromPointsTangents
     // Solve for t using quadratic equation.
     ULONG nSol;
     double dSol[2];
-    SmPolynomial::SolveQuadraticEqn(coeff,SM_EFF_ZERO,nSol,dSol);
+    SER( SmPolynomial::SolveQuadraticEqn(coeff,SM_EFF_ZERO,nSol,dSol) );
     double dT = 0.0;
     if (nSol == 0) return SM_SUCCESS;
 
@@ -1763,16 +1763,16 @@ SM_EXPORT SmStatus smgu_CircleFromPointsTangents
     // We have made it - it is a circle - now compute 
     // some vectors and angles that define it.
     SmVector3d sX = - sLineVec;
-    sX.Unitize();
+    (void)sX.Unitize(); // SolidCraft: a zero vector stays zero
 
     SmVector3d sY = sNorm * sX;
     if (sY.Dot(sTan1) < 0.0) {
         sY = - sY;
         sNorm = - sNorm;
     }
-    sY.Unitize();
+    (void)sY.Unitize(); // SolidCraft: a zero vector stays zero
 
-    rPlacement.SetCanonical(sCenter,sX,sY);
+    SER( rPlacement.SetCanonical(sCenter,sX,sY) );
     double dAngleRad;
     SER(sNorm.CCWAngleBetween(sX,sCToP2,dAngleRad));
     rdStartAngleDeg = 0.0;
@@ -2055,7 +2055,7 @@ SmStatus smgu_CircleFrom3Points
   // solve for Center Point
   SER_MSG(sA.SolveLinearSystem(sB, sX), _T("smgu_CircleFrom3Points() Failed due to Colinear Point inputs")) ;
 
-  sN2.Unitize();
+  (void)sN2.Unitize(); // SolidCraft: a zero vector stays zero
 
   // set outputs (except rAnalDomain)
   rCenter.Set(sX[0], sX[1], sX[2]) ;
@@ -2063,18 +2063,18 @@ SmStatus smgu_CircleFrom3Points
   rYAxis  = sN2 * rXAxis ;
   dRadius = rXAxis.Length() ;
   rXAxis /= dRadius ;
-  rYAxis.Unitize() ;
+  (void)rYAxis.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // get CCW angle from XAxis to (PE-CP) about sN2
   double dCCWAngle ;
   if(bClosedCircle) { dCCWAngle = 360.0 ; }
-  else              { sN2.CCWAngleBetween(rXAxis, sEP - rCenter, dCCWAngle) ;
+  else              { SER( sN2.CCWAngleBetween(rXAxis, sEP - rCenter, dCCWAngle)  );
                       dCCWAngle *= 180.0/SM_PI ;
                     }
   if(dCCWAngle < 0.0) { dCCWAngle += 360.0 ; }
 
   // set rAnalDomain
-  rAnalDomain.SetMinMax(0.0, dCCWAngle) ;
+  SER( rAnalDomain.SetMinMax(0.0, dCCWAngle)  );
 
   // check output
 #ifdef SM_DEBUG_CODE
@@ -2206,15 +2206,15 @@ SM_EXPORT SmStatus smgu_CircleFindSilhouettePoints
         if (dLength < dCircleRadius + SM_EFF_ZERO) {
             return SM_SUCCESS; // No answer
         }
-        sToEye.Unitize();
+        (void)sToEye.Unitize(); // SolidCraft: a zero vector stays zero
 
         double dAngleRad = smos_ArcCosine( dCircleRadius / dLength );
         SmAxis2Placement sA2P;
         SmPoint3d sToP1, sToP2;
-        sA2P.SetCanonical(crCircleCenter,SmVector3d(1,0,0),SmVector3d(0,1,0));
+        SER( sA2P.SetCanonical(crCircleCenter,SmVector3d(1,0,0),SmVector3d(0,1,0)) );
         sA2P.RotateAboutAxis(dAngleRad,crCircleNormal);
         sA2P.TransformPoint(sToEye,sToP1);
-        sA2P.SetCanonical(crCircleCenter,SmVector3d(1,0,0),SmVector3d(0,1,0));
+        SER( sA2P.SetCanonical(crCircleCenter,SmVector3d(1,0,0),SmVector3d(0,1,0)) );
         sA2P.RotateAboutAxis(-dAngleRad,crCircleNormal);
         sA2P.TransformPoint(sToEye,sToP2);
 
@@ -2230,7 +2230,7 @@ SM_EXPORT SmStatus smgu_CircleFindSilhouettePoints
     if (sOrthVector.LengthSquared() < SM_EFF_ZERO_SQ) {
         return SM_SUCCESS;
     }
-    sOrthVector.Unitize();
+    (void)sOrthVector.Unitize(); // SolidCraft: a zero vector stays zero
 
     rbFoundPoints = TRUE;
     rSilPoint1 = crCircleCenter + sOrthVector * dCircleRadius;
@@ -2622,7 +2622,7 @@ SM_EXPORT SmStatus smgu_LineCoPlanarEllipseIntersect
   // get Ellipse plane normal
   SmVector3d sEllipseNormal = crEllipseXAxis * crEllipseYAxis ;
   SM_ASSERT(sEllipseNormal.Length() > SM_EFF_ZERO) ;
-  sEllipseNormal.Unitize() ;
+  (void)sEllipseNormal.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // project line to plane
   SER(smgu_PointProjectToPlane(crLinePnt,crEllipseCenter,sEllipseNormal,sLinePnt));
@@ -3063,8 +3063,8 @@ SM_EXPORT SmStatus smgu_SphereCircleSphereCircleIntersect
         }
 
       // get the direction from the circle centers to the circle points in the working plane
-      sCir1Dir.Unitize() ;
-      sCir2Dir.Unitize() ;
+      (void)sCir1Dir.Unitize() ; // SolidCraft: a zero vector stays zero
+      (void)sCir2Dir.Unitize() ; // SolidCraft: a zero vector stays zero
 
       // get the radius of each circle
       double     dCir1Radius2    = dSphereRadius * dSphereRadius - rCir1Center.DistanceBetweenSquared(rSphereCenter) ;
@@ -3422,7 +3422,7 @@ SM_EXPORT SmStatus smgu_CircleCircleApproxMaxGap
   SmPoint3d  sCirc1, sCirc2 ;
   SmVector3d sX1, sY1, sZ1, sV ;
   SmVector3d sX2, sY2, sZ2 ;
-  rNormal1.MakeUnitOrthoVectors(NULL, sZ1, sX1, sY1) ;
+  SER( rNormal1.MakeUnitOrthoVectors(NULL, sZ1, sX1, sY1)  );
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -3442,11 +3442,11 @@ SmBoolean bShowAll = TRUE ;
 
       // degenerate case: circumference1 intersects Center2
       if(dV < SM_EFF_ZERO) { // any radial unit vector will do (they are all good)
-                             rNormal2.MakeUnitOrthoVectors(NULL, sZ2, sV, sY2) ; 
+                             SER( rNormal2.MakeUnitOrthoVectors(NULL, sZ2, sV, sY2)  ); 
                            } 
       else                 { sV /= dV ;
                            }
-      sV.Unitize() ;
+      (void)sV.Unitize() ; // SolidCraft: a zero vector stays zero
 
       // point on circle 2
       sCirc2 = rCenter2 + sV * dRadius2 ;
@@ -3766,7 +3766,7 @@ SM_EXPORT SmStatus smgu_PlaneFromPoints
 
     ZERO_VEC_ER(sXAxis);
 
-    rAPlacement.SetSTEPCanonical(sOrigin, rNormal, sXAxis);
+    SER( rAPlacement.SetSTEPCanonical(sOrigin, rNormal, sXAxis) );
 
 
 // --- Add up the extent points  (and get Max gap as well)
@@ -4248,7 +4248,7 @@ SM_EXPORT SmStatus smgu_BestFitLineToPoints
   rdMaxLineGap = 0.0 ;   
 
   // get rLinePt = geometric center of points
-  smgu_BestFitPointToPoints(crPoints, dTol3d, eSetType, rLinePt, rdMaxCentroidGap) ;
+  SER( smgu_BestFitPointToPoints(crPoints, dTol3d, eSetType, rLinePt, rdMaxCentroidGap)  );
 
   // low work - void or degenerate point set
   if(eSetType != SM_PST_SCATTERED)
@@ -4289,7 +4289,7 @@ SM_EXPORT SmStatus smgu_BestFitLineToPoints
   SmMatrix *pM = pOptM ? pOptM : &sM ;
 
   // set M(LinePt) = 0 
-  pM->Clear() ;
+  SER( pM->Clear()  );
                                     
   // build M(LinePt) = [ Sum_i((xi-a)**2)    Sum_i((xi-a)(yi-b)) Sum_i((xi-a)(zi-c)) ]
   //                   [ Sum_i((xi-a)(yi-b)) Sum_i((yi-b)**2)    Sum_i((yi-b)(zi-c)) ]
@@ -4340,17 +4340,17 @@ SM_EXPORT SmStatus smgu_BestFitLineToPoints
   double     dDist, dU ;
 
   // Get Eigenvalues and EigenVectors of C(LinePt)
-  sC.Compute3x3EigenVectors(lNumRealEigenValues, adEigenValues, aEigenVectors) ;
+  SER( sC.Compute3x3EigenVectors(lNumRealEigenValues, adEigenValues, aEigenVectors)  );
 
   // LineVec = unitized(aEigenVectors[2]) -- largest Eigenvalue.
   rLineVec = aEigenVectors[2] ;
-  rLineVec.Unitize() ;
+  (void)rLineVec.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // find line/pt[i] max gap
   for(rdMaxLineGap = 0.0,ii=0;ii<cnt;ii++)
     {
       // line point dist
-      smgu_LinePointDistance(rLinePt, rLineVec, crPoints[ii], dDist, &dU) ;
+      SER( smgu_LinePointDistance(rLinePt, rLineVec, crPoints[ii], dDist, &dU)  );
 
       // save max dist
       if(rdMaxLineGap < dDist) { rdMaxLineGap = dDist ; }
@@ -4402,7 +4402,7 @@ SM_EXPORT SmStatus smgu_BestFitCircleFromPointsTangents
         sXAxis = sXAxis/rdRadius;
         sYAxis = sTangent1;
         SER(sYAxis.Unitize());
-        rPlacement.SetCanonical(sCenter,sXAxis,sYAxis);
+        SER( rPlacement.SetCanonical(sCenter,sXAxis,sYAxis) );
         rdStartAngleDeg = 0.0;
         rdEndAngleDeg = 180.0;
         return SM_SUCCESS;
@@ -4458,7 +4458,7 @@ SM_EXPORT SmStatus smgu_BestFitCircleFromPointsTangents
         }
     }
 
-    rPlacement.SetCanonical(sCenter,sXAxis,sYAxis);
+    SER( rPlacement.SetCanonical(sCenter,sXAxis,sYAxis) );
     rdStartAngleDeg = 0.0;
     double dAngRad;
     SER(sNormal.CCWAngleBetween(sXAxis,sVec2,dAngRad));
@@ -4510,7 +4510,7 @@ SM_EXPORT SmStatus smgu_BestFitPlaneToPoints
   //     eSetType = oneof VOID, POINTSIZED, LINEAR, or SCATTERED (SCATTERED could be planar or scattered)
   //     sM       = minimization matrix needed to find best fit plane (happened to be built in this call)
   // 
-  smgu_BestFitLineToPoints(crPoints, dTol3d, eSetType, rPlanePt, rPlaneNormal, rdMaxPlaneGap, rdMaxCentroidGap, &sM) ;
+  SER( smgu_BestFitLineToPoints(crPoints, dTol3d, eSetType, rPlanePt, rPlaneNormal, rdMaxPlaneGap, rdMaxCentroidGap, &sM)  );
 
   // low work - point set is void, pointsized, or linear - not planar or scattered
   if(eSetType != SM_PST_SCATTERED)
@@ -4552,11 +4552,11 @@ SM_EXPORT SmStatus smgu_BestFitPlaneToPoints
   SmVector3d aEigenVectors[3] ;
 
   // Get Eigenvalues and EigenVectors of M(LinePt)
-  sM.Compute3x3EigenVectors(lNumRealEigenValues, adEigenValues, aEigenVectors) ;
+  SER( sM.Compute3x3EigenVectors(lNumRealEigenValues, adEigenValues, aEigenVectors)  );
 
   // LineVec = unitized(aEigenVectors[0]) -- smallest Eigenvalue.
   rPlaneNormal = aEigenVectors[0] ;
-  rPlaneNormal.Unitize() ;
+  (void)rPlaneNormal.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // find plane/pt[i] max gap
   for(rdMaxPlaneGap=0.0,ii=0;ii<cnt;ii++)
@@ -5771,7 +5771,7 @@ SM_EXPORT SmStatus smgu_EvaluateCurveContinuity
   // when C0 and angleBetween(tangent1, tangent2) < dContinuityAngleTol 
   SmVector3d sUnitVec1 = rVec1 ; sUnitVec1 /= dVec1Length ;
   SmVector3d sUnitVec2 = rVec2 ; sUnitVec2 /= dVec2Length ;
-  sUnitVec1.AngleBetween(sUnitVec2, dAngRad) ;
+  (void)sUnitVec1.AngleBetween(sUnitVec2, dAngRad); // SolidCraft: AngleBetween answers 0 for a zero vector (with SM_ERR_INVALID_INPUT); a zero gap or tangent has no angle
   if(   sRtn == SM_ERR
      || (   SM_RAD2DEG(dAngRad) > dContinuityAngleDeg)) { // not G1 - return SM_CT_C0
                                                           return sRtn ; 
@@ -5804,8 +5804,8 @@ SM_EXPORT SmStatus smgu_EvaluateCurveContinuity
   //      a[3] = Torsion Vector,   Mag = Torsion, direction = binormal vector
   // note: Osculating circle center: center = pos + RadOfCurv * NormalVector
   //       center = a[0] + a[2]/a[2].LengthSquared(), when a[2].LengthSquared() is not zero.
-  smgu_FrenetFromDerivatives(aVals1, lNumDerivs, aFrenet1) ; 
-  smgu_FrenetFromDerivatives(aVals2, lNumDerivs, aFrenet2) ; 
+  (void)smgu_FrenetFromDerivatives(aVals1, lNumDerivs, aFrenet1) ; // SolidCraft: SM_ERR is a straight or degenerate curve's missing torsion; aFrenet1 is not read below
+  (void)smgu_FrenetFromDerivatives(aVals2, lNumDerivs, aFrenet2) ; // SolidCraft: SM_ERR is a straight or degenerate curve's missing torsion; aFrenet2 is not read below
 
   // G2
   //  when G2/C2 && Angle between normal vectors is less than continuity angle tolerance
@@ -5819,7 +5819,7 @@ SM_EXPORT SmStatus smgu_EvaluateCurveContinuity
     {
       SmVector3d sNormal1 = aVals1[2] ; sNormal1 /= dCurvature1 ;
       SmVector3d sNormal2 = aVals2[2] ; sNormal2 /= dCurvature2 ;
-      sNormal1.AngleBetween(sNormal1, dAngRad) ;
+      (void)sNormal1.AngleBetween(sNormal1, dAngRad); // SolidCraft: AngleBetween answers 0 for a zero vector (with SM_ERR_INVALID_INPUT); a zero gap or tangent has no angle
     }
 
   if(   (sRtn == SM_ERR)
@@ -5872,7 +5872,7 @@ SM_EXPORT SmStatus smgu_EvaluateCurveContinuity
       // G1
       // seek tolerance and a1 such that DistanceBetween(Ps,a1*Qt) < dScaledZero 
       dScaledZero    = SM_ZONE_TOL_3D/10.0 * (1.0 + dVec12Max) ;
-      smgu_LinePointDistance(SmPoint3d(0,0,0), rVec2, rVec1, dG1Gap, &a1) ;
+      SER( smgu_LinePointDistance(SmPoint3d(0,0,0), rVec2, rVec1, dG1Gap, &a1)  );
       if(dScaledZero < dG1Gap) dScaledZero = dG1Gap ;
 
       // G2
@@ -5992,11 +5992,11 @@ SM_EXPORT SmStatus smgu_ClassifyTolerantIntersection
     {
       // GapAng1
       if(!bDegenerate1)
-        { sGap.AngleBetween(aPointFrame1[1],dGapAngRad1) ; }
+        { (void)sGap.AngleBetween(aPointFrame1[1],dGapAngRad1); } // SolidCraft: AngleBetween answers 0 for a zero vector (with SM_ERR_INVALID_INPUT); a zero gap or tangent has no angle
 
       // GapAng2
       if(!bDegenerate2)
-        { sGap.AngleBetween(aPointFrame2[1],dGapAngRad2) ; }
+        { (void)sGap.AngleBetween(aPointFrame2[1],dGapAngRad2); } // SolidCraft: AngleBetween answers 0 for a zero vector (with SM_ERR_INVALID_INPUT); a zero gap or tangent has no angle
 
       // AtMaxima when gap is perp to both tangent vectors
       bAtMaxima =    SM_IS_ZERO(dGapAngRad1 - SM_PI/2.0) 
@@ -6021,7 +6021,7 @@ SM_EXPORT SmStatus smgu_ClassifyTolerantIntersection
   // next: check for tangency
 
   // tangent angle
-  aPointFrame1[1].AngleBetween(aPointFrame2[1],dTangAngRad) ;
+  (void)aPointFrame1[1].AngleBetween(aPointFrame2[1],dTangAngRad); // SolidCraft: AngleBetween answers 0 for a zero vector (with SM_ERR_INVALID_INPUT); a zero gap or tangent has no angle
   
   // at least tangent when tang angle is 0 or PI
   if(   dTangAngRad                  < dTangAngTol
@@ -6063,7 +6063,7 @@ SM_EXPORT SmStatus smgu_ClassifyTolerantIntersection
   // compute some circ/circle properties
 
   // circlePlane-circlePlane angle
-  sBiNorm1.AngleBetween(sBiNorm2, dTiltAngRad) ;
+  (void)sBiNorm1.AngleBetween(sBiNorm2, dTiltAngRad); // SolidCraft: AngleBetween answers 0 for a zero vector (with SM_ERR_INVALID_INPUT); a zero gap or tangent has no angle
 
   //      // quick check - assume 
   //      if(   SM_IS_ZERO_TO_TOL(dCenterGap + smos_Fabs(dRadius1 - dRadius2), dTolerance3d)
@@ -6185,7 +6185,7 @@ SmStatus smgu_DirectionalDerivs
   // aDirDeriv is sized:[min(lHighestUDeriv,LHighestVderiv)+1]
 
   // unitize sDir
-  sDir.Unitize() ;
+  (void)sDir.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // position
   aDirDeriv[0] =   aDerivs[0] ;
@@ -6364,7 +6364,7 @@ SM_EXPORT SmStatus smgu_VolDirectionalDerivs
 #define sv(u,v,w) ((u*(lHighestDeriv+1)+v)*(lHighestDeriv+1)+w)
 
   // unitize sDir
-  sDir.Unitize() ;
+  (void)sDir.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // position
   aDirDeriv[0] =   aDerivs[sv(0,0,0)] ;
@@ -6485,7 +6485,7 @@ SM_EXPORT SmBoolean smgu_IsDogLeg
   SmVector3d sEndVec = rP3 - rP2 ;
   SmVector3d sTotVec = rP3 - rP0 ; 
   double     dBegEndAngRad ;
-  sBegVec.AngleBetween(sEndVec, dBegEndAngRad) ; // range:[0 Pi]
+  (void)sBegVec.AngleBetween(sEndVec, dBegEndAngRad) ; // range:[0 Pi] // SolidCraft: AngleBetween leaves 0 for a zero vector, no dog-leg
 
   // when When BegVec and EndVec are kindof parallel to one another
   //      and  BegVec and EndVec are both kindof perp to MidVec
@@ -6642,7 +6642,7 @@ SM_EXPORT SmStatus smgu_InsertKnotsIntoKnotVector
     // Sort from smallest to largest span size (TRUE argument).
 
     double dSpanSize = dFrac / ( lNumThisSpan + 1 );
-    smgu_AddSorted( dSpanSize, i, TRUE, sSortedSpans, &sSpanSortIndices );
+    SER( smgu_AddSorted( dSpanSize, i, TRUE, sSortedSpans, &sSpanSortIndices ) );
 
   } // end loop on spans, apportioning add-knot counts.
 
@@ -6679,7 +6679,7 @@ SM_EXPORT SmStatus smgu_InsertKnotsIntoKnotVector
       {
           double dFrac = (double)(j+1) / (double)(lNumThisSpan+1);
           double dKnotToInsert = sThisSpan.Evaluate( dFrac );
-          smgu_AddSorted( dKnotToInsert, 0, TRUE, sKnotsToInsert );
+          SER( smgu_AddSorted( dKnotToInsert, 0, TRUE, sKnotsToInsert ) );
       }
   }
 

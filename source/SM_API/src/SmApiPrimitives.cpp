@@ -31,6 +31,7 @@ GENERAL NOTES:
 #include <SmSphere.h>
 #include <SmTorus.h>
 #include <SmTol.h>
+#include <NL_Nurbsdef.h>    // NL_MAXDEG
 
 /*******************************************************************//**
 PURPOSE --- True for a finite dimension (radius, length, height) above zero.
@@ -144,7 +145,7 @@ SmApiStatus SmApiCreatePlane
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     double dTol = 1.0e-5;
     rpResult = SmPrimitiveCreation::CreateRectangle(*SmApiGetOrCreateContext(), dTol, dX, dY, sRefFrame);
@@ -190,7 +191,7 @@ SmApiStatus SmApiCreatePlane
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmPlane* pPlane = NULL;
     long status = SmPlane::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, pPlane); 
@@ -202,7 +203,7 @@ SmApiStatus SmApiCreatePlane
     }
 
     SmExtent2d sExtent;
-    sExtent.SetMinMax( 0, 0, dLength, dWidth );
+    SER( sExtent.SetMinMax( 0, 0, dLength, dWidth ) );
     status = pPlane->AdjustSTEPUVDomain( sExtent );
     if( status != SM_SUCCESS ) {
         delete pPlane;
@@ -245,7 +246,7 @@ SmApiStatus SmApiCreatePlanarCircle
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     double dTol = 1.0e-5;
     rpResult = SmPrimitiveCreation::CreateCircle(*SmApiGetOrCreateContext(), dTol, dRadius, sRefFrame);
@@ -296,7 +297,7 @@ SmApiStatus SmApiCreateBox
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     rpResult = NULL;
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
@@ -347,7 +348,7 @@ SmApiStatus SmApiCreateSphere
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -388,7 +389,29 @@ SmApiStatus SmApiCreateCylinder
     SmBrep*& rpResult           ///< [out]: Resulting SmBrep
 )
 {
-    return SmApiCreateCone(crOrigin, dRadius, dRadius, dHeight, rpResult);
+    rpResult = NULL;
+    if( !SmApiIsPositiveDim( dRadius ) || !SmApiIsPositiveDim( dHeight ) )
+        return( SM_ERR_INVALID_INPUT );
+
+    SmVector3d sXaxis(1.0,0.0,0.0);
+    SmVector3d sYaxis(0.0,1.0,0.0);
+
+    SmAxis2Placement sRefFrame;
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
+
+    SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
+    SmObjDelete sBrepCleanup( pBrep );
+
+    SmPrimitiveCreation sPC(pBrep->GetInfiniteRegion());
+    SER( sPC.CreateCylinder( dHeight, dRadius, sRefFrame ) );
+
+#ifdef SM_ASSERT_VALID
+    SM_ASSERT_VALID( pBrep );
+#endif
+
+    sBrepCleanup.Clear();
+    rpResult = pBrep;
+    return( SM_SUCCESS );
 
 } // SmApiCreateCylinder
 
@@ -414,7 +437,7 @@ SmApiStatus SmApiCreateCylinder
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmCylinder* pCylinder = NULL;
     long status = SmCylinder::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, dRadius, pCylinder); 
@@ -426,7 +449,7 @@ SmApiStatus SmApiCreateCylinder
     }
 
     SmExtent2d sExtent;
-    sExtent.SetMinMax( 0, 0, 360.0, dHeight );
+    SER( sExtent.SetMinMax( 0, 0, 360.0, dHeight ) );
     status = pCylinder->AdjustSTEPUVDomain( sExtent );
     if( status != SM_SUCCESS ) {
         delete pCylinder;
@@ -475,13 +498,15 @@ SmApiStatus SmApiCreateCone
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
 
     SmPrimitiveCreation sPC(pBrep->GetInfiniteRegion());
     SER( sPC.CreateCone( dHeight, dRadiusBase, dRadiusTop, 0.0, 360.0, sRefFrame ) );
+    // CreateCone leaves edit mode on, in which face caches ignore the trim loops
+    pBrep->m_bEditingEnabled = FALSE;
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -525,7 +550,7 @@ SmApiStatus SmApiCreateCone
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmCone* pCone = NULL;
     long status = SmCone::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, dRadiusBase, dRadiusTop, dHeight, pCone); 
@@ -537,7 +562,7 @@ SmApiStatus SmApiCreateCone
     }
 
     SmExtent2d sExtent;
-    sExtent.SetMinMax( 0, 0, 360.0, dHeight );
+    SER( sExtent.SetMinMax( 0, 0, 360.0, dHeight ) );
     status = pCone->AdjustSTEPUVDomain( sExtent );
     if( status != SM_SUCCESS ) {
         delete pCone;
@@ -582,7 +607,7 @@ SmApiStatus SmApiCreateTorus
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -627,7 +652,7 @@ SmApiStatus SmApiCreateTorus
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmTorus* pTorus = NULL;
     SmApiStatus status = SmTorus::CreateCanonical(*SmApiGetOrCreateContext(), sRefFrame, dRadiusMajor, dRadiusMinor, pTorus);
@@ -786,7 +811,7 @@ SmApiStatus SmApiCreateCylindricalBox
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     rpResult = NULL;
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
@@ -833,7 +858,7 @@ SmApiStatus SmApiCreatePartialSphere
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -926,13 +951,14 @@ SmApiStatus SmApiCreatePartialCone
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
 
     SmPrimitiveCreation sPC(pBrep->GetInfiniteRegion());
     SER( sPC.CreateCone( dHeight, dRadiusBase, dRadiusTop, dStartAngleDeg, dEndAngleDeg, sRefFrame ) );
+    pBrep->m_bEditingEnabled = FALSE;  // as in SmApiCreateCone
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -1041,7 +1067,7 @@ SmApiStatus SmApiCreatePartialTorus
     SmVector3d sYaxis(0.0,1.0,0.0);
     
     SmAxis2Placement sRefFrame;
-    sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis );
+    SER( sRefFrame.SetCanonical( crOrigin, sXaxis, sYaxis ) );
 
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
@@ -1335,12 +1361,21 @@ NOTES ---   Uses SmPrimitiveCreation::CreateSkinFromFaces
 SmApiStatus SmApiCreateSkinFromFaces
 (
     SmTArray<SmFace*>& rFaces,              ///< [in ]: Sequence of faces whose loops to loft between
-    ULONG lDegree,                          ///< [in ]: Degree in loft direction: 1=linear, 2=quad, 3=cubic
+    ULONG lDegree,                          ///< [in ]: Degree in loft direction: 1=linear, 2=quad, 3=cubic, up to NL_MAXDEG
     SmTArray<SmFace*>& rNewFaces,           ///< [out]: Resulting lofted faces
     SmBrep*& rpResult                      ///< [out]: Resulting SmBrep
 )
 {
     rpResult = NULL;
+
+    // NLib's surface evaluators size their basis-function stack arrays by
+    // NL_MAXDEG, so evaluating a loft of higher degree overflows the stack.
+    if( lDegree < 1 || lDegree > NL_MAXDEG )
+    {
+        rNewFaces.ReSet();
+        return SM_ERR_INVALID_INPUT;
+    }
+
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmObjDelete sBrepCleanup( pBrep );
 

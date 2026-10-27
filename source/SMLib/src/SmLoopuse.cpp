@@ -45,6 +45,37 @@
 #include <SmAssertArray.h>
 #include <SmPseudoBox.h>
 
+namespace
+{
+/*******************************************************************//**
+PURPOSE: Append pElem to rArray unless it is already there, as
+         SmTArray::AddUnique does, without its linear search on long loops.
+
+NOTES: The result is the same array in the same order. Up to
+       kLinearUnique elements AddUnique's own search is used; past that the
+       elements seen so far are kept in rSeen (built on first use), so
+       gathering a loop of n edges or vertices takes O(n) instead of O(n^2).
+***********************************************************************/
+const ULONG kLinearUnique = 32 ;
+
+template <class TYPE>
+void sm_AddUniqueInOrder(SmTArray<TYPE*> & rArray, std::unordered_set<TYPE*> & rSeen, TYPE * pElem)
+{
+  if (rSeen.empty() && rArray.GetSize() < kLinearUnique)
+    {
+      rArray.AddUnique(pElem) ;
+      return ;
+    }
+  if (rSeen.empty())
+    {
+      for (ULONG ii = 0; ii < rArray.GetSize(); ii++)
+        { rSeen.insert(rArray[ii]) ; }
+    }
+  if (rSeen.insert(pElem).second)
+    { rArray.Add(pElem) ; }
+}
+} // namespace
+
 //    // For debugging only - a set of pointers that can be assigned and inspected through the watch window
 //    #ifdef SM_DEBUG_CODE
 //
@@ -253,6 +284,7 @@ void SmLoopuse::GetEdges   // not GetEdgeuses
   // locals
   SmEdgeuse *pStartEU = SM_CAST_PTR(SmEdgeuse, m_pEUorVU ) ; SM_ASSERT(pStartEU != NULL) ;
   SmEdgeuse *pEU      = pStartEU ;
+  std::unordered_set<SmEdge*> sSeen ;
 
   // for every Edgeuse until we get back tothe StartEU
   do {
@@ -266,7 +298,7 @@ void SmLoopuse::GetEdges   // not GetEdgeuses
        // build output
        if(   pOptAttributeId == NULL
           || pE->FindAttribute(*pOptAttributeId) != NULL)  
-         { rEdges.AddUnique(pE) ; }
+         { sm_AddUniqueInOrder(rEdges, sSeen, pE) ; }
 
        // next iter
        pEU = pEU->m_pCCW;
@@ -438,6 +470,7 @@ void SmLoopuse::GetVertices
   SmEdgeuse * pStartEU = (SmEdgeuse*)m_pEUorVU;
   SM_ASSERT(pStartEU != NULL);
   SmEdgeuse *pEU = pStartEU;
+  std::unordered_set<SmVertex*> sSeen ;
   
   // for every Edgeuse until we get back to the StartEU
   do {
@@ -452,7 +485,7 @@ void SmLoopuse::GetVertices
        // build output
        if(   pOptAttributeId == NULL
          || pV->FindAttribute(*pOptAttributeId) != NULL)  
-        { rVertices.AddUnique(pV); }
+        { sm_AddUniqueInOrder(rVertices, sSeen, pV); }
 
        // next iter
        pEU = pEU->m_pCCW; SM_ASSERT(pEU != NULL);
@@ -720,7 +753,7 @@ SmStatus SmLoopuse::CalculateBoundingBox
       if(pVertexuse)
         {
           // build 2d BBox
-          pVertexuse->ComputeUVPoint(sUVPoint) ;
+          SER( pVertexuse->ComputeUVPoint(sUVPoint)  );
           pBBoxUV->AddPoint2d(sUVPoint) ;
         }
     } // end iter every LoopVertex
@@ -733,7 +766,7 @@ SmStatus SmLoopuse::CalculateBoundingBox
       SmBSplineCurve * pUVCurve = NULL;
       if(pEdgeuse)
         {
-          pEdgeuse->GetOrCreateUVTrimCurve(pUVCurve) ;
+          SER( pEdgeuse->GetOrCreateUVTrimCurve(pUVCurve)  );
         }
 
       // Get this Edge's tight 3dbox
@@ -741,15 +774,15 @@ SmStatus SmLoopuse::CalculateBoundingBox
 
       // union edge->3dBBox into the output 3dBox
       rBBox3d.Union( sBBox3d, rBBox3d );
-      pPseudoBox->Union( sPBox, pPseudoBox->GetBasis(), *pPseudoBox) ;
+      SER( pPseudoBox->Union( sPBox, pPseudoBox->GetBasis(), *pPseudoBox)  );
 
       // When edge has a UVTrimCurve
       if(pUVCurve)
         {
           // Get this Edge->UVTrimCurve's tight 2dbox
-          pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sBBox3d) ;
-          sBBox2d.SetMinMax(sBBox3d.GetUMin(), sBBox3d.GetVMin(),
-                            sBBox3d.GetUMax(), sBBox3d.GetVMax()) ;
+          SER( pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sBBox3d)  );
+          SER( sBBox2d.SetMinMax(sBBox3d.GetUMin(), sBBox3d.GetVMin(),
+                            sBBox3d.GetUMax(), sBBox3d.GetVMax())  );
 
           // union edge->2dBBox with output 2BBox
           pBBoxUV->Union(sBBox2d, *pBBoxUV) ;
@@ -841,7 +874,7 @@ SmBoolean bDebugMe = FALSE ;
       double         dThisEndParam  =   eThisOrient == SM_OT_SAME
                                          ? sThisIvl.GetMax()
                                          : sThisIvl.GetMin() ;
-      pThisCurve->EvaluatePoint(dThisEndParam, sThisEndPoint[0]) ;
+      if ( pThisCurve->EvaluatePoint(dThisEndParam, sThisEndPoint[0])  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: an end that cannot be evaluated does not show the loop closed
 
       // Next Edgeuse Start Point
       SmEdgeuse    * pNextEdgeuse    = sEdgeuses[(ii+1)%lNum] ;
@@ -853,7 +886,7 @@ SmBoolean bDebugMe = FALSE ;
       double         dNextStartParam =   eNextOrient == SM_OT_SAME
                                        ? sNextIvl.GetMin()
                                        : sNextIvl.GetMax() ;
-      pNextCurve->EvaluatePoint(dNextStartParam, sNextStartPoint[0]) ;
+      if ( pNextCurve->EvaluatePoint(dNextStartParam, sNextStartPoint[0])  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: an end that cannot be evaluated does not show the loop closed
 
       // ThisEndPoint to NextStartPoint gap
       double dGap3dSq = sThisEndPoint[0].DistanceBetweenSquared(sNextStartPoint[0]) ;
@@ -1158,8 +1191,8 @@ SmBoolean bDebugMe = FALSE ;
 
       // sector properties
       SmUVSectorIO sUVSectorIO ;
-      pVertexuse->ComputeUVSector(sUVSectorIO,   // out: Optional Sector Properties.  NULL to ignore, default:[NULL]
-                                  TRUE) ;        // in : TRUE  = Use LocalSolve with guesses from UVTrimCurve
+      if ( pVertexuse->ComputeUVSector(sUVSectorIO,   // out: Optional Sector Properties.  NULL to ignore, default:[NULL] // SolidCraft change: a vertexuse whose sector cannot be computed shows no missing seam
+                                  TRUE)  != SM_SUCCESS ) { continue ; }        // in : TRUE  = Use LocalSolve with guesses from UVTrimCurve
                                                  //      FALSE = don't make UVTrimCurve, if missing use GlobalSolve, default:[TRUE]
 
       // check for missing Seam
@@ -1216,7 +1249,7 @@ SmDisplayList * SmLoopuse::Draw
     {
       SmVertexuse *pVU = (SmVertexuse*)m_pEUorVU;
       SmVertex    *pV  = pVU->GetVertex();
-      pV->OutputGraphics(pOptGfxSet);
+      (void)pV->OutputGraphics(pOptGfxSet); // SolidCraft: drawing only
     }
   else // output edgeuseType graphics
     {
@@ -1239,18 +1272,18 @@ SmDisplayList * SmLoopuse::Draw
             {
               SmEdgeuse *pEU = (SmEdgeuse*)sEdgeuses[j];
               SmBSplineCurve * pUVCurve = NULL ;
-              pEU->GetOrCreateUVTrimCurve(pUVCurve) ;
+              (void)pEU->GetOrCreateUVTrimCurve(pUVCurve) ; // SolidCraft: drawing only
 
               if(pUVCurve)
                 {
-                  pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sBox) ;
+                  (void)pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sBox) ; // SolidCraft: drawing only
                   if(j==0) s3dBox = sBox ;
                   else     s3dBox.Union(sBox, s3dBox) ;
                 }
             } // end iter every edgeuse
           SmExtent2d sUVDomain = pSurface->GetNaturalUVDomain() ;
           SmExtent2d sUVBox(s3dBox) ;
-          sUVBox.Intersect(sUVDomain, sUVBox) ;
+          (void)sUVBox.Intersect(sUVDomain, sUVBox) ; // SolidCraft: drawing only
 
           // Draw the UVPlane Icon positioned and sized to the UVTrimCurve boundary
           pSurface->DrawUVDomain(NULL,&sUVBox,TRUE,TRUE,FALSE,1.0,&sContext,&pUVPlane,pOptGfxSet) ;
@@ -1275,7 +1308,7 @@ SmDisplayList * SmLoopuse::Draw
               smgfx_ChangeColor(j!=0, pOptGfxSet) ;
 
               SmBSplineCurve * pUVCurve = NULL ;
-              pEU->GetOrCreateUVTrimCurve(pUVCurve) ;
+              (void)pEU->GetOrCreateUVTrimCurve(pUVCurve) ; // SolidCraft: drawing only
               if(pUVCurve)
                 {
                   //      smgfx_OutputColor(smgfx_GetColor()) ;
@@ -1655,7 +1688,7 @@ const
     // prepare for iter - get Last:[sEUEndUV, StartVtx, EndVtx]
     if(lNum > 0)
     {
-      sEdgeuses[lNum - 1]->NormalizedEvaluate( 1.0, TRUE, sEUEndUV, NULL, TRUE );  // TRUE = UV Eval, FALSE = 3d Eval
+      (void)sEdgeuses[lNum - 1]->NormalizedEvaluate( 1.0, TRUE, sEUEndUV, NULL, TRUE );  // TRUE = UV Eval, FALSE = 3d Eval // SolidCraft: dump only
       pStartVertex = sEdgeuses[lNum - 1]->GetVertexuse() ? sEdgeuses[lNum - 1]->GetVertexuse()->GetVertex() : NULL;
       pEndVertex = sEdgeuses[lNum - 1]->GetEdge() ? sEdgeuses[lNum - 1]->GetEdge()->GetOtherVertex( pStartVertex ) : NULL;
     }
@@ -1688,14 +1721,14 @@ const
       pEndVertexuse = pNextEdgeuse->GetVertexuse();
       pEndVertex = pEndVertexuse ? pEndVertexuse->GetVertex() : NULL;
 
-      pEdgeuse->NormalizedEvaluate( 0.0, TRUE, sEUStartUV, NULL, TRUE );         // TRUE = UV Eval, FALSE = 3d Eval
-      pEdgeuse->NormalizedEvaluate( 1.0, TRUE, sEUEndUV, NULL, TRUE );           // TRUE = UV Eval, FALSE = 3d Eval
-      pNextEdgeuse->NormalizedEvaluate( 0.0, TRUE, sEUNextStartUV, NULL, TRUE ); // TRUE = UV Eval, FALSE = 3d Eval
+      (void)pEdgeuse->NormalizedEvaluate( 0.0, TRUE, sEUStartUV, NULL, TRUE );         // TRUE = UV Eval, FALSE = 3d Eval // SolidCraft: dump only
+      (void)pEdgeuse->NormalizedEvaluate( 1.0, TRUE, sEUEndUV, NULL, TRUE );           // TRUE = UV Eval, FALSE = 3d Eval // SolidCraft: dump only
+      (void)pNextEdgeuse->NormalizedEvaluate( 0.0, TRUE, sEUNextStartUV, NULL, TRUE ); // TRUE = UV Eval, FALSE = 3d Eval // SolidCraft: dump only
 
       // sector properties
       // sVUPointUV and sVUSectorUV are now computed by the same internal call - they are always the same now.
-      pEndVertexuse->ComputeUVPoint( sVUPointUV );
-      pEndVertexuse->ComputeUVSector(sUVSectorIO,      // out: Optional Sector Properties.  NULL to ignore, default:[NULL]
+      (void)pEndVertexuse->ComputeUVPoint( sVUPointUV ); // SolidCraft: dump only
+      (void)pEndVertexuse->ComputeUVSector(sUVSectorIO,      // out: Optional Sector Properties.  NULL to ignore, default:[NULL] // SolidCraft: dump only
                                      TRUE) ;           // in : TRUE  = Use LocalSolve with guesses from UVTrimCurve
                                                        //      FALSE = don't make UVTrimCurve, if missing use GlobalSolve, default:[TRUE]
        sVUSectorUV     = sUVSectorIO.m_sBegEdgeUVPoint ;

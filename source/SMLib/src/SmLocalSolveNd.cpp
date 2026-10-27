@@ -180,7 +180,9 @@ SmStatus SmLocalSolveNd::SolveIt
                                                                    //      [dF0/dx0 dF0/dx1 ... dF0/dxn, dF1/dx0 ... dF1/dxn, ...]
                                                  bFoundAnswer))    // out: TRUE = F within tolerance, 
     { // exit case - Evaluate() call failed                        //       note: not set by many derived functions
-      rbFoundSolution      = TRUE;
+      // SolidCraft: the guess could not be evaluated, so it is no solution: not converged, as
+      // when an evaluation fails during the iteration (it said the guess was a solution)
+      rbFoundSolution      = FALSE;
       m_eTerminationReason = SM_TR_UNABLE_TO_CONVERGE;
       return SM_SUCCESS;
     }
@@ -454,10 +456,13 @@ static    ULONG lDebugLevel = 0 ;  // greater than 0 - print initial guess and f
                 }
             }
 
-          // accumulate errors
+          // accumulate errors - a failed evaluation has no equation values
           dNextSumF = 0.0;
-          for ( ii=0; ii<lNumFun; ii++ )
-            { dNextSumF += smos_Fabs( sEquationValues[ii] ) ; }
+          if ( !bFirstFailed )
+            {
+              for ( ii=0; ii<lNumFun; ii++ )
+                { dNextSumF += smos_Fabs( sEquationValues[ii] ) ; }
+            }
 
 #ifdef SM_DEBUG_CODE
           if (lDebugLevel>1) 
@@ -539,25 +544,26 @@ static    ULONG lDebugLevel = 0 ;  // greater than 0 - print initial guess and f
                    }                                                            
 
                   // ... evaluate there...
-                  if( SM_SUCCESS != m_rFunctionEvaluator.Evaluate(sNextGuessClampedScaled,
-                                                                  sEquationValues2,
-                                                                  &sJacobian2,
-                                                                  bFoundAnswer2 )
-                     ) 
+                  SmBoolean bSecondFailed =
+                    SM_SUCCESS != m_rFunctionEvaluator.Evaluate(sNextGuessClampedScaled,
+                                                                sEquationValues2,
+                                                                &sJacobian2,
+                                                                bFoundAnswer2 ) ;
+                  if ( bSecondFailed && bFirstFailed )
                     {
-                      if ( bFirstFailed )
-                      {
-                          // exit case - both evaluate calls fails
-                          m_eTerminationReason = SM_TR_UNABLE_TO_CONVERGE;
-                          SM_DBG_MSG(lDebugLevel>0, _T("Breaking iteration: Evaluator failed, clamped.\n") );
-                          break; // Get out of inner loop and do a check to see if we are good enough
-                      }
+                      // exit case - both evaluate calls fails
+                      m_eTerminationReason = SM_TR_UNABLE_TO_CONVERGE;
+                      SM_DBG_MSG(lDebugLevel>0, _T("Breaking iteration: Evaluator failed, clamped.\n") );
+                      break; // Get out of inner loop and do a check to see if we are good enough
                     }
 
-                  // ... and see how good it is:
+                  // ... and see how good it is - a failed evaluation has no equation values
                   double dNextSumF2 = 0.0;
-                  for( ii=0; ii<lNumFun; ii++ )
-                      { dNextSumF2 += smos_Fabs( sEquationValues2[ii] ); }
+                  if ( !bSecondFailed )
+                    {
+                      for( ii=0; ii<lNumFun; ii++ )
+                          { dNextSumF2 += smos_Fabs( sEquationValues2[ii] ); }
+                    }
 
 #ifdef SM_DEBUG_CODE
                   if (lDebugLevel>1) 
@@ -571,14 +577,25 @@ static    ULONG lDebugLevel = 0 ;  // greater than 0 - print initial guess and f
                   // Replace with the scaled step if it's better.
                   // (Also, if first failed and second succeeded,
                   // just use the second one.)
-                  if ( dNextSumF2 < dNextSumF  ||  bFirstFailed )
+                  if ( !bSecondFailed && ( dNextSumF2 < dNextSumF  ||  bFirstFailed ))
                     {
+                      // the step, its equations and its Jacobian all come from this evaluation
                       sNextGuessClamped = sNextGuessClampedScaled;
                       sEquationValues = sEquationValues2;
+                      sJacobian = sJacobian2;
+                      bFoundAnswer = bFoundAnswer2;
                       dNextSumF = dNextSumF2;
+                      bFirstFailed = FALSE;
                     }
                 }  // end if scaling was tested
             }  // end if bClamped.
+
+          // exit case - the clamped step could not be evaluated, and no scaled one was
+          if ( bFirstFailed )
+            {
+              SM_DBG_MSG(lDebugLevel>0, _T("Breaking iteration: Evaluator failed, clamped.\n") );
+              break; // Get out of inner loop and do a check to see if we are good enough
+            }
 
           // Record the better clamped value
           //  need to do this with or without clamping because an Evaluate() Function
@@ -806,7 +823,16 @@ static    ULONG lDebugLevel = 0 ;  // greater than 0 - print initial guess and f
       dSumF = dBestSumF;
       rSolutionVector.ReSet();
       rSolutionVector.Append(sBestGuess);
-      m_rFunctionEvaluator.Evaluate(rSolutionVector,sEquationValues,&sJacobian,bFoundAnswer);
+      // SolidCraft: a best guess that cannot be evaluated is no solution, as a first guess that
+      // cannot be: not converged (an evaluator can fail at a point it answered before, as
+      // SmSSPIntersectENFO's steepest-descent plane where two tangent surfaces' normals are
+      // parallel).
+      if (m_rFunctionEvaluator.Evaluate(rSolutionVector,sEquationValues,&sJacobian,bFoundAnswer) != SM_SUCCESS)
+        {
+          rbFoundSolution      = FALSE;
+          m_eTerminationReason = SM_TR_UNABLE_TO_CONVERGE;
+          return SM_SUCCESS;
+        }
     }
 
   // return converged case

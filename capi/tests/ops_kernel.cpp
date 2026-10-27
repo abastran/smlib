@@ -1,0 +1,3280 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 SolidCraft contributors
+// SPDX-License-Identifier: Apache-2.0
+
+// The operations on bodies the C API cannot make yet (a cylinder through SM_API), and the
+// SMLib defects found under ASan, each as a regression case. Run it under ASan/UBSan
+// (README, "Fuzzing"): every case must stay clean there, not only return the right status.
+
+#include "../src/smlib_shim.h"
+
+#include <SmApiBrep.h>
+#include <SmApiFillets.h>
+#include <SmApiPrimitives.h>
+#include <SmApiQueries.h>
+#include <SmBSplineCurve.h>
+#include <SmCylinder.h>
+#include <SmExtent3d.h>
+#include <SmEdge.h>
+#include <SmEdgeuse.h>
+#include <SmFace.h>
+#include <SmFaceuse.h>
+#include <SmFilletExecutive.h>
+#include <SmOffsetGeometryCreation.h>
+#include <SmOffsetSurface.h>
+#include <SmAxis2Placement.h>
+#include <SmSphere.h>
+#include <SmSurfOfRevolution.h>
+#include <SmVector3d.h>
+#include <SmVertex.h>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <functional>
+#include <utility>
+#include <vector>
+
+namespace
+{
+
+int failures = 0;
+
+#define CHECK(cond)                                                                                \
+    do                                                                                             \
+    {                                                                                              \
+        if (!(cond))                                                                               \
+        {                                                                                          \
+            std::fprintf(stderr, "%s:%d: CHECK(%s) failed\n", __FILE__, __LINE__, #cond);          \
+            failures++;                                                                            \
+        }                                                                                          \
+    } while (0)
+
+const double PI = 3.14159265358979323846;
+
+smlib_brep *box(double x, double y, double z, double dx, double dy, double dz)
+{
+    const double o[3] = {x, y, z};
+    const double s[3] = {dx, dy, dz};
+    smlib_brep *b = nullptr;
+    CHECK(smlib_make_box(o, s, &b) == SMLIB_OK);
+    return b;
+}
+
+// A Z-axis cylinder through SM_API (the C API has no primitives besides the box yet).
+smlib_brep *cylinder(double x, double y, double z, double r, double h)
+{
+    SmApiGetOrCreateContext();
+    SmBrep *p = nullptr;
+    CHECK(SmApiCreateCylinder(SmVector3d(x, y, z), r, h, p) == SM_SUCCESS && p != nullptr);
+    return new smlib_brep{p};
+}
+
+double volume_of(const smlib_brep *b)
+{
+    double v = -1.0;
+    CHECK(smlib_brep_volume(b, 1e-7, &v) == SMLIB_OK);
+    return v;
+}
+
+// SMLib's own validity check, every test (level 2), must find nothing wrong with `b`.
+bool sound(const smlib_brep *b)
+{
+    static char buf[1 << 16];
+    int64_t len = 0;
+    int64_t failures = -1;
+    if (smlib_brep_check(b, 2, buf, sizeof buf, &len, &failures) != SMLIB_OK)
+    {
+        std::fprintf(stderr, "  smlib_brep_check did not run\n");
+        return false;
+    }
+    if (failures != 0)
+    {
+        std::fprintf(stderr, "  %lld failed validity tests:\n%s\n", static_cast<long long>(failures), buf);
+    }
+    return failures == 0;
+}
+
+// Checks a result and frees it.
+void done(smlib_brep *&r)
+{
+    CHECK(r != nullptr && sound(r));
+    smlib_brep_free(r);
+    r = nullptr;
+}
+
+bool near(double got, double want, double rel)
+{
+    bool ok = std::fabs(got - want) <= rel * std::fabs(want);
+    if (!ok)
+    {
+        std::fprintf(stderr, "  got %.9g, want %.9g\n", got, want);
+    }
+    return ok;
+}
+
+// A sphere of radius `r` about the origin in six patches, each on its own sphere surface turned
+// to it, as an importer hands over a cube projected onto the sphere: the topology of a box, its
+// faces sphere patches (reference direction to the patch's middle, longitude and latitude in
+// [-45, 45] degrees), its edges the great-circle arcs between the corners.
+smlib_brep *cube_sphere(double r)
+{
+    using V = std::array<double, 3>;
+    auto unit = [](V a) {
+        double l = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+        return V{a[0] / l, a[1] / l, a[2] / l};
+    };
+    smlib_brep *b = box(-1, -1, -1, 2, 2, 2);
+    smlib_flat *f = nullptr;
+    CHECK(smlib_brep_export(b, &f) == SMLIB_OK);
+    smlib_brep_free(b);
+    const int64_t *ev = nullptr;
+    const int64_t *loops = nullptr;
+    const int64_t *uses = nullptr;
+    const int64_t *kinds = nullptr;
+    const double *vp = nullptr;
+    int64_t n_ev = 0, n_loops = 0, n_uses = 0, n_faces = 0, n_vp = 0;
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGE_VERTICES, &ev, &n_ev) == SMLIB_OK);
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_LOOP_EDGEUSE_COUNT, &loops, &n_loops) == SMLIB_OK);
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGEUSE_EDGE, &uses, &n_uses) == SMLIB_OK);
+    CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_FACE_SURFACE_TYPE, &kinds, &n_faces) == SMLIB_OK);
+    CHECK(smlib_flat_get_f64(f, SMLIB_FLAT_VERTEX_POSITION, &vp, &n_vp) == SMLIB_OK);
+    CHECK(n_faces == 6 && n_loops == 6 && n_ev == 24 && n_vp == 24);
+    std::vector<double> position, centre, axis, ref, radius, range;
+    for (int64_t i = 0; i < n_vp / 3; ++i)
+    {
+        V u = unit({vp[3 * i], vp[3 * i + 1], vp[3 * i + 2]});
+        for (double x : u)
+        {
+            position.push_back(r * x);
+        }
+    }
+    for (int64_t e = 0; e < n_ev / 2; ++e)
+    {
+        V a = unit({vp[3 * ev[2 * e]], vp[3 * ev[2 * e] + 1], vp[3 * ev[2 * e] + 2]});
+        V z = unit({vp[3 * ev[2 * e + 1]], vp[3 * ev[2 * e + 1] + 1], vp[3 * ev[2 * e + 1] + 2]});
+        V n = unit({a[1] * z[2] - a[2] * z[1], a[2] * z[0] - a[0] * z[2], a[0] * z[1] - a[1] * z[0]});
+        for (int k = 0; k < 3; ++k)
+        {
+            centre.push_back(0.0);
+            axis.push_back(n[k]);
+            ref.push_back(a[k]);
+        }
+        radius.push_back(r);
+        range.push_back(0.0);
+        range.push_back(std::acos(a[0] * z[0] + a[1] * z[1] + a[2] * z[2]));
+    }
+    std::vector<double> s_centre, s_axis, s_ref, s_radius, s_range;
+    int64_t at = 0;
+    for (int64_t i = 0; i < n_faces && at < n_uses; ++i)
+    {
+        // The patch's direction: the middle of its loop's corners (one loop per face, in order).
+        V mid{0, 0, 0};
+        for (int64_t k = 0; k < loops[i]; ++k)
+        {
+            int64_t e = uses[at + k];
+            for (int j = 0; j < 2; ++j)
+            {
+                for (int q = 0; q < 3; ++q)
+                {
+                    mid[q] += vp[3 * ev[2 * e + j] + q];
+                }
+            }
+        }
+        at += loops[i];
+        V d = unit(mid);
+        V up = std::fabs(d[2]) > 0.5 ? V{1, 0, 0} : V{0, 0, 1};
+        for (int q = 0; q < 3; ++q)
+        {
+            s_centre.push_back(0.0);
+            s_axis.push_back(up[q]);
+            s_ref.push_back(d[q]);
+        }
+        s_radius.push_back(r);
+        for (double x : {-PI / 4.0, -PI / 4.0, PI / 4.0, PI / 4.0})
+        {
+            s_range.push_back(x);
+        }
+    }
+    std::vector<int64_t> circles(static_cast<size_t>(n_ev / 2), SMLIB_FLAT_CURVE_CIRCLE);
+    std::vector<int64_t> spheres(static_cast<size_t>(n_faces), SMLIB_FLAT_SURFACE_SPHERE);
+    CHECK(smlib_flat_set_i64(f, SMLIB_FLAT_EDGE_CURVE_TYPE, circles.data(), static_cast<int64_t>(circles.size())) == SMLIB_OK);
+    CHECK(smlib_flat_set_i64(f, SMLIB_FLAT_FACE_SURFACE_TYPE, spheres.data(), static_cast<int64_t>(spheres.size())) == SMLIB_OK);
+    for (int id : {SMLIB_FLAT_EDGE_LINE_ORIGIN, SMLIB_FLAT_EDGE_LINE_DIRECTION, SMLIB_FLAT_FACE_PLANE_ORIGIN, SMLIB_FLAT_FACE_PLANE_AXIS,
+                   SMLIB_FLAT_FACE_PLANE_REF_DIRECTION})
+    {
+        CHECK(smlib_flat_set_f64(f, id, nullptr, 0) == SMLIB_OK);
+    }
+    const std::pair<int, const std::vector<double> *> arrays[] = {
+        {SMLIB_FLAT_VERTEX_POSITION, &position},       {SMLIB_FLAT_EDGE_CIRCLE_CENTER, &centre},
+        {SMLIB_FLAT_EDGE_CIRCLE_AXIS, &axis},          {SMLIB_FLAT_EDGE_CIRCLE_REF_DIRECTION, &ref},
+        {SMLIB_FLAT_EDGE_CIRCLE_RADIUS, &radius},      {SMLIB_FLAT_EDGE_RANGE, &range},
+        {SMLIB_FLAT_FACE_SPHERE_CENTER, &s_centre},    {SMLIB_FLAT_FACE_SPHERE_AXIS, &s_axis},
+        {SMLIB_FLAT_FACE_SPHERE_REF_DIRECTION, &s_ref}, {SMLIB_FLAT_FACE_SPHERE_RADIUS, &s_radius},
+        {SMLIB_FLAT_FACE_RANGE, &s_range}};
+    for (const auto &a : arrays)
+    {
+        CHECK(smlib_flat_set_f64(f, a.first, a.second->data(), static_cast<int64_t>(a.second->size())) == SMLIB_OK);
+    }
+    smlib_brep *out = nullptr;
+    CHECK(smlib_brep_import(f, &out) == SMLIB_OK);
+    smlib_flat_free(f);
+    return out;
+}
+
+// A 120 x 80 x 40 box drafted 5 degrees inward with its four sloping edges rounded r 4, shelled 2
+// open at the top (SolidCraft rig shell/3576). The offset's analytic copy of each round (a cone
+// spanning a quarter turn) was grown round its axis to a full turn, which SmCone's NURBS rebuild
+// refuses (SM_ERR_INVALID_INPUT); MateEdges failed at every round, the rounds' walls were
+// left unmated and the piecewise merge hit a missing vertex (SM_ERR_NULL_POINTER, 1006). The
+// copy is grown only along the rulings, where the offset's tangent extension is still the cone.
+// The corner of corner_setback left open (smlib_blend_setback_open): SMLib's patch, six
+// quadrilaterals meeting at its centre, goes with its six inner edges and its centre, so the
+// sheet keeps the box's six faces and the three rounds (9), 36 - 6 edges and 23 - 1 vertices.
+// Its one hole runs through the six section ends, each side (a section or a face curve) in the
+// two halves SMLib split it into: twelve edges, each between the hole and one face, which are
+// the sheet's only free edges, chained end to start in the direction the faces beside them run
+// them. Too small a buffer makes nothing and names the length needed.
+void corner_setback_open()
+{
+    smlib_brep *part = box(0, 0, 0, 60, 40, 20);
+    const double edges[9] = {30, 40, 20, 60, 20, 20, 60, 40, 10};
+    const double radii[3] = {5, 5, 5};
+    const double corner[3] = {60, 40, 20};
+    const double setback = 8.0;
+    smlib_brep *r = nullptr;
+    int64_t len = -1;
+    CHECK(smlib_blend_setback_open(part, SMLIB_BLEND_ROUND, edges, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, 0, &len, nullptr,
+                                   nullptr) == SMLIB_ERR_BUFFER &&
+          r == nullptr && len == 1 + 3 * 12);
+    int64_t holes[64];
+    CHECK(smlib_blend_setback_open(part, SMLIB_BLEND_ROUND, edges, radii, 3, corner, &setback, 1, 0.1, &r, holes, 64, &len, nullptr,
+                                   nullptr) == SMLIB_OK &&
+          r != nullptr && len == 1 + 3 * 12 && holes[0] == 12);
+    if (r != nullptr)
+    {
+        int64_t counts[3] = {0, 0, 0};
+        CHECK(smlib_brep_counts(r, counts) == SMLIB_OK);
+        CHECK(counts[0] == 9 && counts[1] == 30 && counts[2] == 22);
+        int32_t closed = -1;
+        CHECK(smlib_brep_is_manifold_solid(r, &closed) == SMLIB_OK && closed == 0);
+        smlib_flat *f = nullptr;
+        CHECK(smlib_brep_export(r, &f) == SMLIB_OK);
+        const int64_t *ev = nullptr;
+        const int64_t *eu = nullptr;
+        const double *vp = nullptr;
+        int64_t n_ev = 0, n_eu = 0, n_vp = 0;
+        CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGE_VERTICES, &ev, &n_ev) == SMLIB_OK && n_ev == 2 * 30);
+        CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGEUSE_EDGE, &eu, &n_eu) == SMLIB_OK);
+        CHECK(smlib_flat_get_f64(f, SMLIB_FLAT_VERTEX_POSITION, &vp, &n_vp) == SMLIB_OK && n_vp == 3 * 22);
+        // The edges history says each edge bounds: the hole's own edges bound their one face.
+        int64_t hlen = 0;
+        CHECK(smlib_history_read(r, nullptr, 0, &hlen) == SMLIB_ERR_BUFFER);
+        std::vector<int64_t> h(static_cast<size_t>(hlen));
+        CHECK(smlib_history_read(r, h.data(), hlen, &hlen) == SMLIB_OK);
+        std::vector<std::vector<int64_t>> bounds;
+        size_t at = 3;
+        for (int64_t i = 0; i < h[1]; ++i)
+        {
+            at += 2 + 2 * static_cast<size_t>(h[at + 1]);
+        }
+        for (int64_t i = 0; i < h[2]; ++i)
+        {
+            std::vector<int64_t> fs(h.begin() + static_cast<long>(at) + 1, h.begin() + static_cast<long>(at) + 1 + h[at]);
+            bounds.push_back(fs);
+            at += 1 + static_cast<size_t>(h[at]);
+            at += 1 + 2 * static_cast<size_t>(h[at]);
+        }
+        int64_t free_edges = 0;
+        for (const auto &b : bounds)
+        {
+            free_edges += b.size() == 1 ? 1 : 0;
+        }
+        CHECK(free_edges == 12);
+        const double ends[6][3] = {{52, 35, 20}, {52, 40, 15}, {55, 32, 20}, {60, 32, 15}, {55, 40, 12}, {60, 35, 12}};
+        int found = 0;
+        for (int64_t k = 0; k < 12; ++k)
+        {
+            int64_t e = holes[1 + 3 * k], face = holes[2 + 3 * k], fwd = holes[3 + 3 * k];
+            int64_t n = holes[1 + 3 * ((k + 1) % 12)], nfwd = holes[3 + 3 * ((k + 1) % 12)];
+            CHECK(e >= 0 && e < 30 && face >= 0 && face < 9 && (fwd == 0 || fwd == 1));
+            CHECK(bounds[static_cast<size_t>(e)].size() == 1 && bounds[static_cast<size_t>(e)][0] == face);
+            int64_t end = ev[2 * e + (fwd != 0 ? 1 : 0)];
+            int64_t next_start = ev[2 * n + (nfwd != 0 ? 0 : 1)];
+            CHECK(end == next_start);
+            for (const auto &p : ends)
+            {
+                double d = std::hypot(vp[3 * end] - p[0], vp[3 * end + 1] - p[1], vp[3 * end + 2] - p[2]);
+                found += d <= 1e-6 ? 1 : 0;
+            }
+        }
+        CHECK(found == 6);
+        smlib_flat_free(f);
+        done(r);
+    }
+    // Every edge rounded and all eight corners set back 7.5: eight holes, each round its own
+    // corner (every vertex of it within the setback's reach of that corner, none of another's).
+    const double all_edges[36] = {0, 0, 10, 60, 0, 10, 0, 40, 10, 60, 40, 10, 30, 0, 0, 30, 40, 0,
+                                  30, 0, 20, 30, 40, 20, 0, 20, 0, 60, 20, 0, 0, 20, 20, 60, 20, 20};
+    const double all_radii[12] = {5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5};
+    double corners[24];
+    double backs[8];
+    for (int k = 0; k < 8; ++k)
+    {
+        corners[3 * k] = (k & 1) != 0 ? 60 : 0;
+        corners[3 * k + 1] = (k & 2) != 0 ? 40 : 0;
+        corners[3 * k + 2] = (k & 4) != 0 ? 20 : 0;
+        backs[k] = 7.5;
+    }
+    int64_t all_holes[8 * 64];
+    CHECK(smlib_blend_setback_open(part, SMLIB_BLEND_ROUND, all_edges, all_radii, 12, corners, backs, 8, 0.1, &r, all_holes, 8 * 64, &len,
+                                   nullptr, nullptr) == SMLIB_OK &&
+          r != nullptr && len == 8 * (1 + 3 * 12));
+    if (r != nullptr)
+    {
+        smlib_flat *f = nullptr;
+        CHECK(smlib_brep_export(r, &f) == SMLIB_OK);
+        const int64_t *ev = nullptr;
+        const double *vp = nullptr;
+        int64_t n_ev = 0, n_vp = 0;
+        CHECK(smlib_flat_get_i64(f, SMLIB_FLAT_EDGE_VERTICES, &ev, &n_ev) == SMLIB_OK);
+        CHECK(smlib_flat_get_f64(f, SMLIB_FLAT_VERTEX_POSITION, &vp, &n_vp) == SMLIB_OK);
+        std::vector<int64_t> seen;
+        for (int k = 0; k < 8; ++k)
+        {
+            const int64_t *h = all_holes + k * (1 + 3 * 12);
+            CHECK(h[0] == 12);
+            double farthest = 0.0;
+            for (int64_t i = 0; i < 12; ++i)
+            {
+                int64_t e = h[1 + 3 * i];
+                seen.push_back(e);
+                for (int end = 0; end < 2; ++end)
+                {
+                    const double *q = vp + 3 * ev[2 * e + end];
+                    farthest = std::max(farthest, std::hypot(q[0] - corners[3 * k], q[1] - corners[3 * k + 1], q[2] - corners[3 * k + 2]));
+                }
+            }
+            CHECK(farthest < 7.5 * std::sqrt(2.0));
+        }
+        std::sort(seen.begin(), seen.end());
+        CHECK(std::unique(seen.begin(), seen.end()) == seen.end());
+        smlib_flat_free(f);
+        done(r);
+    }
+    smlib_brep_free(part);
+}
+
+// The inner corner of a 20 x 20 x 10 notch cut from the top corner (60, 40, 20) of the 60 x 40 x
+// 20 box: its three concave edges, meeting at (40, 20, 10), rounded r5 and set back 7.5, left
+// open (one hole of twelve edges, a sheet SMLib's check passes) and closed (SMLib's patch, a
+// valid solid). At (60, 20, 10) two convex edges meet the concave one: a mixed corner, which
+// SMLib sets back with the same-convexity topology and gets wrong, refused.
+void concave_corner_setback()
+{
+    smlib_brep *part = box(0, 0, 0, 60, 40, 20);
+    smlib_brep *block = box(40, 20, 10, 30, 30, 20);
+    smlib_brep *notched = nullptr;
+    CHECK(smlib_boolean(part, block, SMLIB_BOOLEAN_SUBTRACT, &notched) == SMLIB_OK && notched != nullptr);
+    smlib_brep_free(part);
+    smlib_brep_free(block);
+    if (notched == nullptr)
+    {
+        return;
+    }
+    const double inner[9] = {50, 20, 10, 40, 30, 10, 40, 20, 15};
+    const double radii[3] = {5, 5, 5};
+    const double corner[3] = {40, 20, 10};
+    const double setback = 7.5;
+    smlib_brep *r = nullptr;
+    int64_t holes[64];
+    int64_t len = -1;
+    CHECK(smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, inner, radii, 3, corner, &setback, 1, 0.1, &r, holes, 64, &len, nullptr,
+                                   nullptr) == SMLIB_OK &&
+          r != nullptr && len == 1 + 3 * 12 && holes[0] == 12);
+    if (r != nullptr)
+    {
+        int32_t closed = -1;
+        CHECK(smlib_brep_is_manifold_solid(r, &closed) == SMLIB_OK && closed == 0);
+        done(r);
+    }
+    CHECK(smlib_blend_setback(notched, SMLIB_BLEND_ROUND, inner, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, nullptr) == SMLIB_OK &&
+          r != nullptr);
+    if (r != nullptr)
+    {
+        done(r);
+    }
+    const double mixed[9] = {50, 20, 10, 60, 30, 10, 60, 20, 15};
+    const double mixed_corner[3] = {60, 20, 10};
+    CHECK(smlib_blend_setback(notched, SMLIB_BLEND_ROUND, mixed, radii, 3, mixed_corner, &setback, 1, 0.1, &r, nullptr, nullptr) ==
+              SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    CHECK(smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, mixed, radii, 3, mixed_corner, &setback, 1, 0.1, &r, holes, 64, &len, nullptr,
+                                   nullptr) == SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    // Both corners asked for, the mixed one second: the refusal names it by its point's index.
+    const double both_edges[15] = {50, 20, 10, 40, 30, 10, 40, 20, 15, 60, 30, 10, 60, 20, 15};
+    const double both_radii[5] = {5, 5, 5, 5, 5};
+    const double both_corners[6] = {40, 20, 10, 60, 20, 10};
+    const double both_setbacks[2] = {7.5, 7.5};
+    for (int open = 0; open < 2; ++open)
+    {
+        int64_t failed_corner = -1;
+        int32_t s = open == 1 ? smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, both_edges, both_radii, 5, both_corners, both_setbacks, 2, 0.1,
+                                                         &r, holes, 64, &len, nullptr, &failed_corner)
+                              : smlib_blend_setback(notched, SMLIB_BLEND_ROUND, both_edges, both_radii, 5, both_corners, both_setbacks, 2, 0.1,
+                                                    &r, nullptr, &failed_corner);
+        CHECK(s == SMLIB_ERR_UNSUPPORTED && r == nullptr && failed_corner == 1);
+    }
+    smlib_brep_free(notched);
+}
+
+void shelled_tapered_box_rounds()
+{
+    const std::vector<int64_t> kinds = {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE, SMLIB_CURVE_LINE, SMLIB_CURVE_LINE};
+    const std::vector<double> reals = {-60, -40, 0, 60, -40, 0, 60, -40, 0, 60, 40, 0,
+                                       60, 40, 0, -60, 40, 0, -60, 40, 0, -60, -40, 0};
+    const double up[3] = {0, 0, 1};
+    smlib_brep *box5 = nullptr, *round = nullptr, *shell = nullptr;
+    CHECK(smlib_extrude(kinds.data(), 4, reals.data(), static_cast<int64_t>(reals.size()), up, 40.0, 5.0 * PI / 180.0,
+                        SMLIB_DRAFT_CORNER_CURVATURE, 1, &box5, nullptr) == SMLIB_OK);
+    if (box5 == nullptr)
+    {
+        return;
+    }
+    const double in = 20.0 * std::tan(5.0 * PI / 180.0); // the sloping edges' midpoints, at z 20
+    const double edges[12] = {60 - in, 40 - in, 20, 60 - in, -(40 - in), 20, -(60 - in), 40 - in, 20, -(60 - in), -(40 - in), 20};
+    CHECK(smlib_fillet(box5, edges, 4, 0.1, 4.0, &round, nullptr) == SMLIB_OK);
+    if (round != nullptr)
+    {
+        const double top[3] = {0, 0, 40};
+        CHECK(smlib_shell(round, top, 1, 0.1, -2.0, &shell, nullptr) == SMLIB_OK);
+        CHECK(shell != nullptr && sound(shell));
+    }
+    smlib_brep_free(shell);
+    smlib_brep_free(round);
+    smlib_brep_free(box5);
+}
+
+// A dome (a quarter disc r 20 revolved about Z: a sphere and a plane) shelled 2 inward, open at
+// its base (SolidCraft rig shell/4847). The offset meets the base plane at the inner sphere's
+// equator, the circle r 18: its edge is that circle exactly, and the shell's volume is
+// (2/3) pi (20^3 - 18^3). The offset used to intersect the two faces' tangent (G1R) B-spline
+// extensions, marching a cubic within 6.5e-7 of the circle; SolidCraft read that back as a circle
+// off the axis, whose seam then sat 1.1e-7 from the dome's in the union that joins the rim back in.
+// Three R5 rounds at the corner (60, 40, 20) of a 60 x 40 x 20 box, the corner set back 8 along
+// each edge (smlib_blend_setback). Each round runs whole to its cross-section 8 from the vertex,
+// and the patch between those sections meets each face in a curve between the two rounds'
+// contact lines: the six vertices where the patch meets the faces are those sections' ends
+// (on the top face (52, 35, 20) and (55, 32, 20), and so on). Outside the corner cube C =
+// [52, 60] x [32, 40] x [12, 20] the body is that of the corner without a setback, the sphere
+// corner (ladder 07-fillets/009: V0 = 47377.120025868, of which 512 - 225 (1 - pi/4) -
+// 125 (1 - pi/6) in C). The body is convex, so inside C it holds the hull of its points on C's
+// faces (the three sections and the box's corners outside the patch: 299.0201, by a hull of
+// them sampled, below the true hull) and lies within every plane tangent to it along the
+// sections, the three rounds' prisms: 512 - 225 (1 - pi/4) - 125 (sqrt 2 - 1), the corner cube
+// of r keeping the three cylinders' common octant, (2 - sqrt 2) r^3, in place of the sphere's.
+void corner_setback()
+{
+    smlib_brep *part = box(0, 0, 0, 60, 40, 20);
+    const double edges[9] = {30, 40, 20, 60, 20, 20, 60, 40, 10};
+    const double radii[3] = {5, 5, 5};
+    const double corner[3] = {60, 40, 20};
+    const double setback = 8.0;
+    smlib_brep *r = nullptr;
+    int64_t failed = -1;
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, &failed) == SMLIB_OK);
+    if (r != nullptr)
+    {
+        const double in_c_sphere = 512.0 - 225.0 * (1.0 - PI / 4.0) - 125.0 * (1.0 - PI / 6.0);
+        const double outside = 47377.120025868 - in_c_sphere;
+        const double hull = 299.0201;
+        const double prisms = 512.0 - 225.0 * (1.0 - PI / 4.0) - 125.0 * (std::sqrt(2.0) - 1.0);
+        double v = volume_of(r);
+        std::fprintf(stderr, "  corner setback: volume %.9g in [%.9g, %.9g]\n", v, outside + hull, outside + prisms);
+        CHECK(v > outside + hull && v < outside + prisms);
+        // The box's six faces, the three rounds and the patch, which SMLib builds as two
+        // quadrilaterals per side (2 x 3), each pair split at the middle of its side (its
+        // section's or face curve's) and all six meeting at the patch's centre. Vertices: the
+        // box's four corners untouched, two at each round's far end, the six section ends, the
+        // six side middles and the centre (23); edges by Euler's formula, 23 + 15 - 2.
+        int64_t counts[3] = {0, 0, 0};
+        CHECK(smlib_brep_counts(r, counts) == SMLIB_OK);
+        CHECK(counts[0] == 15 && counts[1] == 36 && counts[2] == 23);
+        double lo[3];
+        double hi[3];
+        CHECK(smlib_brep_bounds(r, lo, hi) == SMLIB_OK);
+        // The box's own: the patch stays inside the corner.
+        const double want_hi[3] = {60, 40, 20};
+        for (int k = 0; k < 3; ++k)
+        {
+            CHECK(std::fabs(lo[k]) <= 1e-9 && std::fabs(hi[k] - want_hi[k]) <= 1e-9);
+        }
+        // The patch's extent along each edge: where it meets the faces, the setback sections'
+        // ends, each a vertex of the body.
+        const double ends[6][3] = {{52, 35, 20}, {52, 40, 15}, {55, 32, 20}, {60, 32, 15}, {55, 40, 12}, {60, 35, 12}};
+        SmTArray<SmVertex *> vs;
+        r->p->GetVertices(vs);
+        for (const auto &e : ends)
+        {
+            double best = HUGE_VAL;
+            for (ULONG k = 0; k < vs.GetSize(); ++k)
+            {
+                best = std::min(best, (vs[k]->GetPoint() - SmPoint3d(e[0], e[1], e[2])).Length());
+            }
+            if (best > 1e-6)
+            {
+                std::fprintf(stderr, "  corner setback: no vertex at (%g, %g, %g), nearest %.3g off\n", e[0], e[1], e[2], best);
+            }
+            CHECK(best <= 1e-6);
+        }
+        done(r);
+    }
+    // One setback per corner, past where the rounds meet: a vertex no point picks, a point at
+    // a vertex no blended edge meets, a setback as long as an edge there, a chamfer.
+    const double far_corner[3] = {0, 0, 0};
+    const double off[3] = {59, 39, 19};
+    const double too_long = 20.0;
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, off, &setback, 1, 0.1, &r, nullptr, &failed) == SMLIB_ERR_PICK_NONE &&
+          failed == 0 && r == nullptr);
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, far_corner, &setback, 1, 0.1, &r, nullptr, nullptr) == SMLIB_ERR_ARG &&
+          r == nullptr);
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 3, corner, &too_long, 1, 0.1, &r, nullptr, nullptr) == SMLIB_ERR_NO_ROOM &&
+          r == nullptr);
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_CHAMFER, edges, radii, 3, corner, &setback, 1, 0.1, &r, nullptr, nullptr) ==
+              SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    // Two of the corner's three edges rounded: SMLib builds a setback only where all are.
+    CHECK(smlib_blend_setback(part, SMLIB_BLEND_ROUND, edges, radii, 2, corner, &setback, 1, 0.1, &r, nullptr, nullptr) ==
+              SMLIB_ERR_UNSUPPORTED &&
+          r == nullptr);
+    smlib_brep_free(part);
+}
+
+void shelled_dome_rim()
+{
+    std::vector<int64_t> kinds = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE};
+    std::vector<double> reals = {0, 0, 0, 20, 0, 0,                                // (0,0,0) -> (20,0,0)
+                                 0, 0, 0, 0, -1, 0, 1, 0, 0, 20, 0, PI / 2,      // the arc, about -Y from +X to +Z
+                                 0, 0, 20, 0, 0, 0};                             // (0,0,20) -> (0,0,0)
+    const double origin[3] = {0, 0, 0}, up[3] = {0, 0, 1};
+    smlib_brep *dome = nullptr, *shell = nullptr;
+    CHECK(smlib_revolve(kinds.data(), 3, reals.data(), static_cast<int64_t>(reals.size()), origin, up, 2 * PI, 1, &dome) == SMLIB_OK);
+    if (dome == nullptr)
+    {
+        return;
+    }
+    const double base[3] = {10, 0, 0};
+    CHECK(smlib_shell(dome, base, 1, 0.01, -2.0, &shell, nullptr) == SMLIB_OK);
+    if (shell != nullptr)
+    {
+        char buf[4096];
+        int64_t len = 0, bad = -1;
+        CHECK(smlib_brep_check(shell, 2, buf, sizeof buf, &len, &bad) == SMLIB_OK && bad == 0);
+        double volume = 0;
+        CHECK(smlib_brep_volume(shell, 1e-8, &volume) == SMLIB_OK);
+        CHECK(std::fabs(volume - 2.0 / 3.0 * PI * (8000.0 - 5832.0)) < 1e-5);
+
+        // The rim's inner edge: on the base, at radius 18 to rounding.
+        SmTArray<SmEdge *> edges;
+        shell->p->GetEdges(edges);
+        int rims = 0;
+        for (ULONG i = 0; i < edges.GetSize(); i++)
+        {
+            SmExtent1d ivl = edges[i]->GetInterval();
+            SmPoint3d mid;
+            CHECK(edges[i]->GetCurve()->EvaluatePoint(ivl.Evaluate(0.5), mid) == SM_SUCCESS);
+            if (std::fabs(mid.z) > 1e-6 || std::hypot(mid.x, mid.y) > 19.0)
+            {
+                continue;
+            }
+            rims++;
+            double worst = 0;
+            for (int k = 0; k <= 256; k++)
+            {
+                SmPoint3d p;
+                CHECK(edges[i]->GetCurve()->EvaluatePoint(ivl.Evaluate(k / 256.0), p) == SM_SUCCESS);
+                worst = std::max(worst, std::fabs(std::hypot(p.x, p.y) - 18.0) + std::fabs(p.z));
+            }
+            CHECK(worst < 1e-12);
+        }
+        CHECK(rims == 1);
+    }
+    smlib_brep_free(shell);
+    smlib_brep_free(dome);
+}
+
+// The analytic STEPInversion() answers: SM_SUCCESS on the surface, SM_ERR_OUTSIDE_OF_DOMAIN
+// outside a cylinder's sweep, SM_ERR_NOT_WITHIN_TOLERANCE off the surface (a sphere's with the
+// dropped point's parameters), each with its location; SMLib's callers pass any other status on.
+void analytic_step_inversion()
+{
+    const SmContext &ctx = *SmApiGetOrCreateContext();
+    const double tol = 1e-6;
+    SmPoint2d uv;
+    SmLocationType loc = SM_LT_INTERIOR;
+    SmCylinder *cyl = new (ctx) SmCylinder(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0), 1.0, 0.0, 90.0, 2.0, FALSE, FALSE,
+                                           FALSE, &ctx);
+    const SmExtent2d cd = cyl->GetSTEPUVDomain();
+    const double h = std::sqrt(0.5);
+    CHECK(cyl->STEPInversion(cd, SmPoint3d(h, h, 1), tol, uv, loc) == SM_SUCCESS && loc == SM_LT_INTERIOR);
+    CHECK(std::fabs(uv.x - 45.0) < 1e-9 && std::fabs(uv.y - 1.0) < 1e-9);
+    CHECK(cyl->STEPInversion(cd, SmPoint3d(-1, 0, 1), tol, uv, loc) == SM_ERR_OUTSIDE_OF_DOMAIN && loc == SM_LT_EXTERIOR);
+    CHECK(std::fabs(uv.y - 1.0) < 1e-9);
+    CHECK(cyl->STEPInversion(cd, SmPoint3d(2, 0.1, 1), tol, uv, loc) == SM_ERR_NOT_WITHIN_TOLERANCE && loc == SM_LT_EXTERIOR);
+    delete cyl;
+
+    SmSphere *sphere = nullptr;
+    CHECK(SmSphere::CreateCanonical(ctx, SmAxis2Placement(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0)), 2.0, sphere) ==
+          SM_SUCCESS);
+    if (sphere != nullptr)
+    {
+        const SmExtent2d sd = sphere->GetSTEPUVDomain();
+        CHECK(sphere->STEPInversion(sd, SmPoint3d(0, 2, 0), tol, uv, loc) == SM_SUCCESS && loc == SM_LT_INTERIOR);
+        CHECK(std::fabs(uv.x - 90.0) < 1e-9 && std::fabs(uv.y) < 1e-9);
+        CHECK(sphere->STEPInversion(sd, SmPoint3d(0, 3, 0), tol, uv, loc) == SM_ERR_NOT_WITHIN_TOLERANCE && loc == SM_LT_INTERIOR);
+        CHECK(std::fabs(uv.x - 90.0) < 1e-9 && std::fabs(uv.y) < 1e-9);
+        CHECK(sphere->STEPInversion(sd, SmPoint3d(0, 0, 0), tol, uv, loc) == SM_ERR_NOT_WITHIN_TOLERANCE && loc == SM_LT_EXTERIOR);
+        delete sphere;
+    }
+    CHECK(SmSurface::STEPInversionAnswered(SM_ERR_NOT_WITHIN_TOLERANCE) && SmSurface::STEPInversionAnswered(SM_ERR_OUTSIDE_OF_DOMAIN));
+    CHECK(!SmSurface::STEPInversionAnswered(SM_ERR) && !SmSurface::STEPInversionAnswered(SM_ERR_NOT_CONVERGING));
+}
+
+// A cylinder whose offset construction gives no surface although the offset does not collapse
+// (the cylinder's radius is larger than the distance): an offset that is missing for any other
+// reason than a collapse.
+class NoOffsetCylinder : public SmCylinder
+{
+  public:
+    explicit NoOffsetCylinder(const SmCylinder &c) : SmCylinder(c)
+    {
+    }
+    SmStatus CreateOffsetSurface(const SmContext &, double, SmApproxTol3d, SmSurface *&rOffset) const override
+    {
+        rOffset = nullptr;
+        return SM_SUCCESS;
+    }
+};
+
+// The largest gap, over every edgeuse's UV trim curve, between the curve lifted onto its face's
+// surface and its edge's curve at the same parameter, as a multiple of the edge's tolerance
+// (sampled at 33 points per edgeuse).
+double worst_pcurve_gap(const smlib_brep *b)
+{
+    SmTArray<SmEdgeuse *> uses;
+    b->p->GetEdgeuses(uses);
+    double worst = 0.0;
+    for (ULONG i = 0; i < uses.GetSize(); i++)
+    {
+        SmEdgeuse *use = uses[i];
+        SmBSplineCurve *uv = use->GetUVTrimCurvePointer();
+        if (uv == nullptr || use->GetFaceuse() == nullptr)
+        {
+            continue;
+        }
+        SmEdge *e = use->GetEdge();
+        SmSurface *s = use->GetFaceuse()->GetFace()->GetSurface();
+        SmExtent1d ivl = e->GetInterval();
+        for (int k = 0; k <= 32; k++)
+        {
+            double t = ivl.GetMin() + ivl.GetLength() * k / 32.0;
+            SmPoint3d c, q, w;
+            CHECK(e->GetCurve()->EvaluatePoint(t, c) == SM_SUCCESS && uv->EvaluatePoint(t, w) == SM_SUCCESS &&
+                  s->EvaluatePoint(SmPoint2d(w.x, w.y), q) == SM_SUCCESS);
+            worst = std::max(worst, c.DistanceBetween(q) / e->GetTolerance());
+        }
+    }
+    return worst;
+}
+
+// A planar profile (lines and arcs about +z, in the plane z0) extruded `h` up.
+struct Profile
+{
+    std::vector<int64_t> kinds;
+    std::vector<double> reals;
+    Profile &line(double ax, double ay, double bx, double by, double z0)
+    {
+        kinds.push_back(SMLIB_CURVE_LINE);
+        reals.insert(reals.end(), {ax, ay, z0, bx, by, z0});
+        return *this;
+    }
+    // About +z (nz 1) counter-clockwise from a0 to a1, or about -z (nz -1).
+    Profile &arc(double cx, double cy, double z0, double nz, double r, double a0, double a1)
+    {
+        kinds.push_back(SMLIB_CURVE_ARC);
+        reals.insert(reals.end(), {cx, cy, z0, 0, 0, nz, 1, 0, 0, r, a0, a1});
+        return *this;
+    }
+    smlib_brep *extrude(double h) const
+    {
+        const double up[3] = {0, 0, 1};
+        smlib_brep *b = nullptr;
+        CHECK(smlib_extrude(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), up, h, 0.0,
+                            SMLIB_DRAFT_CORNER_CURVATURE, 1, &b, nullptr) == SMLIB_OK);
+        return b;
+    }
+};
+
+} // namespace
+
+int main()
+{
+    smlib_brep *cube = box(0, 0, 0, 20, 20, 20);
+    smlib_brep *r = nullptr;
+
+    // SMLib defect 1 (SmProtoEdge's destructor left a pointer to itself in a ProtoVertex that
+    // bounds both its ends; ~SmProtoTopologyManager then wrote through it): a box minus a
+    // through cylinder.
+    // A stadium ring base (arcs r 3 and 5, centres 20 apart, 2 thick) joined with two half-annulus
+    // lips (r 4..5, 18 tall) standing on it with their walls 0.0001 off the base's (SolidCraft rig
+    // booleans/2928): the base's top arc is split 3.5e-6 of its parameter before the knot of its
+    // UV curve, on a plane whose UV runs 38 times shorter than its 3D size. The split left that
+    // short span of the UV curve; trimming used to drop it as degenerate (a 3D tolerance read in
+    // UV units) and the pcurve lifted 2.5 times the edge tolerance off its edge.
+    {
+        const double e = 1e-4;
+        Profile base, lip1, lip2;
+        base.line(5, -10, 5, 10, 0).arc(0, 10, 0, 1, 5, 0, PI).line(-5, 10, -5, -10, 0).arc(0, -10, 0, 1, 5, PI, 2 * PI);
+        base.line(3, -10, 3, 10, 0).arc(0, 10, 0, 1, 3, 0, PI).line(-3, 10, -3, -10, 0).arc(0, -10, 0, 1, 3, PI, 2 * PI);
+        lip1.arc(e, 10, 2, 1, 5, 0, PI).line(-5 + e, 10, -4 + e, 10, 2).arc(e, 10, 2, -1, 4, -PI, 0).line(4 + e, 10, 5 + e, 10, 2);
+        lip2.arc(-e, -10, 2, 1, 5, PI, 2 * PI).line(5 - e, -10, 4 - e, -10, 2).arc(-e, -10, 2, -1, 4, -2 * PI, -PI).line(-4 - e, -10, -5 - e, -10, 2);
+        smlib_brep *b = base.extrude(2.0), *l1 = lip1.extrude(18.0), *l2 = lip2.extrude(18.0), *one = nullptr, *two = nullptr;
+        CHECK(smlib_boolean(b, l1, SMLIB_BOOLEAN_UNION, &one) == SMLIB_OK);
+        CHECK(one != nullptr && smlib_boolean(one, l2, SMLIB_BOOLEAN_UNION, &two) == SMLIB_OK);
+        if (two != nullptr)
+        {
+            // Base 2 * (80 + 16 pi), lips 2 * 18 * 4.5 pi, not overlapping.
+            CHECK(near(volume_of(two), 160.0 + 194.0 * PI, 1e-6));
+            CHECK(sound(two));
+            double worst = worst_pcurve_gap(two);
+            std::printf("lips on a stadium ring: worst pcurve gap %.3g edge tolerances\n", worst);
+            CHECK(worst <= 1.0);
+        }
+        for (smlib_brep *x : {b, l1, l2, one, two})
+        {
+            smlib_brep_free(x);
+        }
+    }
+
+    // A revolved hub (r 8..30, flange 6 tall, boss r 8..18 to 22) and its flange's top annulus
+    // extruded 5 up from its edges, each circle two half arcs (SolidCraft rig sweeps/494), joined.
+    // The ring's outer wall halves merge into the flange's cylinder; the line between them at 180
+    // degrees then has that face on both sides, and used to stay as a slit (it is no intersection
+    // edge, which were all BooleanPostProcess checked). Left: the three seams. Pappus:
+    // pi (30^2 - 8^2) 6 + pi (18^2 - 8^2) 16 + pi (30^2 - 18^2) 5 = 12056 pi.
+    {
+        const double outline[6][2] = {{8, 0}, {30, 0}, {30, 6}, {18, 6}, {18, 22}, {8, 22}};
+        std::vector<int64_t> kinds;
+        std::vector<double> reals;
+        for (int i = 0; i < 6; i++)
+        {
+            const double *p = outline[i], *q = outline[(i + 1) % 6];
+            kinds.push_back(SMLIB_CURVE_LINE);
+            reals.insert(reals.end(), {p[0], 0, p[1], q[0], 0, q[1]});
+        }
+        const double origin[3] = {0, 0, 0}, up[3] = {0, 0, 1};
+        smlib_brep *hub = nullptr, *ring = nullptr, *joined = nullptr;
+        CHECK(smlib_revolve(kinds.data(), 6, reals.data(), static_cast<int64_t>(reals.size()), origin, up, 2 * PI, 1, &hub) == SMLIB_OK);
+        Profile annulus;
+        annulus.arc(0, 0, 6, 1, 30, 0, PI).arc(0, 0, 6, 1, 30, PI, 2 * PI).arc(0, 0, 6, -1, 18, -PI, 0).arc(0, 0, 6, -1, 18, -2 * PI, -PI);
+        ring = annulus.extrude(5.0);
+        CHECK(hub != nullptr && ring != nullptr && smlib_boolean(hub, ring, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+        if (joined != nullptr)
+        {
+            CHECK(near(volume_of(joined), 12056.0 * PI, 1e-6));
+            CHECK(sound(joined));
+            SmTArray<SmEdge *> edges;
+            joined->p->GetEdges(edges);
+            int inside = 0;
+            for (ULONG i = 0; i < edges.GetSize(); i++)
+            {
+                SmTArray<SmFace *> sides;
+                edges[i]->GetFaces(sides);
+                inside += sides.GetSize() == 1 ? 1 : 0;
+            }
+            std::printf("hub joined with a half-arc ring: %lu edges, %d with one face\n", static_cast<unsigned long>(edges.GetSize()), inside);
+            CHECK(inside == 3);
+        }
+        for (smlib_brep *x : {hub, ring, joined})
+        {
+            smlib_brep_free(x);
+        }
+    }
+
+    smlib_brep *rod = cylinder(10, 10, -1, 4, 22);
+    CHECK(smlib_boolean(cube, rod, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
+    CHECK(near(volume_of(r), 8000.0 - PI * 16.0 * 20.0, 1e-6));
+    CHECK(sound(r));
+    smlib_brep *holed = r;
+    r = nullptr;
+    CHECK(smlib_boolean(cube, rod, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK);
+    CHECK(near(volume_of(r), 8000.0 + PI * 16.0 * 2.0, 1e-6));
+    done(r);
+    // A blind hole, ending inside.
+    smlib_brep *pin = cylinder(10, 10, 10, 4, 15);
+    CHECK(smlib_boolean(cube, pin, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
+    CHECK(near(volume_of(r), 8000.0 - PI * 16.0 * 10.0, 1e-6));
+    done(r);
+
+    // The rim of the hole is one closed circular edge.
+    // At 45 degrees: the cylinder's seam meets the rim at 0 degrees, and a point there is
+    // as near to the seam as to the rim.
+    const double rim[3] = {10 + 4 * std::sqrt(0.5), 10 + 4 * std::sqrt(0.5), 20};
+    int32_t s = smlib_fillet(holed, rim, 1, 0.1, 1.0, &r, nullptr);
+    if (s == SMLIB_OK)
+    {
+        // A round of r = 1 on a hole of radius R = 4: the cross-section (1 − π/4)·r² goes, its
+        // centroid at R + r·(10 − 3π)/(12 − 3π) from the axis (Pappus).
+        double area = (1.0 - PI / 4.0);
+        double c = 4.0 + (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI);
+        CHECK(near(volume_of(r), volume_of(holed) - 2.0 * PI * c * area, 1e-5));
+        done(r);
+    }
+    else
+    {
+        std::fprintf(stderr, "fillet of the hole rim failed: %d\n", static_cast<int>(s));
+        failures++;
+    }
+    s = smlib_chamfer(holed, rim, 1, 0.1, 1.0, &r, nullptr);
+    if (s == SMLIB_OK)
+    {
+        // A 1 × 1 triangle, centroid at R + 1/3.
+        CHECK(near(volume_of(r), volume_of(holed) - 2.0 * PI * (4.0 + 1.0 / 3.0) * 0.5, 1e-5));
+        done(r);
+    }
+    else
+    {
+        std::fprintf(stderr, "chamfer of the hole rim failed: %d\n", static_cast<int>(s));
+        failures++;
+    }
+    // tangency-labs/solidcore#379: SmApiChamferFillet (SMLib's constant-distance solver, a
+    // chord of 1 across each chamfer) on every edge of the holed cube, the hole's rims too,
+    // gives a closed solid, the one the shim's chamfer (constant radius, linear section) gives
+    // at the setback a chord of 1 has on these square edges, 1 / sqrt(2).
+    {
+        SmBrep *all = nullptr;
+        CHECK(SmApiBrepCopy(holed->p, all) == SM_SUCCESS && all != nullptr);
+        if (all != nullptr)
+        {
+            CHECK(SmApiChamferFillet(all, 1.0) == SM_SUCCESS);
+            smlib_brep *chamfered = new smlib_brep{all};
+            CHECK(all->IsManifoldSolid() && sound(chamfered));
+            double edges[42];
+            int n = 0;
+            for (double a : {0.0, 20.0})
+            {
+                for (double b : {0.0, 20.0})
+                {
+                    const double rows[3][3] = {{10, a, b}, {a, 10, b}, {a, b, 10}};
+                    for (const auto &row : rows)
+                    {
+                        for (double x : row)
+                        {
+                            edges[n++] = x;
+                        }
+                    }
+                }
+            }
+            for (double z : {0.0, 20.0})
+            {
+                edges[n++] = rim[0];
+                edges[n++] = rim[1];
+                edges[n++] = z;
+            }
+            CHECK(smlib_chamfer(holed, edges, 14, 0.1, 1.0 / std::sqrt(2.0), &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(chamfered), volume_of(r), 1e-8));
+                done(r);
+            }
+            smlib_brep_free(chamfered);
+        }
+    }
+    const double top[3] = {2, 2, 20};
+    if (smlib_shell(holed, top, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK)
+    {
+        done(r);
+    }
+
+    // Every edge of the cube, then a tangent chain.
+    double mids[36];
+    int k = 0;
+    const double ends[4][2] = {{0, 0}, {20, 0}, {0, 20}, {20, 20}};
+    for (auto &e : ends)
+    {
+        double rows[3][3] = {{10, e[0], e[1]}, {e[0], 10, e[1]}, {e[0], e[1], 10}};
+        for (auto &row : rows)
+        {
+            for (double x : row)
+            {
+                mids[k++] = x;
+            }
+        }
+    }
+    CHECK(smlib_fillet(cube, mids, 12, 0.1, 2.0, &r, nullptr) == SMLIB_OK);
+    done(r);
+    const double vertical[3] = {20, 20, 10};
+    smlib_brep *round = nullptr;
+    CHECK(smlib_fillet(cube, vertical, 1, 0.1, 5.0, &round, nullptr) == SMLIB_OK && sound(round));
+    const double straight[3] = {7.5, 20, 20};
+    CHECK(smlib_fillet(round, straight, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK);
+    done(r);
+    CHECK(smlib_chamfer(round, straight, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK);
+    done(r);
+
+    // tangency-labs/solidcore#420: a chamfer as wide as the corner rounds it runs round. A box
+    // 40 x 40 x 20 with its vertical edges rounded R1, its bottom loop chamfered 1: on each
+    // corner the round's arc gets a cone closing to a point on the round's axis (SMLib traced
+    // it as an offset intersection, which collapses to that point, and failed). Each straight
+    // side loses a 1 x 1 triangle along 38, each corner the triangle turned a quarter about the
+    // axis: (pi / 2) * (1 / 3).
+    {
+        smlib_brep *plate = box(-20, -20, 0, 40, 40, 20);
+        const double corners[12] = {20, 20, 10, -20, 20, 10, 20, -20, 10, -20, -20, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(plate, corners, 4, 0.1, 1.0, &rounded, nullptr) == SMLIB_OK);
+        // The whole bottom loop: its four sides and the four arcs of the corner rounds.
+        const double h = 19.0 + std::sqrt(0.5);
+        const double bottom[24] = {0, -20, 0, 20, 0, 0, 0, 20, 0, -20, 0, 0, h, h, 0, -h, h, 0, h, -h, 0, -h, -h, 0};
+        if (rounded != nullptr && smlib_chamfer(rounded, bottom, 8, 0.1, 1.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(rounded) - 4.0 * 38.0 * 0.5 - 4.0 * (PI / 2.0) / 3.0, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the bottom loop of the rounded plate chamfered 1");
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(plate);
+    }
+
+    // tangency-labs/solidcore#417: a box 297 x 100 x 60 with its vertical edges rounded R5, then
+    // its top rim rounded R5: on each corner the round of the corner round's arc is a ball
+    // centered on that round's axis, which SMLib's torus turned the long way round (the
+    // section's rail points, taken where the ball's offset faces collapse onto the axis, carry
+    // no angle; on a smaller box it happened to turn the right way). Each straight edge loses
+    // (1 - pi/4) 25 along 287 or 90, each corner the square 5 x 5 less the quarter disc, turned
+    // a quarter about the axis: (pi/2) (62.5 - 125/3).
+    {
+        smlib_brep *block = box(0, 0, 0, 297, 100, 60);
+        const double corners[12] = {0, 0, 30, 297, 0, 30, 0, 100, 30, 297, 100, 30};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(block, corners, 4, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
+        // The whole top rim: its four sides and the four arcs of the corner rounds.
+        const double a = 5.0 - 5.0 * std::sqrt(0.5);
+        const double rim[24] = {148.5, 0, 60, 297, 50, 60, 148.5, 100, 60, 0, 50, 60, a, a, 60, 297 - a, a, 60, a, 100 - a, 60, 297 - a, 100 - a, 60};
+        if (rounded != nullptr && smlib_fillet(rounded, rim, 8, 0.1, 5.0, &r, nullptr) == SMLIB_OK)
+        {
+            double removed = 754.0 * 25.0 * (1.0 - PI / 4.0) + 4.0 * (PI / 2.0) * (62.5 - 125.0 / 3.0);
+            CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the top rim of the block with R5 corners rounded R5");
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(block);
+    }
+
+    // tangency-labs/solidcore#416: a box 25 x 25 x 10 with its bottom edges rounded R2, then its
+    // vertical edges R2. Each vertical edge's tangent chain runs on down the seam where two
+    // bottom rounds meet, between two cylinders as wide as the round: the ball touching both
+    // sits where their axes meet, the corner's ball, and SMLib traced the offset cylinders'
+    // intersection (their axes, crossing at that one point) and failed. Each vertical edge
+    // loses (1 - pi/4) 4 along 8, each corner the octant of the two bottom rounds' crossing
+    // (16/3, a Steinmetz solid's eighth) less the corner ball's (4 pi / 3).
+    {
+        smlib_brep *tray = box(0, 0, 0, 25, 25, 10);
+        const double bottom[12] = {12.5, 0, 0, 25, 12.5, 0, 12.5, 25, 0, 0, 12.5, 0};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(tray, bottom, 4, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
+        // Each vertical edge and the seam where the two bottom rounds below it meet, which
+        // continues it tangentially (a point of it: x = y = z = 2 - sqrt 2 at the origin corner).
+        const double s2 = 2.0 - std::sqrt(2.0);
+        const double vertical[24] = {0, 0, 6, 25, 0, 6, 25, 25, 6, 0, 25, 6, s2, s2, s2, 25 - s2, s2, s2, 25 - s2, 25 - s2, s2, s2, 25 - s2, s2};
+        if (rounded != nullptr && smlib_fillet(rounded, vertical, 8, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            double removed = 4.0 * (32.0 * (1.0 - PI / 4.0) + 16.0 / 3.0 - 4.0 * PI / 3.0);
+            CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the vertical edges of the tray with R2 bottom rounds rounded R2");
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(tray);
+    }
+
+    // tangency-labs/solidcore#453: a 20 cube with a hole r5 along y whose wall touches the
+    // bottom face along one line, its back rim chamfered 3. With the rim's tangent chain the
+    // bottom edge came too, four filleted edges met at the touching point among five, a corner
+    // no corner type handles, and the smooth-sequence walk called it as a corner (a crash). No
+    // chamfer of that size exists there (the rim has no face below it): refused, every kind.
+    {
+        SmBrep *bore = nullptr;
+        CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 5.0, 20.0, bore) == SM_SUCCESS && bore != nullptr);
+        CHECK(SmApiRotate(bore, SmVector3d(0, 0, 0), SmVector3d(1, 0, 0), 90.0) == SM_SUCCESS);
+        CHECK(SmApiTranslate(bore, SmVector3d(10, 20, 5)) == SM_SUCCESS);
+        smlib_brep tool{bore};
+        smlib_brep *holed_low = nullptr;
+        CHECK(smlib_boolean(cube, &tool, SMLIB_BOOLEAN_SUBTRACT, &holed_low) == SMLIB_OK);
+        CHECK(near(volume_of(holed_low), 8000.0 - PI * 25.0 * 20.0, 1e-6));
+        const double back_rim[3] = {10, 20, 10};
+        CHECK(smlib_chamfer(holed_low, back_rim, 1, 0.1, 3.0, &r, nullptr) != SMLIB_OK && r == nullptr);
+        for (int32_t kind : {SMLIB_BLEND_ROUND, SMLIB_BLEND_CURVATURE, SMLIB_BLEND_CHORD, SMLIB_BLEND_CHAMFER})
+        {
+            const double size = 3.0;
+            int64_t failed = -1;
+            CHECK(smlib_blend(holed_low, kind, back_rim, &size, 1, 0.1, &r, &failed) != SMLIB_OK && r == nullptr);
+        }
+        smlib_brep_free(holed_low);
+        delete bore;
+    }
+
+    // tangency-labs/solidcore#418: a bar of stadium section (25 x 19 and two half discs r9.5)
+    // 14 long along x, a slot x 3.5..9.5 cutting away the y < 0 half of one round end, and the
+    // edge between the flat top and the slot floor (6 long) rounded r. At each of its ends the
+    // top runs on tangentially onto the round end; the corner past that tangent edge is the
+    // slot wall, whose extension the round ends on. SMLib took the tangent edge for the side
+    // edge and the round for the end face (1001). Each round takes (1 - pi/4) r^2 along 6, a
+    // chamfer of setback 2 the triangle of 2 x 2.
+    {
+        const int64_t kinds[4] = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC};
+        const double reals[36] = {0, 0,  -9.5, 0, 25, -9.5, 0, 25, 0,   1, 0, 0, 0, 0, -1, 9.5, 0, PI,
+                                  0, 25, 9.5,  0, 0,  9.5,  0, 0,  0,   1, 0, 0, 0, 0, 1,  9.5, 0, PI};
+        const double along[3] = {1, 0, 0};
+        smlib_brep *bar = nullptr;
+        CHECK(smlib_extrude(kinds, 4, reals, 36, along, 14.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &bar, nullptr) == SMLIB_OK);
+        smlib_brep *slot = box(3.5, -12, -10, 6, 12, 20);
+        smlib_brep *slotted = nullptr;
+        CHECK(smlib_boolean(bar, slot, SMLIB_BOOLEAN_SUBTRACT, &slotted) == SMLIB_OK && sound(slotted));
+        const double floor_edge[3] = {6.5, 0, 9.5};
+        for (double radius : {0.5, 2.0, 4.0})
+        {
+            if (slotted != nullptr && smlib_fillet(slotted, floor_edge, 1, 0.1, radius, &r, nullptr) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volume_of(slotted) - 6.0 * radius * radius * (1.0 - PI / 4.0), 1e-8));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"the slot floor's top edge of the stadium bar rounded");
+            }
+        }
+        if (slotted != nullptr && smlib_chamfer(slotted, floor_edge, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(slotted) - 6.0 * 2.0, 1e-8));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the slot floor's top edge of the stadium bar chamfered");
+        }
+        for (smlib_brep *b : {bar, slot, slotted})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // A constant radius law (r -> r) on the top back edge of a 60 x 40 x 20 box whose vertical
+    // edge at (60, 40) is rounded R5. The round runs on past the edge's end until it meets the R5
+    // cylinder, so the law is evaluated past its end; built with no slope (the shim's law curve
+    // had radius in x and 0 in y), it could not be extended there, and the round failed (1001).
+    // Removed: (1 - pi/4) r^2 along 55, and past x = 55 the square r x r less the quarter disc,
+    // as far as the cylinder reaches: the integral of (r - sqrt(r^2 - u^2)) sqrt(25 - (5 - r +
+    // u)^2) over 0 < u < r.
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        const double corner_edge[3] = {60, 40, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(block, corner_edge, 1, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
+        const double back_top[3] = {27.5, 40, 20};
+        const double from[3] = {0, 40, 20};
+        const double knots[4] = {0, 0, 1, 1};
+        for (double radius : {1.0, 2.0, 3.0})
+        {
+            const double law[2] = {radius, radius};
+            if (rounded != nullptr && smlib_fillet_variable(rounded, back_top, 0.1, from, 1, knots, 4, law, 2, &r) == SMLIB_OK)
+            {
+                double past = 0.0;
+                const int steps = 200000;
+                for (int i = 0; i < steps; ++i)
+                {
+                    double u = (i + 0.5) * radius / steps;
+                    double w = 5.0 - radius + u;
+                    past += (radius - std::sqrt(radius * radius - u * u)) * std::sqrt(std::max(0.0, 25.0 - w * w)) * radius / steps;
+                }
+                CHECK(near(volume_of(r), volume_of(rounded) - 55.0 * radius * radius * (1.0 - PI / 4.0) - past, 1e-6));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"a constant law into the R5 corner");
+            }
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(block);
+    }
+
+    // tangency-labs/solidcore#458: a variable round whose law SMLib cannot evaluate past the edge's
+    // ends (a constant law curve laid out with no slope, radius 2 as x and 0 as y, as the shim
+    // once built it; extending a curve of zero speed fails). SmVariableRadiusFS::SetupOffsetValues
+    // and SmTemporaryRadiusChange::SetUp ignored the failed evaluation and offset the surfaces by
+    // an uninitialised radius (it went on to fail, so only a memory checker sees the read). Now
+    // the evaluation's failure stops it: the round fails, or is the round of radius 2.
+    {
+        SmBrep *b = nullptr;
+        CHECK(SmApiBrepCopy(cube->p, b) == SM_SUCCESS && b != nullptr);
+        SmTArray<SmEdge *> all;
+        b->GetEdges(all);
+        SmTArray<SmEdge *> top_edge;
+        for (ULONG i = 0; i < all.GetSize(); ++i)
+        {
+            SmVertex *v0 = nullptr;
+            SmVertex *v1 = nullptr;
+            all[i]->GetVertices(v0, v1);
+            SmPoint3d m = (v0->GetPoint() + v1->GetPoint()) * 0.5;
+            if (std::fabs(m.x - 10) < 1e-9 && std::fabs(m.y - 20) < 1e-9 && std::fabs(m.z - 20) < 1e-9)
+            {
+                top_edge.Add(all[i]);
+            }
+        }
+        CHECK(top_edge.GetSize() == 1);
+        const SmContext &ctx = *SmApiGetOrCreateContext();
+        SmTArray<SmPoint3d> cps;
+        cps.Add(SmPoint3d(2, 0, 0));
+        cps.Add(SmPoint3d(2, 0, 0));
+        SmTArray<ULONG> mults;
+        mults.Add(2);
+        mults.Add(2);
+        SmTArray<double> unique;
+        unique.Add(0.0);
+        unique.Add(1.0);
+        SmBSplineCurve *flat = nullptr;
+        CHECK(SmBSplineCurve::CreateCanonical(ctx, 3, 1, cps, SM_CF_UNSPECIFIED, mults, unique, SM_KT_UNSPECIFIED, nullptr, nullptr,
+                                              flat) == SM_SUCCESS && flat != nullptr);
+        if (top_edge.GetSize() == 1 && flat != nullptr)
+        {
+            SmBSplineFilletLaw law(flat, SmExtent1d(0.0, 1.0));
+            SmTArray<SmFilletLaw *> laws;
+            laws.Add(&law);
+            SmTArray<double> values;
+            values.Add(2.0);
+            SmTArray<SmFilletSurfaceGeneratorType> sections;
+            sections.Add(SM_FSG_CIRCULAR);
+            SmTArray<SmFilletSolverType> solvers;
+            solvers.Add(SM_FS_VARIABLE_RADIUS);
+            SmFilletExecutive exec(ctx, b);
+            SmStatus st = exec.SetFilletParameters(b, top_edge, sections, solvers, values, &laws, -1.0, -1.0, -1.0, -1.0, 1, 1.0);
+            if (st == SM_SUCCESS)
+            {
+                st = exec.DoFillet();
+            }
+            if (st == SM_SUCCESS && b->StitchAndOrient() == SM_SUCCESS)
+            {
+                smlib_brep got{b};
+                CHECK(near(volume_of(&got), 8000.0 - 4.0 * 20.0 * (1.0 - PI / 4.0), 1e-6));
+            }
+        }
+        delete b;
+    }
+
+    // tangency-labs/solidcore#430: a variable round whose radius law has a corner. SMLib traced
+    // the round smoothly across the corner, averaging the tangents of its two sides, and skinned
+    // one smooth surface over it: it missed the law past the corner and failed its own check.
+    // The trace now ends a step at the corner with the tangents of each side, the surface is
+    // skinned piece by piece, and the face is split there. On the cube's edge y = z = 20, the
+    // round takes (1 - pi/4) r^2 per unit length; for 4 -> 2 -> 4 that is the same as for a
+    // straight 4 -> 2 along the whole edge.
+    {
+        const double PI4 = 1.0 - PI / 4.0;
+        const double edge[3] = {10, 20, 20};
+        const double from0[3] = {0, 20, 20};
+        const double from1[3] = {20, 20, 20};
+        const double v_knots[5] = {0, 0, 0.5, 1, 1};
+        const double v_radii[3] = {4, 2, 4};
+        const double removed = PI4 * 20.0 * (16.0 + 8.0 + 4.0) / 3.0;
+        for (const double *from : {from0, from1})
+        {
+            CHECK(smlib_fillet_variable(cube, edge, 0.1, from, 1, v_knots, 5, v_radii, 3, &r) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(8000.0 - volume_of(r), removed, 1e-4));
+                done(r);
+            }
+        }
+        // Two corners (4, 2, 4, 2 at 0, 0.25, 0.75, 1): the straight 4 -> 2 in three pieces.
+        const double w_knots[6] = {0, 0, 0.25, 0.75, 1, 1};
+        const double w_radii[4] = {4, 2, 4, 2};
+        CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 1, w_knots, 6, w_radii, 4, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(8000.0 - volume_of(r), removed, 1e-4));
+            done(r);
+        }
+        // The same law as a quadratic with a corner at 0.5 (the knot repeated twice): 4, 3, 2
+        // then 2, 3, 4, evenly spaced, are the straight halves again.
+        const double q_knots[8] = {0, 0, 0, 0.5, 0.5, 1, 1, 1};
+        const double q_radii[5] = {4, 3, 2, 3, 4};
+        CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 2, q_knots, 8, q_radii, 5, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(8000.0 - volume_of(r), removed, 1e-4));
+            done(r);
+        }
+        // A radius of zero inside the edge would pinch the round to a point: refused.
+        const double p_radii[3] = {4, 0, 4};
+        CHECK(smlib_fillet_variable(cube, edge, 0.1, from0, 1, v_knots, 5, p_radii, 3, &r) == SMLIB_ERR_UNSUPPORTED && r == nullptr);
+    }
+
+    // A variable round 2 -> r1 on the top edge x = 10, z = 30 of a 10 x 20 x 30 box. The top is
+    // 10 wide: up to r1 = 10 the round fits, and takes (1 - pi/4) L (a^2 + ab + b^2) / 3. Past
+    // it the contact line on the top leaves it across its far edge x = 0 before the round's end
+    // (and past r1 = 30 the one on the side leaves it across its bottom edge): a convex round
+    // overflowing cliffs, built on the faces' continuations and subtracted from the box, from
+    // either end, as is a constant R12. The analytic volume integrates, along y, the section of
+    // the round's removal region (the r x r square at the edge less the quarter disc about the
+    // ball's centre (10 - r, 30 - r), SMLib's circular section in the planes y = const) inside
+    // the box's section [0, 10] x [0, 30] (closed form in local coordinates a, b from the disc's
+    // centre: a, b in [0, r], a^2 + b^2 >= r^2, a >= r - 10, b >= r - 30), by Gauss-Legendre in
+    // pieces split where r passes 10 and 30. SMLib's variable round sections are cubics within
+    // about 2e-5 of the radius: the variable rounds are checked to 1e-4, the constant to 1e-7.
+    // (The corner without an end rib, for a short side edge, had built r1 = 20 and 30 across the
+    // top's far edge as valid bodies; then they were refused, SMLIB_ERR_NO_ROOM.)
+    {
+        smlib_brep *slab = box(0, 0, 0, 10, 20, 30);
+        const double edge[3] = {10, 10, 30};
+        const double from0[3] = {10, 0, 30};
+        const double from1[3] = {10, 20, 30};
+        const double knots[4] = {0, 0, 1, 1};
+        const double fits[2] = {2, 10};
+        CHECK(smlib_fillet_variable(slab, edge, 0.1, from0, 1, knots, 4, fits, 2, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(6000.0 - volume_of(r), (1.0 - PI / 4.0) * 20.0 * (4.0 + 20.0 + 100.0) / 3.0, 1e-4));
+            done(r);
+        }
+        // the integral of sqrt(r^2 - a^2) da
+        auto disc = [](double rr, double a)
+        {
+            a = std::max(-rr, std::min(rr, a));
+            return 0.5 * (a * std::sqrt(std::max(rr * rr - a * a, 0.0)) + rr * rr * std::asin(a / rr));
+        };
+        // the removal region's section inside the box's
+        auto section = [&](double rr)
+        {
+            const double al = std::max(0.0, rr - 10.0), be = std::max(0.0, rr - 30.0);
+            if (al >= rr || be >= rr)
+            {
+                return 0.0;
+            }
+            const double top = std::max(al, std::sqrt(std::max(rr * rr - be * be, 0.0)));
+            return (rr - al) * rr - (disc(rr, top) - disc(rr, al) + be * (rr - top));
+        };
+        // 20-point Gauss-Legendre on [lo, hi]
+        auto gauss = [](double lo, double hi, const auto &f)
+        {
+            static const double x[10] = {0.0765265211334973, 0.2277858511416451, 0.3737060887154195, 0.5108670019508271,
+                                         0.6360536807265150, 0.7463319064601508, 0.8391169718222188, 0.9122344282513259,
+                                         0.9639719272779138, 0.9931285991850949};
+            static const double w[10] = {0.1527533871307258, 0.1491729864726037, 0.1420961093183820, 0.1316886384491766,
+                                         0.1181945319615184, 0.1019301198172404, 0.0832767415767048, 0.0626720483341091,
+                                         0.0406014298003869, 0.0176140071391521};
+            const double m = 0.5 * (lo + hi), h = 0.5 * (hi - lo);
+            double sum = 0.0;
+            for (int i = 0; i < 10; ++i)
+            {
+                sum += w[i] * (f(m - h * x[i]) + f(m + h * x[i]));
+            }
+            return h * sum;
+        };
+        // the volume removed by the round going linearly r0 -> r1 along y in [0, 20]
+        auto removed = [&](double r0, double r1)
+        {
+            auto at = [&](double y) { return section(r0 + (r1 - r0) * y / 20.0); };
+            std::vector<double> cuts = {0.0, 20.0};
+            for (double c : {10.0, 30.0})
+            {
+                const double y = (r1 != r0) ? 20.0 * (c - r0) / (r1 - r0) : -1.0;
+                if (y > 0.0 && y < 20.0)
+                {
+                    cuts.push_back(y);
+                }
+            }
+            std::sort(cuts.begin(), cuts.end());
+            double sum = 0.0;
+            for (size_t i = 0; i + 1 < cuts.size(); ++i)
+            {
+                // ten pieces per stretch between kinks
+                for (int k = 0; k < 10; ++k)
+                {
+                    const double lo = cuts[i] + (cuts[i + 1] - cuts[i]) * k / 10.0, hi = cuts[i] + (cuts[i + 1] - cuts[i]) * (k + 1) / 10.0;
+                    sum += gauss(lo, hi, at);
+                }
+            }
+            return sum;
+        };
+        for (double r1 : {11.0, 20.0, 30.0, 50.0})
+        {
+            const double law[2] = {2, r1};
+            const double back[2] = {r1, 2};
+            const double want = 6000.0 - removed(2.0, r1);
+            for (int from = 0; from < 2; ++from)
+            {
+                const int32_t s = from == 0 ? smlib_fillet_variable(slab, edge, 0.1, from0, 1, knots, 4, law, 2, &r)
+                                            : smlib_fillet_variable(slab, edge, 0.1, from1, 1, knots, 4, back, 2, &r);
+                if (s != SMLIB_OK || r == nullptr || !near(volume_of(r), want, 1e-4))
+                {
+                    std::fprintf(stderr, "  variable round 2 -> %g from y = %d: status %d\n", r1, from * 20, static_cast<int>(s));
+                    failures++;
+                }
+                if (r != nullptr)
+                {
+                    done(r);
+                }
+            }
+        }
+        // the constant R12: 5384.17828518
+        CHECK(smlib_fillet(slab, edge, 1, 0.1, 12.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 6000.0 - removed(12.0, 12.0), 1e-7));
+            done(r);
+        }
+        smlib_brep_free(slab);
+    }
+
+    // A chamfer of setback 2 on the top edge y = 0 of a prism 20 high on (0,0) (40,0)
+    // (40 - 20s, 20) (20s, 20): its end faces slope by s, so the chamfer's contact line on the
+    // top leaves it across an end face's top edge (the top's side edge at that end) before the
+    // cross section at the edge's end. That is past the end, where the end face cuts the
+    // chamfer off, not a blend too large for the top: the triangle 2 x 2 along 40 - 4s/3 comes
+    // off.
+    for (double s : {-0.5, 0.5})
+    {
+        const double xy[8] = {0, 0, 40, 0, 40 - 20 * s, 20, 20 * s, 20};
+        int64_t kinds[4];
+        double reals[24];
+        for (int i = 0; i < 4; ++i)
+        {
+            const int j = (i + 1) % 4;
+            const double seg[6] = {xy[2 * i], xy[2 * i + 1], 0, xy[2 * j], xy[2 * j + 1], 0};
+            kinds[i] = SMLIB_CURVE_LINE;
+            std::copy(seg, seg + 6, reals + 6 * i);
+        }
+        const double up[3] = {0, 0, 1};
+        smlib_brep *prism = nullptr;
+        CHECK(smlib_extrude(kinds, 4, reals, 24, up, 20.0, 0.0, SMLIB_DRAFT_CORNER_CURVATURE, 1, &prism, nullptr) == SMLIB_OK);
+        const double edge[3] = {20, 0, 20};
+        if (prism != nullptr && smlib_chamfer(prism, edge, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(prism) - volume_of(r), 2.0 * (40.0 - 4.0 * s / 3.0), 1e-8));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"a chamfer between sloped end faces");
+        }
+        smlib_brep_free(prism);
+    }
+
+    // A 100 x 60 x 30 slab less a basin lofted from 20..80 x 4..50 at the top to 30..70 x 20..40
+    // at z = 10, its rim edge y = 4 chamfered 2. Its contact line on the top runs on over the top
+    // past the rim's concave corners and leaves it at the slab's sides x = 0 and 100, beyond the
+    // cross sections at the edge's ends; the one on the sloped wall leaves it across the wall's
+    // sloped corner edges, before them. Both are past the ends. The section's drop below the top
+    // is 2 / sqrt(1 + 0.8^2) and it comes off along 60 - drop / 3.
+    {
+        smlib_brep *slab = box(0, 0, 0, 100, 60, 30);
+        const double rims[2][5] = {{20, 4, 80, 50, 30}, {30, 20, 70, 40, 10}};
+        int64_t kinds[8];
+        double reals[48];
+        for (int s = 0; s < 2; ++s)
+        {
+            const double *q = rims[s];
+            const double xy[4][2] = {{q[0], q[1]}, {q[2], q[1]}, {q[2], q[3]}, {q[0], q[3]}};
+            for (int i = 0; i < 4; ++i)
+            {
+                const int j = (i + 1) % 4;
+                const double seg[6] = {xy[i][0], xy[i][1], q[4], xy[j][0], xy[j][1], q[4]};
+                kinds[4 * s + i] = SMLIB_CURVE_LINE;
+                std::copy(seg, seg + 6, reals + 6 * (4 * s + i));
+            }
+        }
+        const int64_t sizes[2] = {4, 4};
+        smlib_brep *pocket = nullptr;
+        smlib_brep *basin = nullptr;
+        CHECK(smlib_loft(kinds, 8, reals, 48, sizes, 2, 1, 1, &pocket) == SMLIB_OK);
+        CHECK(pocket != nullptr && smlib_boolean(slab, pocket, SMLIB_BOOLEAN_SUBTRACT, &basin) == SMLIB_OK);
+        const double rim[3] = {50, 4, 30};
+        const double drop = 2.0 / std::sqrt(1.0 + 0.64);
+        if (basin != nullptr && smlib_chamfer(basin, rim, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(basin) - drop * (60.0 - drop / 3.0), 1e-8));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"a chamfer on the sloped basin's rim");
+        }
+        for (smlib_brep *b : {slab, pocket, basin})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // SolidCraft ladder 07-fillets/016: a 60 x 40 x 20 box, its top back edge rounded R5, its top
+    // right edge R3, then the vertical edge x = 60, y = 40 (z 0..15). The R3 round leaves the R5
+    // round's end arc on the x = 60 face 0.46 long; the vertical round's contact line there rolls
+    // over the R3 round's tangent edge past the round's end and never meets the arc. The corner
+    // has no end rib and the round is cut off where it meets the body: removed, outside the
+    // vertical round, the integral of min(R5, R3 top) over the corner column.
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        const double back_top[3] = {30, 40, 20};
+        const double right_top[3] = {60, 20, 20};
+        const double vertical[3] = {60, 40, 7.5};
+        smlib_brep *r5 = nullptr;
+        smlib_brep *r3 = nullptr;
+        CHECK(smlib_fillet(block, back_top, 1, 0.1, 5.0, &r5, nullptr) == SMLIB_OK);
+        CHECK(r5 != nullptr && smlib_fillet(r5, right_top, 1, 0.1, 3.0, &r3, nullptr) == SMLIB_OK);
+        const double radii[3] = {7.0, 4.0, 2.0};
+        const double volumes[3] = {47418.926881, 47546.786538, 47591.811067};
+        for (int i = 0; i < 3 && r3 != nullptr; ++i)
+        {
+            if (smlib_fillet(r3, vertical, 1, 0.1, radii[i], &r, nullptr) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volumes[i], 1e-8));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"ladder 016's vertical round under the short R5 end arc");
+            }
+        }
+        for (smlib_brep *b : {block, r5, r3})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // tangency-labs/solidcore#423: a sphere r2 in six patches (each on its own sphere surface),
+    // cut flat at z = 1, its rim rounded R1. The clean-up after filleting removed every
+    // topological edge in the body, the seams between the sphere's own patches too, and merged
+    // the five patches into one face that no patch's parameterization could carry: the result
+    // failed the check (loop orientation, rails half a millimetre off). It now leaves the
+    // target's own faces apart. The round's section is the square 1 x 1 less the quarter disc,
+    // centred on the circle of radius 1 at z = 0: 2 pi - pi^2 / 2 comes off the 9 pi.
+    {
+        smlib_brep *ball = cube_sphere(2.0);
+        CHECK(ball != nullptr && sound(ball) && near(volume_of(ball), 32.0 * PI / 3.0, 1e-6));
+        smlib_brep *lid = box(-3, -3, 1, 6, 6, 3);
+        smlib_brep *cut = nullptr;
+        CHECK(smlib_boolean(ball, lid, SMLIB_BOOLEAN_SUBTRACT, &cut) == SMLIB_OK && sound(cut));
+        // The rim's four arcs, one on each side patch.
+        const double q = std::sqrt(3.0);
+        const double rim[12] = {q, 0, 1, 0, q, 1, -q, 0, 1, 0, -q, 1};
+        if (cut != nullptr && smlib_fillet(cut, rim, 4, 0.5, 1.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), 7.0 * PI + PI * PI / 2.0, 5e-5));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the rim of the cut sphere in patches rounded R1");
+        }
+        for (smlib_brep *b : {ball, lid, cut})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // tangency-labs/solidcore#422: a plate 40 x 20 x 10 with a through hole r3 at (20, 14.5),
+    // its top edge y = 20 rounded R4. The round's contact line on the top (y = 16) runs across
+    // the hole: the round is built as if the top went on over the hole, and what it removes is
+    // subtracted, so the hole breaks into the round and nothing bridges it (rig case
+    // 324-fillet-over-hole-overlap): 8000 - 90 pi - 40 (16 - 4 pi) + the overlap counted twice,
+    // the integral over y in [16, 17.5] of (4 - sqrt(16 - (y - 16)^2)) 2 sqrt(9 - (y - 14.5)^2),
+    // 0.3758. (Then it was refused, SMLIB_ERR_NO_ROOM; before that built across the hole.)
+    {
+        smlib_brep *plate = box(0, 0, 0, 40, 20, 10);
+        smlib_brep *bore = cylinder(20, 14.5, -1, 3, 12);
+        smlib_brep *holed_plate = nullptr;
+        CHECK(smlib_boolean(plate, bore, SMLIB_BOOLEAN_SUBTRACT, &holed_plate) == SMLIB_OK);
+        const double edge[3] = {5, 20, 10};
+        CHECK(holed_plate != nullptr && smlib_fillet(holed_plate, edge, 1, 0.1, 4.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 7580.287315360674, 1e-7));
+            done(r);
+        }
+        for (smlib_brep *b : {plate, bore, holed_plate})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // tangency-labs/solidcraft#1080: a cube 20 with three square openings 10 x 10 through it,
+    // 5 in from the faces; its top front edge (y = 0, z = 20) chamfered or rounded 6 or 9 runs
+    // past the 5 mm between the edge and the openings. Each is built as if the faces went on
+    // over the openings, then cut by them: the chamfer's triangle y + 20 - z <= d (the round's
+    // corner square less the quarter disc about (r, 20 - r)) along x, less its parts inside the
+    // openings (the x opening y, z in [5, 15] everywhere along x; the y and z openings z in
+    // [5, 15], y in [5, 15] for x in [5, 15]), integrated exactly (the chamfer) or as the round's
+    // section in closed form by pieces (Gauss-Legendre), from 4000 left by the openings: chamfer
+    // 6 3650, chamfer 9 3350, round 6 3846.04504440, round 9 3676.80702897. (Then they were
+    // refused, SMLIB_ERR_NO_ROOM; before that built across the openings.)
+    {
+        smlib_brep *cube = box(0, 0, 0, 20, 20, 20);
+        for (const std::array<double, 6> &o : {std::array<double, 6>{-1, 5, 5, 22, 10, 10}, std::array<double, 6>{5, -1, 5, 10, 22, 10},
+                                                std::array<double, 6>{5, 5, -1, 10, 10, 22}})
+        {
+            smlib_brep *bar = box(o[0], o[1], o[2], o[3], o[4], o[5]);
+            smlib_brep *cut = nullptr;
+            CHECK(smlib_boolean(cube, bar, SMLIB_BOOLEAN_SUBTRACT, &cut) == SMLIB_OK);
+            smlib_brep_free(cube);
+            smlib_brep_free(bar);
+            cube = cut;
+        }
+        const double edge[3] = {10, 0, 20};
+        const std::array<std::pair<double, double>, 2> chamfers = {{{6.0, 3650.0}, {9.0, 3350.0}}};
+        for (const auto &c : chamfers)
+        {
+            CHECK(smlib_chamfer(cube, edge, 1, 0.1, c.first, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), c.second, 1e-7));
+                done(r);
+            }
+        }
+        const std::array<std::pair<double, double>, 2> rounds = {{{6.0, 3846.0450444039}, {9.0, 3676.8070289689}}};
+        for (const auto &c : rounds)
+        {
+            CHECK(smlib_fillet(cube, edge, 1, 0.1, c.first, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), c.second, 1e-6));
+                done(r);
+            }
+        }
+        smlib_brep_free(cube);
+    }
+
+    // tangency-labs/solidcraft#3435: a cylinder r7 h48.2 with a boss r2.7 on its top, its top rim
+    // rounded 6.9: the round's contact line on the top (r = 0.1) lies under the boss, inside the
+    // body's material. Built and cut, the round would meet the boss's underside tangentially,
+    // in a knife edge: refused (SMLIB_ERR_NO_ROOM).
+    {
+        smlib_brep *can = cylinder(0, 0, 0, 7, 48.2);
+        smlib_brep *boss = cylinder(0, 0, 48.2, 2.7, 2);
+        smlib_brep *bossed = nullptr;
+        CHECK(smlib_boolean(can, boss, SMLIB_BOOLEAN_UNION, &bossed) == SMLIB_OK);
+        const double at = 100.0 * PI / 180.0;
+        const double rim[3] = {7.0 * std::cos(at), 7.0 * std::sin(at), 48.2};
+        CHECK(bossed != nullptr && smlib_fillet(bossed, rim, 1, 0.1, 6.9, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        for (smlib_brep *b : {can, boss, bossed})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // A concave round that overflows stays refused: an L of a floor 20 x 20 x 2 and a wall 2
+    // thick and 10 high along x = 0, its inner edge (x = 2, z = 2) rounded 9: the contact line on
+    // the wall (z = 11) leaves it across its top. A round that adds material, built past the
+    // wall, would fill across what lies beyond it (SMLIB_ERR_NO_ROOM). R6 fits: the floor's
+    // 800 and the wall's 2 x 8 x 20 above it, and the round's fill (1 - pi/4) 6^2 along 20.
+    {
+        smlib_brep *floor = box(0, 0, 0, 20, 20, 2);
+        smlib_brep *wall = box(0, 0, 0, 2, 20, 10);
+        smlib_brep *l = nullptr;
+        CHECK(smlib_boolean(floor, wall, SMLIB_BOOLEAN_UNION, &l) == SMLIB_OK);
+        const double inner[3] = {2, 10, 2};
+        CHECK(l != nullptr && smlib_fillet(l, inner, 1, 0.1, 6.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 800.0 + 320.0 + (1.0 - PI / 4.0) * 36.0 * 20.0, 1e-6));
+            done(r);
+        }
+        CHECK(l != nullptr && smlib_fillet(l, inner, 1, 0.1, 9.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        for (smlib_brep *b : {floor, wall, l})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // A cylinder r10 h20, its top rim chamfered or rounded as wide as the top: each blend's rail
+    // on the top is the top's centre, so the blend takes the whole top. A chamfer's line meets
+    // the top at an angle, so its cone would end in a point there, and is refused
+    // (SMLIB_ERR_NO_ROOM) in every form: the equal chamfer, by smlib_blend too, two distances
+    // with either face first, a distance and an angle (SolidCraft's
+    // chamfer_sides_curved_tests::too_large_or_unsupported_is_refused). The round's arc is
+    // tangent to the top at its rail, so the R10 round closes the end smoothly as a hemisphere
+    // and is built: the side, the bottom and the spherical end, the cylinder's first 10 and the
+    // half ball r10 (SolidCraft's rig case fillets/5236). 9.99 fits every form and takes the
+    // triangle (the round: the square less the quarter disc) of its section revolved about the
+    // axis (Pappus).
+    {
+        smlib_brep *can = cylinder(0, 0, 0, 10, 20);
+        const double whole = PI * 100.0 * 20.0;
+        const double at = 100.0 * PI / 180.0;
+        const double top_rim[3] = {10.0 * std::cos(at), 10.0 * std::sin(at), 20.0};
+        const double up[3] = {0, 0, 1};
+        const double down[3] = {0, 0, -1};
+        // The ring the triangle with corners (r, z) sweeps about the axis.
+        auto ring = [](double r0, double z0, double r1, double z1, double r2, double z2)
+        {
+            double area = 0.5 * std::fabs((r1 - r0) * (z2 - z0) - (r2 - r0) * (z1 - z0));
+            return 2.0 * PI * (r0 + r1 + r2) / 3.0 * area;
+        };
+        for (double d : {10.0, 9.99})
+        {
+            auto builds = [&](const char *what, int32_t s, double removed)
+            {
+                if (s != SMLIB_OK || !near(volume_of(r), whole - removed, 1e-7))
+                {
+                    std::fprintf(stderr, "  %s %g: status %d\n", what, d, static_cast<int>(s));
+                    failures++;
+                }
+                done(r);
+            };
+            auto chamfer = [&](const char *what, int32_t s, double removed)
+            {
+                if (d < 10.0)
+                {
+                    builds(what, s, removed);
+                }
+                else if (s != SMLIB_ERR_NO_ROOM || r != nullptr)
+                {
+                    std::fprintf(stderr, "  %s %g: status %d, not refused for want of room\n", what, d, static_cast<int>(s));
+                    failures++;
+                    smlib_brep_free(r);
+                    r = nullptr;
+                }
+            };
+            const double equal = ring(10, 20, 10 - d, 20, 10, 20 - d);
+            const double sides = ring(10, 20, 10 - d, 20, 10, 17);
+            const double slope = std::tan(PI / 6.0);
+            chamfer("chamfer", smlib_chamfer(can, top_rim, 1, 0.1, d, &r, nullptr), equal);
+            chamfer("blend chamfer", smlib_blend(can, SMLIB_BLEND_CHAMFER, top_rim, &d, 1, 0.1, &r, nullptr), equal);
+            chamfer("chamfer across the top, 3 down", smlib_chamfer_sides(can, top_rim, 1, 0.1, d, 3.0, 0, up, &r, nullptr), sides);
+            chamfer("chamfer 3 down, across the top", smlib_chamfer_sides(can, top_rim, 1, 0.1, 3.0, d, 0, down, &r, nullptr), sides);
+            chamfer("chamfer across the top at 30 degrees", smlib_chamfer_sides(can, top_rim, 1, 0.1, d, PI / 6.0, 1, up, &r, nullptr),
+                    ring(10, 20, 10 - d, 20, 10, 20 - d * slope));
+            chamfer("chamfer 3 down at 60 degrees", smlib_chamfer_sides(can, top_rim, 1, 0.1, d / std::tan(PI / 3.0), PI / 3.0, 1, down, &r, nullptr),
+                    ring(10, 20, 10 - d, 20, 10, 20 - d / std::tan(PI / 3.0)));
+            // The round's section: the square d x d at the rim less the quarter disc, its
+            // centroid d (10 - 3 pi) / (12 - 3 pi) in from the rim. At 10 the body left is the
+            // hemisphere-ended cylinder, pi 100 10 + (2/3) pi 1000.
+            int32_t s = smlib_fillet(can, top_rim, 1, 0.1, d, &r, nullptr);
+            if (d == 10.0 && r != nullptr)
+            {
+                CHECK(near(volume_of(r), PI * 100.0 * 10.0 + 2.0 / 3.0 * PI * 1000.0, 1e-7));
+                CHECK(r->p->GetNumFaces() == 3);
+            }
+            builds("fillet", s, 2.0 * PI * (10.0 - d * (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI)) * (1.0 - PI / 4.0) * d * d);
+        }
+        smlib_brep_free(can);
+    }
+
+    // A round wider than the rim it rounds: a ball of r2 rolling inside a pin of radius R < 2,
+    // tangent to its side and its top, has its centre on the far side of the axis, so no ball of
+    // that size fits; the round's rail on the top (the rim offset in by 2, a circle of radius
+    // R - 2 < 0) turns back against the rim and the round would be a spindle torus through
+    // itself. Refused, SMLIB_ERR_NO_ROOM (SMLib built the folded round and failed in the merge
+    // after it with its generic error). At R = 2 the ball's centre is on the axis: the
+    // hemispherical end, pi 4 8 + (2/3) pi 8.
+    {
+        for (double R : {1.99, 1.5, 1.0})
+        {
+            smlib_brep *pin = cylinder(0, 0, 0, R, 10);
+            const double rim[3] = {0, R, 10};
+            smlib_brep *rounded = nullptr;
+            CHECK(smlib_fillet(pin, rim, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_ERR_NO_ROOM && rounded == nullptr);
+            smlib_brep_free(pin);
+        }
+        smlib_brep *pin = cylinder(0, 0, 0, 2, 10);
+        const double rim[3] = {0, 2, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(pin, rim, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
+        if (rounded != nullptr)
+        {
+            CHECK(near(volume_of(rounded), PI * 4.0 * 8.0 + 2.0 / 3.0 * PI * 8.0, 1e-7));
+            done(rounded);
+        }
+        smlib_brep_free(pin);
+    }
+
+    // A round run up a box's vertical edge into the corner where two smaller rounds of the top
+    // meet (SolidCraft ladder 07-fillets/016): the 60 x 40 x 20 box, its top edge at y = 40
+    // rounded r5, 60 25 (1 - pi/4) off, then its top edge at x = 60 rounded r3 (the r5 round
+    // ends it at y = 35: between 35 and 40 lengths of 9 (1 - pi/4) off), then the vertical edge
+    // at x = 60, y = 40 with the edges tangent to it up into the corner: the side's edge on the
+    // r5 round (a circular arc of radius 5 about the round's axis, y = 35, z = 15) and the edge
+    // between the two rounds. A round of r there rolls on the side and on the r5 round, its rail
+    // on the side the arc offset in by r, a circle of radius 5 - r: past r = 5 it lies beyond
+    // the axis and runs against the rail on the round (the round a spindle torus through
+    // itself, its ball curving less than the r5 round around it). On the edge between the
+    // rounds the ball rolls around the r3 round, which past r = 3 curves tighter than the ball
+    // (the two rounds' offsets, of radii 5 - r and r - 3 about axes 2 apart, then meet only in
+    // a point). No ball over r3 fits: r3.1, r4, r5 and r7 are SMLIB_ERR_NO_ROOM (r7 failed in
+    // the corner's vertex, looking on the side for a rail end that is not there, with SMLib's
+    // generic error, and so did r4 and r5); r1 and r2 build and take off at least
+    // the 15 straight lengths of r^2 (1 - pi/4) below the top rounds and less than twice that.
+    {
+        const double quarter = 1.0 - PI / 4.0;
+        smlib_brep *slab = box(0, 0, 0, 60, 40, 20);
+        const double top_edge[3] = {30, 40, 20};
+        const double end_edge[3] = {60, 20, 20};
+        smlib_brep *top = nullptr;
+        smlib_brep *both = nullptr;
+        CHECK(smlib_fillet(slab, top_edge, 1, 0.1, 5.0, &top, nullptr) == SMLIB_OK && sound(top));
+        CHECK(near(volume_of(top), 48000.0 - 60.0 * 25.0 * quarter, 1e-9));
+        CHECK(smlib_fillet(top, end_edge, 1, 0.1, 3.0, &both, nullptr) == SMLIB_OK && sound(both));
+        const double rounded = volume_of(both);
+        CHECK(rounded < volume_of(top) - 35.0 * 9.0 * quarter && rounded > volume_of(top) - 40.0 * 9.0 * quarter);
+        const double up[9] = {60, 40, 7.5, 60, 35.0 + std::sqrt(24.0), 16, 58.931891825700852, 37.55984948554854, 19.294016994391871};
+        for (double radius : {3.1, 4.0, 5.0, 7.0})
+        {
+            smlib_brep *corner = nullptr;
+            CHECK(smlib_fillet(both, up, 3, 0.1, radius, &corner, nullptr) == SMLIB_ERR_NO_ROOM && corner == nullptr);
+        }
+        for (double radius : {1.0, 2.0})
+        {
+            smlib_brep *corner = nullptr;
+            CHECK(smlib_fillet(both, up, 3, 0.1, radius, &corner, nullptr) == SMLIB_OK);
+            if (corner != nullptr)
+            {
+                const double off = rounded - volume_of(corner);
+                CHECK(off > 15.0 * radius * radius * quarter && off < 30.0 * radius * radius * quarter);
+                done(corner);
+            }
+        }
+        smlib_brep_free(both);
+        smlib_brep_free(top);
+        smlib_brep_free(slab);
+    }
+
+    // tangency-labs/solidcore#419: an offset surface evaluated beyond its
+    // base surface's domain extends the base, and the extension's shape depends on its length.
+    // It was made to reach just past the first point evaluated there, and extended again from
+    // itself for the next, so two copies of one offset surface evaluated in another order (the
+    // fillet solver's, which finds a round's end points, and the trace's) gave points 0.03 mm
+    // apart at the same parameters, and the trace refused the end points. Now the extension's
+    // reach depends only on how far out the point lies. A half cylinder r5 offset by 4, beyond
+    // both ends of its arc: once straight at two points, once after two nearer points first.
+    {
+        const SmContext &ctx = *SmApiGetOrCreateContext();
+        SmCylinder *half = new (ctx) SmCylinder(SmPoint3d(0, 0, 0), SmVector3d(1, 0, 0), SmVector3d(0, 1, 0), 5.0, 0.0, 180.0, 10.0,
+                                                FALSE, FALSE, FALSE, &ctx);
+        SmOffsetSurface *first = new (ctx) SmOffsetSurface(4.0, *half);
+        SmOffsetSurface *second = new (ctx) SmOffsetSurface(4.0, *half);
+        first->SetAllowExtension(TRUE);
+        second->SetAllowExtension(TRUE);
+        SmExtent2d d = half->GetNaturalUVDomain();
+        double length = d.GetMax().x - d.GetMin().x;
+        double v = 0.5 * (d.GetMin().y + d.GetMax().y);
+        SmPoint3d p;
+        const double nearer[2] = {d.GetMax().x + 0.067 * length, d.GetMin().x - 0.067 * length};
+        for (double u : nearer)
+        {
+            CHECK(first->EvaluatePoint(SmPoint2d(u, v), p) == SM_SUCCESS);
+        }
+        const double farther[2] = {d.GetMax().x + 0.116 * length, d.GetMin().x - 0.116 * length};
+        for (double u : farther)
+        {
+            SmPoint3d a;
+            SmPoint3d b;
+            CHECK(second->EvaluatePoint(SmPoint2d(u, v), b) == SM_SUCCESS);
+            CHECK(first->EvaluatePoint(SmPoint2d(u, v), a) == SM_SUCCESS);
+            CHECK(a.DistanceBetween(b) < 1e-9);
+        }
+        delete first;
+        delete second;
+        delete half;
+    }
+
+    // SolidCraft rig case fillets/4174: a block 40 x 30 x 5 and a cylinder r10.5 standing on its
+    // top, its axis on the block's front edge, so half of it overhangs. The concave arc where the
+    // cylinder meets the top, rounded r, ends at the front face, where the arc runs on tangentially
+    // as the convex rim of the overhang's underside. The rail on the cylinder runs alongside that
+    // rim and never meets it; the corner took the rim for the side edge the rail ends on (1001).
+    // The round ends on the front face's extension: Pappus over the half turn, the section
+    // (1 - pi/4) r^2 with its centroid r (5/6 - pi/4) / (1 - pi/4) from the cylinder.
+    {
+        smlib_brep *block = box(-20, 0, 0, 40, 30, 5);
+        smlib_brep *post = cylinder(0, 0, 5, 10.5, 30);
+        smlib_brep *joined = nullptr;
+        CHECK(smlib_boolean(block, post, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK && sound(joined));
+        const double base_arc[6] = {10.5 * std::cos(PI / 4), 10.5 * std::sin(PI / 4), 5, -10.5 * std::cos(PI / 4), 10.5 * std::sin(PI / 4), 5};
+        for (double radius : {1.0, 2.0, 3.0})
+        {
+            const double section = (1.0 - PI / 4.0) * radius * radius;
+            const double centroid = radius * (5.0 / 6.0 - PI / 4.0) / (1.0 - PI / 4.0);
+            if (joined != nullptr && smlib_fillet(joined, base_arc, 2, 0.1, radius, &r, nullptr) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volume_of(joined) + PI * (10.5 + centroid) * section, 1e-8));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"the cylinder's base arc rounded up to the front face");
+            }
+        }
+        for (smlib_brep *b : {block, post, joined})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // SolidCraft rig case fillets/4369: a 60 x 40 x 10 block rounded r10 in plan and a boss r10 x 10
+    // on its top at (12, 32), overhanging the block's corner. The boss's base arc over the block,
+    // rounded R2, ends at the block's corner wall and back wall, where the arc runs on as the rim
+    // of the boss's underside. On the corner wall the top's rail meets the wall 42 degrees round
+    // the boss before the arc's end, the boss's rail only at it: the round's surface, made to
+    // span its rail ends found then, stopped short of the arc's end, and the cap's rib up the
+    // wall ran off it (1001). The round adds the material within 2 of the boss's foot, under the
+    // quarter disc, over the block: the integral of 2 - sqrt(4 - (12 - rho)^2) over the plan
+    // annulus 10 < rho < 12 about the boss's axis inside the block's outline.
+    {
+        const int64_t kinds[8] = {SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC,
+                                  SMLIB_CURVE_LINE, SMLIB_CURVE_ARC, SMLIB_CURVE_LINE, SMLIB_CURVE_ARC};
+        const double reals[72] = {10, 0,  0, 50, 0,  0, 50, 10, 0, 0, 0, 1, 1, 0, 0, 10, -PI / 2, 0,
+                                  60, 10, 0, 60, 30, 0, 50, 30, 0, 0, 0, 1, 1, 0, 0, 10, 0,       PI / 2,
+                                  50, 40, 0, 10, 40, 0, 10, 30, 0, 0, 0, 1, 1, 0, 0, 10, PI / 2,  PI,
+                                  0,  30, 0, 0,  10, 0, 10, 10, 0, 0, 0, 1, 1, 0, 0, 10, PI,      3 * PI / 2};
+        const double up[3] = {0, 0, 1};
+        smlib_brep *plate = nullptr;
+        CHECK(smlib_extrude(kinds, 8, reals, 72, up, 10.0, 0.0, SMLIB_DRAFT_CORNER_TANGENT, 1, &plate, nullptr) == SMLIB_OK);
+        smlib_brep *boss = cylinder(12, 32, 10, 10, 10);
+        smlib_brep *joined = nullptr;
+        CHECK(plate != nullptr && smlib_boolean(plate, boss, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK && sound(joined));
+        auto in_outline = [](double x, double y) {
+            double qx = std::max({10.0 - x, 0.0, x - 50.0});
+            double qy = std::max({10.0 - y, 0.0, y - 30.0});
+            return x >= 0 && x <= 60 && y >= 0 && y <= 40 && qx * qx + qy * qy <= 100.0;
+        };
+        double added = 0.0;
+        const int n_rho = 1000;
+        const int n_turn = 8000;
+        for (int i = 0; i < n_rho; ++i)
+        {
+            double rho = 10.0 + (i + 0.5) * 2.0 / n_rho;
+            double height = 2.0 - std::sqrt(4.0 - (12.0 - rho) * (12.0 - rho));
+            for (int j = 0; j < n_turn; ++j)
+            {
+                double t = (j + 0.5) * 2.0 * PI / n_turn;
+                if (in_outline(12.0 + rho * std::cos(t), 32.0 + rho * std::sin(t)))
+                {
+                    added += height * rho * (2.0 / n_rho) * (2.0 * PI / n_turn);
+                }
+            }
+        }
+        const double foot[6] = {12, 22, 10, 12 + 10 * std::cos(PI / 6), 32 + 10 * std::sin(PI / 6), 10};
+        if (joined != nullptr && smlib_fillet(joined, foot, 2, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            CHECK(near(volume_of(r), volume_of(joined) + added, 1e-7));
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the boss's base arc rounded up to the block's walls");
+        }
+        for (smlib_brep *b : {plate, boss, joined})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // SolidCraft ladder 07-fillets/012: a variable round, r0 at x = 0 to r1 at x = 55, on the top
+    // back edge of a 60 x 40 x 20 box whose vertical edge at (60, 40) is rounded R5. With r1 = 5
+    // the rail on the top meets the R5 corner's arc only at its end (60, 35), where the law,
+    // extended past the edge's end, is larger: there it leaves the top across the right face's
+    // edge. The second search for that rail's end held the radius at r1 even though the corner
+    // is not calculated as constant radius (the first search holds it only then), found the
+    // arc's end, and the variable round's trace could not pass through it (1001). Removed: the
+    // section (1 - pi/4) r^2 along 55, and past x = 55 (s along it, the law going on as
+    // r = r1 + (r1 - r0) s / 55) the square r x r less the quarter disc as far as the R5
+    // cylinder reaches, y - 35 < sqrt(25 - s^2).
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        const double corner_edge[3] = {60, 40, 10};
+        smlib_brep *rounded = nullptr;
+        CHECK(smlib_fillet(block, corner_edge, 1, 0.1, 5.0, &rounded, nullptr) == SMLIB_OK);
+        const double back_top[3] = {27.5, 40, 20};
+        const double from[3] = {0, 40, 20};
+        const double knots[4] = {0, 0, 1, 1};
+        auto under_arc = [](double rr, double a) { // the integral of rr - sqrt(rr^2 - w^2) over 0 < w < a
+            a = std::max(0.0, std::min(a, rr));
+            return rr * a - (0.5 * a * std::sqrt(rr * rr - a * a) + 0.5 * rr * rr * std::asin(a / rr));
+        };
+        for (double r0 : {1.0, 2.0})
+        {
+            const double r1 = 5.0;
+            const double law[2] = {r0, r1};
+            double removed = (1.0 - PI / 4.0) * 55.0 * (r1 * r1 * r1 - r0 * r0 * r0) / (3.0 * (r1 - r0));
+            const int steps = 200000;
+            for (int i = 0; i < steps; ++i)
+            {
+                double s = (i + 0.5) * 5.0 / steps;
+                double rr = r1 + (r1 - r0) * s / 55.0;
+                removed += under_arc(rr, std::sqrt(25.0 - s * s) - 5.0 + rr) * 5.0 / steps;
+            }
+            if (rounded != nullptr && smlib_fillet_variable(rounded, back_top, 0.1, from, 1, knots, 4, law, 2, &r) == SMLIB_OK)
+            {
+                CHECK(near(volume_of(r), volume_of(rounded) - removed, 1e-6));
+                done(r);
+            }
+            else
+            {
+                CHECK(!"a variable round reaching R5 at the R5 corner");
+            }
+        }
+        smlib_brep_free(rounded);
+        smlib_brep_free(block);
+    }
+
+    // Booleans that split, vanish or touch.
+    smlib_brep *cut = box(8, -1, -1, 4, 22, 22);
+    CHECK(smlib_boolean(cube, cut, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
+    done(r);
+    smlib_brep *big = box(-5, -5, -5, 30, 30, 30);
+    CHECK(smlib_boolean(cube, big, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_ERR_EMPTY);
+    smlib_brep *far = box(50, 0, 0, 10, 10, 10);
+    CHECK(smlib_boolean(cube, far, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK);
+    done(r);
+    smlib_brep *touching = box(20, 0, 0, 10, 20, 20);
+    if (smlib_boolean(cube, touching, SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK)
+    {
+        CHECK(near(volume_of(r), 12000.0, 1e-9));
+        done(r);
+    }
+
+    // History through the boolean shim: tagged operands in, the result's history out. A slot
+    // across the top of the cube: every result face comes from a face of one operand, the
+    // slot's walls and floor from the tool (operand 1), the rest from the cube (operand 0).
+    {
+        smlib_brep *slot = box(5, -1, 10, 10, 22, 15);
+        smlib_brep *ta = nullptr;
+        smlib_brep *tb = nullptr;
+        CHECK(smlib_history_tag(cube, 0, &ta) == SMLIB_OK);
+        CHECK(smlib_history_tag(slot, 1, &tb) == SMLIB_OK);
+        CHECK(smlib_boolean(ta, tb, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
+        int64_t counts[3] = {0, 0, 0};
+        CHECK(smlib_brep_counts(r, counts) == SMLIB_OK && counts[0] == 10);
+        int64_t len = 0;
+        CHECK(smlib_history_read(r, nullptr, 0, &len) == SMLIB_ERR_BUFFER && len > 3);
+        std::vector<int64_t> h(static_cast<size_t>(len));
+        CHECK(smlib_history_read(r, h.data(), len, &len) == SMLIB_OK);
+        CHECK(h[0] == SMLIB_HISTORY_VERSION && h[1] == counts[0] && h[2] == counts[1]);
+        int from[2] = {0, 0};
+        size_t at = 3;
+        for (int64_t f = 0; f < h[1] && at + 1 < h.size(); ++f)
+        {
+            int64_t n = h[at + 1];
+            CHECK(n >= 1 && h[at] != SMLIB_CHANGE_GENERATED);
+            for (int64_t i = 0; i < n && at + 3 + 2 * i < h.size(); ++i)
+            {
+                int64_t operand = h[at + 2 + 2 * i];
+                CHECK(operand == 0 || operand == 1);
+                from[operand == 1]++;
+            }
+            at += 2 + 2 * static_cast<size_t>(n);
+        }
+        // The cube's 6 faces give 7 (the top is cut in two); the tool gives the 3 slot faces.
+        CHECK(from[0] == 7 && from[1] == 3);
+        done(r);
+        for (smlib_brep *b : {slot, ta, tb})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // SMLib defects 2-5 (curves of a failed imprint freed under their Edge, a failed imprint
+    // carried on, a squeezed vertex reused, a combined-away ProtoEdge left in its ProtoFaces):
+    // inward walls as thick as the cube's inradius or thicker, refused before SMLib sees them
+    // (no cavity can remain).
+    const double lid[3] = {10, 10, 20};
+    CHECK(smlib_shell(cube, lid, 1, 0.1, -10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+    CHECK(smlib_shell(cube, lid, 1, 0.1, -15.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+    CHECK(smlib_shell(cube, nullptr, 0, 0.1, -10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+    if (smlib_shell(cube, lid, 1, 0.1, -9.5, &r, nullptr) == SMLIB_OK)
+    {
+        CHECK(near(volume_of(r), 8000.0 - 1.0 * 1.0 * 10.5, 1e-6));
+        done(r);
+    }
+    // tangency-labs/solidcore#380: SMLib itself, past the shim's guard. A closed inward shell
+    // whose offset leaves nothing handed the cube back unhollowed as a success; it fails now,
+    // open or closed, and leaves the input as it was.
+    {
+        SmTArray<SmFace *> faces;
+        cube->p->GetFaces(faces);
+        SmTArray<const SmFace *> lidface;
+        for (ULONG i = 0; i < faces.GetSize(); ++i)
+        {
+            SmPoint3d lo;
+            SmPoint3d hi;
+            if (SmApiFaceBoundingBox(faces[i], TRUE, lo, hi) == SM_SUCCESS && lo[2] > 19.9)
+            {
+                lidface.Add(faces[i]);
+            }
+        }
+        CHECK(lidface.GetSize() == 1);
+        SmTArray<const SmFace *> none;
+        for (double wall : {10.0, 12.0, 15.0})
+        {
+            for (const SmTArray<const SmFace *> *open : {&none, &lidface})
+            {
+                SmBrep *res = nullptr;
+                CHECK(SmApiShellBrepFull(cube->p, -wall, TRUE, TRUE, TRUE, *open, res) != SM_SUCCESS && res == nullptr);
+                delete res;
+            }
+        }
+        CHECK(near(volume_of(cube), 8000.0, 1e-9) && sound(cube));
+    }
+
+    // SMLib defect 6 (SmOffsetExecutive::RemoveExcessFaces deleted faces its face maps still
+    // held, which PiecewiseMerge then read), found by fuzz_ops: a closed inward shell of the
+    // cube with two of its edges chamfered 0.1 mm. Any status, never a crash.
+    {
+        const double two[6] = {0, 0, 10, 0, 20, 10};
+        smlib_brep *nicked = nullptr;
+        CHECK(smlib_chamfer(cube, two, 2, 0.01, 0.1, &nicked, nullptr) == SMLIB_OK && sound(nicked));
+        if (smlib_shell(nicked, nullptr, 0, 0.01, -2.624267578125, &r, nullptr) == SMLIB_OK)
+        {
+            done(r);
+        }
+        smlib_brep_free(nicked);
+    }
+
+    // tangency-labs/solidcore#380: the guard against walls with no room inside is the body's
+    // own inradius, not its box. An L of two 6 mm legs, 40 long and 20 tall: its box allows 10,
+    // its inradius is 6 * sqrt(2) / (1 + sqrt(2)) = 3.51 (at the inner corner).
+    {
+        smlib_brep *legs[2] = {box(0, 0, 0, 40, 6, 20), box(0, 0, 0, 6, 40, 20)};
+        smlib_brep *ell = nullptr;
+        CHECK(smlib_boolean(legs[0], legs[1], SMLIB_BOOLEAN_UNION, &ell) == SMLIB_OK && sound(ell));
+        for (double wall : {5.0, 4.0, 3.6})
+        {
+            CHECK(smlib_shell(ell, nullptr, 0, 0.1, -wall, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        }
+        // Open at the top, the wall only needs room from the sides and the floor: the same.
+        const double top[3] = {20, 3, 20};
+        CHECK(smlib_shell(ell, top, 1, 0.1, -3.6, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+        if (smlib_shell(ell, top, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK)
+        {
+            // Floor 1 thick under a cavity 19 tall, its plan the L inset by 1: 2 * 38 * 4 - 4 * 4.
+            CHECK(std::fabs(volume_of(r) - (volume_of(ell) - 19.0 * (2.0 * 38.0 * 4.0 - 16.0))) < 1e-4);
+            done(r);
+        }
+        else
+        {
+            CHECK(!"the L opened at the top, 1 mm walls");
+        }
+        smlib_brep_free(ell);
+        smlib_brep_free(legs[0]);
+        smlib_brep_free(legs[1]);
+    }
+
+    // tangency-labs/solidcore#403: a hemisphere r10 (a sphere cut by a box, its rim two arcs of
+    // 270 and 90 degrees) shelled 2 open at the flat face. The rim's offset is a closed circle,
+    // which both arcs were trimmed to as the same 270 degrees: the flat face got the long arc
+    // twice and the cavity was no solid. Each arc now takes the part of the circle it runs along.
+    {
+        const double centre[3] = {0, 0, 0};
+        smlib_brep *ball = nullptr;
+        CHECK(smlib_make_sphere(centre, 10.0, &ball) == SMLIB_OK);
+        smlib_brep *upper = box(-20, -20, 0, 40, 40, 20);
+        smlib_brep *half = nullptr;
+        CHECK(smlib_boolean(ball, upper, SMLIB_BOOLEAN_INTERSECT, &half) == SMLIB_OK && sound(half));
+        const double flat[3] = {3, 2, 0};
+        CHECK(smlib_shell(half, flat, 1, 0.1, -2.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 2.0 / 3.0 * PI * (1000.0 - 512.0), 1e-5));
+            done(r);
+        }
+        for (smlib_brep *b : {ball, upper, half})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // tangency-labs/solidcore#403: the same shell gives the same answer every time, wherever the
+    // heap puts SMLib's objects. SMLib's pointer maps (SmMapPtrToPtr, SmRelation) handed out
+    // their keys in hash order, which is address order, so the offset processed edges and faces
+    // in an order that changed from call to call: a 47.5 x 45 x 30 box joined with a cylinder
+    // r7.5 along x whose seam lies on the box's front face, shelled 1 open at the bottom,
+    // failed with 1001 or 1006 by turns. Heap blocks of varying size between the calls move
+    // the objects about.
+    {
+        smlib_brep *block = box(0, 0, 0, 47.5, 45, 30);
+        SmBrep *bar = nullptr;
+        CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 7.5, 30.0, bar) == SM_SUCCESS && bar != nullptr);
+        CHECK(SmApiRotate(bar, SmVector3d(0, 0, 0), SmVector3d(0, 1, 0), 90.0) == SM_SUCCESS);
+        CHECK(SmApiTranslate(bar, SmVector3d(47.5, 0, 10)) == SM_SUCCESS);
+        smlib_brep side{bar};
+        smlib_brep *joined = nullptr;
+        CHECK(smlib_boolean(block, &side, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK && sound(joined));
+        const double bottom[3] = {23.75, 22.5, 0};
+        std::vector<std::vector<char>> spacers;
+        int32_t first = 0;
+        double first_volume = 0.0;
+        for (int i = 0; i < 6; ++i)
+        {
+            spacers.emplace_back(static_cast<size_t>(16 + 97 * i * i));
+            int32_t got = smlib_shell(joined, bottom, 1, 0.1, -1.0, &r, nullptr);
+            double v = got == SMLIB_OK ? volume_of(r) : 0.0;
+            if (i == 0)
+            {
+                first = got;
+                first_volume = v;
+            }
+            CHECK(got == first && v == first_volume);
+            smlib_brep_free(r);
+            r = nullptr;
+        }
+        delete bar;
+        for (smlib_brep *b : {block, joined})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // Rig case shell/1494, the same box and cylinder, its seam turned off the front face: the
+    // shell failed (1001). Where the box's side x = 47.5 and the base of the cylinder (the half
+    // disc in front of the box, facing -x) meet the front face at the cylinder's rim (z = 2.5
+    // and 17.5), the front face's loop runs from its edge with the side to its edge with the
+    // base, whose offsets (x = 46.5 and 48.5) are parallel: they never meet, and the vertex kept
+    // by the one lay 2 from the other's curve, as in the cylinder's loop. The merge grew that
+    // vertex's tolerance to 4, it captured another vertex, and SmMerge::MakeFaceuse met an edge
+    // whose ends were not its vertices' mates. The gap is now closed by the straight edge between
+    // the two ends (on the front face's offset and on the cylinder's, a ruling). The cavity is
+    // the box's inset, the cylinder's inset beyond the base's offset (x 48.5 to 76.5), and
+    // between the two offsets of the side the part of the cylinder's inset disc behind the front
+    // face's offset (y >= 1): the circular segment of r 6.5 beyond the chord 1 from its centre,
+    // 2 long. (With the seam through one of those two vertices, as above, the cylinder's loop
+    // passes the vertex twice and its rim's offsets stop at the seam, not at the front face's
+    // offset: still refused.)
+    {
+        const double segment = 6.5 * 6.5 * std::acos(1.0 / 6.5) - std::sqrt(6.5 * 6.5 - 1.0);
+        const double saddle = 47.5 * 45.0 * 30.0 + PI * 7.5 * 7.5 * 30.0 - (45.5 * 43.0 * 29.0 + 2.0 * segment + PI * 6.5 * 6.5 * 28.0);
+        smlib_brep *block = box(0, 0, 0, 47.5, 45, 30);
+        for (double seam : {30.0, 55.0, 125.0, 200.0})
+        {
+            SmBrep *bar = nullptr;
+            CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 7.5, 30.0, bar) == SM_SUCCESS && bar != nullptr);
+            CHECK(SmApiRotate(bar, SmVector3d(0, 0, 0), SmVector3d(0, 0, 1), seam) == SM_SUCCESS);
+            CHECK(SmApiRotate(bar, SmVector3d(0, 0, 0), SmVector3d(0, 1, 0), 90.0) == SM_SUCCESS);
+            CHECK(SmApiTranslate(bar, SmVector3d(47.5, 0, 10)) == SM_SUCCESS);
+            smlib_brep side{bar};
+            smlib_brep *joined = nullptr;
+            CHECK(smlib_boolean(block, &side, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+            const double bottom[3] = {23.75, 22.5, 0};
+            CHECK(joined != nullptr && smlib_shell(joined, bottom, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), saddle, 1e-7));
+                done(r);
+            }
+            delete bar;
+            smlib_brep_free(joined);
+        }
+        smlib_brep_free(block);
+    }
+
+    // tangency-labs/solidcore#397: an inward shell of a box 30 x 20 x 10 whose edges are rounded
+    // thinner than the 2 mm wall. Each round's inward offset collapses (SMLib's offset surface is
+    // NULL), which failed the shell (1001); the faces beside it are now mated across it, so the
+    // inner walls meet at sharp edges: the cavity is the box shrunk by the wall on every side
+    // (but the open top), whatever the radius. All twelve edges rounded (the corner balls
+    // collapse too) and only the four vertical ones (their ends meet the top and bottom faces,
+    // where the offset edges along them shrink to a corner). A round thicker than the wall (r 3)
+    // still shells as before, to a cavity rounded r - t.
+    {
+        const double a = 30, b = 20, c = 10, t = 2;
+        // a x b x c with all edges rounded (corners balls), as the core box grown by the radius
+        auto rounded = [](double x, double y, double z, double rad)
+        {
+            double cx = x - 2 * rad, cy = y - 2 * rad, cz = z - 2 * rad;
+            return cx * cy * cz + 2 * rad * (cx * cy + cy * cz + cx * cz) + PI * rad * rad * (cx + cy + cz) + 4.0 / 3.0 * PI * rad * rad * rad;
+        };
+        std::vector<double> all, vertical;
+        for (double y : {0.0, b})
+        {
+            for (double z : {0.0, c})
+            {
+                all.insert(all.end(), {a / 2, y, z});
+            }
+        }
+        for (double x : {0.0, a})
+        {
+            for (double z : {0.0, c})
+            {
+                all.insert(all.end(), {x, b / 2, z});
+            }
+        }
+        for (double x : {0.0, a})
+        {
+            for (double y : {0.0, b})
+            {
+                all.insert(all.end(), {x, y, c / 2});
+                vertical.insert(vertical.end(), {x, y, c / 2});
+            }
+        }
+        const double top[3] = {a / 2, b / 2, c};
+        smlib_brep *block = box(0, 0, 0, a, b, c);
+        struct Case
+        {
+            const std::vector<double> *edges;
+            double radius;
+        };
+        for (Case k : {Case{&all, 1.0}, Case{&all, 0.5}, Case{&vertical, 1.0}, Case{&vertical, 0.5}, Case{&all, 3.0}})
+        {
+            const double rad = k.radius;
+            const bool every = k.edges == &all;
+            smlib_brep *round = nullptr;
+            CHECK(smlib_fillet(block, k.edges->data(), static_cast<int64_t>(k.edges->size() / 3), 0.1, rad, &round, nullptr) == SMLIB_OK);
+            if (round == nullptr)
+            {
+                continue;
+            }
+            const double outer = every ? rounded(a, b, c, rad) : a * b * c - 4.0 * (1.0 - PI / 4.0) * rad * rad * c;
+            CHECK(near(volume_of(round), outer, 1e-7));
+            const double inner = rad > t ? rounded(a - 2 * t, b - 2 * t, c - 2 * t, rad - t) : (a - 2 * t) * (b - 2 * t) * (c - 2 * t);
+            std::printf("box %s rounded r%g, inward shell %g: closed", every ? "all edges" : "vertical edges", rad, t);
+            int32_t got = smlib_shell(round, nullptr, 0, 0.1, -t, &r, nullptr);
+            std::printf(" %d", static_cast<int>(got));
+            CHECK(got == SMLIB_OK);
+            if (r != nullptr)
+            {
+                // (a cavity rounded r - t is SMLib's approximation of the offset, to its tolerance)
+                CHECK(near(volume_of(r), outer - inner, rad > t ? 1e-6 : 1e-7));
+                done(r);
+            }
+            if (rad <= t)
+            {
+                got = smlib_shell(round, top, 1, 0.1, -t, &r, nullptr);
+                std::printf(", open at the top %d", static_cast<int>(got));
+                CHECK(got == SMLIB_OK);
+                if (r != nullptr)
+                {
+                    CHECK(near(volume_of(r), outer - (a - 2 * t) * (b - 2 * t) * (c - t), 1e-7));
+                    done(r);
+                }
+            }
+            std::printf("\n");
+            smlib_brep_free(round);
+        }
+        smlib_brep_free(block);
+    }
+
+    // An offset is no surface exactly where it shrinks its surface onto its spine (a cylinder or
+    // cone onto its axis, a torus onto its centre circle, a sphere onto its centre): radius 2,
+    // offset 2.1 inward collapses, 1.9 does not, and outward never; the cone (radii 2 and 1 over
+    // 5) collapses only when both its radii do, at 2.1 (cos of its semi-angle 0.98), not at 1.5,
+    // where only its top passes the axis.
+    {
+        SmContext *ctx = SmApiGetOrCreateContext();
+        SmSurface *cyl = nullptr, *cone = nullptr, *tor = nullptr;
+        CHECK(SmApiCreateCylinder(SmVector3d(0, 0, 0), 2.0, 5.0, cyl) == SM_SUCCESS && cyl != nullptr);
+        CHECK(SmApiCreateCone(SmVector3d(0, 0, 0), 2.0, 1.0, 5.0, cone) == SM_SUCCESS && cone != nullptr);
+        CHECK(SmApiCreateTorus(SmVector3d(0, 0, 0), 10.0, 2.0, tor) == SM_SUCCESS && tor != nullptr);
+        SmBrep *ball = nullptr;
+        CHECK(SmApiCreateSphere(SmVector3d(0, 0, 0), 2.0, ball) == SM_SUCCESS && ball != nullptr);
+        SmTArray<SmFace *> ball_faces;
+        ball->GetFaces(ball_faces);
+        CHECK(ball_faces.GetSize() > 0);
+        const SmSurface *sph = ball_faces.GetSize() > 0 ? ball_faces[0]->GetSurface() : nullptr;
+        const double tol = 1e-4;
+        for (const SmSurface *s : {static_cast<const SmSurface *>(cyl), static_cast<const SmSurface *>(cone), static_cast<const SmSurface *>(tor), sph})
+        {
+            if (s == nullptr)
+            {
+                continue;
+            }
+            int collapsed = 0;
+            for (double d : {-2.1, 2.1, -1.9, 1.9, -1.5, 1.5})
+            {
+                SmSurface *off = nullptr;
+                CHECK(s->CreateOffsetSurface(*ctx, d, tol, off) == SM_SUCCESS);
+                const bool collapses = s->OffsetCollapses(d, tol) != FALSE;
+                CHECK((off == nullptr) == collapses);
+                if (collapses)
+                {
+                    collapsed++;
+                    CHECK(std::fabs(d) > 2.0);
+                }
+                delete off;
+            }
+            CHECK(collapsed == 1);
+        }
+        delete cyl;
+        delete cone;
+        delete tor;
+        delete ball;
+    }
+
+    // The offset of a face: no surface only for a collapse, flagged as one; an offset construction
+    // that gives none otherwise fails. A cylinder r5: inset 6 it collapses (one of its two
+    // faceuses offsets toward the axis), inset 2 it is a cylinder r3; with a construction that
+    // gives nothing, inset 2 fails on both sides and is no collapse.
+    {
+        smlib_brep *rod = cylinder(0, 0, 0, 5, 10);
+        SmTArray<SmFace *> faces;
+        rod->p->GetFaces(faces);
+        SmFace *side = nullptr;
+        for (ULONG i = 0; i < faces.GetSize(); i++)
+        {
+            if (faces[i]->GetSurface()->IsKindOf(SmCylinder_TYPE))
+            {
+                side = faces[i];
+            }
+        }
+        CHECK(side != nullptr);
+        if (side != nullptr)
+        {
+            const SmContext &ctx = *SmApiGetOrCreateContext();
+            const SmFaceuse *uses[2] = {side->GetUpwardFaceuse(), side->GetUpwardFaceuse()->GetMate()};
+            auto offset = [&](double d, const SmFaceuse *fu, SmBoolean &collapses, SmSurface *&surface)
+            {
+                SmOffsetGeometryCreation make(d, rod->p->GetTolerance());
+                SmSSIData crossings;
+                surface = nullptr;
+                collapses = FALSE;
+                return make.FaceuseOffset(ctx, fu, TRUE, surface, crossings, collapses);
+            };
+            int collapsed = 0;
+            for (const SmFaceuse *fu : uses)
+            {
+                SmBoolean collapses = FALSE;
+                SmSurface *surface = nullptr;
+                CHECK(offset(6.0, fu, collapses, surface) == SM_SUCCESS);
+                CHECK((surface == nullptr) == (collapses != FALSE));
+                collapsed += collapses ? 1 : 0;
+                delete surface;
+                CHECK(offset(2.0, fu, collapses, surface) == SM_SUCCESS && !collapses && surface != nullptr);
+                delete surface;
+            }
+            CHECK(collapsed == 1);
+            SmSurface *own = side->GetSurface();
+            const SmExtent2d domain = side->GetUVDomain();
+            NoOffsetCylinder *none = new (ctx) NoOffsetCylinder(*static_cast<const SmCylinder *>(own));
+            side->SetSurface(none);
+            for (const SmFaceuse *fu : uses)
+            {
+                SmBoolean collapses = FALSE;
+                SmSurface *surface = nullptr;
+                CHECK(offset(2.0, fu, collapses, surface) != SM_SUCCESS && !collapses && surface == nullptr);
+            }
+            side->SetSurface(own);
+            side->SetUVDomain(domain);
+            delete none;
+            CHECK(sound(rod));
+        }
+        smlib_brep_free(rod);
+    }
+
+    // A box 20 x 10 x 30 open at the top with walls 4 thick: the sides need room 4 from each
+    // other (10 > 8), the floor's is far, so the shell goes through even though the box's
+    // smallest half extent is 5; walls of 5 leave none.
+    {
+        smlib_brep *slab = box(0, 0, 0, 20, 10, 30);
+        const double top[3] = {10, 5, 30};
+        CHECK(smlib_shell(slab, top, 1, 0.1, -4.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume_of(r) - (6000.0 - 12.0 * 2.0 * 26.0)) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_shell(slab, top, 1, 0.1, -5.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+        smlib_brep_free(slab);
+    }
+
+    // Offset faces: the cube's top up by 5, then down by 5; its side and top together; a
+    // cylinder's wall out by 2. Down by the cube's height leaves nothing and is refused.
+    {
+        const double top[3] = {10, 10, 20};
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, 5.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume_of(r) - 10000.0) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, -5.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume_of(r) - 6000.0) < 1e-6);
+            done(r);
+        }
+        const double two[6] = {10, 10, 20, 20, 10, 10};
+        CHECK(smlib_offset_faces(cube, two, 2, 0.1, 2.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume_of(r) - 22.0 * 20.0 * 22.0) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, -20.0, &r, nullptr) == SMLIB_ERR_NO_ROOM);
+        CHECK(smlib_offset_faces(cube, top, 1, 0.1, 0.0, &r, nullptr) == SMLIB_ERR_ARG);
+        const double wall[3] = {14, 10, 5};
+        if (smlib_offset_faces(rod, wall, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK)
+        {
+            done(r);
+        }
+        // tangency-labs/solidcore#401: a sphere r10 out by 2 is a sphere r12 whose edges lie
+        // within their tolerances (the gap was 5.015e-6 over 5e-6 before the results' tolerances
+        // were settled).
+        const double centre[3] = {0, 0, 0};
+        smlib_brep *ball = nullptr;
+        CHECK(smlib_make_sphere(centre, 10.0, &ball) == SMLIB_OK);
+        const double pole[3] = {10, 0, 0};
+        CHECK(smlib_offset_faces(ball, pole, 1, 0.1, 2.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 4.0 / 3.0 * PI * 1728.0, 1e-6));
+            done(r);
+        }
+        smlib_brep_free(ball);
+    }
+
+    // tangency-labs/solidcore#402: a face moved away from a tangent neighbour that keeps its
+    // surface no longer meets it. SMLib's local operation dropped the edge across the gap and
+    // returned a body whose edge tolerance had grown to the gap. A face moved along its normal
+    // stays parallel to a tangent neighbour that is no blend: a step, closed by a wall between
+    // the two (one piece of a split top moved along its normal: a 60 x 40 x 20 block, the top
+    // split at x = 30, the piece x > 30 up by 1 adds 30 x 40 x 1, down by 1 takes it off).
+    //
+    // A blend tangent to a moved face follows it (SmOffsetFacesExecutive): taken off, the faces
+    // moved, put back at its own radius, tangent to both faces. A boss of radius R, 10 high,
+    // on a 60 x 40 x 10 plate: a round r at its foot adds, and one at its rim takes off, the
+    // corner region of the section, A = r^2 (1 - pi/4), revolved about the axis at R + d or
+    // R - d, d = r^3 (5/6 - pi/4) / A its centroid's distance from the wall (Pappus).
+    // tangency-labs/solidcraft#3468: the r10 boss's wall out by 1 with its r2 foot round,
+    // 27863.06545 and 9 faces (the round ends at r11, not at r10 under a step); in by 1 and 3,
+    // the same with R = 9 and 7. A rim round r2, the wall in to R = 3: the ball rolls inside a
+    // boss of radius 3, the top keeps a disc of radius 1; to R = 2: the ball's centre is on the
+    // axis, the top goes and the round is the hemispherical end (8 faces), the same formula's
+    // limit; to R = 1.5: no ball of r2 fits inside a boss of radius 1.5 (its centre would lie
+    // beyond the axis, the round a spindle torus through itself), SMLIB_ERR_NO_ROOM. Both rounds
+    // together follow the wall too. The boss's top moved instead takes its rim round along: as
+    // a boss built that high and rounded (the local operation continues the wall's cylinder
+    // past its domain by a G1 extension, within 3e-7 of the cylinder here, and so is not exact:
+    // 2e-6 relative).
+    {
+        smlib_brep *plate = box(0, 0, 0, 60, 40, 10);
+        const double at[3] = {30, 20, 10};
+        smlib_brep *boss = nullptr;
+        smlib_brep *joined = nullptr;
+        smlib_brep *foot = nullptr;
+        smlib_brep *rim = nullptr;
+        smlib_brep *both = nullptr;
+        CHECK(smlib_make_cylinder(at, 10.0, 10.0, &boss) == SMLIB_OK);
+        CHECK(smlib_boolean(plate, boss, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+        const double base[3] = {30, 30, 10};
+        const double top_rim[3] = {30, 30, 20};
+        const double both_rims[6] = {30, 30, 10, 30, 30, 20};
+        CHECK(smlib_fillet(joined, base, 1, 0.1, 2.0, &foot, nullptr) == SMLIB_OK && sound(foot));
+        CHECK(smlib_fillet(joined, top_rim, 1, 0.1, 2.0, &rim, nullptr) == SMLIB_OK && sound(rim));
+        CHECK(smlib_fillet(joined, both_rims, 2, 0.1, 2.0, &both, nullptr) == SMLIB_OK && sound(both));
+        const double corner = 4.0 * (1.0 - PI / 4.0);
+        const double centroid = 8.0 * (5.0 / 6.0 - PI / 4.0) / corner;
+        auto boss_of = [&](double R, bool at_foot, bool at_rim)
+        {
+            return 24000.0 + PI * R * R * 10.0 + (at_foot ? 2.0 * PI * (R + centroid) * corner : 0.0) -
+                   (at_rim ? 2.0 * PI * (R - centroid) * corner : 0.0);
+        };
+        CHECK(near(boss_of(11, true, false), 27863.06545197909, 1e-12));
+        const double wall[3] = {30, 30, 15};
+        for (double R : {11.0, 9.0, 7.0})
+        {
+            CHECK(smlib_offset_faces(foot, wall, 1, 0.1, R - 10.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(R, true, false), 1e-9));
+                CHECK(r->p->GetNumFaces() == 9);
+                done(r);
+            }
+        }
+        for (double R : {3.0, 2.0})
+        {
+            CHECK(smlib_offset_faces(rim, wall, 1, 0.1, R - 10.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(R, false, true), 1e-9));
+                CHECK(r->p->GetNumFaces() == (R == 2.0 ? 8u : 9u));
+                done(r);
+            }
+        }
+        CHECK(smlib_offset_faces(rim, wall, 1, 0.1, 1.5 - 10.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        for (double R : {11.0, 7.0})
+        {
+            CHECK(smlib_offset_faces(both, wall, 1, 0.1, R - 10.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(R, true, true), 1e-9));
+                CHECK(r->p->GetNumFaces() == 10);
+                done(r);
+            }
+        }
+        const double cap[3] = {30, 20, 20};
+        for (double up : {1.0, -1.0})
+        {
+            CHECK(smlib_offset_faces(rim, cap, 1, 0.1, up, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), boss_of(10, false, true) + PI * 100.0 * up, 2e-6));
+                CHECK(r->p->GetNumFaces() == 9);
+                done(r);
+            }
+        }
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        smlib_brep *cutter = box(30, -1, 10, 40, 42, 20);
+        smlib_brep *split = nullptr;
+        CHECK(smlib_imprint(block, cutter, &split) == SMLIB_OK);
+        const double piece[3] = {45, 20, 20};
+        CHECK(smlib_offset_faces(split, piece, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK && sound(r));
+        CHECK(near(volume_of(r), 48000.0 + 1200.0, 1e-6));
+        smlib_brep_free(r);
+        r = nullptr;
+        CHECK(smlib_offset_faces(split, piece, 1, 0.1, -1.0, &r, nullptr) == SMLIB_OK && sound(r));
+        CHECK(near(volume_of(r), 48000.0 - 1200.0, 1e-6));
+        smlib_brep_free(r);
+        r = nullptr;
+        for (smlib_brep *b : {plate, boss, joined, foot, rim, both, block, cutter, split})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // Blends with ends follow too. A 60 x 40 x 20 block, its top front edge rounded r2: the top
+    // up or down 1 adds or takes 60 x 40 x 1, the round (its section's corner region, A, along
+    // the 60) as it was. A 40 x 30 x 20 block, its four upright edges rounded r3, the side
+    // x = 40 moved in: the rounds on it follow, a W x 30 rounded rectangle 20 high,
+    // (30 W - 4 A) 20 with A = 9 (1 - pi/4). At W = 10 the front and back keep 4 of their flat;
+    // at W = 6 they keep none, the rounds meet tangentially (8 faces); at W = 5 the rounds of
+    // r3 no longer fit beside each other (a ball of r3 in a slab 5 thick): SMLIB_ERR_NO_ROOM.
+    // At W = 1.5 the side would cut into the rounds that stay at x = 0: the local operation
+    // refuses it (as it does for a block with no rounds on the moved side).
+    {
+        smlib_brep *block = box(0, 0, 0, 60, 40, 20);
+        smlib_brep *rounded = nullptr;
+        const double front_top[3] = {30, 0, 20};
+        CHECK(smlib_fillet(block, front_top, 1, 0.1, 2.0, &rounded, nullptr) == SMLIB_OK);
+        const double top[3] = {30, 20, 20};
+        for (double up : {1.0, -1.0})
+        {
+            CHECK(smlib_offset_faces(rounded, top, 1, 0.1, up, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), 2400.0 * (20.0 + up) - 60.0 * 4.0 * (1.0 - PI / 4.0), 1e-9));
+                CHECK(r->p->GetNumFaces() == 7);
+                done(r);
+            }
+        }
+        smlib_brep *slab = box(0, 0, 0, 40, 30, 20);
+        smlib_brep *corners = nullptr;
+        const double uprights[12] = {0, 0, 10, 40, 0, 10, 40, 30, 10, 0, 30, 10};
+        CHECK(smlib_fillet(slab, uprights, 4, 0.1, 3.0, &corners, nullptr) == SMLIB_OK);
+        const double side[3] = {40, 15, 10};
+        for (double W : {10.0, 6.0})
+        {
+            CHECK(smlib_offset_faces(corners, side, 1, 0.1, W - 40.0, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), (30.0 * W - 36.0 * (1.0 - PI / 4.0)) * 20.0, 1e-9));
+                CHECK(r->p->GetNumFaces() == (W == 6.0 ? 8u : 10u));
+                done(r);
+            }
+        }
+        CHECK(smlib_offset_faces(corners, side, 1, 0.1, 5.0 - 40.0, &r, nullptr) == SMLIB_ERR_NO_ROOM && r == nullptr);
+        CHECK(smlib_offset_faces(corners, side, 1, 0.1, 1.5 - 40.0, &r, nullptr) != SMLIB_OK && r == nullptr);
+        // tangency-labs/solidcraft#4492: a 40 x 30 x 10 block, its four top edges rounded r3,
+        // mitred where they meet, the top moved: the rounds, which meet at their ends, come off
+        // together (the planes round them extended) and go back on the moved top. Each round
+        // takes its section's corner region A = 9 (1 - pi/4) along its edge; at a corner the
+        // two overlap in the corner cube: of the 2 A r both count there, the mitred corner
+        // takes r^3 / 3 (the half of the cube nearer each face, the region outside the round's
+        // quarter disc weighted by its distance from the other face: r^3 / 6 each). Up 19 (29
+        // high) and down 6 (4 high); the same as the block built that high and rounded.
+        smlib_brep *top_rounded = nullptr;
+        smlib_brep *low = box(0, 0, 0, 40, 30, 10);
+        const double top_edges[12] = {20, 0, 10, 20, 30, 10, 0, 15, 10, 40, 15, 10};
+        CHECK(smlib_fillet(low, top_edges, 4, 0.1, 3.0, &top_rounded, nullptr) == SMLIB_OK);
+        const double low_top[3] = {20, 15, 10};
+        const double A3 = 9.0 * (1.0 - PI / 4.0);
+        for (double up : {19.0, -6.0})
+        {
+            CHECK(smlib_offset_faces(top_rounded, low_top, 1, 0.1, up, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                // to the volume's own accuracy (1e-7: the mitre faces' integration)
+                CHECK(near(volume_of(r), 1200.0 * (10.0 + up) - A3 * 140.0 + 4.0 * (2.0 * A3 * 3.0 - 9.0), 1e-7));
+                CHECK(r->p->GetNumFaces() == 10);
+                done(r);
+            }
+        }
+        for (smlib_brep *b : {low, top_rounded})
+        {
+            smlib_brep_free(b);
+        }
+        for (smlib_brep *b : {block, rounded, slab, corners})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // The blend that follows keeps the history of the blend it replaces: the r2 foot round of
+    // the boss above, tagged, its wall out by 1: one result face comes from the round, kept
+    // (its boundary the round's own edges), and its rails from the round's.
+    {
+        smlib_brep *plate = box(0, 0, 0, 60, 40, 10);
+        const double at[3] = {30, 20, 10};
+        smlib_brep *boss = nullptr;
+        smlib_brep *joined = nullptr;
+        smlib_brep *foot = nullptr;
+        smlib_brep *tagged = nullptr;
+        CHECK(smlib_make_cylinder(at, 10.0, 10.0, &boss) == SMLIB_OK);
+        CHECK(smlib_boolean(plate, boss, SMLIB_BOOLEAN_UNION, &joined) == SMLIB_OK);
+        const double base[3] = {30, 30, 10};
+        CHECK(smlib_fillet(joined, base, 1, 0.1, 2.0, &foot, nullptr) == SMLIB_OK);
+        CHECK(smlib_history_tag(foot, 0, &tagged) == SMLIB_OK);
+        const double wall[3] = {30, 30, 15};
+        CHECK(smlib_offset_faces(tagged, wall, 1, 0.1, 1.0, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            std::vector<int64_t> h(100000);
+            int64_t len = 0;
+            CHECK(smlib_history_read(r, h.data(), static_cast<int64_t>(h.size()), &len) == SMLIB_OK);
+            // [version, faces, edges, per face: change, n, (operand, index) x n, ...]
+            int64_t nf = h[1];
+            int64_t generated = 0;
+            size_t at_rec = 3;
+            for (int64_t f = 0; f < nf; ++f)
+            {
+                int64_t change = h[at_rec];
+                int64_t n = h[at_rec + 1];
+                if (n == 0 || change == SMLIB_CHANGE_GENERATED)
+                {
+                    generated++;
+                }
+                at_rec += 2 + 2 * static_cast<size_t>(n);
+            }
+            // every result face comes from an input face: none is new
+            CHECK(generated == 0);
+            CHECK(r->p->GetNumFaces() == 9);
+            done(r);
+        }
+        for (smlib_brep *b : {plate, boss, joined, foot, tagged})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // Draft: the cube's side x = 20 tilted 5 degrees about its line on z = 0, leaning in going
+    // up (+z): a wedge of 20 x 20 tan(5 deg) / 2 x 20 comes off; -5 degrees adds it. The top
+    // isn't parallel to the pull and the rod's wall isn't flat: not supported.
+    {
+        const double side[3] = {20, 10, 10};
+        const double origin[3] = {0, 0, 0};
+        const double up[3] = {0, 0, 1};
+        const double deg = 3.14159265358979323846 / 180.0;
+        const double wedge = 0.5 * 20.0 * 20.0 * std::tan(5.0 * deg) * 20.0;
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume_of(r) - (8000.0 - wedge)) < 1e-6);
+            done(r);
+        }
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, -5.0 * deg, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(std::fabs(volume_of(r) - (8000.0 + wedge)) < 1e-6);
+            done(r);
+        }
+        const double top[3] = {10, 10, 20};
+        CHECK(smlib_draft(cube, top, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_UNSUPPORTED);
+        const double wall[3] = {14, 10, 5};
+        CHECK(smlib_draft(rod, wall, 1, 0.1, origin, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_UNSUPPORTED);
+        const double flat[3] = {1, 0, 0};
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, flat, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 0.0, &r, nullptr) == SMLIB_ERR_ARG);
+        CHECK(smlib_draft(cube, side, 1, 0.1, origin, up, up, 90.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
+        CHECK(smlib_draft(cube, side, 1, 0.1, nullptr, up, up, 5.0 * deg, &r, nullptr) == SMLIB_ERR_ARG);
+    }
+
+    // A cone frustum whose side is two half-cone faces (a profile of two half circles r 20,
+    // drafted inward), shelled 2 mm open at the top (rig case shell/3103). The inner rim meets
+    // the top plane where the offsets of the side and the top were already mated along it, and
+    // the offset's self-intersection merge intersected them again: the plane/offset-cone curve
+    // ended 0.0036 mm short of the inner seam, which split each half of the rim there (three
+    // extra vertices and edges, then the shell's difference left partially coincident edges).
+    // The two halves of each wall and their rims share edges; the cavity is the frustum moved
+    // in by the wall normal to the cone: r(z) = 20 - z tan(a) - t / cos(a), floor at z = t.
+    for (double deg : {9.4623222080, 15.0})
+    {
+        const double a = deg * PI / 180.0, t = 2.0, h = 30.0, r0 = 20.0;
+        const int64_t kinds[2] = {SMLIB_CURVE_ARC, SMLIB_CURVE_ARC};
+        const double reals[24] = {0, 0, 0, 0, 0, 1, 1, 0, 0, r0, 0, PI, 0, 0, 0, 0, 0, 1, 1, 0, 0, r0, PI, 2 * PI};
+        const double up[3] = {0, 0, 1};
+        smlib_brep *frustum = nullptr;
+        CHECK(smlib_extrude(kinds, 2, reals, 24, up, h, a, SMLIB_DRAFT_CORNER_TANGENT, 1, &frustum, nullptr) == SMLIB_OK);
+        auto cone = [](double ra, double rb, double len) { return PI * len / 3.0 * (ra * ra + ra * rb + rb * rb); };
+        auto inner = [&](double z) { return r0 - z * std::tan(a) - t / std::cos(a); };
+        const double want = cone(r0, r0 - h * std::tan(a), h) - cone(inner(t), inner(h), h - t);
+        const double lid[3] = {0, 0, h};
+        CHECK(frustum != nullptr && smlib_shell(frustum, lid, 1, 0.1, -t, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            int64_t counts[3] = {0, 0, 0};
+            CHECK(smlib_brep_counts(r, counts) == SMLIB_OK);
+            CHECK(counts[0] == 7 && counts[1] == 12 && counts[2] == 8);
+            CHECK(near(volume_of(r), want, 1e-5));
+            done(r);
+        }
+        smlib_brep_free(frustum);
+    }
+
+    // A 40 x D x 10 plate with a 4 mm through hole at (x, y), shelled t inward open at the top:
+    // where the hole lies nearer than t to a side, the offset of its wall (radius 2 + t) crosses
+    // the side's offset, and the offset floor's hole loop crossed its outer loop (SmFace test
+    // #38). The merge failed on that face (SM_ERR_NULL_POINTER, SmEdgeDefinition::Imprint); the
+    // face is now rebuilt from the stretches of its loops that bound it, and comes apart in two
+    // when the hole crosses both sides (D = 8). The cavity is the inner box less the part of the
+    // hole's offset disk inside the floor, over the height 10 - t. A hole whose offset only
+    // touches a side's (x = 5: the hole 3 = 2 t from the side's offset, its offset circle tangent
+    // to the side's at (1.5, 20)) leaves the offset walls meeting along a line, which bounds no
+    // solid: refused, SMLIB_ERR_WALLS_TOUCH (it was SM_ERR_BAD_INTERSECTIONS, "loops leave a
+    // crossing more than one way", which does not say why). At x = 4.99 the hole's
+    // offset crosses the side's 0.01 mm deep, at 4.3 degrees: the cut-off rims of that crossing
+    // were welded by the offset's stitch, whose tolerance escalated to the gap between them, and
+    // the shell failed (1001).
+    {
+        struct Plate
+        {
+            double x, y, d, t;
+        };
+        // Area of a disk of radius r between the lines at signed distances a < b from its centre.
+        auto band = [](double rr, double a, double b)
+        {
+            auto F = [rr](double u)
+            {
+                u = std::max(-rr, std::min(rr, u));
+                return u * std::sqrt(rr * rr - u * u) + rr * rr * std::asin(u / rr);
+            };
+            return F(b) - F(a);
+        };
+        for (Plate p : {Plate{4.5, 20, 40, 1.5}, Plate{4.5, 20, 40, 1.0}, Plate{20, 4, 8, 1.5}, Plate{5, 20, 40, 1.5},
+                        Plate{4.99, 20, 40, 1.5}})
+        {
+            const double o[3] = {0, 0, 0}, size[3] = {40, p.d, 10}, axis[3] = {p.x, p.y, -1}, lid[3] = {35, p.d / 2, 10};
+            smlib_brep *box = nullptr, *pin = nullptr, *plate = nullptr;
+            CHECK(smlib_make_box(o, size, &box) == SMLIB_OK && smlib_make_cylinder(axis, 2.0, 12.0, &pin) == SMLIB_OK);
+            CHECK(smlib_boolean(box, pin, SMLIB_BOOLEAN_SUBTRACT, &plate) == SMLIB_OK);
+            const double rr = 2.0 + p.t;
+            int32_t s = plate != nullptr ? smlib_shell(plate, lid, 1, 0.1, -p.t, &r, nullptr) : SMLIB_ERR_ARG;
+            if (p.x - rr == p.t)
+            {
+                CHECK(s == SMLIB_ERR_WALLS_TOUCH && r == nullptr);
+            }
+            else
+            {
+                double inside = band(rr, std::max(p.t - p.y, -rr), std::min(p.d - p.t - p.y, rr));
+                if (p.x - rr < p.t)
+                {
+                    inside -= band(rr, -rr, p.t - p.x);
+                }
+                const double cavity = ((40.0 - 2.0 * p.t) * (p.d - 2.0 * p.t) - inside) * (10.0 - p.t);
+                CHECK(s == SMLIB_OK);
+                if (r != nullptr)
+                {
+                    CHECK(near(volume_of(r), 40.0 * p.d * 10.0 - PI * 4.0 * 10.0 - cavity, 1e-7));
+                    done(r);
+                }
+            }
+            for (smlib_brep *b : {box, pin, plate})
+            {
+                smlib_brep_free(b);
+            }
+        }
+    }
+
+    // Rig case shell/4711: a 60 x 40 x 10 block with an r3 through hole at (22.5, 7) and a 10 x 10
+    // notch at x 25..35 on its front edge, shelled t inward open at the bottom. The hole lies
+    // 4 = 2 x 2 from the front face, so at t = 2 the hole's offset circle (r5) is tangent to the
+    // front's offset y = 2 at (22.5, 2): the walls meet along the line x = 22.5, y = 2 and the
+    // offset bounds no solid there, SMLIB_ERR_WALLS_TOUCH (it was SM_ERR_BAD_INTERSECTIONS, as
+    // "loops meet at a loop vertex" here, where the circle's seam lies on the notch's offset at
+    // (27.5, 7) and its crossing there was looked at first, and as "loops leave a crossing more
+    // than one way" on SolidCraft's copy of the body). Thinner, the walls stay apart; thicker,
+    // they cross and merge; both are solids.
+    {
+        const double o[3] = {0, 0, 0}, size[3] = {60, 40, 10}, axis[3] = {22.5, 7, -5}, corner[3] = {25, -5, -5}, notch_size[3] = {10, 10, 20};
+        const double bottom[3] = {50, 30, 0};
+        smlib_brep *block = nullptr, *pin = nullptr, *notch = nullptr, *holed = nullptr, *part = nullptr;
+        CHECK(smlib_make_box(o, size, &block) == SMLIB_OK && smlib_make_cylinder(axis, 3.0, 20.0, &pin) == SMLIB_OK &&
+              smlib_make_box(corner, notch_size, &notch) == SMLIB_OK);
+        CHECK(smlib_boolean(block, pin, SMLIB_BOOLEAN_SUBTRACT, &holed) == SMLIB_OK &&
+              smlib_boolean(holed, notch, SMLIB_BOOLEAN_SUBTRACT, &part) == SMLIB_OK);
+        CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.1, -2.0, &r, nullptr) == SMLIB_ERR_WALLS_TOUCH && r == nullptr);
+        for (double t : {1.5, 2.5})
+        {
+            CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.1, -t, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                done(r);
+            }
+        }
+        for (smlib_brep *b : {block, pin, notch, holed, part})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    // Rig case shell/4567: a vase revolved about y from a fit-point spline (its six cubic spans
+    // here, from the axis at the origin to the rim at (6, 46)), shelled 2 inward open at the top.
+    // The spline meets the axis at a slant, so the bottom's inward offset crosses the axis, 1.6
+    // above the frame's origin. SmSurfOfRevolution::CreateOffsetSurface trims the offset
+    // generatrix at the axis, but looked for it along a segment from the frame's origin one way
+    // only, along the frame's z axis: revolved about -y (as the rig's vase is), the crossing lies
+    // the other way, it was missed, the offset was revolved 0.12 past the axis, and the bottom's
+    // offset face is no cone point but a hole round it. Revolved about +y it was found. The offset surface now ends on the axis, at the exact offset's crossing.
+    // The profile and its exact inward offset p + t n (n the unit normal into the material)
+    // are evaluated here directly.
+    {
+        const double t = 2.0, top = 46.0;
+        static const double S[6][4][2] = {{{0, 0}, {5.0046051747861462, 0.28969795384163027}, {10.009210349572294, 0.57939590768326088}, {14, 3}},
+                                          {{14, 3}, {17.791122091620693, 5.2994962033305715}, {20.667337490527675, 9.5220052633338028}, {22, 14}},
+                                          {{22, 14}, {23.175751555936337, 17.950744649667318}, {23.150034916853265, 22.100353826034457}, {22, 26}},
+                                          {{22, 26}, {20.772697258333796, 30.161653155655173}, {18.264920922540426, 34.038626225241856}, {14, 36}},
+                                          {{14, 36}, {11.021250018636229, 37.369882865619019}, {7.1853563364202362, 37.805327050833874}, {6, 40}},
+                                          {{6, 40}, {5.2048387962612725, 41.472231370814619}, {5.6024193981306363, 43.736115685407313}, {6, 46}}};
+        // span k of the profile at s: (r, y), its first and second derivatives
+        auto bez = [](int k, double s, double d[3][2])
+        {
+            const double(*c)[2] = S[k];
+            const double u = 1 - s;
+            for (int i = 0; i < 2; ++i)
+            {
+                d[0][i] = u * u * u * c[0][i] + 3 * u * u * s * c[1][i] + 3 * u * s * s * c[2][i] + s * s * s * c[3][i];
+                d[1][i] = 3 * (u * u * (c[1][i] - c[0][i]) + 2 * u * s * (c[2][i] - c[1][i]) + s * s * (c[3][i] - c[2][i]));
+                d[2][i] = 6 * (u * (c[2][i] - 2 * c[1][i] + c[0][i]) + s * (c[3][i] - 2 * c[2][i] + c[1][i]));
+            }
+        };
+        // the exact offset q = p + t (-y', r') / |p'| and its derivative
+        auto off = [&](int k, double s, double q[2], double dq[2])
+        {
+            double d[3][2];
+            bez(k, s, d);
+            const double len = std::hypot(d[1][0], d[1][1]), dlen = (d[1][0] * d[2][0] + d[1][1] * d[2][1]) / len;
+            q[0] = d[0][0] - t * d[1][1] / len;
+            q[1] = d[0][1] + t * d[1][0] / len;
+            dq[0] = d[1][0] - t * (d[2][1] / len - d[1][1] * dlen / (len * len));
+            dq[1] = d[1][1] + t * (d[2][0] / len - d[1][0] * dlen / (len * len));
+        };
+        // where g changes sign in [a, b] (bisection)
+        auto root = [](const std::function<double(double)> &g, double a, double b)
+        {
+            for (int i = 0; i < 200; ++i)
+            {
+                const double m = 0.5 * (a + b);
+                ((g(a) < 0) == (g(m) < 0) ? a : b) = m;
+            }
+            return 0.5 * (a + b);
+        };
+        // the offset of the first span crosses the axis at s0, at height apex[1]
+        const double s0 = root([&](double s) { double q[2], dq[2]; off(0, s, q, dq); return q[0]; }, 0.0, 0.5);
+        double apex[2], dapex[2];
+        off(0, s0, apex, dapex);
+        // pi times the integral of r^2 dy along f from s = a to b (Simpson's rule): the vase, and
+        // the cavity inside the offset from the axis to the open top
+        auto turned = [](const std::function<void(double, double &, double &)> &f, double a, double b)
+        {
+            const int n = 4000;
+            double sum = 0.0;
+            for (int i = 0; i <= n; ++i)
+            {
+                double rr = 0.0, dy = 0.0;
+                f(a + (b - a) * i / n, rr, dy);
+                sum += (i == 0 || i == n ? 1 : (i % 2 ? 4 : 2)) * rr * rr * dy;
+            }
+            return PI * sum * (b - a) / n / 3.0;
+        };
+        const double s1 = root([&](double s) { double q[2], dq[2]; off(5, s, q, dq); return q[1] - top; }, 0.5, 1.0);
+        double vase_volume = 0.0, cavity_volume = 0.0;
+        for (int k = 0; k < 6; ++k)
+        {
+            vase_volume += turned([&](double s, double &rr, double &dy) { double d[3][2]; bez(k, s, d); rr = d[0][0]; dy = d[1][1]; }, 0.0, 1.0);
+            cavity_volume += turned([&](double s, double &rr, double &dy) { double q[2], dq[2]; off(k, s, q, dq); rr = q[0]; dy = dq[1]; },
+                                    k == 0 ? s0 : 0.0, k == 5 ? s1 : 1.0);
+        }
+
+        // the profile as curves: the six spans, the rim, the axis
+        std::vector<int64_t> kinds;
+        std::vector<double> reals;
+        for (int k = 0; k < 6; ++k)
+        {
+            kinds.insert(kinds.end(), {SMLIB_CURVE_NURBS, 3, 4});
+            for (int j = 0; j < 4; ++j)
+            {
+                reals.insert(reals.end(), {S[k][j][0], S[k][j][1], 0, 1});
+            }
+            reals.insert(reals.end(), {0, 0, 0, 0, 1, 1, 1, 1});
+        }
+        kinds.insert(kinds.end(), {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE});
+        reals.insert(reals.end(), {6, top, 0, 0, top, 0, 0, top, 0, 0, 0, 0});
+        for (double turn : {1.0, -1.0})
+        {
+            const double origin[3] = {0, 0, 0}, axis[3] = {0, turn, 0};
+            smlib_brep *vase = nullptr;
+            CHECK(smlib_revolve(kinds.data(), static_cast<int64_t>(kinds.size()), reals.data(), static_cast<int64_t>(reals.size()), origin, axis, 2 * PI, 1,
+                                &vase) == SMLIB_OK);
+            if (vase == nullptr)
+            {
+                continue;
+            }
+            // The bottom's inward offset surface (the side that moves its middle up) ends on the
+            // axis: one of its boundary lines is the point apex.
+            SmTArray<SmFace *> faces;
+            vase->p->GetFaces(faces);
+            int bottoms = 0;
+            for (ULONG i = 0; i < faces.GetSize(); ++i)
+            {
+                SmSurface *surf = faces[i]->GetSurface();
+                SmExtent3d e;
+                CHECK(faces[i]->CalculateBoundingBox(e, TRUE) == SM_SUCCESS);
+                if (!surf->IsKindOf(SmSurfOfRevolution_TYPE) || e.GetMin(1) > 1e-9)
+                {
+                    continue;
+                }
+                bottoms++;
+                for (double d : {t, -t})
+                {
+                    SmSurface *o = nullptr;
+                    CHECK(surf->CreateOffsetSurface(*SmApiGetOrCreateContext(), d, SM_CAST_APPROXTOL3D(1e-6), o) == SM_SUCCESS && o != nullptr);
+                    if (o == nullptr)
+                    {
+                        continue;
+                    }
+                    const SmExtent2d dom = o->GetNaturalUVDomain();
+                    SmPoint3d mid_o, mid_s;
+                    CHECK(o->EvaluatePoint(dom.GetMid(), mid_o) == SM_SUCCESS && surf->EvaluatePoint(dom.GetMid(), mid_s) == SM_SUCCESS);
+                    if (mid_o.y > mid_s.y)
+                    {
+                        // the boundary line nearest the axis: its farthest point from it, its height
+                        double nearest = HUGE_VAL, height = 0.0;
+                        for (int side = 0; side < 4; ++side)
+                        {
+                            double far = 0.0, y = 0.0;
+                            for (int j = 0; j <= 8; ++j)
+                            {
+                                const double w = j / 8.0;
+                                const SmPoint2d uv = side < 2 ? dom.Evaluate(side, w) : dom.Evaluate(w, side - 2);
+                                SmPoint3d p;
+                                CHECK(o->EvaluatePoint(uv, p) == SM_SUCCESS);
+                                far = std::max(far, std::hypot(p.x, p.z));
+                                y += p.y / 9.0;
+                            }
+                            if (far < nearest)
+                            {
+                                nearest = far;
+                                height = y;
+                            }
+                        }
+                        std::printf("vase about %+gy: the bottom's inward offset ends %.3g from the axis at y %.9f (the exact offset crosses at %.9f)\n", turn,
+                                    nearest, height, apex[1]);
+                        CHECK(nearest < 1e-6 && std::fabs(height - apex[1]) < 1e-5);
+                    }
+                    delete o;
+                }
+            }
+            CHECK(bottoms == 1);
+
+            // The shell. The bottom's offset face was clipped to its offset surface's domain,
+            // trimmed at the axis, by a 2D boolean of planar faces made from the face's UV loops,
+            // taken from the inset's faceuse: clockwise, so the face was inside out, the
+            // intersection empty, and the bottom got no offset at all (1001, no closed cavity).
+            // The shell is the vase less the cavity inside the offset, up to the open top.
+            const double rim[3] = {0, top, 3};
+            smlib_brep *cup = nullptr;
+            CHECK(smlib_shell(vase, rim, 1, 0.05, -t, &cup, nullptr) == SMLIB_OK);
+            if (cup != nullptr)
+            {
+                double v = 0.0;
+                CHECK(smlib_brep_volume(cup, 1e-10, &v) == SMLIB_OK);
+                std::printf("vase about %+gy shelled 2 open at the top: %.9f, the profile's quadrature %.9f\n", turn, v, vase_volume - cavity_volume);
+                CHECK(near(v, vase_volume - cavity_volume, 1e-8));
+                done(cup);
+            }
+            smlib_brep_free(vase);
+        }
+    }
+
+    // SolidCraft's ladder part 09/011 (tests/data/part-chamfers-shell.txt, as smlib_shell was
+    // handed it): a block with a bezier-arched window 1 mm below a round, an M5 hole 0.35 mm from
+    // that round, a chamfer, holes and a slot, shelled 1.5 inward open at the bottom. The round's
+    // offset is tangent to the wall's offset along z = 32 and to the top's along y = 33, so the
+    // window's and the hole's offsets meet them tangentially where they cross: those contacts were
+    // found inside the curves instead of at their ends, and their sliver edges failed the merge.
+    // The result is checked point by point: an inward offset is sharp at every edge, so each face
+    // lies on the part's boundary or 1.5 or more from its faces but the open one, exactly 1.5
+    // except near the mitres of the part's concave edges; sampled at one interior point per face
+    // (where on a face that point falls decides whether it reads 1.5 or more).
+    {
+        smlib_flat *f = nullptr;
+        smlib_brep *part = nullptr;
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/part-chamfers-shell.txt", &f) == SMLIB_OK && smlib_brep_import(f, &part) == SMLIB_OK);
+        smlib_flat_free(f);
+        const double bottom[3] = {40.745625596812403, 30.55585248496563, 0};
+        CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.080157097709407002, -1.5, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            SmBrep *walls = nullptr;
+            CHECK(SmApiBrepCopy(part->p, walls) == SM_SUCCESS && walls != nullptr);
+            walls->m_bEditingEnabled = TRUE;
+            SmTArray<SmFace *> wf;
+            walls->GetFaces(wf);
+            for (ULONG i = 0; i < wf.GetSize(); i++)
+            {
+                SmExtent3d e;
+                CHECK(wf[i]->CalculateBoundingBox(e, TRUE) == SM_SUCCESS);
+                if (std::fabs(e.GetMin(2)) < 1e-9 && std::fabs(e.GetMax(2)) < 1e-9)
+                {
+                    CHECK(walls->DeleteFace(wf[i], TRUE, FALSE) == SM_SUCCESS);
+                }
+            }
+            SmTArray<SmFace *> faces;
+            r->p->GetFaces(faces);
+            int on_part = 0, at_wall = 0, past_wall = 0;
+            for (ULONG i = 0; i < faces.GetSize(); i++)
+            {
+                SmPoint3d p, q;
+                double d_part = -1.0, d_walls = -1.0;
+                CHECK(faces[i]->CalculateAnInternalPoint(p) == SM_SUCCESS);
+                CHECK(SmApiGetClosestPoint(part->p, p, q, d_part) == SM_SUCCESS);
+                CHECK(SmApiGetClosestPoint(walls, p, q, d_walls) == SM_SUCCESS);
+                if (d_part <= 1e-9)
+                {
+                    on_part++;
+                }
+                else
+                {
+                    CHECK(d_walls >= 1.5 - 1e-5);
+                    (std::fabs(d_walls - 1.5) <= 1e-5 ? at_wall : past_wall)++;
+                }
+            }
+            std::printf("part 09/011 shell: %d faces on the part, %d at the wall, %d past it (at a mitre)\n", on_part, at_wall, past_wall);
+            CHECK(on_part == 29 && at_wall + past_wall == 26 && at_wall > past_wall);
+            delete walls;
+            done(r);
+        }
+        // Shelled 1.0, the window's offset arch rises exactly to the wall's offset top edge,
+        // where the wall meets the round's offset (the window's top is 1 below the round): the
+        // arch touches that edge tangentially at (30, 31, 32) and the walls meet along a line,
+        // SMLIB_ERR_WALLS_TOUCH (it was SM_ERR_BAD_INTERSECTIONS).
+        CHECK(part != nullptr && smlib_shell(part, bottom, 1, 0.080157097709407002, -1.0, &r, nullptr) == SMLIB_ERR_WALLS_TOUCH && r == nullptr);
+        smlib_brep_free(part);
+    }
+
+    // tangency-labs/solidcore#865: shelled closed (no face open), the plates above whose hole's
+    // offset crosses a side failed (1001), as did part 09/011; its whole offset came back with
+    // no volume. Before the merge, SmOffsetExecutive::RemoveExcessFaces took every offset face
+    // with an edge nearer the body than the offset distance, but the offset faces are not
+    // trimmed yet then: the side's offset runs on to where the floor's offset meets it, past
+    // where the hole's offset cuts it, so it has such an edge and went, with the hole's and the
+    // floor's (part 09/011 lost its five faces round the window), and the merged offset closed
+    // nothing. The test is made on the merged offset now, whose faces lie wholly on the offset
+    // or wholly in the excess. A closed plate's cavity is the inset box less the hole's offset
+    // disc, over 10 - 2t; the part's whole offset is the part less its closed shell.
+    {
+        auto band = [](double rr, double a, double b)
+        {
+            auto F = [rr](double u)
+            {
+                u = std::max(-rr, std::min(rr, u));
+                return u * std::sqrt(rr * rr - u * u) + rr * rr * std::asin(u / rr);
+            };
+            return F(b) - F(a);
+        };
+        struct Plate
+        {
+            double x, y, d, t;
+        };
+        for (Plate p : {Plate{4.5, 20, 40, 1.5}, Plate{4.5, 20, 40, 1.0}, Plate{20, 4, 8, 1.5}, Plate{12, 20, 40, 1.5}})
+        {
+            const double o[3] = {0, 0, 0}, size[3] = {40, p.d, 10}, axis[3] = {p.x, p.y, -1};
+            smlib_brep *block = nullptr, *pin = nullptr, *plate = nullptr;
+            CHECK(smlib_make_box(o, size, &block) == SMLIB_OK && smlib_make_cylinder(axis, 2.0, 12.0, &pin) == SMLIB_OK);
+            CHECK(smlib_boolean(block, pin, SMLIB_BOOLEAN_SUBTRACT, &plate) == SMLIB_OK);
+            const double rr = 2.0 + p.t;
+            double inside = band(rr, std::max(p.t - p.y, -rr), std::min(p.d - p.t - p.y, rr));
+            if (p.x - rr < p.t)
+            {
+                inside -= band(rr, -rr, p.t - p.x);
+            }
+            const double cavity = ((40.0 - 2.0 * p.t) * (p.d - 2.0 * p.t) - inside) * (10.0 - 2.0 * p.t);
+            CHECK(plate != nullptr && smlib_shell(plate, nullptr, 0, 0.1, -p.t, &r, nullptr) == SMLIB_OK);
+            if (r != nullptr)
+            {
+                CHECK(near(volume_of(r), 40.0 * p.d * 10.0 - PI * 4.0 * 10.0 - cavity, 1e-7));
+                done(r);
+            }
+            for (smlib_brep *b : {block, pin, plate})
+            {
+                smlib_brep_free(b);
+            }
+        }
+
+        smlib_flat *f = nullptr;
+        smlib_brep *part = nullptr;
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/part-chamfers-shell.txt", &f) == SMLIB_OK && smlib_brep_import(f, &part) == SMLIB_OK);
+        smlib_flat_free(f);
+        CHECK(part != nullptr && smlib_shell(part, nullptr, 0, 0.080157097709407002, -1.5, &r, nullptr) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            double v_part = 0.0, v_shell = 0.0, v_offset = 0.0;
+            CHECK(smlib_brep_volume(part, 1e-10, &v_part) == SMLIB_OK && smlib_brep_volume(r, 1e-10, &v_shell) == SMLIB_OK);
+            SmBrep *w = nullptr, *o = nullptr;
+            CHECK(SmApiBrepCopy(part->p, w) == SM_SUCCESS && SmApiOffsetBrepFull(w, -1.5, TRUE, TRUE, o) == SM_SUCCESS);
+            CHECK(o != nullptr && o->IsManifoldSolid());
+            // (the offset leaves its input allocated beside its result, as smlib_thicken notes)
+            if (w != o)
+            {
+                delete w;
+            }
+            if (o != nullptr)
+            {
+                smlib_brep inset{o};
+                CHECK(smlib_brep_volume(&inset, 1e-10, &v_offset) == SMLIB_OK);
+                std::printf("part 09/011 shelled closed: %.9f; its offset %.9f, the part less the shell %.9f\n", v_shell, v_offset, v_part - v_shell);
+                CHECK(near(v_offset, v_part - v_shell, 1e-6));
+                delete o;
+            }
+            done(r);
+        }
+        smlib_brep_free(part);
+    }
+
+    // SolidCraft's cross-hole cut (tests/data/cross-pin.txt less cross-hole.txt, as SolidCraft
+    // handed them to smlib_boolean): a pin of radius 2 and height 6 about z, a hole of radius 1
+    // through it along y, both seamed at 0.6131 rad. Each intersection loop is a closed curve that
+    // touches the hole's seam line at its start, which is its end: moving that contact to the
+    // loop's other end passed a one-way measurement of the whole turn against the line's one
+    // point, and the cut failed (1001). The cavity is 24 pi less the integral of
+    // 4 sqrt(1 - x^2) sqrt(4 - x^2) over [-1, 1] (x = sin a: 4 cos^2 a sqrt(4 - sin^2 a), smooth,
+    // by Simpson's rule).
+    {
+        smlib_flat *fa = nullptr, *fb = nullptr;
+        smlib_brep *pin = nullptr, *hole = nullptr;
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/cross-pin.txt", &fa) == SMLIB_OK && smlib_brep_import(fa, &pin) == SMLIB_OK);
+        CHECK(smlib_flat_read(SMLIB_TEST_DATA "/cross-hole.txt", &fb) == SMLIB_OK && smlib_brep_import(fb, &hole) == SMLIB_OK);
+        smlib_flat_free(fa);
+        smlib_flat_free(fb);
+        const int n = 2000;
+        double lens = 0.0;
+        for (int i = 0; i <= n; i++)
+        {
+            const double a = -PI / 2 + PI * i / n, c = std::cos(a), s = std::sin(a);
+            lens += (i == 0 || i == n ? 1.0 : (i % 2 ? 4.0 : 2.0)) * 4.0 * c * c * std::sqrt(4.0 - s * s);
+        }
+        lens *= PI / n / 3.0;
+        CHECK(pin != nullptr && hole != nullptr && smlib_boolean(pin, hole, SMLIB_BOOLEAN_SUBTRACT, &r) == SMLIB_OK);
+        if (r != nullptr)
+        {
+            CHECK(near(volume_of(r), 24.0 * PI - lens, 1e-6));
+            done(r);
+        }
+        smlib_brep_free(pin);
+        smlib_brep_free(hole);
+    }
+
+    // Thicken: a sheet (the cube's top face alone, SMLib's own way of making one is not in the
+    // C API; a solid is refused).
+    CHECK(smlib_thicken(cube, 1.0, 0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_thicken(nullptr, 1.0, 0, &r) == SMLIB_ERR_ARG);
+    CHECK(smlib_thicken(cube, NAN, 0, &r) == SMLIB_ERR_ARG);
+
+    // Rig case shell/5326: an L-shaped sheet, two walls 30 and 20 long at a right angle and 20
+    // deep, thickened 2 into its inside corner and 2 out of it: an L-shaped prism, 8 faces. The
+    // thicken builds one side wall per edge of the sheet, and the two along each end of the L lie
+    // in one plane: they came back as two faces, split along the edge from the corner to its
+    // offset (10 faces). The walls now come out as one face where consecutive walls lie on one
+    // surface, each put on its plane first (a wall beside the corner is a trapezoid, a bilinear
+    // patch), so the volumes are exact: (30 + 20 -+ 2) * 2 * 20. The sheet's own splits stay: a
+    // flat sheet of two faces side by side (a profile of two lines on one line, extruded)
+    // thickened 1 keeps both faces and their offsets apart, its walls along the split edges one
+    // face each: 8 faces, 20 * 20 * 1.
+    {
+        const int64_t kinds[2] = {SMLIB_CURVE_LINE, SMLIB_CURVE_LINE};
+        const double ell[12] = {0, 0, 0, 30, 0, 0, 30, 0, 0, 30, 20, 0}, split[12] = {0, 0, 0, 10, 0, 0, 10, 0, 0, 20, 0, 0};
+        const double up[3] = {0, 0, 1};
+        for (const double *profile : {ell, split})
+        {
+            smlib_brep *sheet = nullptr;
+            CHECK(smlib_extrude(kinds, 2, profile, 12, up, 20.0, 0.0, 0, 0, &sheet, nullptr) == SMLIB_OK);
+            for (double t : {-2.0, 2.0})
+            {
+                if (profile == split)
+                {
+                    t /= 2.0;
+                }
+                CHECK(sheet != nullptr && smlib_thicken(sheet, t, 0, &r) == SMLIB_OK);
+                if (r == nullptr)
+                {
+                    continue;
+                }
+                int64_t counts[3] = {0, 0, 0};
+                double v = 0.0;
+                CHECK(smlib_brep_counts(r, counts) == SMLIB_OK && smlib_brep_volume(r, 1e-10, &v) == SMLIB_OK);
+                const double want = profile == ell ? (50.0 + (t < 0.0 ? -2.0 : 2.0)) * 2.0 * 20.0 : 400.0;
+                std::printf("%s sheet thickened %+g: %lld faces, volume %.9f\n", profile == ell ? "L" : "split", t, static_cast<long long>(counts[0]), v);
+                CHECK(counts[0] == 8 && near(v, want, 1e-12));
+                done(r);
+            }
+            smlib_brep_free(sheet);
+        }
+    }
+
+    // Two holes 6 apart cut one after the other through a disc: the second hole's wall meets the
+    // first's (trimmed to the disc) in two lines. Parallel cylinders are intersected by
+    // SmCone::IntersectWithCone, which once took the lines' span from the whole cylinders, so
+    // the lines started below the trimmed wall and were dropped (the boolean failed, 1001).
+    {
+        smlib_brep *disc = cylinder(0, 0, 0, 20, 10);
+        smlib_brep *first = cylinder(6, 0, -1, 5, 12);
+        smlib_brep *second = cylinder(3, 3 * std::sqrt(3.0), -1, 5, 12);
+        smlib_brep *one = nullptr;
+        smlib_brep *two = nullptr;
+        CHECK(smlib_boolean(disc, first, SMLIB_BOOLEAN_SUBTRACT, &one) == SMLIB_OK && sound(one));
+        CHECK(smlib_boolean(one, second, SMLIB_BOOLEAN_SUBTRACT, &two) == SMLIB_OK && sound(two));
+        // The union of two r5 discs 6 apart: twice a disc less their lens.
+        const double lens = 2.0 * 25.0 * std::acos(0.6) - 3.0 * 8.0;
+        CHECK(near(volume_of(two), (PI * 400.0 - (2.0 * PI * 25.0 - lens)) * 10.0, 1e-6));
+        for (smlib_brep *b : {disc, first, second, one, two})
+        {
+            smlib_brep_free(b);
+        }
+    }
+
+    for (smlib_brep *b : {cube, rod, holed, pin, round, cut, big, far, touching})
+    {
+        smlib_brep_free(b);
+    }
+
+    analytic_step_inversion();
+    shelled_dome_rim();
+    corner_setback();
+    corner_setback_open();
+    concave_corner_setback();
+    shelled_tapered_box_rounds();
+
+    if (failures != 0)
+    {
+        std::fprintf(stderr, "%d check(s) failed\n", failures);
+        return 1;
+    }
+    std::printf("ops_kernel: all checks passed\n");
+    return 0;
+}

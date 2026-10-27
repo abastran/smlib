@@ -31,7 +31,16 @@
 #define NULL 0
 #endif
 
-#define SmStatus    long
+// SolidCraft change: a status may not be dropped. Where the compiler can mark a type so (clang)
+// and the build asks for it (SM_STATUS_MUST_BE_USED, set by capi/CMakeLists.txt), a call whose
+// SmStatus result is ignored is a warning (-Wunused-value); a deliberate discard is written
+// (void) with its reason. Builds that don't ask, upstream's among them, compile SMLib as before.
+#if defined(__clang__) && defined(SM_STATUS_MUST_BE_USED)
+#define SM_MUST_USE_STATUS __attribute__((warn_unused_result))
+#else
+#define SM_MUST_USE_STATUS
+#endif
+typedef long SmStatus SM_MUST_USE_STATUS;
 
 #define ALIGN_SIZE(s) (((s) % 8) ? ((s)/8+1)*8 : (s))
 
@@ -39,7 +48,12 @@
 #include <stdlib.h>
 
 #if defined(_WIN32)
+// SM_STATIC: built into a static library, nothing exported (SolidCraft change).
+#if defined(SM_STATIC)
+#define SM_EXPORT
+#else
 #define SM_EXPORT   __declspec( dllexport )
+#endif
 #define SM_EXPORT_TEMPLATE
 
 typedef int SmBoolean;
@@ -1039,15 +1053,11 @@ enum SmCrvDirOnFaceType
   SM_CD_ON,               // SrfDir on a FaceBndry points Tangent to that Bndry
   SM_CD_OUT,              // SrfDir at a SrfPt points towards 'Out' FacePts as defined by the 'lefthand' rule for Face Loopuses
   SM_CD_LAMINA,           // SrfDir on a Lamina SrfBndry points out of the Surface
-  SM_CD_SEAM,             // SrfDir on a Seam SrfBndry points out of the Surface
+  SM_CD_SEAM,             // Direction leaves a seam side with a bounding edgeuse
   SM_CD_POLE,             // SrfDir on a Pole SrfBndry marked by a Vertex points out of the Surface
-  SM_CD_POLE_NO_VERTEX    // SrfDir on a Pole SrfBndry NOT marked by a Vertex points out of the Surface
-                            //   gwc note: The SM_CD_POLE_NO_VERTEX value may seem like mixing a topology concept with 
-                            //         geometry concepts.  But in this enum all these classifications are
-                            //         a mix of geometry and topology concepts.  The SM_CD_POLE_NO_VERTEX
-                            //         was created to simplify communications within the healer.  In the end
-                            //         SMLib may want to add SM_CD_LAMINA_NO_EDGE and SM_CD_SEAM_NO_EDGE if the
-                            //         the healer wants to start tracking that kind of information.
+  SM_CD_POLE_NO_VERTEX,   // SrfDir on a Pole SrfBndry NOT marked by a Vertex points out of the Surface
+  SM_CD_SEAM_NO_EDGEUSE   // Direction leaves a seam side without a bounding edgeuse;
+                         // a 3D edge may still exist on the opposite periodic side.
 } ;
 
 void DumpCrvDirOnFaceType(const TCHAR      * pOptLabel,       // in : optional Character string label, NULL to ignore

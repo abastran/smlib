@@ -181,6 +181,9 @@ public:
     SmSurface* &           rOffsetSurface           ///< [out]: Offset Surf Approx, may be more than 1 when offsets have self-intersections  <br>
   ) const;
 
+  // SolidCraft change: the offset's minor radius below dTol (SmSurface::OffsetCollapses)
+  virtual SmBoolean OffsetCollapses(double dSignedOffsetDistance, double dTol) const;
+
   virtual SmStatus ConvertUVFromSTEPToNURBS
   (
     const SmPoint2d & crSTEPUV,                     ///< [in ]: Target 2d Point in [degrees, height]        <br>

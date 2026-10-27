@@ -413,7 +413,13 @@ public:
                                                                               //             ... SM_CT_C1 = split face at C1 and C0 discontinuities  
                                                                               //             ... SM_CT_C2 = split face at C2, C1, and C0 discontinuities  
                                                                               //             ... and all other SmContinuityType values  
-                                  SmTArray<SmFace*> & rNewFaces) ;            // out: 1 or more new faces 
+                                  SmTArray<SmFace*> & rNewFaces) ;            // out: 1 or more new faces
+
+  // SolidCraft fork: create face(s) and shell from surface in infinite region after splitting surface at the given values.
+  SmStatus CreateFacesFromSurfaceAtKnots(SmSurface              * pSurface,          // in : Tgt Surface
+                                         const SmTArray<double> & crUKnotsAtSplit,   // in : U values to split at, ascending
+                                         const SmTArray<double> & crVKnotsAtSplit,   // in : V values to split at, ascending
+                                         SmTArray<SmFace*>      & rNewFaces) ;       // out: 1 or more new faces
 
   // convenience function - calls CreateFaceFromSurface() and
   SmStatus CreateEndCapsFromSurface(SmSurface *pSurface,  // in : Surface to be made into a face 
@@ -585,6 +591,15 @@ public:
   SmStatus DeleteEdge(SmEdge    * pEdgeToDelete,
                       SmSurface * pOptSurfaceToKeep=NULL) ;
 
+  // SolidCraft change: remove the inner loops of no area where solids touch along a curve inside a
+  // face (each edge used twice by the loop, each also bounding another face), then split the
+  // shells joined only through them. A volumetric boolean's last step.
+  SmStatus RemoveSlitLoopsWhereSolidsTouch() ;
+
+  // SolidCraft change: split each shell into its connected parts, a part of a solid's or a void's
+  // shell into a region of its own, a part of the infinite region's shell staying there.
+  SmStatus SplitDisconnectedShells() ;
+
   // remove face from topoogy graph and delete it and its geometry, leaving bounding edges and vertices behind
   SmStatus DeleteFace(SmFace                 * pFaceToDelete,                   // in : target face 
                       SmBoolean                bDeleteEdgesVertices = FALSE,    // in : TRUE = delete connected edges and vertices, 
@@ -736,8 +751,8 @@ public:
   SmRegion       * GetInfiniteRegion     () const  { return m_pInfiniteRegion; }
   void             GetRegions            (SmTArray<SmRegion*>    & rRegions,      ULONG *pOptAttributeId=NULL) const ;
   void             GetShells             (SmTArray<SmShell*>     & rShells,       ULONG *pOptAttributeId=NULL) const ;
-  void             GetBreps              (SmTArray<SmBrep*>      & rBreps                                    ) const ;
-  void             GetBrepFromRegion     (SmRegion* pRegion, SmBrep*& rBrep                                  ) const ;
+  SmStatus         GetBreps              (SmTArray<SmBrep*>      & rBreps                                    ) const ; // SolidCraft change: was void
+  SmStatus         GetBrepFromRegion     (SmRegion* pRegion, SmBrep*& rBrep                                  ) const ; // SolidCraft change: was void
   void             GetTopology           (SmTArray<SmTopology*>  & rTopology,     ULONG *pOptAttributeId=NULL) const ;
 
   void             GetFaces              (SmTArray<SmFace*>      & rFaces,        ULONG *pOptAttributeId=NULL) const ;
@@ -1467,7 +1482,7 @@ public:
   SmStatus TurnToNURBSAndSubdivide(ULONG  lDegree,         // in :  
                                    double dKnotSpacing) ;  // in :  
 
-  void     UnStitch(SmTArray<SmFace *> *pOptFaces = NULL) ;
+  SmStatus UnStitch(SmTArray<SmFace *> *pOptFaces = NULL) ; // SolidCraft change: was void
 
   SmStatus UpdateVertexEdgeIntervals(SmVertex *pVertex) ;
 
@@ -1637,7 +1652,7 @@ class SmLockBrepBox
  public:
   // constructor/destructor
   SmLockBrepBox(SmBrep *pBrep) { m_pBrep = pBrep;
-                                 m_pBrep->LockBoundingBox() ;
+                                 (void)m_pBrep->LockBoundingBox() ; // SolidCraft: a guard constructor cannot report; locking only caches the box
                                } ;
  ~SmLockBrepBox()              { m_pBrep->UnLockBoundingBox() ;
                                  m_pBrep = NULL;

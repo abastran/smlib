@@ -8097,6 +8097,65 @@ PT_EXPORT SmStatus my_test_curve_properties(void)
 
 
 /***********************************************************************
+PURPOSE --- AreCoPlanar when the curves' sample points all lie on one line,
+   so the plane is searched for curve by curve: each point the search has
+   found must be on the plane of a planar curve it meets.
+
+USAGE NOTES ---
+   A point at the origin, a line up the z axis from it, and a figure eight
+   in z=0 that is at the origin at its start, middle and end. The search has
+   the origin and a point up the line when it meets the eight; that second
+   point is off the eight's plane, so the curves are not coplanar.
+***********************************************************************/
+PT_EXPORT SmStatus my_test_curves_coplanar(void)
+{
+    SmContext sContext;
+    const double dTol = 1e-6;
+    const SmPoint3d sO(0, 0, 0);
+
+    // a segment far shorter than the tolerance, along the z axis: a point
+    SmBSplineCurve *pDot = my_create_line(sContext, sO, sO + SmVector3d(0, 0, 1e-9), 0, 0, 0);
+    SmObjDelete sClean1(pDot);
+    if (!pDot->IsDegenerate(dTol)) { SER(SM_ERR); }
+
+    SmBSplineCurve *pUp = my_create_line(sContext, sO, SmPoint3d(0, 0, 1), 0, 0, 0);
+    SmObjDelete sClean2(pUp);
+
+    // a polyline figure eight, its middle knot at its middle point
+    SmTArray<SmPoint3d> sPts;
+    sPts.Add(sO); sPts.Add(SmPoint3d(1, 1, 0)); sPts.Add(SmPoint3d(1, -1, 0)); sPts.Add(sO);
+    sPts.Add(SmPoint3d(-1, 1, 0)); sPts.Add(SmPoint3d(-1, -1, 0)); sPts.Add(sO);
+    SmTArray<ULONG> sMult;
+    SmTArray<double> sKnots;
+    for (ULONG ii = 0; ii < sPts.GetSize(); ii++)
+    {
+        sMult.Add((ii == 0 || ii + 1 == sPts.GetSize()) ? 2 : 1);
+        sKnots.Add((double)ii / (sPts.GetSize() - 1));
+    }
+    SmBSplineCurve *pEight = NULL;
+    SER(SmBSplineCurve::CreateCanonical(sContext, 3, 1, sPts, SM_CF_UNSPECIFIED, sMult, sKnots,
+                                        SM_KT_UNSPECIFIED, NULL, NULL, pEight));
+    SmObjDelete sClean3(pEight);
+
+    // the point and the eight alone are coplanar, in z=0
+    SmTArray<SmCurve*> sCurves;
+    sCurves.Add(pEight);
+    SmPoint3d sPlanePt;
+    SmVector3d sPlaneNorm;
+    if (!pDot->AreCoPlanar(sCurves, dTol, &sPlanePt, &sPlaneNorm)) { SER(SM_ERR); }
+    if (fabs(fabs(sPlaneNorm.z) - 1.0) > dTol) { SER(SM_ERR); }
+
+    // with the line up the z axis they are not
+    sCurves.RemoveAll();
+    sCurves.Add(pUp);
+    sCurves.Add(pEight);
+    if (pDot->AreCoPlanar(sCurves, dTol)) { SER(SM_ERR); }
+
+    return SM_SUCCESS;
+} // end my_test_curves_coplanar
+
+
+/***********************************************************************
 PURPOSE ---
 
 USAGE NOTES ---

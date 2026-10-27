@@ -29,12 +29,12 @@ SmPolyBrepData::SmPolyBrepData()
     m_lStartRegion(SM_UNDEF_ULONG),
     m_lNumRegions(SM_UNDEF_ULONG),
     m_vColor(0.0,0.0,0.0),
-    m_vPolyRegions (*(new (*GetContext()) SmTArray<SmPolyRegionData>  (*GetContext()))),
-    m_vPolyShells  (*(new (*GetContext()) SmTArray<SmPolyShellData>   (*GetContext()))),
-    m_vPolyFaces   (*(new (*GetContext()) SmTArray<SmPolyFaceData>    (*GetContext()))),
-    m_vPolyLoops   (*(new (*GetContext()) SmTArray<SmPolyLoopData>    (*GetContext()))),
-    m_vPolyEdges   (*(new (*GetContext()) SmTArray<SmPolyEdgeData>    (*GetContext()))),
-    m_vPolyVertices(*(new (*GetContext()) SmTArray<SmPolyVertexData>  (*GetContext()))),
+    m_vPolyRegions (*(new SmTObjArray<SmPolyRegionData>())),
+    m_vPolyShells  (*(new SmTObjArray<SmPolyShellData>())),
+    m_vPolyFaces   (*(new SmTObjArray<SmPolyFaceData>())),
+    m_vPolyLoops   (*(new SmTObjArray<SmPolyLoopData>())),
+    m_vPolyEdges   (*(new SmTObjArray<SmPolyEdgeData>())),
+    m_vPolyVertices(*(new SmTObjArray<SmPolyVertexData>())),
     m_vAuxData     (*(new (*GetContext()) SmTArray<SmPolyVertAuxData*>(*GetContext()))),
     m_vAttributes  (*(new (*GetContext()) SmTArray<ULONG>             (*GetContext())))
  { }

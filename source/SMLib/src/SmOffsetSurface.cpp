@@ -102,7 +102,7 @@ SmOffsetSurface::SmOffsetSurface
                                : NULL ;
    SE_MSG(cpContext != NULL ? SM_SUCCESS : SM_ERR, 
           _T("SmOffsetSurface copy constructor can't find a SmContext for new object construction")) ;
-   crSurfaceToCopy.m_pSurface->Copy(*cpContext, m_pSurface) ;
+   (void)crSurfaceToCopy.m_pSurface->Copy(*cpContext, m_pSurface) ; // SolidCraft: a constructor cannot report
 
    m_pSurface->SetOwner(this) ;
  } // end SmOffsetSurface::SmOffsetSurface copy constructor  
@@ -375,9 +375,9 @@ SmStatus SmOffsetSurface::CalculateBoundingBox
   // copy the PseudoBox base vectors
   if(pPseudoBox)
     {
-      pPseudoBox->SetBasis(sBasePseudoBox.GetBasis(0),
+      SER( pPseudoBox->SetBasis(sBasePseudoBox.GetBasis(0),
                            sBasePseudoBox.GetBasis(1),
-                           sBasePseudoBox.GetBasis(2)) ;
+                           sBasePseudoBox.GetBasis(2))  );
     } 
   
   // init the      
@@ -392,7 +392,7 @@ SmStatus SmOffsetSurface::CalculateBoundingBox
         { // offset the bounding boxes
 
           // get Polar Box offset vectors
-          sBasePolarBox.GetBoundaryVectors(lNumVectors, sVectors) ;
+          SER( sBasePolarBox.GetBoundaryVectors(lNumVectors, sVectors)  );
           sBasePseudoBox.CalcCorners(sPseudoCorners) ;
 
           // for every bounding box corner
@@ -451,6 +451,47 @@ SmStatus SmOffsetSurface::CalculateBoundingBox
 } // end SmOffsetSurface::CalculateBoundingBox
 
 /*******************************************************************//**
+PURPOSE: Extend a B-spline surface (G1R) so that its domain reaches a point.
+
+NOTES: SolidCraft change, a helper of sm_ExtendSurface: one NLib extension.
+***********************************************************************/
+static SmStatus sm_ExtendToward
+  (const SmContext        & crContext,       // in : context for new object
+   SmBSplineSurface       * pSurface,        // in : surface to extend
+   const SmPoint2d        & crUV,            // in : point its domain must reach
+   SmBSplineSurface      *& rpExtended)      // out: new extended surface
+{
+  rpExtended = NULL;
+
+  // set up for NLIb Call
+  NL_SURFACE    esur, *sur = pSurface->GetOrCreateGwNurbPointer();
+  NL_PARAMETER  u = crUV.x;
+  NL_PARAMETER  v = crUV.y;
+  NL_FLAG    gflg, cflg = NL_G1R;
+  NL_INDEX      ndr = 0 ;
+  NL_POINT   P, **D = NULL;
+  NL_STACKS     SG;
+
+  N_InitNurbs(&SG);
+  N_SrfInitArrays(&esur);
+
+  // Have NLib evaluate the surface position
+  // side effect: build extended surface in esur
+  NL_FLAG err = N_SrfEvalPtDerivsUnbounded(sur,u,v,ndr,cflg,&esur,&gflg,&P,D,&SG);
+  if (err)
+    {
+      N_EndNurbs(&SG);
+      return SM_ERR;
+    }
+
+  // copy extended surface into SMLib format
+  rpExtended = new (crContext) SmBSplineSurface((gw_SURFACE *)&esur) ;
+  N_EndNurbs(&SG);
+  return SM_SUCCESS;
+
+} // end sm_ExtendToward
+
+/*******************************************************************//**
 PURPOSE: Make sure given DomainPoint is contained in
             domain of given surface by 
    1. Wrapping UV coordinates in domain periodic directions and
@@ -459,10 +500,23 @@ PURPOSE: Make sure given DomainPoint is contained in
 NOTES: 
   When input Point is contained by wrapping coordinates in periodic directions 
     - no Extended surface is made and output surface is set to NULL.
+
+  SolidCraft change: the extension is always made from the base surface, and
+  how far it reaches depends only on how far beyond the base domain the point
+  lies, never on the order of earlier evaluations: each side that must grow is
+  extended by the base domain's size times the least power of two that reaches
+  the point (and no less than the current extension, pOptCurrent), every side
+  that can grow at once, by one size at least. An
+  extension's shape depends on its length, and one made to reach just past
+  the point that was evaluated first (and then extended again from itself)
+  gave two copies of one offset surface, evaluated in another order (the
+  fillet solver's, which found a corner's end points, and the trace's),
+  points 0.03 mm apart at the same parameters.
 ***********************************************************************/
 static SmStatus sm_ExtendSurface
   (const SmContext        & crContext,       // in : context for new object
-   SmBSplineSurface       * pSurface,        // in : BaseSurface to extend
+   SmBSplineSurface       * pSurface,        // in : BaseSurface to extend (never an extension of it)
+   const SmExtent2d       * pOptCurrent,     // in : domain of the current extension, NULL when there is none
    SmPoint2d              & rUV,             // i/o: DomainPoint to include in extended domain
                                              //      coordinates of periodic domains are
                                              //      wrapped to the principle period
@@ -493,7 +547,8 @@ static SmStatus sm_ExtendSurface
   if((lSingularities & SM_SS_VMAX) && (rUV.y > sIvlV.GetMax())) { rUV.y = sIvlV.GetMax() ; }
   
   // if PeriodicWrap or Singularity clamping inserted point into domain - all done
-  if (sDomain.ContainsPoint2d(rUV)) 
+  SmExtent2d sHave = (pOptCurrent != NULL) ? *pOptCurrent : sDomain;
+  if (sDomain.ContainsPoint2d(rUV) || sHave.ContainsPoint2d(rUV))
     { return SM_SUCCESS; }
 
   // arrive here when BaseSurface has to be extended to include target DomainPoint
@@ -502,58 +557,49 @@ static SmStatus sm_ExtendSurface
   if (!pSurface->IsKindOf(SmBSplineSurface_TYPE)) 
     { SER(SM_ERR); } 
   
-  // increase the size of legally requested extensions by a big amount 
-  // to prevent a series of evaluations from causing a series of small extensions.
-  SmPoint2d sUV = rUV;
-  if      (sUV.x < sDomain.GetMin().x) { sUV.x = sUV.x - sSize.x ; }
-  else if (sUV.x > sDomain.GetMax().x) { sUV.x = sUV.x + sSize.x ; }
-  if      (sUV.y < sDomain.GetMin().y) { sUV.y = sUV.y - sSize.y ; }
-  else if (sUV.y > sDomain.GetMax().y) { sUV.y = sUV.y + sSize.y ; }
-
-  // set up for NLIb Call
-  NL_SURFACE    esur, *sur = pSurface->GetOrCreateGwNurbPointer();
-  NL_PARAMETER  u = sUV.x; 
-  NL_PARAMETER  v = sUV.y;
-  NL_FLAG    gflg, cflg = NL_G1R;
-  NL_INDEX      ndr = 0 ;
-  NL_POINT   P, **D = NULL;
-  NL_STACKS     SG;
-
-  N_InitNurbs(&SG);
-  N_SrfInitArrays(&esur);
-
-  // Have NLib evaluate the surface position
-  // side effect: build extended surface in esur
-  NL_FLAG err = N_SrfEvalPtDerivsUnbounded(sur,u,v,ndr,cflg,&esur,&gflg,&P,D,&SG);           
-  if (err) 
-    { 
-      // see if a modest extension will generate an evaluation
-      u = rUV.x ;
-      v = rUV.y ;
-      err = N_SrfEvalPtDerivsUnbounded(sur,u,v,ndr,cflg,&esur,&gflg,&P,D,&SG);
-      if (err) 
-        {
-          SER(SM_ERR);
-        }
-    } // end err check
-
-  // copy extended surface into SMLib format
-  rpExtended = new (crContext) SmBSplineSurface((gw_SURFACE *)&esur) ; 
-
-#ifdef SM_DEBUG_CODE
-SmBoolean bDebugMe = FALSE;
-  if (bDebugMe) 
+  // How far each side reaches: the base domain's size times the least power of two that takes
+  // it past the point (once at least), and no less than it reaches now (which prevents a series
+  // of evaluations from causing a series of small extensions).
+  auto Reach = [](double dEnd, double dSize, double dTarget, double dDir) -> double
     {
-      smgfx_Erase();
-      smgfx_SetLook(1,2, 0,0,0) ; pSurface->DrawUV(5,5) ; sm_GraphicsLoop() ;
-      smgfx_SetLook(1,2, 0,0,1) ; rpExtended->DrawUV(4,4,FALSE,NULL,TRUE); sm_GraphicsLoop();
-      sm_GraphicsLoop();
-      if ( FALSE )
-        { pSurface->DrawInspectTwoSurfaces( rpExtended ); }
+      double dK = 1.0;
+      while (dK < 1.0e6 && (dEnd + dDir * dK * dSize - dTarget) * dDir < 0.0)
+        { dK *= 2.0; }
+      return dEnd + dDir * dK * dSize;
+    };
+  // Every side that can grow grows at once (an extension's shape on one side depends on the
+  // other sides' too), at least one size out.
+  SmPoint2d sLo = sHave.GetMin();
+  SmPoint2d sHi = sHave.GetMax();
+  if (!bIsPeriodicOnU && !(lSingularities & SM_SS_UMIN))
+    { sLo.x = smos_Min(sLo.x, Reach(sDomain.GetMin().x, sSize.x, rUV.x, -1.0)); }
+  if (!bIsPeriodicOnU && !(lSingularities & SM_SS_UMAX))
+    { sHi.x = smos_Max(sHi.x, Reach(sDomain.GetMax().x, sSize.x, rUV.x,  1.0)); }
+  if (!bIsPeriodicOnV && !(lSingularities & SM_SS_VMIN))
+    { sLo.y = smos_Min(sLo.y, Reach(sDomain.GetMin().y, sSize.y, rUV.y, -1.0)); }
+  if (!bIsPeriodicOnV && !(lSingularities & SM_SS_VMAX))
+    { sHi.y = smos_Max(sHi.y, Reach(sDomain.GetMax().y, sSize.y, rUV.y,  1.0)); }
+
+  // Extend the base toward the low corner, then the result toward the high corner (a side that
+  // does not grow keeps its middle coordinate).
+  SmPoint2d sMid   = sDomain.Evaluate(0.5, 0.5);
+  SmPoint2d sLowUV ( sLo.x < sDomain.GetMin().x ? sLo.x : sMid.x, sLo.y < sDomain.GetMin().y ? sLo.y : sMid.y );
+  SmPoint2d sHighUV( sHi.x > sDomain.GetMax().x ? sHi.x : sMid.x, sHi.y > sDomain.GetMax().y ? sHi.y : sMid.y );
+  SmBSplineSurface * pLow = NULL;
+  if (!sDomain.ContainsPoint2d(sLowUV))
+    { SER(sm_ExtendToward(crContext, pSurface, sLowUV, pLow)); }
+  SmObjDelete sDeleteLow(pLow);
+  SmBSplineSurface * pFrom = (pLow != NULL) ? pLow : pSurface;
+  if (!pFrom->GetNaturalUVDomain().ContainsPoint2d(sHighUV))
+    {
+      SER(sm_ExtendToward(crContext, pFrom, sHighUV, rpExtended));
     }
-#endif  // SM_DEBUG_CODE
-  
-  N_EndNurbs(&SG);
+  else
+    {
+      sDeleteLow.Clear();
+      rpExtended = pLow;
+    }
+  NER(rpExtended);
 
   // Do a little check to make sure we don't go too far outside of original surface.
   SmExtent2d sNewDomain = rpExtended->GetNaturalUVDomain();
@@ -666,6 +712,7 @@ SmStatus SmOffsetSurface::EvaluatePoint
     } // end nested offset surface check
 
   // when evalPoint is outside of BaseSurface domain - use ExtendedSurface if possible
+  const SmSurface * pBaseSurface = pSurface;  // what an extension extends
   SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
   if (   !sDomain.ContainsPoint2d(sUV) 
       && m_pExtendedSurface) 
@@ -691,11 +738,12 @@ SmStatus SmOffsetSurface::EvaluatePoint
       else // extensions are allowed
         {
           // extend original base surface so that it contains given sUV
-          SmBSplineSurface *pOriginal = SM_CAST_PTR(SmBSplineSurface,pSurface);
+          SmBSplineSurface *pOriginal = SM_CAST_PTR(SmBSplineSurface,SM_CONST_CAST(SmSurface*,pBaseSurface));
           NER(pOriginal);
           SmBSplineSurface *pExtended = NULL ;
+          SmExtent2d sCurrent = m_pExtendedSurface ? m_pExtendedSurface->GetNaturalUVDomain() : sDomain;
           SER(sm_ExtendSurface(*GetContext(),
-                                pOriginal,sUV,
+                                pOriginal, m_pExtendedSurface ? &sCurrent : NULL, sUV,
                                 m_bIsPeriodicOnU,
                                 m_bIsPeriodicOnV,
                                 m_lSingularities,
@@ -1018,6 +1066,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
   // other criteria, below.
 
   // When EvalPoint is outside of baseDomain - use ExtendedSurface if possible
+  const SmSurface * pBaseSurface = pSurface;  // what an extension extends
   SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
   if (   !sDomain.ContainsPoint2d(sUV) 
       && m_pExtendedSurface) 
@@ -1045,11 +1094,13 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
           // extend original BaseSurface nonPeriodic Directions 
           // and wrap sUV coordinates in BaseSurface Periodice Directions
           // to get a surface containing target sUV
-          SmBSplineSurface *pOriginal = SM_CAST_PTR(SmBSplineSurface,pSurface);
+          SmBSplineSurface *pOriginal = SM_CAST_PTR(SmBSplineSurface,SM_CONST_CAST(SmSurface*,pBaseSurface));
           NER(pOriginal);
           SmBSplineSurface *pExtended = NULL ;
+          SmExtent2d sCurrent = m_pExtendedSurface ? m_pExtendedSurface->GetNaturalUVDomain() : sDomain;
           SER(sm_ExtendSurface(*GetContext(), 
                                pOriginal, 
+                               m_pExtendedSurface ? &sCurrent : NULL,
                                sUV,
                                m_bIsPeriodicOnU, 
                                m_bIsPeriodicOnV, 
@@ -1198,7 +1249,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
               SER( v1.Unitize() );
               SER( v2.Unitize() );
               v0 = 2 * v1 - v2;
-              v0.Unitize();
+              (void)v0.Unitize(); // SolidCraft: a zero vector stays zero
               v0 *= dTol * 1.1;
           }
           aDerivatives[ idx ] = v0;
@@ -1216,7 +1267,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
               SER( v1.Unitize() );
               SER( v2.Unitize() );
               v0 = 2 * v1 - v2;
-              v0.Unitize();
+              (void)v0.Unitize(); // SolidCraft: a zero vector stays zero
               v0 *= dTol * 1.1;
           }
           aDerivatives[ idx ] = v0;
@@ -1356,14 +1407,14 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
               if ( BuLength < BvLength )
                 {
                   sDU = *Bv * N ;
-                  sDU.Unitize();
+                  (void)sDU.Unitize(); // SolidCraft: a zero vector stays zero
                   sDU *= dTol * 1.1; // Make it big enough: no other info on magnitude.
                   Bu = &sDU ;
                 }
               else
                 {
                   sDV = N * *Bu;
-                  sDV.Unitize();
+                  (void)sDV.Unitize(); // SolidCraft: a zero vector stays zero
                   sDV *= dTol * 1.1;
                   Bv = &sDV ;
                 } // end BvLength is shorter than BuLength branch
@@ -1605,7 +1656,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
           if ( eStat == SM_SUCCESS && sDU.LengthSquared() > dTolerance * dTolerance)
             {
               // Make it as short as possible, long enough not to get flagged.
-              sDU.Unitize();
+              (void)sDU.Unitize(); // SolidCraft: a zero vector stays zero
               aDerivatives[lHighestVDeriv+1] = sDU * dTolerance * 1.1;
             }
         }
@@ -1620,7 +1671,7 @@ SmStatus SmOffsetSurface::EvaluatePlainOrSimple
           if ( eStat == SM_SUCCESS && sDV.LengthSquared() > dTolerance * dTolerance)
             {
               // Make it as short as possible, long enough not to get flagged.
-              sDV.Unitize();
+              (void)sDV.Unitize(); // SolidCraft: a zero vector stays zero
               aDerivatives[1] = sDV * dTolerance * 1.1;
             }
         }
@@ -2362,7 +2413,8 @@ SmBoolean SmOffsetSurface::AssertValid
   SmBoolean sbUseSurfaceEdges[] = { FALSE, FALSE } ;
   SmTArray<SmCurve*> pOpt3DCurves(*m_cpContext), pOptSurface1UVCurves(*m_cpContext);
   SmTArray<SmTsectCurveType> pOptCurveTypes(*m_cpContext);
-  GlobalSurfaceIntersect(*m_cpContext, sUVDomain, *this, sUVDomain, sbUseSurfaceEdges, NULL, NULL, \
+  // SolidCraft: (void), a validity check: no curves found means none reported
+  (void)GlobalSurfaceIntersect(*m_cpContext, sUVDomain, *this, sUVDomain, sbUseSurfaceEdges, NULL, NULL, \
       &pOpt3DCurves, &pOptSurface1UVCurves, NULL, &pOptCurveTypes ,NULL ) ;
   // If the surface does not intersect, then pOptCurveTypes is an empty array
   bRtn &= SM_ASSERT_BOOLEAN_REPORT(2, SM_LEVEL_0, pOptCurveTypes.GetSize() < 1, _T("") ) ;

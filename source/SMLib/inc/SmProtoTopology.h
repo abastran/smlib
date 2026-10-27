@@ -172,6 +172,8 @@ class SM_EXPORT SmVertexDefinition : public SmTopology
                                                  
   SmVertex              * m_pFinalVtx1 ;         // Vertex in brep1 for this XSection after resolve and imprint
   SmVertex              * m_pFinalVtx2 ;         // Vertex in brep2 for this XSection after resolve and imprint
+  double                  m_dCrossingSine = -1.0 ; // SolidCraft: sine of the angle at which the intersection curve that placed
+                                                 // this XSection crosses its source Edge; -1 = not placed by such a crossing
 
 public:
   // Constructor, Destructor:
@@ -213,6 +215,10 @@ public:
                            
   void     SetPosition       (SmPoint3d      sPosition)           { m_sPosition = sPosition ; }
   void     SetProtoVertex    (SmProtoVertex *pPV)                 { m_pMyProtoVertex = pPV; }
+  SmStatus PlaceByCrossing   (const SmPointClassification & crPC1,
+                              const SmPointClassification & crPC2,
+                              double                        dCrossingSine,
+                              SmBoolean                   & rbMoved) ;
   SmStatus SetPointParameters() ;
   SmStatus SetSrcTopo        (int iWhichBrep, 
                               SmPointClassificationType eType, 
@@ -355,7 +361,7 @@ class SM_EXPORT SmEdgeDefinition : public SmTopology
   void SetXSectCurveUV ( int iWhichBrep, SmCurve *pCrv )                                             { ( iWhichBrep==1 ? m_pXSectUVCurve1 : m_pXSectUVCurve2 ) = pCrv ; }
   void SetProtoEdge    ( SmProtoEdge * pProtoEdge )                                                  { m_pProtoEdge = pProtoEdge; }
   void SetXSectInterval( const SmExtent1d & crXSectInterval )                                        { m_pXSectInterval = crXSectInterval ; }
-  void SetXSectInterval( double dMin, double dMax) ;                                                 // Allows reversal, if dMin > dMax
+  SmStatus SetXSectInterval( double dMin, double dMax) ;                                             // Allows reversal, if dMin > dMax (SolidCraft change: was void)
   void SetSrcTopo      ( int iWhichBrep, SmPointClassificationType /* eType */ , SmTopology *pTopo ) { (iWhichBrep==1 ? m_pSrcTopo1      : m_pSrcTopo2)      = pTopo ; 
                                                                                                        (iWhichBrep==1 ? m_pSrcTopo1_TYPE : m_pSrcTopo2_TYPE) = pTopo->GetType() ; 
                                                                                                      }
@@ -372,6 +378,12 @@ class SM_EXPORT SmEdgeDefinition : public SmTopology
 
   // Working methods:
   SmStatus Imprint() ;
+
+  // Continue the curves past one end to the point nearest a ProtoVertex beyond it (SolidCraft fork)
+  SmBoolean ExtendEndToProtoVertex( SmBoolean         bAtEnd,   // in : TRUE = the interval's end, FALSE = its start
+                                    const SmPoint3d & crPV,     // in : the ProtoVertex's position
+                                    const SmPoint3d & crEnd,    // in : the curve's point at that end
+                                    double            dGap) ;   // in : their distance
 
   // Split a SmEdgeDefinition at the given parameter after splitting the owning ProtoEdge
   SmStatus Split( double                dT,        // in : Split parameter on ProtoEdge to be used to split this EdgeDefinition
@@ -430,6 +442,7 @@ class SM_EXPORT SmProtoVertex : public SmTopology
   SmTArray<SmVertexDefinition *> m_sVertexDefinitions ;   // list of VertexDefinitions
   SmTArray<SmProtoEdge *>        m_sProtoEdges ;          // array of ProtoEdges connected to this ProtoVertex
   SmProtoTopologyManager       * m_pProtoTopoMgr;         // Back-pointer to owning object.
+  SmBoolean                      m_bAbsorbedProtoEdge = FALSE; // a degenerate ProtoEdge of ours was dropped: its Vertices stand for its curve
 
  public:
   // constructor with 1 VD
@@ -456,6 +469,9 @@ class SM_EXPORT SmProtoVertex : public SmTopology
   SmZoneTol3d                       GetTolerance              ()                                  const { return m_dTol ; }
   SmVertexDefinition              * GetClosestVertexDefinition(const SmPoint3d & crPosition)      const ;
   double                            GetCaptureDistance        ()                                  const ;
+  double                            GetContainmentRadius      ()                                  const ; // radius of ContainsPoint(): max(m_dTol, CaptureDistance)
+  SmBoolean                         AbsorbedProtoEdge         ()                                  const { return m_bAbsorbedProtoEdge ; }
+  void                              SetAbsorbedProtoEdge      ()                                        { m_bAbsorbedProtoEdge = TRUE ; }
   SmProtoTopologyManager          * GetProtoTopologyManager   ()                                  const { return m_pProtoTopoMgr ; }
   SmVertex                        * GetFinalVertex            (int iWhichBrep,                                        // in : 
                                                                const SmEdgeDefinition * pEdgeDef,         // in : 
@@ -499,10 +515,15 @@ class SM_EXPORT SmProtoVertex : public SmTopology
                                    SmBoolean           * pbWasCreated = NULL) ;    // out: optional flag: TRUE = rpNewVD was created, NULL to ignore, default:[NULL]
                                                                                    //                     FALSE= rpNewVD was found
 
+  // An intersection curve crossing an Edge at the XSection of rPC1 and rPC2 at angle asin(dCrossingSine)
+  SmStatus AddCrossing           ( SmPointClassification  & rPC1,                  // in : Brep1 PointClassification of the crossing
+                                   SmPointClassification  & rPC2,                  // in : Brep2 PointClassification of the crossing
+                                   double                   dCrossingSine) ;       // in : sine of the crossing angle
+
   void     AddProtoEdge          ( SmProtoEdge * pPE ) { m_sProtoEdges.Add( pPE) ; } // DD1: Even if already there.
   SmStatus RemoveVertexDefinition( SmVertexDefinition *pVD) ;
   SmStatus RemoveProtoEdge       ( SmProtoEdge *pPE) ;
-  void     CombineProtoVertex    ( SmProtoVertex *pOtherPV) ;
+  SmStatus CombineProtoVertex    ( SmProtoVertex *pOtherPV) ; // SolidCraft change: was void
   SmStatus Resolve               () ;
 
   // utilities
@@ -654,7 +675,7 @@ public:
 
   SmStatus AddEdgeDefinition   (SmEdgeDefinition * pEdgeDef) ;                                  // eff: Add EdgeDef to this ProtoEdge's EdgeDef list
   SmStatus AddEdgeDefinition   (const SmCurveInterval & crCI1, const SmCurveInterval & crCI2) ; // eff: Create EdgeDef and add to this ProtoEdge's EdgeDef list
-  void     CombineProtoEdge    (SmProtoEdge * pOtherPE) ;
+  SmStatus CombineProtoEdge    (SmProtoEdge * pOtherPE) ; // SolidCraft change: was void
   SmStatus RemoveEdgeDefinition(SmEdgeDefinition * pEdgeDef) ;
   SmStatus RemoveProtoVertex   (SmProtoVertex * pPV) ;
 

@@ -37,6 +37,10 @@
 #include <SmBrepData.h>
 #endif
 
+#ifndef __SMTOBJARRAY_H__
+#include <SmTObjArray.h>
+#endif
+
 // forward declarations
 
 class SmCopyPolyBrepMap ;
@@ -294,14 +298,16 @@ public:
   // ObjectToObject relationships are stored as 
   //    indices in the first object's data where the index 
   //    specifies the 2nd object in the lists below.          
-  SmTArray<SmPolyRegionData>   & m_vPolyRegions;   // flat list of all regions
-  SmTArray<SmPolyShellData>    & m_vPolyShells;    // flat list of all Shells
-  SmTArray<SmPolyFaceData>     & m_vPolyFaces;     // flat list of all Faces
-  SmTArray<SmPolyLoopData>     & m_vPolyLoops;     // flat list of all Loops
-  SmTArray<SmPolyEdgeData>     & m_vPolyEdges;     // flat list of all Edges
-  SmTArray<SmPolyVertexData>   & m_vPolyVertices;  // flat list of all Vertices
-  SmTArray<SmPolyVertAuxData*> & m_vAuxData;       // flat list of all Vertex AuxData
-  SmTArray<ULONG>              & m_vAttributes;    // flat list of all attribute indices
+  // The topology data lists are SmTObjArray, not SmTArray, since each element holds an
+  // SmTArray<ULONG> attribute index array that must be constructed, copied and destroyed with it.
+  SmTObjArray<SmPolyRegionData>  & m_vPolyRegions;   // flat list of all regions
+  SmTObjArray<SmPolyShellData>   & m_vPolyShells;    // flat list of all Shells
+  SmTObjArray<SmPolyFaceData>    & m_vPolyFaces;     // flat list of all Faces
+  SmTObjArray<SmPolyLoopData>    & m_vPolyLoops;     // flat list of all Loops
+  SmTObjArray<SmPolyEdgeData>    & m_vPolyEdges;     // flat list of all Edges
+  SmTObjArray<SmPolyVertexData>  & m_vPolyVertices;  // flat list of all Vertices
+  SmTArray<SmPolyVertAuxData*>   & m_vAuxData;       // flat list of all Vertex AuxData
+  SmTArray<ULONG>                & m_vAttributes;    // flat list of all attribute indices
 
   ULONG    m_lBrepIndex;                           // Index of brep in part's Data 
 

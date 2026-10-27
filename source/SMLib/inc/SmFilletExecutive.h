@@ -29,6 +29,8 @@
 #include <SmTrackTopologyChanges.h>
 #endif
 
+#include <vector>
+
 // GWC:BIND_TEMPLATE_MOVE   SM_TARRAY_TEMPLATE_PREDECLARATION(SmFilletErrorType) ;
 // due to UNIX problems...leave it here
 SM_TARRAY_TEMPLATE_PREDECLARATION(SmFilletErrorType) ;
@@ -224,6 +226,20 @@ protected:
   SmSelfIntersectionHandler * m_pSelfIntersectionHandler; // This object processes problems with self intersecting fillet surfaces.  
                                                           // default = returns an error.
 
+  SmTArray<SmSurface*>      m_vRadiusCornerSurfaces; // SolidCraft change: copies of the fillet surfaces that turn where their radius
+                                                     // has a corner, owned; their faces are split there after the merge
+
+  SmBoolean                 m_bCliffOverflow;       // SolidCraft change: TRUE = a convex blend's rail leaves its face across a cliff;
+                                                    //   the blend is built on its faces' continuations and the material it
+                                                    //   removes is subtracted from m_pTargetBrep (SubtractRemovalRegion)
+  struct SmFilletOpenEnd                            // SolidCraft change: an end of a fillet the Nx1 corner there left uncut,
+    {                                               //   its rails missing its side edges, in m_bCliffOverflow:
+      SmFilletSolver * m_pSolver;                   //   the solver of the filleted edge,
+      SmVertex       * m_pVertex;                   //   the edge's vertex at that end,
+      SmFace         * m_pEndFace;                  //   the face whose surface's continuation cuts the fillet off there
+    };
+  std::vector<SmFilletOpenEnd> m_vOpenEnds;         // SolidCraft change: the fillet's ends left uncut, in m_bCliffOverflow
+
   // gwc: Only one of m_bDoPiecewiseMerge, m_bDoTopologyInsertion, and m_bDoGlobalMerge should be TRUE in any SmFilletExecutive.
   //      They are 3 different ways to do the same thing; move m_pFilletBrep Topology and Geometry into m_pTargetBrep. 
 
@@ -238,6 +254,16 @@ protected:
                                                     //        to insert m_pFilletBrep into the original m_pTargetBrep.  
                                                     //        This catches large radius cases where original Brep pieces get cut away.
                                                     // FALSE= use faster local operations that might miss some large radius cases.
+
+  SmBoolean                 m_bBlendCurveAtThirds;  // TRUE = blend-curve sections place their inner control points a third
+                                                    //        and two thirds of the way from each contact to where the two
+                                                    //        contacts' tangent lines meet (SmBlendCurveCrossSectionFSG).
+                                                    // FALSE= the fairest equally spaced Hermite scaled by the thumbweight.
+
+  SmBoolean                 m_bMarkCornerPatches;   // SolidCraft change: TRUE = each face of a set-back corner's patch carries an
+                                                    //        SM_AI_FILLET_CORNER_FACE SmTagAttribute whose primary ID is the corner's
+                                                    //        index in m_vFilletCorners (set before the merge, so it travels with the
+                                                    //        copy the merge gives the target Brep). FALSE= no marks.
 
   SmBoolean                 m_bDoTrimming;          // TRUE = Remove original m_pTargetBrep pieces trimmed away by the filleting operation.
                                                     // FALSE= no trimming; Only imprint FilletGeometry onto original m_pTargetBrep
@@ -304,7 +330,9 @@ public:
     double                                     dXSectTol,         ///< [in] : default (if <= 0): 0.05                              <br>
     ULONG                                      lContinuity=1,     ///< [in] : 1, 2, or 3 for G1, G2, or G3                         <br>
                                                                   ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE      <br>
-    double                                     dThumbweight=1.0   ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE      <br>
+    double                                     dThumbweight=1.0,  ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE      <br>
+    SmTArray< double >                       * pOptSecondRadii=NULL ///< [in] : SM_FS_CONST_RADIUS only: per edge, the offset of   <br>
+                                                                  ///<        the second edgeuse's surface (unequal chamfers)     <br>
   );  
 
   // Same parameters on each edge, taking edge numbers instead of pointers.
@@ -343,6 +371,11 @@ public:
     double                                     dThumbweight=1.0   ///< [in] : Used only when eXSectType == SM_FSG_BLEND_CURVE       <br>
   ); 
 
+private:
+  // SM_ERR_INVALID_INPUT unless every edge is a live edge of pBrep.
+  SmStatus CheckEdgesAreInBrep( SmBrep * pBrep, const SmTArray< SmEdge* > & rEdgePtrs );
+
+public:
   // User level, for edge filleting: Creates a FilletCorner in m_vFilletCorners for every m_vFilletedVertices vertex and 
   //                                adds [vertex,SmFilletCorner] entry pair to m_vVertexCornerMap and then 
   //                                calls DoFilleting() after SetFilletParameters() call.
@@ -388,6 +421,17 @@ public:
   SmStatus DoSurfaceFilleting        (SmFilletErrorInfo * pOptFilletErrorInfo = NULL); // note: increments unlocked mark value
   SmStatus DoPiecewiseMerge          ();                                               // note: increments unlocked mark value
   SmStatus LoadFilletSolver          (SmFilletSolver * pFS);
+  SmStatus FacesOutlastTheirBlends(SmBoolean & rbOutlast); // SolidCraft change: whether every face the blends roll on keeps some of itself, or is closed by blends tangent to it
+  // SolidCraft change: the cliff overflow (SmFilletCliffOverflow.cpp)
+  SmBoolean GetCliffOverflow() const { return m_bCliffOverflow; }
+  SmStatus  NoteOpenEnd(SmFilletSolver * pSolver, SmVertex * pVertex, SmFace * pEndFace); // an end the Nx1 corner left uncut
+  SmStatus  SubtractRemovalRegion();          // close m_pFilletBrep into the region the blends remove, subtract it from m_pTargetBrep
+private:
+  SmStatus  CutFilletAtOpenEnd(const SmFilletOpenEnd & crEnd); // cut the fillet off by the end face's surface continued
+  SmStatus  CloseRemovalRegion();             // add the faces on the target's surfaces that close m_pFilletBrep
+public:
+  SmStatus NoteRadiusCornerSurfaces();        // SolidCraft change: copy fillet surfaces that turn where the radius has a corner
+  SmStatus SplitFilletFacesAtRadiusCorners(); // SolidCraft change: split those fillet faces where the radius turns
   SmStatus RemoveTopoEdges           ();
   void     RemoveFromTopoEdges( SmFilletEdge * pTopoEdge )
   {
@@ -410,6 +454,7 @@ public:
 
   SmBoolean                   GetDoClassification()   { return m_bDoClassification; }
   SmBoolean                   GetDoGlobalMerge()      { return m_bDoGlobalMerge; }
+  SmBoolean                   GetBlendCurveAtThirds() { return m_bBlendCurveAtThirds; }
 
   SmTArray<SmFilletCorner*> & GetFilletCorners()      { return m_vFilletCorners; }
   SmTArray<SmFilletSolver*> & GetFilletSolvers()      { return m_vFilletSolvers; }
@@ -436,11 +481,20 @@ public:
   void     SetDoPiecewiseMerge       (SmBoolean bDoPiecewiseMerge) { m_bDoPiecewiseMerge    = bDoPiecewiseMerge; }
   void     SetDoTopologyInsertion    (SmBoolean bDoInsert)         { m_bDoTopologyInsertion = bDoInsert; }
   void     SetDoGlobalMerge          (SmBoolean bDoGlobalMerge)    { m_bDoGlobalMerge       = bDoGlobalMerge; }
+  // Before SetFilletParameters, which creates the section generators with it.
+  void     SetBlendCurveAtThirds     (SmBoolean bAtThirds)         { m_bBlendCurveAtThirds  = bAtThirds; }
+  // SolidCraft change: before DoFilleting; the caller removes the marks (SM_AI_FILLET_CORNER_FACE) once read.
+  void     SetMarkCornerPatches      (SmBoolean bMark)             { m_bMarkCornerPatches   = bMark; }
   void     SetDoTrimming             (SmBoolean bDoTrim)           { m_bDoTrimming          = bDoTrim; }
   SmStatus SetBevelCorner            (SmVertex * pCornerVert);
   SmStatus SetFilletBrepEdgeMap      ();
   void     SetSelfIntersectionHandler(SmSelfIntersectionHandler *pSelfIntersectionHandler)
               { m_pSelfIntersectionHandler = pSelfIntersectionHandler; }
+
+  // FALSE for a radius or chamfer width below 8x the Brep tolerance (below that, some fillets
+  // come out non-manifold, crash or hang), and for NaN.
+  static SmBoolean IsRadiusSupported(double dRadius, double dBrepTol)
+              { return dRadius >= 8.0 * dBrepTol * (1.0 - SM_EFF_ZERO_SQRT); }
 
   // Other processing
   SmStatus ProcessSmoothEdgeSequences();
@@ -646,13 +700,13 @@ public:
       m_pFS       ( pFS ),
       m_lRailIdx  ( lRailIndex )
   {
-    this->SetUp();
+    (void)this->SetUp(); // SolidCraft: a scope guard (constructor/destructor) cannot report
   }
 
   // Destructor:
   ~SmTemporaryRadiusChange()
   {
-      this->Revert();
+      (void)this->Revert(); // SolidCraft: a scope guard (constructor/destructor) cannot report
   }
 };  // end class SmTemporaryRadiusChange
 
@@ -727,6 +781,18 @@ public:
   void SetExtendedEdgeCurve(SmBSplineCurve * pExtended) { m_pExtended = pExtended; }
 
   virtual SmBoolean IsLinearLaw() const                 { return FALSE; }
+
+  // The parameters inside the fillet edge's interval where the radius has a corner: where its
+  // slope jumps, so the fillet's center curve and rails turn there. None by default.
+  virtual SmStatus GetCornerParameters
+  (
+    const SmExtent1d &,  ///< [in] : crCurveInterval = interval defining range of fillet edge                                <br>
+    SmBoolean,           ///< [in] : bReverseOrientation: TRUE = parameters run from interval end to interval start           <br>
+    SmTArray<double> &   ///< [out]: rParams = corner parameters in the interval, ascending (appended)                        <br>
+  ) const
+  {
+      return SM_SUCCESS;
+  }
 
   // Use the following method to apply a single radius function along a sequence of
   // smoothly-meeting edges.  See Notes in the method's header file.
@@ -886,6 +952,13 @@ public:
     if(m_pLawCurve->GetDegree() == 1) { return TRUE; }
     return FALSE;
   }
+
+  virtual SmStatus GetCornerParameters
+  (
+    const SmExtent1d & crCurveInterval,      ///< [in] : interval defining range of fillet edge                             <br>
+    SmBoolean bReverseOrientation,           ///< [in] : TRUE = parameters run from interval end to interval start          <br>
+    SmTArray<double> & rParams               ///< [out]: corner parameters in the interval, ascending (appended)            <br>
+  ) const;
 
   SmBSplineCurve * GetLawCurve()                { return m_pLawCurve; }
   SmBSplineCurve * GetExtendedCurve()           { return m_pExtendedLaw; }

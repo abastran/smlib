@@ -83,14 +83,15 @@ SmBSplineSurface::SmBSplineSurface
 
   // copy knot values from target surface to new surface.
   // okay to use smos_MemCpy on base (double) objects.
-  SE(smos_MemCpy(pNewSur->knu->U, U, sizeof(gw_REAL) * ((size_t)r + (size_t)1), sizeof(gw_REAL) * ((size_t)r + (size_t)1)));
-  SE(smos_MemCpy(pNewSur->knv->U, V, sizeof(gw_REAL) * ((size_t)s + (size_t)1), sizeof(gw_REAL) * ((size_t)r + (size_t)1)));
+  // SolidCraft: each copy fills a block allocated to its size, so it cannot fail (V's was given U's size)
+  (void)smos_MemCpy(pNewSur->knu->U, U, sizeof(gw_REAL) * ((size_t)r + (size_t)1), sizeof(gw_REAL) * ((size_t)r + (size_t)1));
+  (void)smos_MemCpy(pNewSur->knv->U, V, sizeof(gw_REAL) * ((size_t)s + (size_t)1), sizeof(gw_REAL) * ((size_t)s + (size_t)1));
 
   // copy control point values from target surface to new surface one row at a time
   for (ULONG i=0; i<=n; i++) 
     {
       // okay to use smos_MemCpy on static class (gw_CPOINT) objects.
-      SE(smos_MemCpy(pNewSur->net->Pw[i], Pw[i],  sizeof(gw_CPOINT) * ((size_t)m + (size_t)1),sizeof(gw_CPOINT) * ((size_t)m + (size_t)1) ));
+      (void)smos_MemCpy(pNewSur->net->Pw[i], Pw[i],  sizeof(gw_CPOINT) * ((size_t)m + (size_t)1),sizeof(gw_CPOINT) * ((size_t)m + (size_t)1) ); // SolidCraft: a row of its own size, it cannot fail
     }
 
   m_pNurb = pNewSur;
@@ -534,9 +535,9 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
       if (sV1LS > SM_EFF_ZERO_SQ)
         {
           SmVector3d sBasis1, sBasis2, sBasis3;
-          sV1.MakeUnitOrthoVectors(&sV2,sBasis1,sBasis2,sBasis3);
+          SER( sV1.MakeUnitOrthoVectors(&sV2,sBasis1,sBasis2,sBasis3) );
           *pPseudoBox = SmPseudoBox(); // Initialize it
-          pPseudoBox->SetBasis(sBasis1,sBasis2,sBasis3);
+          SER( pPseudoBox->SetBasis(sBasis1,sBasis2,sBasis3) );
         }
       else
         {
@@ -548,9 +549,9 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
         {
           // init trial PseudoBox basis vectors
           sTrialPseudoBox.Init() ; // init intervals - leave basis vectors alone
-          sTrialPseudoBox.SetBasis(pOptPseudoBasisGuess->GetBasis(0),
+          SER( sTrialPseudoBox.SetBasis(pOptPseudoBasisGuess->GetBasis(0),
                                    pOptPseudoBasisGuess->GetBasis(1),
-                                   pOptPseudoBasisGuess->GetBasis(2)) ;
+                                   pOptPseudoBasisGuess->GetBasis(2))  );
         }
     } // end need to compute PseudoBox check
 
@@ -566,10 +567,10 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
       // for planes
       if(bPlanar)
         {
-          pPolarBox->AddVector3d(sNorm[9]);
+          SER( pPolarBox->AddVector3d(sNorm[9]) );
           if(pOptPolarBasisGuess)
             {
-              sTrialPolarBox.AddVector3d(sNorm[9]);
+              SER( sTrialPolarBox.AddVector3d(sNorm[9]) );
             }
         }
       else // not a plane
@@ -606,7 +607,7 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
               pPolarBox->ReSet() ;
               for(ULONG ii=0;ii<lVCnt;ii++)
                 {
-                  pPolarBox->AddVector3d(sNorm[ii]);
+                  SER( pPolarBox->AddVector3d(sNorm[ii]) );
                 }
 
               if(pOptPolarBasisGuess)
@@ -618,7 +619,7 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
                   sTrialPolarBox.ReSet() ;
                   for(ULONG ii=0;ii<lVCnt;ii++)
                     {
-                      sTrialPolarBox.AddVector3d(sNorm[ii], pGuessBasis);
+                      SER( sTrialPolarBox.AddVector3d(sNorm[ii], pGuessBasis) );
                     }
                 }
 
@@ -634,13 +635,13 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
       SmPoint3d sPnt;
 
       SER(EvaluateNormal(crUVDomain.Evaluate(0.5,0.5),TRUE,TRUE,sNorm[0]));
-      pPolarBox->AddVector3d(sNorm[0]);
+      SER( pPolarBox->AddVector3d(sNorm[0]) );
 
       SER(EvaluateNormal(crUVDomain.Evaluate(1.0,0.5),TRUE,TRUE,sNorm[1]));
-      pPolarBox->AddVector3d(sNorm[1]);
+      SER( pPolarBox->AddVector3d(sNorm[1]) );
 
       SER(EvaluateNormal(crUVDomain.Evaluate(0.5,1.0),TRUE,TRUE,sNorm[2]));
-      pPolarBox->AddVector3d(sNorm[2]);
+      SER( pPolarBox->AddVector3d(sNorm[2]) );
 
       if(pOptPolarBasisGuess)
         {
@@ -649,9 +650,9 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
                         ? pOptPolarBasisGuess->GetBasis(2)
                         : pOptPolarBasisGuess->GetBasis(1) ;
           sTrialPolarBox.ReSet() ;
-          sTrialPolarBox.AddVector3d(sNorm[0], pGuessBasis);
-          sTrialPolarBox.AddVector3d(sNorm[1], pGuessBasis);
-          sTrialPolarBox.AddVector3d(sNorm[2], pGuessBasis);
+          SER( sTrialPolarBox.AddVector3d(sNorm[0], pGuessBasis) );
+          SER( sTrialPolarBox.AddVector3d(sNorm[1], pGuessBasis) );
+          SER( sTrialPolarBox.AddVector3d(sNorm[2], pGuessBasis) );
         }
     }
 
@@ -699,26 +700,26 @@ SmStatus SmBSplineSurface::CalculateBoundingBox
                                     sDU0 = sPoint - sULast ;
                                     if(j > 1)
                                       { sCross = sDU0 * sDV0 ;
-                                        pPolarBox->AddVector3d(sCross) ;
-                                        if(pOptPolarBasisGuess) { sTrialPolarBox.AddVector3d(sCross, pGuessBasis); }
+                                        SER( pPolarBox->AddVector3d(sCross)  );
+                                        if(pOptPolarBasisGuess) { SER( sTrialPolarBox.AddVector3d(sCross, pGuessBasis) ); }
                                       }
                                      if(j < pNET->m)
                                        { sCross = sDU0 * sDV1 ;
-                                         pPolarBox->AddVector3d(sCross) ;
-                                         if(pOptPolarBasisGuess) { sTrialPolarBox.AddVector3d(sCross, pGuessBasis); }
+                                         SER( pPolarBox->AddVector3d(sCross)  );
+                                         if(pOptPolarBasisGuess) { SER( sTrialPolarBox.AddVector3d(sCross, pGuessBasis) ); }
                                        }
                                   }
                   if(i < pNET->n) { TO_EUCLID(pNET->Pw[i+1][j],sUNext);
                                     sDU1 = sUNext - sPoint ;
                                     if(j > 1)
                                       { sCross = sDU1 * sDV0 ;
-                                        pPolarBox->AddVector3d(sCross) ;
-                                        if(pOptPolarBasisGuess) { sTrialPolarBox.AddVector3d(sCross, pGuessBasis); }
+                                        SER( pPolarBox->AddVector3d(sCross)  );
+                                        if(pOptPolarBasisGuess) { SER( sTrialPolarBox.AddVector3d(sCross, pGuessBasis) ); }
                                       }
                                      if(j < pNET->m)
                                        { sCross = sDU1 * sDV1 ;
-                                         pPolarBox->AddVector3d(sCross) ;
-                                         if(pOptPolarBasisGuess) { sTrialPolarBox.AddVector3d(sCross, pGuessBasis); }
+                                         SER( pPolarBox->AddVector3d(sCross)  );
+                                         if(pOptPolarBasisGuess) { SER( sTrialPolarBox.AddVector3d(sCross, pGuessBasis) ); }
                                        }
                                   }
 
@@ -907,6 +908,41 @@ SmStatus SmBSplineSurface::CopyAnalyticAsNurb
 } // end SmBSplineSurface::CopyAnalyticAsNurb
 
 /*******************************************************************//**
+PURPOSE: Static helper for CopyAndAddAnalytics: whether two surfaces give the same points at the
+  same UV parameters over crA's natural domain (a 7 x 7 grid, edges included), to within
+  SM_ZONE_TOL_3D or a billionth of the surface's size.
+***********************************************************************/
+static SmBoolean sm_SameParameterization( const SmSurface * crA, const SmSurface * crB )
+{
+  const SmExtent2d sDomain = crA->GetNaturalUVDomain() ;
+  const ULONG      lSteps  = 6 ;
+  SmTArray<SmPoint3d> sPointsA, sPointsB ;
+  SmExtent3d sBox ;
+  for (ULONG ii = 0; ii <= lSteps; ii++)
+    {
+      for (ULONG jj = 0; jj <= lSteps; jj++)
+        {
+          SmPoint2d sUV = sDomain.Evaluate( (double)ii / lSteps, (double)jj / lSteps ) ;
+          SmPoint3d sA, sB ;
+          if (   crA->EvaluatePoint( sUV, sA ) != SM_SUCCESS
+              || crB->EvaluatePoint( sUV, sB ) != SM_SUCCESS )
+            { return FALSE ; }
+          sPointsA.Add( sA ) ;
+          sPointsB.Add( sB ) ;
+          sBox.AddPoint3d( sA ) ;
+        }
+    }
+  const double dTol = smos_Max( SM_ZONE_TOL_3D, 1.0e-9 * sBox.GetSize().Length() ) ;
+  for (ULONG kk = 0; kk < sPointsA.GetSize(); kk++)
+    {
+      if ( !(sPointsA[kk].DistanceBetween( sPointsB[kk] ) <= dTol) )
+        { return FALSE ; }
+    }
+  return TRUE ;
+
+} // end sm_SameParameterization
+
+/*******************************************************************//**
 PURPOSE: Copy a BSpline surface. When it is geometrically possible, copy 
   the BSplineSurface as an analytic else as an exact copy of its current type.
 
@@ -978,6 +1014,24 @@ SmBoolean bDebugMe = FALSE;
   // arrive here - make sure it's a copy
   else 
     { 
+      rpNewSurface = new (crContext) SmBSplineSurface(*this);
+    }
+
+  // The copy goes to a face that keeps this surface's UV domain and trim curves, so an analytic
+  // copy must carry this surface's parameterization, not just its shape. The analytic types
+  // build their NURBS form in their own parameterization (a circle as SMLib's two-span arcs,
+  // for instance) and only match the domain; a NURBS surface parameterized otherwise (a rational
+  // half cylinder in four spans) would leave every trim curve on the copy pointing elsewhere.
+  // Where the two differ, the copy is an exact one instead.
+  SmBSplineSurface *pNewBSS = SM_CAST_PTR( SmBSplineSurface, rpNewSurface ) ;
+  if (   pNewBSS != NULL
+      && pNewBSS->GetType() != SmBSplineSurface_TYPE
+      && GetType() == SmBSplineSurface_TYPE
+      && (   GetGwNurbPointer() == NULL
+          || pNewBSS->GetOrCreateGwNurbPointer() == NULL   // the analytic's NURBS form is made lazily
+          || !sm_SameParameterization(this, pNewBSS) ) )
+    {
+      delete rpNewSurface;
       rpNewSurface = new (crContext) SmBSplineSurface(*this);
     }
 
@@ -1330,7 +1384,7 @@ SmStatus SmBSplineSurface::CreateCylinderThroughBox
     double dHeight = dSphRadius * 2.0; 
 
     SmAxis2Placement sNewRef;
-    sNewRef.SetCanonical(sNewOrigin,crReferenceFrame.GetXAxisRef(),crReferenceFrame.GetYAxisRef());
+    SER( sNewRef.SetCanonical(sNewOrigin,crReferenceFrame.GetXAxisRef(),crReferenceFrame.GetYAxisRef()) );
 
     SER(sm_CreateConePatch(crContext,sNewRef,dRadius,dRadius,
         dStartAngle,dEndAngle,dHeight,eParameterization,SM_SP_U,rpNewBSplineSurface));
@@ -1399,7 +1453,7 @@ SmStatus SmBSplineSurface::CreateConeThroughBox
     SmPoint3d sNewOrigin = sActualOrigin + dMinT * sLineVec;
 
     SmAxis2Placement sNewRef;
-    sNewRef.SetCanonical(sNewOrigin,crReferenceFrame.GetXAxisRef(),crReferenceFrame.GetYAxisRef());
+    SER( sNewRef.SetCanonical(sNewOrigin,crReferenceFrame.GetXAxisRef(),crReferenceFrame.GetYAxisRef()) );
 
     SER(sm_CreateConePatch(crContext,sNewRef,dRadiusStart,dRadiusEnd,
         dStartAngleDeg,dEndAngleDeg,dHeight,eParameterization,SM_SP_U,rpNewBSplineSurface));
@@ -1522,7 +1576,7 @@ SmBoolean bDebugMe = FALSE;
       sIso.SetContext(NULL);
 
       // build OptUVIsoCurve
-      sIso.CreateUVIsoLine(*pOptUVIsoCurve, &crContext) ; 
+      SER( sIso.CreateUVIsoLine(*pOptUVIsoCurve, &crContext)  ); 
     } 
 
   // locals
@@ -1567,7 +1621,20 @@ SmBoolean bDebugMe = FALSE;
       SmExtent1d sTrimIvl =   eSurfParam == SM_SP_U
                             ? sUVDomain.GetVInterval()
                             : sUVDomain.GetUInterval() ;
-      rpNewIsoCurve->Trim(sTrimIvl) ;  // may snap sIvl by tol to existing knots
+      // A domain of no length along the curve (a sliver cell at a double knot) leaves of the iso
+      // curve only a point, which is what it is over that interval: a degenerate curve there, as
+      // SmSurfaceCache::GetIsoBoundaryCurves expects of degenerate domains. (SolidCraft change:
+      // Trim refuses an interval this short, SM_ERR_INVALID_INPUT; the curve was then dropped,
+      // and SmSphere's override, given none, dereferenced it.)
+      if (sTrimIvl.GetMax() - sTrimIvl.GetMin() < SM_EFF_ZERO)
+        {
+          SmPoint3d sPoint ;
+          SER_DELETE( rpNewIsoCurve->EvaluatePoint(sTrimIvl.GetMin(), sPoint), rpNewIsoCurve );
+          delete rpNewIsoCurve ; rpNewIsoCurve = NULL ;
+          SER( SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sPoint, rpNewIsoCurve) );
+        }
+      else
+        { SER_DELETE( rpNewIsoCurve->Trim(sTrimIvl), rpNewIsoCurve ); }  // may snap sIvl by tol to existing knots
     }
   
   // all done
@@ -1714,8 +1781,8 @@ SmStatus SmBSplineSurface::CreateOffsetWithPolygon
         }
 
       // elevate surface degrees to 3
-      if (lUDeg < 3) { pOff->DegreeElevate(SM_SP_U,3); }
-      if (lVDeg < 3) { pOff->DegreeElevate(SM_SP_V,3); }
+      if (lUDeg < 3) { SER( pOff->DegreeElevate(SM_SP_U,3) ); }
+      if (lVDeg < 3) { SER( pOff->DegreeElevate(SM_SP_V,3) ); }
 
       // Subdivide each span i times
       // make each knot fully multiple so the
@@ -1725,8 +1792,8 @@ SmStatus SmBSplineSurface::CreateOffsetWithPolygon
           // surface locals
           lUDeg = pOff->GetDegree(SM_SP_U);
           lVDeg = pOff->GetDegree(SM_SP_V);
-          pOff->GetKnots(SM_SP_U,sUKnots,&sUMult);
-          pOff->GetKnots(SM_SP_V,sVKnots,&sVMult);
+          SER( pOff->GetKnots(SM_SP_U,sUKnots,&sUMult) );
+          SER( pOff->GetKnots(SM_SP_V,sVKnots,&sVMult) );
           SmTArray<double> sMoreUKnots, sMoreVKnots;
 
           // figure out where to add more knots for subdivision and to make each knot full
@@ -1794,8 +1861,8 @@ SmBoolean bDebugMe = FALSE;
         } // end iter i times subdividing spans
 
       // get knots of the subdivided surface
-      pOff->GetKnots(SM_SP_V,sVKnots,&sVMult);
-      pOff->GetKnots(SM_SP_U,sUKnots,&sUMult);
+      SER( pOff->GetKnots(SM_SP_V,sVKnots,&sVMult) );
+      SER( pOff->GetKnots(SM_SP_U,sUKnots,&sUMult) );
 
       // local single span approximation surface
       SmCubicBezierSurface sCB;
@@ -1830,9 +1897,9 @@ SmBoolean bDebugMe = FALSE;
                           SE(SM_ERR); // Some problem here with knots
                           return SM_SUCCESS;
                         }
-                      pOff->GetControlPoint(eForm,lUMin+iub,lVMin+ivb,sPnt,dWeight);
+                      SER( pOff->GetControlPoint(eForm,lUMin+iub,lVMin+ivb,sPnt,dWeight) );
                       dWeight = 1.0;
-                      pOff->SetControlPoint(eForm,lUMin+iub,lVMin+ivb,sCB.m_vP[ivb][iub],dWeight);
+                      SER( pOff->SetControlPoint(eForm,lUMin+iub,lVMin+ivb,sCB.m_vP[ivb][iub],dWeight) );
                     }
                 }
 #ifdef SM_DEBUG_CODE
@@ -1857,8 +1924,8 @@ SmBoolean bDebugMe3 = FALSE;
         // locals 
         SmBoolean bFailed            = FALSE;
         double    dAbsOffsetDistance = smos_Fabs(dSignedOffsetDistance);
-        pOff->GetKnots(SM_SP_U,sUKnots);
-        pOff->GetKnots(SM_SP_V,sVKnots);
+        SER( pOff->GetKnots(SM_SP_U,sUKnots) );
+        SER( pOff->GetKnots(SM_SP_V,sVKnots) );
         ULONG lNumBetween = 3;
 
         // for every surface patch
@@ -2179,7 +2246,7 @@ SmStatus SmBSplineSurface::CreateSphereFromArcs
   SmVector3d sZAxis = rOrigin - sNonCommonPnt;
   if (sZAxis.Dot(sRefZAxis) < 0.0) 
     { sZAxis = - sZAxis; }
-  sZAxis.Unitize() ;
+  SER( sZAxis.Unitize() ) ;
 
   // Make the Sphere as a SurfOfRevolution
   SmBSplineSurface * pSurface = NULL;
@@ -2391,7 +2458,7 @@ SmBoolean bDebugMe = FALSE ;
           // copy, scale, and move sweep circle to desired location
           // this lets pSweepCurve specify the sweep parameterization of Surface
           SmCurve *pSweepCopy = NULL ;
-          pOptSweepCurve->Copy(crContext, pSweepCopy) ;
+          SER( pOptSweepCurve->Copy(crContext, pSweepCopy)  );
           pCir = (SmBSplineCurve *)pSweepCopy ;
 
           // set up transformation from GivenSweepCurve to needed SweepCurve
@@ -2416,7 +2483,7 @@ SmBoolean bDebugMe = FALSE ;
           SmAxis2Placement sMove ;
           sMove.Translate(sMoveVec) ;
           SmVector3d sScale(dScale, dScale, dScale) ;
-          pCir->Transform(sMove, &sScale) ; 
+          SER( pCir->Transform(sMove, &sScale)  ); 
         } // end copy given sweep circle to get its parameterization branch
       else // generate a sweep circle from scratch
         {
@@ -2526,16 +2593,16 @@ SmStatus SmBSplineSurface::CreateHelicalSweep
   
   // copy Curve to global Z=0 plane from RefFrame Z=0 plane
   SmCurve * pGenCurve = NULL ;
-  crPlanarCurve.Copy(crContext, pGenCurve) ;
+  SER( crPlanarCurve.Copy(crContext, pGenCurve)  );
   SmObjDelete sCleanCurve(pGenCurve) ; 
 
   SmAxis2Placement sInvRefFrame ;
   crReferenceFrame.Invert(sInvRefFrame) ;
-  pGenCurve->Transform(sInvRefFrame) ;
+  SER( pGenCurve->Transform(sInvRefFrame)  );
 
   // check that input is planar on the Z=0 plane
   SmExtent3d sBBox ;
-  pGenCurve->CalculateBoundingBox(pGenCurve->GetNaturalInterval(), &sBBox) ;
+  SER( pGenCurve->CalculateBoundingBox(pGenCurve->GetNaturalInterval(), &sBBox)  );
   SER(sBBox.ZLength() < SM_EFF_ZERO ? SM_SUCCESS : SM_ERR_INVALID_INPUT ) ;
 
   // locals  
@@ -2567,7 +2634,7 @@ SmStatus SmBSplineSurface::CreateHelicalSweep
   rpNewBSplineSurface = new (crContext) SmBSplineSurface(&Sur, FALSE, &crContext) ;
 
   // place the Surface back at its intended position
-  rpNewBSplineSurface->Transform(crReferenceFrame) ;
+  SER_DELETE( rpNewBSplineSurface->Transform(crReferenceFrame), rpNewBSplineSurface );
 
   rpNewBSplineSurface->m_eBSplineSurfaceForm = SM_SF_HELICAL_SWEEP ;
 
@@ -2984,8 +3051,9 @@ SmBoolean SmBSplineSurface::IsDegeneratePoint
     }
 
   // ensure existence of m_pNurb
-  if(m_pNurb == NULL) 
-    { ((SmBSplineSurface *)this)->MakeNurb(); } 
+  // SolidCraft: without a NURB form there is no control net to show a degeneracy
+  if(m_pNurb == NULL && ((SmBSplineSurface *)this)->MakeNurb() != SM_SUCCESS)
+    { return FALSE ; }
   SM_ASSERT(m_pNurb != NULL) ;
 
 #ifdef SM_DEBUG_CODE
@@ -3733,8 +3801,10 @@ SmBoolean bDebugMe = FALSE ;
   SmPoint3d sPt, sPtNext ; 
   SmTArray<ULONG>   sMultsU,       sMultsV ;
   SmTArray<double>  sUniqueKnotsU, sUniqueKnotsV ;
-  GetKnots(SM_SP_U, sUniqueKnotsU, &sMultsU) ;
-  GetKnots(SM_SP_V, sUniqueKnotsV, &sMultsV) ;
+  // SolidCraft: knots that can't be read show no pole, as no NURB representation above
+  if(   GetKnots(SM_SP_U, sUniqueKnotsU, &sMultsU) != SM_SUCCESS
+     || GetKnots(SM_SP_V, sUniqueKnotsV, &sMultsV) != SM_SUCCESS)
+    { return FALSE ; }
   ULONG lKntCntU, lKntCntV ;
 
   // pick tolerance
@@ -4403,7 +4473,7 @@ SmExtent2d SmBSplineSurface::GetMaxAnalyticDomain()
       else                  { sVDom.ExpandRelative(   0.5 ); }
     }
 
-  sDom.SetMinMax( sUDom.GetMin(), sVDom.GetMin(), sUDom.GetMax(), sVDom.GetMax() );
+  (void)sDom.SetMinMax( sUDom.GetMin(), sVDom.GetMin(), sUDom.GetMax(), sVDom.GetMax() ); // SolidCraft: bounds of two intervals, it cannot fail
 
   return sDom;
 
@@ -4430,7 +4500,7 @@ SmStatus SmBSplineSurface::InsertKnots
 )
 {
   SmTArray< double > sAllKnots;
-  this->GetKnots( eSurfParam, sAllKnots );
+  SER( this->GetKnots( eSurfParam, sAllKnots ) );
 
   SmExtent1d sSubInterval;
   if ( pOptInterval != NULL )
@@ -4592,7 +4662,7 @@ SmStatus SmBSplineSurface::SetCanonical
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
 
   // give analytics a chance to update their nested STEP data
-  RebuildSTEPFromNURBParameters() ;
+  SER( RebuildSTEPFromNURBParameters()  );
 
   // all done
   SM_DUMP_AND_ASSERT2_VALID(this) ;
@@ -4626,7 +4696,7 @@ SmStatus SmBSplineSurface::SetFromGwNurb
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
 
   // give analytics a chance to update their nested STEP data
-  RebuildSTEPFromNURBParameters() ;
+  SER( RebuildSTEPFromNURBParameters()  );
 
   // all done
   SM_DUMP_AND_ASSERT2_VALID(this) ;
@@ -4952,7 +5022,7 @@ SmStatus SmBSplineSurface::CopySubPatch
 
   // Trim crUVDomain to NaturalUVDomain
   SmExtent2d sUVDomain, sNatUVDomain = GetNaturalUVDomain() ;
-  sNatUVDomain.Intersect(crUVDomain, sUVDomain) ;
+  SER( sNatUVDomain.Intersect(crUVDomain, sUVDomain)  );
 
   // init pSur data structure
   N_SrfInitArrays(&sNewSur);
@@ -5032,7 +5102,7 @@ SmStatus SmBSplineSurface::SplitAt
   // snap knot to nearby knot values
   double dData[32];
   SmTArray<double> sKnots(32,dData);
-  GetKnots(eSurfParam,sKnots);
+  SER( GetKnots(eSurfParam,sKnots) );
   for (ULONG i=0; i<sKnots.GetSize(); i++) 
     {
       double dKnot = sKnots[i];
@@ -5219,9 +5289,14 @@ SmBoolean bDebugMe = FALSE ;
   sCPts.Transpose(lNumVCpts);
   sWeights.Transpose(lNumVCpts);
   
-  // Transpose Surface definition
-  SER(SetCanonical(lVDegree,lUDegree,sCPts,eBSForm,sVMult,sUMult,
-                   sVKnots,sUKnots,eKnotType,&sWeights));
+  // Transpose Surface definition; on failure, restore the bit
+  SmStatus eStatus = SetCanonical(lVDegree,lUDegree,sCPts,eBSForm,sVMult,sUMult,
+                                  sVKnots,sUKnots,eKnotType,&sWeights);
+  if (eStatus != SM_SUCCESS)
+    {
+      ToggleSwapUVBit() ;
+      SER(eStatus);
+    }
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)
@@ -5459,7 +5534,7 @@ SmStatus SmBSplineSurface::TestForFilletSurfaceUOrV
 
   // Test at every knot in rib direction.
   SmTArray<double> sKnots;
-  GetKnots( eWhichDir, sKnots );
+  SER( GetKnots( eWhichDir, sKnots ) );
 
   // for every knot value
   SmBoolean bGoodCrossSections = TRUE;
@@ -5525,7 +5600,7 @@ SmBoolean bDebugMe = FALSE;
   // Check for variable radius.
   if ( pMinMaxRadii != NULL && ! bConstantRadius )
     {
-      this->FindFilletMinMaxRadii( eWhichDir, *pMinMaxRadii );
+      SER( this->FindFilletMinMaxRadii( eWhichDir, *pMinMaxRadii ) );
     }
 
   return SM_SUCCESS;
@@ -5607,11 +5682,11 @@ SmStatus SmBSplineSurface::TestForFilletSurface
     }
 
   // Test in both U- and V- directions.
-  TestForFilletSurfaceUOrV( crContext, SM_SP_U, d3DTolerance, bIsFilletU,
-      lCrossSectionU, lSolverTypeU, bNormOutwardU, &dRadiusU, &dDistU, pRadiiU );
+  SER( TestForFilletSurfaceUOrV( crContext, SM_SP_U, d3DTolerance, bIsFilletU,
+      lCrossSectionU, lSolverTypeU, bNormOutwardU, &dRadiusU, &dDistU, pRadiiU ) );
 
-  TestForFilletSurfaceUOrV( crContext, SM_SP_V, d3DTolerance, bIsFilletV,
-      lCrossSectionV, lSolverTypeV, bNormOutwardV, &dRadiusV, &dDistV, pRadiiV );
+  SER( TestForFilletSurfaceUOrV( crContext, SM_SP_V, d3DTolerance, bIsFilletV,
+      lCrossSectionV, lSolverTypeV, bNormOutwardV, &dRadiusV, &dDistV, pRadiiV ) );
 
   // Now sort out which direction.
   // If neither, it's easy.
@@ -5837,7 +5912,7 @@ SmBoolean SmBSplineSurface::AssertValid
   if (m_pNurb == NULL) 
     {
       SmBSplineSurface *pBSS = SM_CONST_CAST(SmBSplineSurface*,this);
-      pBSS->MakeNurb();
+      (void)pBSS->MakeNurb(); // SolidCraft: test 0 reports a missing m_pNurb
     }
 
   /*  0 */ // m_pNurb can't be non-NULL"
@@ -5920,7 +5995,9 @@ static SmTArray<const SmSurface *> sBadSurfaceList ;
       SmExtent2d          sUVDomain  = GetNaturalUVDomain() ;
       SmBoolean           bClosedRow = IsClosed(sUVDomain,  SM_SP_U, &dTol) ;
       SmBoolean           bClosedCol = IsClosed(sUVDomain,  SM_SP_V, &dTol) ;
-      GetControlPointNet(lUCnt, lVCnt, sCPointArray, sWeightArray) ;
+      // SolidCraft: a net that can't be read is a missing m_pNurb, which test 0 reports
+      if(GetControlPointNet(lUCnt, lVCnt, sCPointArray, sWeightArray) != SM_SUCCESS)
+        { return FALSE ; }
 
       // place Control Point Grid into SmPointGrid object
       SmPointGrid         sCptGrid(sCPointArray,  // in : array copied or converted into PointGrid                                    
@@ -6089,8 +6166,10 @@ SmBoolean SmBSplineSurface::HasSameParameterization
   // surface and curve Nurb parameterization locals
   SmTArray<double> sSurfaceKnots, sCurveKnots ;           
   SmTArray<ULONG>  sSurfaceMults, sCurveMults ;
-  cpThisSurface->GetKnots(eNurbDirection, sSurfaceKnots, &sSurfaceMults) ;  
-  cpOtherCurve->GetKnots(sCurveKnots, &sCurveMults) ;
+  // SolidCraft: knot vectors that can't be read can't be shown to be the same
+  if(   cpThisSurface->GetKnots(eNurbDirection, sSurfaceKnots, &sSurfaceMults) != SM_SUCCESS
+     || cpOtherCurve->GetKnots(sCurveKnots, &sCurveMults) != SM_SUCCESS)
+    { return FALSE ; }
 
   // The surface and genCurve analytic domains must be compatible
   double dTol = SM_EFF_ZERO * ( 1.0 + smos_Max(sSurfaceAnalDomain.GetMaxDimension(), 
@@ -6174,10 +6253,12 @@ SmBoolean SmBSplineSurface::HasSameParameterization
   // Nurb parameterization locals
   SmTArray<double> sKnotsU1, sKnotsV1, sKnotsU2, sKnotsV2 ;           
   SmTArray<ULONG>  sMultsU1, sMultsV1, sMultsU2, sMultsV2 ;
-  cpThisSurface ->GetKnots(SM_SP_U, sKnotsU1, &sMultsU1) ;  
-  cpThisSurface ->GetKnots(SM_SP_V, sKnotsV1, &sMultsV1) ;  
-  cpOtherSurface->GetKnots(SM_SP_U, sKnotsU2, &sMultsU2) ;  
-  cpOtherSurface->GetKnots(SM_SP_V, sKnotsV2, &sMultsV2) ;  
+  // SolidCraft: knot vectors that can't be read can't be shown to be the same
+  if(   cpThisSurface ->GetKnots(SM_SP_U, sKnotsU1, &sMultsU1) != SM_SUCCESS
+     || cpThisSurface ->GetKnots(SM_SP_V, sKnotsV1, &sMultsV1) != SM_SUCCESS
+     || cpOtherSurface->GetKnots(SM_SP_U, sKnotsU2, &sMultsU2) != SM_SUCCESS
+     || cpOtherSurface->GetKnots(SM_SP_V, sKnotsV2, &sMultsV2) != SM_SUCCESS)
+    { return FALSE ; }
 
   // analytic domains must be compatible
   SmBoolean bRtn = (   sAnalDomain1.IsContainedBy(sAnalDomain2, SM_EFF_ZERO)
@@ -6377,16 +6458,17 @@ SmStatus SmBSplineSurface::ReadFromDB
   SER(  (   rpNewSurface == NULL
          || rpNewSurface->IsKindOf(SmBSplineSurface_TYPE)) ? SM_SUCCESS : SM_ERR) ;
 
-  // init output object
-  SmBSplineSurface *pBSplineSurface =   (rpNewSurface == NULL)
-                                      ? new (crContext) SmBSplineSurface()
-                                      : (SmBSplineSurface *)rpNewSurface ;
+  // init output object - a new one is made only once the whole surface has been read,
+  // so a read that fails part way has none to free
+  SmBSplineSurface *pBSplineSurface = (SmBSplineSurface *)rpNewSurface ;
 
   // file type
   SmFileType eType = rDB.GetFileType();
 
   // locals
   gw_REAL    wx, wy, wz, w;
+  const TCHAR *cpReadFailedMsg = _T("NURBS surface data ends early or holds text that is not a number.") ;
+  SM_REF1(cpReadFailedMsg) ; // release builds drop SER_MSG messages
 
   // Get parameters from the top 
   gw_INDEX   i, j, n, m ;
@@ -6422,6 +6504,53 @@ SmStatus SmBSplineSurface::ReadFromDB
           SER(rDB.ReadLong(lBSplineSurfaceForm));
         }
     }
+  SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
+
+  // NLib's surface evaluators (e.g. N_SrfBasisDerivs) size their basis-function stack
+  // arrays by NL_MAXDEG, so a higher degree overflows the stack on the first evaluation.
+  // A degree-0 surface reads, but its derivatives fail and its normal is zero. The degrees
+  // come straight from the file, so reject anything outside [1, NL_MAXDEG].
+  if (p < 1 || p > NL_MAXDEG || q < 1 || q > NL_MAXDEG)
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage,
+                 _T("NURBS surface degree (U %d, V %d) is outside the supported range 1 to %d."),
+                 (int)p,
+                 (int)q,
+                 NL_MAXDEG);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+
+  // The counts come straight from the file too, as highest indices. Each direction needs
+  // at least degree + 1 control points, and the NURB is one block whose byte size is a
+  // ULONG, so reject counts that would overflow it before they size anything.
+  const ULONG lMaxCPoints = ULONG_MAX / (4 * sizeof(gw_CPOINT)) ;
+  if (n < p || m < q)
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage,
+                 _T("NURBS surface control point counts (U %lld, V %lld) are fewer than degree + 1 (U %d, V %d)."),
+                 (long long)n + 1,
+                 (long long)m + 1,
+                 (int)p + 1,
+                 (int)q + 1);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+  if ((ULONG)n >= lMaxCPoints || (ULONG)m >= lMaxCPoints / ((ULONG)n + 1))
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage,
+                 _T("NURBS surface control point counts (U %lld, V %lld) are too large."),
+                 (long long)n + 1,
+                 (long long)m + 1);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+  if (rat != NL_NO && rat != NL_YES)
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage, _T("NURBS surface rational flag %d is neither %d nor %d."), (int)rat, NL_NO, NL_YES);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
 
   // surface knot counts
   gw_INDEX r = n+p+1;
@@ -6431,6 +6560,9 @@ SmStatus SmBSplineSurface::ReadFromDB
   gw_SURFACE *sur = sm_AllocateNurbSurface(n,m,p,q,r,s);
   if(sur == NULL) 
     { SER(SM_ERR) ; }
+
+  // frees the NURB on every failure below, until the surface takes it
+  SmMemDelete sNurbCleanup(sur) ;
 
   // surface locals
   gw_CPOINT  **Pw;
@@ -6456,6 +6588,7 @@ SmStatus SmBSplineSurface::ReadFromDB
                                                     //   rFileIn.read((char*)&wy,sizeof(gw_REAL));
                                                     //   rFileIn.read((char*)&wz,sizeof(gw_REAL));
                                                   }
+                           SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
                            N_CPtFromWxWyWz(wx,wy,wz,NL_NOW,&Pw[i][j]);
                          } // end iter every conrol point i
                      } // end iter every control point j
@@ -6479,12 +6612,13 @@ SmStatus SmBSplineSurface::ReadFromDB
                                                     // rFileIn.read((char*)&wz,sizeof(gw_REAL));
                                                     // rFileIn.read((char*)&w,sizeof(gw_REAL));
                                                   }
+                           SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
                            N_CPtFromWxWyWz(wx,wy,wz,w,&Pw[i][j]);
                          } // end iter every conrol point i
                      } // end iter every control point j
                  } break ;
 
-      // Wrong type
+      // Wrong type - rejected with the header above
       default : { SER(SM_ERR) ; }
     }
 
@@ -6497,6 +6631,7 @@ SmStatus SmBSplineSurface::ReadFromDB
       else /* Binary */      { SER(rDB.ReadDouble(U[i]));
                                //  rFileIn.read((char*)&U[i],sizeof(gw_REAL));
                              }
+      SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
     }    
 
   // for every V knot
@@ -6508,13 +6643,17 @@ SmStatus SmBSplineSurface::ReadFromDB
       else /* Binary */      { SER(rDB.ReadDouble(V[j]));
                                // rFileIn.read((char*)&V[j],sizeof(gw_REAL));
                              }
+      SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
     }
   
   // output locals  
   SmKnotType            eKnotType           = (SmKnotType) lKnotType ;             
   SmBSplineSurfaceForm  eBSplineSurfaceForm = (SmBSplineSurfaceForm) lBSplineSurfaceForm ;
 
-  // set output
+  // set output - the surface now owns the NURB
+  if (pBSplineSurface == NULL)
+    { pBSplineSurface = new (crContext) SmBSplineSurface() ; }
+  sNurbCleanup.Clear() ;
   pBSplineSurface->m_pNurb               = sur ;
   pBSplineSurface->m_bNurbIsBorrowed     = FALSE ; 
   pBSplineSurface->m_bOutOfBoundsEnabled = FALSE ;

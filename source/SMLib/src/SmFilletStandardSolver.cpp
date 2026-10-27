@@ -64,7 +64,7 @@ SmConstantRadiusFS::SmConstantRadiusFS
     m_pSurfaces[0]->SetAllowExtension(TRUE);
     m_pSurfaces[1]->SetAllowExtension(TRUE);
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 } // end SmConstantRadiusFS::SmConstantRadiusFS constructor
 
@@ -150,7 +150,7 @@ SmConstantRadiusFS::SmConstantRadiusFS
     m_pSurfaces[0]->SetAllowExtension( TRUE );
     m_pSurfaces[1]->SetAllowExtension( TRUE );
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 } // end SmConstantRadiusFS::SmConstantRadiusFS constructor
 
@@ -502,7 +502,7 @@ SmBoolean bDebugFVUs=FALSE;
 
       SmFilletEdge *pRail = pFG->GetRail( lRailIndex );
       SmTArray< SmEdgeuse * > sAllEUs;
-      pRail->GetEdgeuses( sAllEUs );
+      SER( pRail->GetEdgeuses( sAllEUs ) );
       for ( ULONG ii=0; ii< sAllEUs.GetSize(); ii++ )
       {
           SmEdgeuse         *pEU  = sAllEUs[ ii ];
@@ -1206,7 +1206,7 @@ SmBoolean bDebugMe = FALSE;
                   SER(SM_ERR);
               }
           }
-          sNorm.Unitize();
+          (void)sNorm.Unitize(); // SolidCraft: a zero vector stays zero
           rTsectPnt.SrfNorm(lSrf) = sNorm;
 
         } // end iter both surfaces
@@ -1312,7 +1312,7 @@ SmConstantDistanceFS::SmConstantDistanceFS
     m_pSurfaces[0]->SetAllowExtension(TRUE);
     m_pSurfaces[1]->SetAllowExtension(TRUE);
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE;
@@ -1835,8 +1835,7 @@ SmBoolean bDebugMe1 = FALSE;
         }
 
       SmExtent2d sDomain = GetSurface(lOtherRailIndex)->GetBaseSurface()->GetNaturalUVDomain();
-      SmVector2d sSize = sDomain.GetSize();
-      sSize = m_dSurfaceExtensionFactor * sSize;
+      SmVector2d sSize = GetDomainExtension( GetSurface(lOtherRailIndex)->GetBaseSurface(), sDomain ); // SolidCraft change: and the trace's reach
 
       rIntervals[rGuessT.GetSize()] = SmExtent1d(sDomain.GetMin().x-sSize.x,sDomain.GetMax().x+sSize.x);
       rIntervals[rGuessT.GetSize()+1] = SmExtent1d(sDomain.GetMin().y-sSize.y,sDomain.GetMax().y+sSize.y);
@@ -1969,7 +1968,7 @@ SmVariableRadiusFS::SmVariableRadiusFS
     m_pSurfaces[0]->SetAllowExtension(TRUE);
     m_pSurfaces[1]->SetAllowExtension(TRUE);
 
-    FinishConstruction();  // Take care of other things in the base class.
+    (void)FinishConstruction();  // Take care of other things in the base class. // SolidCraft: a constructor cannot report
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE;
@@ -2165,7 +2164,7 @@ SmBoolean bDebugMe0=FALSE;
         for (ULONG kk=0; kk<sAllRails.GetSize(); kk++) {
             SmFilletEdge * pRail= sAllRails[kk]; NER(pRail);
             SmTArray<SmEdgeuse*> sFilEUs;
-            pRail->GetEdgeuses(sFilEUs);
+            SER( pRail->GetEdgeuses(sFilEUs) );
             if (sFilEUs.GetSize() != 2) SER(SM_ERR);
             for (ULONG jjj=0; jjj<2; jjj++) {
                 SmEdgeuse * pEU = sFilEUs[jjj];
@@ -2347,6 +2346,60 @@ SmBoolean SmVariableRadiusFS::OffsetRadiiCanChange
 } // end SmVariableRadiusFS::OffsetRadiiCanChange
 
 /*******************************************************************//**
+PURPOSE: The edge parameters where the radius law has a corner.
+
+NOTES: SolidCraft change. Appended to rParams, ascending.
+***********************************************************************/
+SmStatus SmVariableRadiusFS::GetRadiusCornerParameters
+  (SmTArray<double> & rParams)       // out: corner parameters on the filleted edge
+{
+  NER(m_rLaw);
+  SER(m_rLaw->GetCornerParameters(m_vLawInterval, m_bLawOrientation, rParams));
+  return SM_SUCCESS;
+
+} // end SmVariableRadiusFS::GetRadiusCornerParameters
+
+/*******************************************************************//**
+PURPOSE: Whether an intersection point lies where the radius law has a corner.
+
+NOTES: SolidCraft change. The point's law parameter is m_adUserDoubles[0]
+  (see SetupOffsetValues).
+***********************************************************************/
+SmBoolean SmVariableRadiusFS::IsAtRadiusCorner
+  (const SmTsectPnt & crTsectPnt)    // in : intersection point
+{
+  SmTArray<double> sCorners;
+  if (GetRadiusCornerParameters(sCorners) != SM_SUCCESS)
+    { return FALSE; }
+  double dTol = 1.0e-9 * (1.0 + smos_Fabs(m_vLawInterval.GetMin()) + smos_Fabs(m_vLawInterval.GetMax()));
+  for (ULONG i=0; i<sCorners.GetSize(); i++)
+    {
+      if (smos_Fabs(crTsectPnt.m_adUserDoubles[0] - sCorners[i]) <= dTol)
+        { return TRUE; }
+    }
+  return FALSE;
+
+} // end SmVariableRadiusFS::IsAtRadiusCorner
+
+/*******************************************************************//**
+PURPOSE: The edge parameter of an intersection point, when the radius law
+  has corners.
+
+NOTES: SolidCraft change. The point's law parameter is m_adUserDoubles[0].
+***********************************************************************/
+SmBoolean SmVariableRadiusFS::GetRadiusParameter
+  (const SmTsectPnt & crTsectPnt,    // in : intersection point
+   double           & rdParam)       // out: its edge parameter
+{
+  SmTArray<double> sCorners;
+  if (GetRadiusCornerParameters(sCorners) != SM_SUCCESS || sCorners.GetSize() == 0)
+    { return FALSE; }
+  rdParam = crTsectPnt.m_adUserDoubles[0];
+  return TRUE;
+
+} // end SmVariableRadiusFS::GetRadiusParameter
+
+/*******************************************************************//**
 PURPOSE: Set extension flags to TRUE for each end if there is not
     a blend being done at the corner.
 
@@ -2416,11 +2469,12 @@ SmStatus SmVariableRadiusFS::SetupOffsetValues
    double * pdOffsetDist)            // out: optional fillet radius at this point, NULL to ignore
 {
   // compute the radius value at this intersection point
+  // (A failed evaluation leaves dValues unset: stop rather than offset by whatever is there.)
   double dValues[3];
-  m_rLaw->Evaluate(rTsectPnt.m_adUserDoubles[0], // in : target parameter - range:[crCurveInterval.Min,Max]
+  SER(m_rLaw->Evaluate(rTsectPnt.m_adUserDoubles[0], // in : target parameter - range:[crCurveInterval.Min,Max]
                   m_vLawInterval,                // in : crCurveInterval = interval defining range of fillet edge
                   m_bLawOrientation,             // in : bReverseOrientation: TRUE = parameters run from interval end to interval start
-                  dValues);                      // out: dValues[0] = fillet-radius at dParameter value
+                  dValues));                     // out: dValues[0] = fillet-radius at dParameter value
                                                  //      dValues[1] = 1st derivative: d(fillet-radius)/d(Parameter)
                                                  //      dValues[2] = 2nd derivative: d2(fillet-radius)/d(Parameter)**2
 
@@ -2893,8 +2947,7 @@ SmStatus SmVariableRadiusFS::LoadInitialValues
       {
         ULONG lOtherRailIndex = 1 - lRailIndex;
         SmExtent2d sDomain = GetSurface(1-lRailIndex)->GetBaseSurface()->GetNaturalUVDomain();
-        SmVector2d sSize = sDomain.GetSize();
-        sSize = m_dSurfaceExtensionFactor * sSize;
+        SmVector2d sSize = GetDomainExtension( GetSurface(1-lRailIndex)->GetBaseSurface(), sDomain ); // SolidCraft change: and the trace's reach
         SmExtent2d sExtendedDomain(SmPoint2d(sDomain.GetMin().x-sSize.x,sDomain.GetMin().y-sSize.y),
             SmPoint2d(sDomain.GetMax().x+sSize.x, sDomain.GetMax().y+sSize.y) );
 
@@ -3166,6 +3219,56 @@ SmStatus SmLinearCrossSectionFSG::CreateSurface
 } // end SmLinearCrossSectionFSG::CreateSurface
 
 /*******************************************************************//**
+PURPOSE: The interior knots where a fillet's center curve or one of its rails
+    turns: its tangents before and after the knot differ by more than
+    dAngTolRad.
+
+NOTES: SolidCraft change. The three curves share their knots (FlushCurve
+    builds them span by span); a turn comes from a corner in the radius.
+***********************************************************************/
+static SmStatus sm_FilletCurveCorners
+  (const SmBSplineCurve & crCenterLine,  // in : fillet center curve
+   const SmBSplineCurve & crRail1Curve,  // in : 1st rail
+   const SmBSplineCurve & crRail2Curve,  // in : 2nd rail
+   double                 dAngTolRad,    // in : angle above which a knot is a corner
+   SmTArray<double>     & rCorners)      // out: corner knots, ascending
+{
+  rCorners.ReSet();
+  SmTArray<double> sKnots;
+  SER(crRail1Curve.GetKnots(sKnots));
+  SmExtent1d sIvl = crRail1Curve.GetNaturalInterval();
+  double dTol = SM_EFF_ZERO_SQRT * (1.0 + smos_Fabs(sIvl.GetMin()) + smos_Fabs(sIvl.GetMax()));
+  const SmBSplineCurve * apCurves[3] = { &crCenterLine, &crRail1Curve, &crRail2Curve };
+  for (ULONG i=0; i<sKnots.GetSize(); i++)
+    {
+      double dKnot = sKnots[i];
+      if (   (i > 0 && sKnots[i-1] == dKnot)
+          || dKnot < sIvl.GetMin() + dTol || dKnot > sIvl.GetMax() - dTol)
+        { continue; }
+      SmBoolean bCorner = FALSE;
+      for (ULONG j=0; j<3 && !bCorner; j++)
+        {
+          if (!apCurves[j]->GetNaturalInterval().ContainsValue(dKnot))
+            { continue; }
+          SmVector3d sBefore[2], sAfter[2];
+          SER(apCurves[j]->Evaluate(dKnot, 1, FALSE, sBefore, FALSE));
+          SER(apCurves[j]->Evaluate(dKnot, 1, TRUE,  sAfter,  FALSE));
+          if (   sBefore[1].LengthSquared() < SM_EFF_ZERO_SQ
+              || sAfter[1].LengthSquared()  < SM_EFF_ZERO_SQ)
+            { continue; }
+          double dAngle;
+          SER(sBefore[1].AngleBetween(sAfter[1], dAngle));
+          if (dAngle > dAngTolRad)
+            { bCorner = TRUE; }
+        }
+      if (bCorner)
+        { rCorners.Add(dKnot); }
+    }
+  return SM_SUCCESS;
+
+} // end sm_FilletCurveCorners
+
+/*******************************************************************//**
 PURPOSE: Create a fillet surface with a circular cross section.  This
     is a lofted surface or in some special cases a cylinder or a torus.
 
@@ -3189,10 +3292,71 @@ SmStatus SmCircularCrossSectionFSG::CreateSurface
     if (rFilletSolver.GetSolverType() == SM_FS_CONST_RADIUS) {
         //bNeedG1Continuity = TRUE; // fix it later
     }
-    SER(CreateSurfaceFromCurves(rFilletSolver.GetCreationContext(),
-        *pCenterLine,*pRail1Curve,*pRail2Curve,dThisApproxTol3d,
-        bNeedG1Continuity,pSurf1,pUV1,pSurf2,pUV2,rpFilletSurface));
 
+    // SolidCraft change: a skinned surface interpolates its cross sections smoothly, so where
+    // the center curve or a rail turns (a corner in a variable radius) it would overshoot.
+    // The surface is skinned piece by piece between such corners and the pieces joined there.
+    SmTArray<double> sCorners;
+    SER(sm_FilletCurveCorners(*pCenterLine, *pRail1Curve, *pRail2Curve,
+                              rFilletSolver.GetThisAngTolRad(), sCorners));
+    if (sCorners.GetSize() == 0)
+    {
+        SER(CreateSurfaceFromCurves(rFilletSolver.GetCreationContext(),
+            *pCenterLine,*pRail1Curve,*pRail2Curve,dThisApproxTol3d,
+            bNeedG1Continuity,pSurf1,pUV1,pSurf2,pUV2,rpFilletSurface));
+        return SM_SUCCESS;
+    }
+
+    const SmContext & crContext = rFilletSolver.GetCreationContext();
+    SmExtent1d sIvl = pRail1Curve->GetNaturalInterval();
+    SmTArray<double> sEnds;
+    sEnds.Add(sIvl.GetMin());
+    sEnds.Append(sCorners);
+    sEnds.Add(sIvl.GetMax());
+
+    SmBSplineSurface * pJoined = NULL;
+    SmObjDelete sDeleteJoined;
+    for (ULONG i=0; i+1<sEnds.GetSize(); i++)
+    {
+        SmExtent1d sPiece(sEnds[i], sEnds[i+1]);
+        SmBSplineCurve * apPieces[3] = { NULL, NULL, NULL };
+        SmBSplineCurve * apWholes[3] = { pCenterLine, pRail1Curve, pRail2Curve };
+        SmObjDelete asDelete[3];
+        for (ULONG j=0; j<3; j++)
+        {
+            SmCurve * pCopy = NULL;
+            SER(apWholes[j]->Copy(crContext, pCopy));
+            asDelete[j].SetObj(pCopy);
+            apPieces[j] = SM_CAST_PTR(SmBSplineCurve, pCopy); NER(apPieces[j]);
+            SmExtent1d sTrim = sPiece;
+            SER(apPieces[j]->Trim(sTrim));
+        }
+
+        SmBSplineSurface * pPiece = NULL;
+        SER(CreateSurfaceFromCurves(crContext, *apPieces[0], *apPieces[1], *apPieces[2],
+            dThisApproxTol3d, bNeedG1Continuity, pSurf1, pUV1, pSurf2, pUV2, pPiece));
+        NER(pPiece);
+        SmObjDelete sDeletePiece(pPiece);
+
+        if (pJoined == NULL)
+        {
+            sDeletePiece.Clear();
+            pJoined = pPiece;
+            sDeleteJoined.SetObj(pJoined);
+            continue;
+        }
+
+        // join the piece on at its u-min side; no knot removal there, the surface turns
+        SmBSplineSurface * pNext = NULL;
+        SER(pJoined->JoinSurface(crContext, pPiece, SM_SP_U, 0.0, pNext));
+        NER(pNext);
+        delete pJoined;
+        pJoined = pNext;
+        sDeleteJoined.SetObj(pJoined);
+    }
+
+    sDeleteJoined.Clear();
+    rpFilletSurface = pJoined;
     return SM_SUCCESS;
 
 } // end SmCircularCrossSectionFSG::CreateSurface
@@ -3301,11 +3465,11 @@ SmBoolean bDebugMe=FALSE;
       double dStep = (sKnots[1]-sKnots[0])/3.0;
       double dNew1 = sKnots[0] + dStep;
       double dNew2 = dNew1 + dStep;
-      rRail1Curve.InsertOneKnot(dNew1,1);
-      rRail2Curve.InsertOneKnot(dNew1,1);
-      rRail1Curve.InsertOneKnot(dNew2,1);
-      rRail2Curve.InsertOneKnot(dNew2,1);
-      rRail1Curve.GetKnots(sKnots);
+      SER( rRail1Curve.InsertOneKnot(dNew1,1) );
+      SER( rRail2Curve.InsertOneKnot(dNew1,1) );
+      SER( rRail1Curve.InsertOneKnot(dNew2,1) );
+      SER( rRail2Curve.InsertOneKnot(dNew2,1) );
+      SER( rRail1Curve.GetKnots(sKnots) );
     }
 
   ULONG nKnotsOld = sKnots.GetSize();
@@ -3326,9 +3490,9 @@ SmBoolean bDebugMe=FALSE;
         }
 
       double dMid = (sKnots[lMaxSpan] + sKnots[lMaxSpan-1])/2.0;
-      rRail1Curve.InsertOneKnot(dMid,1);
-      rRail2Curve.InsertOneKnot(dMid,1);
-      rRail1Curve.GetKnots(sKnots);
+      SER( rRail1Curve.InsertOneKnot(dMid,1) );
+      SER( rRail2Curve.InsertOneKnot(dMid,1) );
+      SER( rRail1Curve.GetKnots(sKnots) );
 
       ULONG nKnotsNew = sKnots.GetSize();
 
@@ -3876,7 +4040,7 @@ SmBoolean bDebugMe2 = FALSE;
               SmExtent1d sCrvIvl = pGenCurve->GetNaturalInterval();
               SmPoint2d  sUVMin  = SmPoint2d(sCrvIvl.GetMin(),0.0);
               SmPoint2d  sUVMax  = SmPoint2d(sCrvIvl.GetMax(),1.0);
-              pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax));
+              SER( pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax)) );
 #ifdef SM_DEBUG_CODE
 //                    pSurf->Dump();
 #endif
@@ -3888,15 +4052,15 @@ SmBoolean bDebugMe2 = FALSE;
           // add a new knot in the NewSurface start/end intervals
           // to allow the newSurface to interpolate the computed crossTangent values
           SmTArray<double> sKnts;
-          rRail1Curve.GetKnots(sKnts);
+          SER( rRail1Curve.GetKnots(sKnts) );
 
           double dStartKnotMid = (sKnts[0] + sKnts[1]) / 2.0;
-          rRail1Curve.InsertOneKnot(dStartKnotMid,1);
-          rRail2Curve.InsertOneKnot(dStartKnotMid,1);
+          SER( rRail1Curve.InsertOneKnot(dStartKnotMid,1) );
+          SER( rRail2Curve.InsertOneKnot(dStartKnotMid,1) );
 
           double dEndKnotMid = (sKnts[sKnts.GetSize()-2] + sKnts.GetLast()) / 2.0;
-          rRail1Curve.InsertOneKnot(dEndKnotMid,1);
-          rRail2Curve.InsertOneKnot(dEndKnotMid,1);
+          SER( rRail1Curve.InsertOneKnot(dEndKnotMid,1) );
+          SER( rRail2Curve.InsertOneKnot(dEndKnotMid,1) );
 
         } // end need G1 continuity check
 
@@ -3932,14 +4096,14 @@ SmBoolean bDebugMe2 = FALSE;
           double dW1, dW2;
           SmZoneTol3d dTol = SmTol::GetZoneTol3d( pFilletSurface );
           ULONG lIdxU = 1;  // First interior row.
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 );
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 ) );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 ) );
           if ( sPt2.CloserThan( dTol, sPt1 ) )
             {
               sPt1 = ( sPt1 + sPt2 ) / 2;  // Make sure they're exactly the same.
               dW1  = ( dW1  + dW2  ) / 2;
               for ( ii=0; ii<lNumV; ii++ )
-                { pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ); }
+                { SER( pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ) ); }
             }
         }
       if ( lSing & SM_SS_UMAX )
@@ -3950,14 +4114,14 @@ SmBoolean bDebugMe2 = FALSE;
           double dW1, dW2;
           SmZoneTol3d dTol = SmTol::GetZoneTol3d( pFilletSurface );
           ULONG lIdxU = lNumU-2;  // First interior row.
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 );
-          pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU,       0, sPt1, dW1 ) );
+          SER( pFilletSurface->GetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, lNumV-1, sPt2, dW2 ) );
           if ( sPt2.CloserThan( dTol, sPt1 ) )
             {
               sPt1 = ( sPt1 + sPt2 ) / 2;  // Make sure they're exactly the same.
               dW1  = ( dW1  + dW2  ) / 2;
               for ( ii=0; ii<lNumV; ii++ )
-                { pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ); }
+                { SER( pFilletSurface->SetControlPoint( SM_CP_EUCLIDIAN_RATIONAL, lIdxU, ii, sPt1, dW1 ) ); }
             }
         }
 
@@ -4081,11 +4245,11 @@ SmBoolean bDebugMe=FALSE;
         double dStep = (sKnots[1]-sKnots[0])/3.0;
         double dNew1 = sKnots[0] + dStep;
         double dNew2 = dNew1 + dStep;
-        rRail1Curve.InsertOneKnot(dNew1,1);
-        rRail2Curve.InsertOneKnot(dNew1,1);
-        rRail1Curve.InsertOneKnot(dNew2,1);
-        rRail2Curve.InsertOneKnot(dNew2,1);
-        rRail1Curve.GetKnots(sKnots);
+        SER( rRail1Curve.InsertOneKnot(dNew1,1) );
+        SER( rRail2Curve.InsertOneKnot(dNew1,1) );
+        SER( rRail1Curve.InsertOneKnot(dNew2,1) );
+        SER( rRail2Curve.InsertOneKnot(dNew2,1) );
+        SER( rRail1Curve.GetKnots(sKnots) );
     }
     while (sKnots.GetSize() < 4) {
         ULONG lMaxSpan = 0;
@@ -4099,9 +4263,9 @@ SmBoolean bDebugMe=FALSE;
         }
 
         double dMid = (sKnots[lMaxSpan] + sKnots[lMaxSpan-1])/2.0;
-        rRail1Curve.InsertOneKnot(dMid,1);
-        rRail2Curve.InsertOneKnot(dMid,1);
-        rRail1Curve.GetKnots(sKnots);
+        SER( rRail1Curve.InsertOneKnot(dMid,1) );
+        SER( rRail2Curve.InsertOneKnot(dMid,1) );
+        SER( rRail1Curve.GetKnots(sKnots) );
     }
 
     //ULONG lMaxNumUniqueKnots = 0;
@@ -4306,6 +4470,49 @@ SmBoolean bDebugMe7 = FALSE;
                     lDegree = 7;
                 }
             }
+            // At thirds: the Hermite's inner control points (P0 + D0/n, P1 - D1/n for degree n)
+            // a third of the way from each contact to where the two contact tangent lines meet,
+            // so D_i is n/3 of that distance; the higher derivatives keep their curvature with it.
+            if (m_bAtThirds)
+            {
+                SmVector3d d0(sVectors[0]);
+                SmVector3d d1(sVectors[1]);
+                double l0 = d0.Length();
+                double l1 = d1.Length();
+                SmVector3d w = sPoints[0] - sPoints[1];
+                if (l0 > SM_EFF_ZERO && l1 > SM_EFF_ZERO)
+                {
+                    d0 = d0 / l0;
+                    d1 = d1 / l1;
+                    // Lines P0 + u d0 and P1 - v d1 (u, v > 0 run towards the corner).
+                    double b = -d0.Dot(d1);
+                    double den = 1.0 - b * b;
+                    if (den > 1.0e-10)
+                    {
+                        double dd = d0.Dot(w);
+                        double e = -d1.Dot(w);
+                        double u = (b * e - dd) / den;
+                        double v = (e - b * dd) / den;
+                        if (u > SM_EFF_ZERO && v > SM_EFF_ZERO)
+                        {
+                            double k0 = (lDegree / 3.0) * u / l0;
+                            double k1 = (lDegree / 3.0) * v / l1;
+                            sVectors[0] = sVectors[0] * k0;
+                            sVectors[1] = sVectors[1] * k1;
+                            if (pHigherOrderVecs)
+                            {
+                                sHigherOrderVecs[0] = sHigherOrderVecs[0] * (k0 * k0);
+                                sHigherOrderVecs[1] = sHigherOrderVecs[1] * (k1 * k1);
+                                if (pHigherOrderVecs->GetSize() == 4)
+                                {
+                                    sHigherOrderVecs[2] = sHigherOrderVecs[2] * (k0 * k0 * k0);
+                                    sHigherOrderVecs[3] = sHigherOrderVecs[3] * (k1 * k1 * k1);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             SER(SmBSplineCurve::CreateInterpolatingCurve(crContext,SM_CP_UNIFORM,3,
                 lDegree,sPoints,sVectors,pHigherOrderVecs,FALSE,pArc));
 
@@ -4432,20 +4639,20 @@ SmBoolean bDebugMe4 = FALSE;
                     SmExtent1d sCrvIvl = pGenCurve->GetNaturalInterval();
                     SmPoint2d sUVMin = SmPoint2d(sCrvIvl.GetMin(),0.0);
                     SmPoint2d sUVMax = SmPoint2d(sCrvIvl.GetMax(),1.0);
-                    pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax));
+                    SER( pSurf->AdjustSTEPUVDomain(SmExtent2d(sUVMin,sUVMax)) );
 #ifdef SM_DEBUG_CODE
 //                    pSurf->Dump();
 #endif
                     pDerivSurfs[i] = pSurf;
                 }
                 SmTArray<double> sKnts;
-                rRail1Curve.GetKnots(sKnts);
+                SER( rRail1Curve.GetKnots(sKnts) );
                 double dStartKnotMid = (sKnts[0] + sKnts[1]) / 2.0;
-                rRail1Curve.InsertOneKnot(dStartKnotMid,1);
-                rRail2Curve.InsertOneKnot(dStartKnotMid,1);
+                SER( rRail1Curve.InsertOneKnot(dStartKnotMid,1) );
+                SER( rRail2Curve.InsertOneKnot(dStartKnotMid,1) );
                 double dEndKnotMid = (sKnts[sKnts.GetSize()-2] + sKnts.GetLast()) / 2.0;
-                rRail1Curve.InsertOneKnot(dEndKnotMid,1);
-                rRail2Curve.InsertOneKnot(dEndKnotMid,1);
+                SER( rRail1Curve.InsertOneKnot(dEndKnotMid,1) );
+                SER( rRail2Curve.InsertOneKnot(dEndKnotMid,1) );
             }
             if (rRail1Curve.IsClosed(rRail1Curve.GetNaturalInterval()) &&
                 rRail2Curve.IsClosed(rRail2Curve.GetNaturalInterval()) ) {

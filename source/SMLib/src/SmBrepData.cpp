@@ -169,7 +169,7 @@ SmRegion * SmBrepConstructor::StartRegion
 
     m_pRegion = new(m_pBrep) SmRegion();
     NERN(m_pRegion);
-    m_pBrep->PostInsert(m_pRegion);
+    (void)m_pBrep->PostInsert(m_pRegion); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
     m_pOuterRegion = pOuterRegion;
     return m_pRegion;
 
@@ -236,7 +236,7 @@ SmStatus SmBrepConstructor::StartShell
     }
 
   // Test for open shell case
-  m_pOuterRegion->PostInsert(m_pOuterShell);
+  SER( m_pOuterRegion->PostInsert(m_pOuterShell) );
 
   m_pInnerShell = NULL;
 
@@ -246,7 +246,7 @@ SmStatus SmBrepConstructor::StartShell
     }
   m_pInnerShell = new(m_pBrep) SmShell(); NER(m_pInnerShell);
   m_pInnerShell->SetShellType(SmFaceuse_TYPE);
-  m_pRegion->PostInsert(m_pInnerShell);
+  SER( m_pRegion->PostInsert(m_pInnerShell) );
   rpInnerShell = m_pInnerShell;
 
   return SM_SUCCESS;
@@ -269,7 +269,7 @@ SmStatus SmBrepConstructor::EndShell
 
   if (bStitchShell)
     {
-      m_pBrep->ValidatePointers();
+      SER( m_pBrep->ValidatePointers() );
       SmTArray<SmFaceuse*> sFaceuses;
       SmTArray<SmEdge*>    sShellEdges;
       SmTArray<SmEdge*>    sFaceEdges;
@@ -319,7 +319,7 @@ SmFace * SmBrepConstructor::StartFace
     }
 
   m_pFace = new(m_pBrep) SmFace(); NERN(m_pFace);
-  m_pBrep->m_pFaceListHead->PostInsert(m_pFace);
+  (void)m_pBrep->m_pFaceListHead->PostInsert(m_pFace); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
   SM_OLDTOL_LINE m_pFace->m_sZoneTol3d = (m_pBrep->GetTolerance()) ;
 
@@ -341,19 +341,19 @@ SmFace * SmBrepConstructor::StartFace
   // Connect up to shells
   if (eOutsideFaceuse == SM_OT_SAME)
     {
-      m_pOuterShell->PostInsert(pFU1);
+      (void)m_pOuterShell->PostInsert(pFU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
       if (m_pInnerShell)
-        { m_pInnerShell->PostInsert(pFU2); }
+        { (void)m_pInnerShell->PostInsert(pFU2); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
       else
-        { m_pOuterShell->PostInsert(pFU2); }
+        { (void)m_pOuterShell->PostInsert(pFU2); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
     }
   else
     {
       if (m_pInnerShell)
-        { m_pInnerShell->PostInsert(pFU1); }
+        { (void)m_pInnerShell->PostInsert(pFU1); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
       else
-        { m_pOuterShell->PostInsert(pFU1); }
-      m_pOuterShell->PostInsert(pFU2);
+        { (void)m_pOuterShell->PostInsert(pFU1); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+      (void)m_pOuterShell->PostInsert(pFU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
     }
 
   return m_pFace;
@@ -403,8 +403,8 @@ SmLoop * SmBrepConstructor::StartAndEndSingleVertexLoop
   SmVertex    * pV   = new(m_pBrep) SmVertex();
 
   // Connect vertex and vertexuses
-  pV->PostInsert(pVU1);
-  pV->PostInsert(pVU2);
+  (void)pV->PostInsert(pVU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+  (void)pV->PostInsert(pVU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
   // Connect vertexuses to loop
   pLU1->m_pEUorVU = pVU1;
@@ -421,7 +421,7 @@ SmLoop * SmBrepConstructor::StartAndEndSingleVertexLoop
   SM_OLDTOL_LINE pV->m_sZoneTol3d = (m_pBrep->GetTolerance()) ;
 
   // Add vertex to brep
-  m_pBrep->m_pVertexListHead->PostInsert(pV);
+  (void)m_pBrep->m_pVertexListHead->PostInsert(pV); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
   m_pLoop = NULL;
 
@@ -440,7 +440,7 @@ SmVertex* SmBrepConstructor::StartVertexOfLoop
 {
   SmVertex* pV = new(m_pBrep) SmVertex();
 
-  m_pBrep->m_pVertexListHead->PostInsert(pV);
+  (void)m_pBrep->m_pVertexListHead->PostInsert(pV); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
   SM_OLDTOL_LINE pV->m_sZoneTol3d = (m_pBrep->GetTolerance()) ;
 
@@ -475,8 +475,8 @@ SmLoop * SmBrepConstructor::StartLoop(SmOrientType eOrientationToSurface)
   pLU1->m_pL = m_pLoop;
   pLU2->m_pL = m_pLoop;
 
-  m_pFace->m_pFU->PostInsert(pLU1);  // connect pLU1 to upward faceuse
-  m_pFace->m_pFU->m_pFUMate->PostInsert(pLU2);
+  (void)m_pFace->m_pFU->PostInsert(pLU1);  // connect pLU1 to upward faceuse // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+  (void)m_pFace->m_pFU->m_pFUMate->PostInsert(pLU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
   m_pLoop->m_pLU = pLU1;             // Primary loopuse is the one connected to upward faceuse
 
   // cache the loop orientation relative to the surface
@@ -559,7 +559,7 @@ SmStatus SmBrepConstructor::EndLoop()
           if (!pV)
             {
               pV = new(m_pBrep) SmVertex();
-              m_pBrep->m_pVertexListHead->PostInsert(pV);
+              SER( m_pBrep->m_pVertexListHead->PostInsert(pV) );
   
               SM_OLDTOL_LINE pV->m_sZoneTol3d = (m_pBrep->GetTolerance()) ;
 
@@ -575,7 +575,7 @@ SmStatus SmBrepConstructor::EndLoop()
               SER(pCurve->EvaluatePoint(dT,sPnt));
               pV->SetPoint(sPnt);
             }
-          pV->PostInsert(pVU);
+          SER( pV->PostInsert(pVU) );
         }
       else
         {
@@ -585,7 +585,7 @@ SmStatus SmBrepConstructor::EndLoop()
       // Now hook up vertexuse on the bottom loopuse
       if (pVUMateCCW->m_pListOwner == NULL)
         {
-          pV->PostInsert(pVUMateCCW);
+          SER( pV->PostInsert(pVUMateCCW) );
         }
       SmEdgeuse *pCW = pEU->GetCWEdgeuse();
       SmEdgeuse *pCWMate = pCW->GetMate();
@@ -660,7 +660,7 @@ SmEdge * SmBrepConstructor::StartEdge
   if (pOptExistingEdge == NULL)
     {
       pEdge = new(m_pBrep) SmEdge();
-      m_pBrep->m_pEdgeListHead->PostInsert(pEdge);
+      (void)m_pBrep->m_pEdgeListHead->PostInsert(pEdge); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
       SM_OLDTOL_LINE pEdge->m_sZoneTol3d = (m_pBrep->GetTolerance()) ;
 
@@ -757,21 +757,21 @@ SmEdge * SmBrepConstructor::StartEdge
     {
       if (pOptExistingStartVertex)
         {
-          pOptExistingStartVertex->PostInsert(pVU1);
+          (void)pOptExistingStartVertex->PostInsert(pVU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         }
       if (pOptExistingEndVertex)
         {
-          pOptExistingEndVertex->PostInsert(pVU2);
+          (void)pOptExistingEndVertex->PostInsert(pVU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         }
       if (pEU1->GetOrientation() == SM_OT_SAME)
         {
-          pEdge->PostInsert(pEU1);
-          pEdge->PostInsert(pEU2);
+          (void)pEdge->PostInsert(pEU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+          (void)pEdge->PostInsert(pEU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         }
       else
         {  // pEU2 is same orient
-          pEdge->PostInsert(pEU2);
-          pEdge->PostInsert(pEU1);
+          (void)pEdge->PostInsert(pEU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+          (void)pEdge->PostInsert(pEU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         }
     }
   else
@@ -785,16 +785,16 @@ SmEdge * SmBrepConstructor::StartEdge
       if (pEU->GetOrientation() == pEU1->GetOrientation())
         {
           SmVertex *pV = pEUVU->GetVertex();
-          if (pV) { pV->PostInsert(pVU1); }
+          if (pV) { (void)pV->PostInsert(pVU1); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
           pV = pEUMate->GetVertexuse()->GetVertex();
-          if (pV) { pV->PostInsert(pVU2); }
+          if (pV) { (void)pV->PostInsert(pVU2); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         }
       else {
           SmVertex *pV = pEUVU->GetVertex();
-          if (pV) { pV->PostInsert(pVU2); }
+          if (pV) { (void)pV->PostInsert(pVU2); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
           pV = pEUMate->GetVertexuse()->GetVertex();
-          if (pV) { pV->PostInsert(pVU1); }
+          if (pV) { (void)pV->PostInsert(pVU1); } // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         }
 
       // Find the Edgeuse sector for the new EU's
@@ -810,20 +810,20 @@ SmEdge * SmBrepConstructor::StartEdge
           // Create a temporary edge
           SmEdge * pTempEdge = new (m_pBrep) SmEdge();
           SmCurve* pTempCurve = NULL;
-          m_pBrep->m_pEdgeListHead->PostInsert(pTempEdge);
+          (void)m_pBrep->m_pEdgeListHead->PostInsert(pTempEdge); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
           SM_OLDTOL_LINE pTempEdge->m_sZoneTol3d = (m_pBrep->GetTolerance());
           pTempEdge->SetInterval(pEdge->GetInterval());
           if (pEU1->GetOrientation() == SM_OT_SAME)
           {
-              pTempEdge->PostInsert(pEU1);
-              pTempEdge->PostInsert(pEU2);
+              (void)pTempEdge->PostInsert(pEU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+              (void)pTempEdge->PostInsert(pEU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
           }
           else
           { // pEU2 is same orient
-              pTempEdge->PostInsert(pEU2);
-              pTempEdge->PostInsert(pEU1);
+              (void)pTempEdge->PostInsert(pEU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+              (void)pTempEdge->PostInsert(pEU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
           }
-          pEdge->GetCurve()->Copy(*GetContext(), pTempCurve);
+          (void)pEdge->GetCurve()->Copy(*GetContext(), pTempCurve); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
           pTempEdge->SetCurve(pTempCurve);
           SmObjDelete sCleanEdge(pTempEdge);
 
@@ -856,8 +856,8 @@ SmEdge * SmBrepConstructor::StartEdge
           if (pEUSector == NULL)
           { pEUSector = pEUMate; }
 
-          pTempEdge->Remove(pEU1);
-          pTempEdge->Remove(pEU2);
+          (void)pTempEdge->Remove(pEU1); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
+          (void)pTempEdge->Remove(pEU2); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
         } // end 
 
         SE(pEdge->AddOrientedEUPair(pEU1, pEU2, pEUSector));
@@ -939,8 +939,8 @@ SmStatus SmBrepConstructor::SetLimits
         // snap dMin to curve->interval->min when 3d point is within tol
         // Accounts for dropped point falling on wrong side of seam
         SmPoint3d sEdgeMin, sCurveMin;
-        pCurve->EvaluatePoint(dMin, sEdgeMin);
-        pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMin(), sCurveMin);
+        SER( pCurve->EvaluatePoint(dMin, sEdgeMin) );
+        SER( pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMin(), sCurveMin) );
         SmZoneTol3d sTol = SmTol::GetZoneTol3d(m_pEdge);
 
         if (  sEdgeMin.DistanceBetweenSquared(sCurveMin) < sTol*sTol)
@@ -1000,8 +1000,8 @@ SmStatus SmBrepConstructor::SetLimits
         // snap dMax to curve->interval->max when 3d point is within tol
         // Accounts for dropped point falling on wrong side of seam
         SmPoint3d sEdgeMax, sCurveMax;
-        pCurve->EvaluatePoint(dMax, sEdgeMax);
-        pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMax(), sCurveMax);
+        SER( pCurve->EvaluatePoint(dMax, sEdgeMax) );
+        SER( pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMax(), sCurveMax) );
         SmZoneTol3d sTol = SmTol::GetZoneTol3d(m_pEdge);
 
         if (  sEdgeMax.DistanceBetweenSquared(sCurveMax) < sTol*sTol)
@@ -1163,7 +1163,7 @@ SmVertex * SmBrepConstructor::StartVertex
   (const SmPoint3d & crPoint)
 {
     SmVertex * pV = new (m_pBrep) SmVertex();
-    m_pBrep->m_pVertexListHead->PostInsert(pV);
+    (void)m_pBrep->m_pVertexListHead->PostInsert(pV); // SolidCraft: PostInsert and PreInsert always succeed (SmOwningTopology.h): they only link the list
 
     SM_OLDTOL_LINE pV->m_sZoneTol3d = (m_pBrep->GetTolerance());
 
@@ -1699,10 +1699,10 @@ SmStatus SmBrepData::WritePartToDB
         { std::ostream & fout = *rDB.GetOutStreamPtr();
           fout << "\n[Curve #" << i << "]\n";
         }
-      SmBrepData::WriteCurveToDB(*pContext, cr3DCurves[i],
+      SER( SmBrepData::WriteCurveToDB(*pContext, cr3DCurves[i],
                                   lWriteDBVersionNumber, sAllAttributes,
                                   sAttrMap, rDB,
-                                  bWriteAsBSplines, sApproxTol3d, TRUE);
+                                  bWriteAsBSplines, sApproxTol3d, TRUE) );
     }
 
   // for every surface
@@ -1713,10 +1713,10 @@ SmStatus SmBrepData::WritePartToDB
           std::ostream & fout = *rDB.GetOutStreamPtr();
           fout << "\n[Surface #" << j << "]\n";
         }
-      SmBrepData::WriteSurfaceToDB(*pContext, crSurfaces[j],
+      SER( SmBrepData::WriteSurfaceToDB(*pContext, crSurfaces[j],
                                    lWriteDBVersionNumber, sAllAttributes,
                                    sAttrMap, rDB,
-                                   bWriteAsBSplines, sApproxTol3d, TRUE);
+                                   bWriteAsBSplines, sApproxTol3d, TRUE) );
     }
 
   // add header for boolean trees
@@ -1779,7 +1779,7 @@ SmStatus SmBrepData::WritePartToDB
       // build a SmBrepData for this SmBrep
       SmBrepData * pBrepData = new (*pContext) SmBrepData(FALSE, SM_DS_SMLIB); NER(pBrepData);
       SmObjDelete sClean(pBrepData);
-      pBrepData->FromBrep(*crBreps[k],sAllAttributes);
+      SER( pBrepData->FromBrep(*crBreps[k],sAllAttributes) );
 
       // output the SmBrepData to stream
       SER(pBrepData->WriteToDB(*pContext, lWriteDBVersionNumber,
@@ -1816,7 +1816,7 @@ SmStatus SmBrepData::WritePartToDB
         }
 
       // output the attribute
-      SmBrepData::WriteAttributeToDB(sAllAttributes[kk],rDB);
+      SER( SmBrepData::WriteAttributeToDB(sAllAttributes[kk],rDB) );
     }
 
   // all done
@@ -2154,18 +2154,18 @@ SmBrepData::SmBrepData
   m_bIsGeomBorrowed(FALSE),
   m_lHealerVersion(0),
 
-  m_vRegions (*(new (*GetContext()) SmTArray<SmRegionData>(*GetContext()))),
-  m_vShells  (*(new (*GetContext()) SmTArray<SmShellData>(*GetContext()))),
+  m_vRegions (*(new SmTObjArray<SmRegionData>())),
+  m_vShells  (*(new SmTObjArray<SmShellData>())),
   m_vCFaces  (*(new (*GetContext()) SmTArray<ULONG>(*GetContext()))),
 
-  m_vFaceuses(*(new (*GetContext()) SmTArray<SmFaceuseData>(*GetContext()))),
-  m_vFaces   (*(new (*GetContext()) SmTArray<SmFaceData>(*GetContext()))),
-  m_vLoops   (*(new (*GetContext()) SmTArray<SmLoopData>(*GetContext()))),
+  m_vFaceuses(*(new SmTObjArray<SmFaceuseData>())),
+  m_vFaces   (*(new SmTObjArray<SmFaceData>())),
+  m_vLoops   (*(new SmTObjArray<SmLoopData>())),
 
   m_vCEdges  (*(new (*GetContext()) SmTArray<ULONG>(*GetContext()))),
-  m_vEdgeuses(*(new (*GetContext()) SmTArray<SmEUData>(*GetContext()))),
-  m_vEdges   (*(new (*GetContext()) SmTArray<SmEdgeData>(*GetContext()))),
-  m_vVertices(*(new (*GetContext()) SmTArray<SmVertexData>(*GetContext()))),
+  m_vEdgeuses(*(new SmTObjArray<SmEUData>())),
+  m_vEdges   (*(new SmTObjArray<SmEdgeData>())),
+  m_vVertices(*(new SmTObjArray<SmVertexData>())),
 
   m_vUVCurves(*(new (*GetContext()) SmTArray<SmCurve*>(*GetContext()))),
   m_v3DCurves(*(new (*GetContext()) SmTArray<SmCurve*>(*GetContext()))),
@@ -2223,24 +2223,13 @@ NOTES:
 ***********************************************************************/
 SmBrepData::~SmBrepData()
 {
-  // locals
-  ULONG ii ;
-
-  // clean up memory within the items of the internal arrays
-  for(ii=0;ii<m_vRegions.GetSize();ii++)  { m_vRegions[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vShells.GetSize();ii++)   { m_vShells[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vFaceuses.GetSize();ii++) { m_vFaceuses[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vFaces.GetSize();ii++)    { m_vFaces[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vLoops.GetSize();ii++)    { m_vLoops[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vEdgeuses.GetSize();ii++) { m_vEdgeuses[ii].m_sAttributes.SetSize(0) ; }
-  for(ii=0;ii<m_vVertices.GetSize();ii++) { m_vVertices[ii].m_sAttributes.SetSize(0) ; }
   if(m_bIsGeomBorrowed == FALSE)
     { SmObjsDelete<SmCurve*>   sDelUVCurves(&m_vUVCurves) ;
       SmObjsDelete<SmCurve*>   sDel3DCurves(&m_v3DCurves) ;
       SmObjsDelete<SmSurface*> sDelSurfaces(&m_vSurfaces) ;
     } // end scope that forces all items within internal arrays to be deleted
 
-  // delete the internal arrays
+  // delete the internal arrays (the topology data arrays destroy their elements)
   delete &m_vRegions ;
   delete &m_vShells ;
   delete &m_vCFaces ;
@@ -2759,6 +2748,7 @@ SmStatus SmBrepData::FromBrep
                                           : FALSE ;
           SmShell * pShell              = pEdgeuse->GetShell();
           m_vEdgeuses[i].m_lShell       = GET_MAP(pShell);
+          m_vEdgeuses[i].m_lUVCurve     = SM_NO_OBJECT;  // a wire edgeuse has no UV curve; WriteToDB writes this index
         }
       else
         { // SmLoopuse_TYPE edgeuse connects an edge in a loop connecting edges to a face
@@ -2959,8 +2949,8 @@ SmStatus SmBrepData::ReadFromDB
 
       if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
         {
-          SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,
-                                                       pBrepData->m_vAttributes,rDB);
+          SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,
+                                                       pBrepData->m_vAttributes,rDB) );
         }
       else
         {
@@ -3010,10 +3000,10 @@ SmStatus SmBrepData::ReadFromDB
     {
       if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
         {
-          SmAttributeData::ReadIndexedAttributesFromDB(crContext,
+          SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,
                                                        rAllAttributes,
                                                        pBrepData->m_vAttributes,
-                                                       rDB);
+                                                       rDB) );
         }
       else
         {
@@ -3051,7 +3041,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every region
   for (i=0; i<pBrepData->m_lNumRegions; i++)
     {
-      pBrepData->m_vRegions[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vRegions[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Shells
@@ -3077,7 +3067,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every shell
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vShells[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vShells[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Composite Faces
@@ -3159,7 +3149,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every faceuse
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vFaceuses[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vFaceuses[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Face Data
@@ -3185,7 +3175,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every face
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vFaces[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vFaces[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Loop Data
@@ -3210,7 +3200,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every loop
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vLoops[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vLoops[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Composite Edge
@@ -3294,7 +3284,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every edgeuse
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vEdgeuses[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vEdgeuses[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Edge Data
@@ -3318,7 +3308,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every edge
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vEdges[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vEdges[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // Vertex Data
@@ -3342,7 +3332,7 @@ SmStatus SmBrepData::ReadFromDB
   // read every vertex
   for (i=0; i<lCount; i++)
     {
-      pBrepData->m_vVertices[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs);
+      SER( pBrepData->m_vVertices[i].ReadFromDB(crContext,lDBVersionNumber,rAllAttributes,rDB,bPersistAttribs) );
     }
 
   // UV-Curve Data
@@ -3629,7 +3619,7 @@ SmStatus SmBrepData::ReadFromFile
           // output a one character header and the version number
           char sHeader ;  // for char 'V'
           SER(sDB.ReadChar(sHeader)) ;
-          sDB.ReadLong( lDBVersionNumber );
+          SER( sDB.ReadLong( lDBVersionNumber ) );
           if ( lDBVersionNumber >= 40 )
           { rFileIn.ignore( sizeof( long long ) - sizeof( long ) ); }
         }
@@ -3651,7 +3641,7 @@ SmStatus SmBrepData::ReadFromFile
           // output a one character header and the version number
           char sHeader ;  // for char 'H'
           SER(sDB.ReadChar(sHeader)) ;
-          sDB.ReadLong( lHealerVersion );
+          SER( sDB.ReadLong( lHealerVersion ) );
         }
       }
 
@@ -3720,7 +3710,7 @@ SmStatus SmBrepData::WriteToDB
       rFileOut << "//Brep Starts\n";
       if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
         {
-          SmAttributeData::WriteIndexedAttributesToDB(m_vAttributes,rDB);
+          SER( SmAttributeData::WriteIndexedAttributesToDB(m_vAttributes,rDB) );
         }
       else
         {
@@ -3752,7 +3742,7 @@ SmStatus SmBrepData::WriteToDB
   else // Binary
     {
       if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
-        { SmAttributeData::WriteIndexedAttributesToDB(m_vAttributes,rDB);
+        { SER( SmAttributeData::WriteIndexedAttributesToDB(m_vAttributes,rDB) );
         }
       else
         {
@@ -3785,7 +3775,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Region Index
         }
-      m_vRegions[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vRegions[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Shells
@@ -3822,7 +3812,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Shell Index
         }
-      m_vShells[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vShells[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Composite Faces
@@ -3908,7 +3898,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Index
         }
-      m_vFaceuses[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vFaceuses[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Face Data
@@ -3940,7 +3930,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Index
         }
-      m_vFaces[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vFaces[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Loop Data
@@ -3973,7 +3963,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Index
         }
-      m_vLoops[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vLoops[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Composite Edges
@@ -4064,7 +4054,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Index
         }
-      m_vEdgeuses[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vEdgeuses[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Edge Data
@@ -4095,7 +4085,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Index
         }
-      m_vEdges[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vEdges[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // Vertex Data
@@ -4126,7 +4116,7 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i;//Index
         }
-      m_vVertices[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( m_vVertices[i].WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     }
 
   // set approx tolerance
@@ -4189,10 +4179,10 @@ SmStatus SmBrepData::WriteToDB
              }
         } // end z != NL_NOZ check
 
-      SmBrepData::WriteCurveToDB(crContext, m_vUVCurves[i],
+      SER( SmBrepData::WriteCurveToDB(crContext, m_vUVCurves[i],
                                  lDBVersionNumber, rAllAttributes,
                                  rAttrMap, rDB,
-                                 bWriteAsBSplines, sApproxTol3d, bPersistAttribs);
+                                 bWriteAsBSplines, sApproxTol3d, bPersistAttribs) );
     } // end iter every m_vUVCurves[i]
 
   // 3D-Curve Data
@@ -4215,10 +4205,10 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i << " - 3D-Curve\n";
         }
-      SmBrepData::WriteCurveToDB(crContext, m_v3DCurves[i],
+      SER( SmBrepData::WriteCurveToDB(crContext, m_v3DCurves[i],
                                  lDBVersionNumber, rAllAttributes,
                                  rAttrMap, rDB,
-                                 bWriteAsBSplines, sApproxTol3d, bPersistAttribs);
+                                 bWriteAsBSplines, sApproxTol3d, bPersistAttribs) );
     } // end iter every m_v3DCurves[i]
 
   // Surface Data
@@ -4241,10 +4231,10 @@ SmStatus SmBrepData::WriteToDB
           std::ostream & rFileOut = *rDB.GetOutStreamPtr();
           rFileOut << i << " - Surface\n";
         }
-      SmBrepData::WriteSurfaceToDB(crContext,m_vSurfaces[i],
+      SER( SmBrepData::WriteSurfaceToDB(crContext,m_vSurfaces[i],
                                    lDBVersionNumber,rAllAttributes,
                                    rAttrMap, rDB,
-                                   bWriteAsBSplines, sApproxTol3d, bPersistAttribs);
+                                   bWriteAsBSplines, sApproxTol3d, bPersistAttribs) );
     } // end iter every m_vSurfaces[i]
 
   // all done
@@ -4386,13 +4376,13 @@ SmStatus SmRegionData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr();
       rFileIn >> index;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       rFileIn >> m_lNumShells >> m_lStartShell >> m_bIsVoidFlag;
       GOTO_NEXT_LINE;
     }
   else // Binary
     {
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       SER(rDB.ReadLong(m_lNumShells));
       SER(rDB.ReadLong(m_lStartShell));
       SER(rDB.ReadBoolean(m_bIsVoidFlag));
@@ -4400,7 +4390,7 @@ SmStatus SmRegionData::ReadFromDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
     }
 
   return SM_SUCCESS;
@@ -4419,7 +4409,7 @@ SmStatus SmRegionData::WriteToDB
 {
     SmFileType eType = rDB.GetFileType();
 
-    SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+    SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
     if (eType == SM_ASCII)
       {
@@ -4435,7 +4425,7 @@ SmStatus SmRegionData::WriteToDB
 
     if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
       {
-        SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
+        SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
       }
     return SM_SUCCESS;
 
@@ -4462,7 +4452,7 @@ SmStatus SmShellData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr();
       rFileIn >> index;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       rFileIn >> m_lShellType;
       switch (m_lShellType)
         {
@@ -4480,7 +4470,7 @@ SmStatus SmShellData::ReadFromDB
     }
   else // Binary
     {
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       SER(rDB.ReadLong(m_lShellType));
       switch (m_lShellType)
         {
@@ -4500,7 +4490,7 @@ SmStatus SmShellData::ReadFromDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
     }
 
   return SM_SUCCESS;
@@ -4517,7 +4507,7 @@ SmStatus SmShellData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-    SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+    SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
     SmBoolean bOrientation = 1 ; // used to remove m_bOrientation - not needed for shells - kept to keep smb file structure constant
 
     SmFileType eType = rDB.GetFileType();
@@ -4561,7 +4551,7 @@ SmStatus SmShellData::WriteToDB
       }
     if (lDBVersionNumber > 30 && bPersistAttribs == TRUE) 
       {
-        SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
+        SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
       }
 
     return SM_SUCCESS;
@@ -4587,20 +4577,20 @@ SmStatus SmFaceuseData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr();
       rFileIn >> index;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       rFileIn >> m_lFace >> m_bOrientation;
       GOTO_NEXT_LINE;
     }
   else
     {// Binary
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       SER(rDB.ReadLong(m_lFace));
       SER(rDB.ReadBoolean(m_bOrientation));
     }
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
     }
 
   return SM_SUCCESS;
@@ -4617,7 +4607,7 @@ SmStatus SmFaceuseData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-  SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+  SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
   SmFileType eType = rDB.GetFileType();
   if (eType == SM_ASCII)
@@ -4633,7 +4623,7 @@ SmStatus SmFaceuseData::WriteToDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -4660,7 +4650,7 @@ SmStatus SmFaceData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr();
       rFileIn >> index ;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
 #ifdef SM_USE_NEWTOL
       SM_NEWTOL_LINE double dDummyVal ;
@@ -4682,7 +4672,7 @@ SmStatus SmFaceData::ReadFromDB
     }
   else // Binary
     {
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
                                  SER(rDB.ReadDouble(sMin.x));
                                  SER(rDB.ReadDouble(sMax.x));
                                  SER(rDB.ReadDouble(sMin.y));
@@ -4701,11 +4691,11 @@ SmStatus SmFaceData::ReadFromDB
                                  SER(rDB.ReadBoolean(m_bRectangularTrim));
     }
 
-  m_vUVDomain.SetMinMax(sMin, sMax);
+  SER( m_vUVDomain.SetMinMax(sMin, sMax) );
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
     }
 
   return SM_SUCCESS;
@@ -4722,7 +4712,7 @@ SmStatus SmFaceData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-  SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+  SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
   SmFileType eType = rDB.GetFileType();
   SmPoint2d sMin = m_vUVDomain.GetMin();
@@ -4767,7 +4757,7 @@ SmStatus SmFaceData::WriteToDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -4792,7 +4782,7 @@ SmStatus SmLoopData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr();
       rFileIn >> index;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       rFileIn >> m_lLoopType;
       switch (m_lLoopType)
         {
@@ -4807,7 +4797,7 @@ SmStatus SmLoopData::ReadFromDB
     }
   else
     {// Binary
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
       SER(rDB.ReadLong(m_lLoopType));
       switch (m_lLoopType)
         {
@@ -4823,9 +4813,9 @@ SmStatus SmLoopData::ReadFromDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sLUUpperAttributes,rDB);
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sLULowerAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sLUUpperAttributes,rDB) );
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sLULowerAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -4841,7 +4831,7 @@ SmStatus SmLoopData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-  SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+  SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
   SmFileType eType = rDB.GetFileType();
   if (eType == SM_ASCII)
@@ -4875,9 +4865,9 @@ SmStatus SmLoopData::WriteToDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
-      SmAttributeData::WriteIndexedAttributesToDB(m_sLUUpperAttributes,rDB);
-      SmAttributeData::WriteIndexedAttributesToDB(m_sLULowerAttributes,rDB);
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sLUUpperAttributes,rDB) );
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sLULowerAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -4904,7 +4894,7 @@ SmStatus SmEUData::ReadFromDB
       rFileIn >> index;
     }
 
-  SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+  SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
   if (lDBVersionNumber > 31)
     { // changed from 30 RCLxx
@@ -4981,8 +4971,8 @@ SmStatus SmEUData::ReadFromDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sMateAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sMateAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -4998,7 +4988,7 @@ SmStatus SmEUData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-  SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+  SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
   SmFileType eType = rDB.GetFileType();
 
   if (lDBVersionNumber > 31)
@@ -5074,8 +5064,8 @@ SmStatus SmEUData::WriteToDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
-      SmAttributeData::WriteIndexedAttributesToDB(m_sMateAttributes,rDB);
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sMateAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -5101,7 +5091,7 @@ SmStatus SmEdgeData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr();
       rFileIn >> index;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
 #ifdef SM_USE_NEWTOL
       SM_NEWTOL_LINE double dDummyVal ;
@@ -5120,7 +5110,7 @@ SmStatus SmEdgeData::ReadFromDB
     }
   else // Binary
     {
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs);
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
 #ifdef SM_USE_NEWTOL
       SM_NEWTOL_LINE double dDummyVal ;
@@ -5137,11 +5127,11 @@ SmStatus SmEdgeData::ReadFromDB
       SER(rDB.ReadDouble(dMax));
     }
 
-  m_vInterval.SetMinMax(dMin, dMax);
+  SER( m_vInterval.SetMinMax(dMin, dMax) );
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB);
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) );
     }
 
   return SM_SUCCESS;
@@ -5158,7 +5148,7 @@ SmStatus SmEdgeData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-  SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs);
+  SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) );
 
   SmFileType eType = rDB.GetFileType();
   double dMin = m_vInterval.GetMin();
@@ -5199,7 +5189,7 @@ SmStatus SmEdgeData::WriteToDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB);
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) );
     }
   return SM_SUCCESS;
 
@@ -5224,7 +5214,7 @@ SmStatus SmVertexData::ReadFromDB
     {
       std::istream & rFileIn = *rDB.GetInStreamPtr() ;
       rFileIn >> index ;
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) ;
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs)  );
 
 #ifdef SM_USE_NEWTOL
       SM_NEWTOL_LINE double dDummyVal ;
@@ -5240,7 +5230,7 @@ SmStatus SmVertexData::ReadFromDB
     }
   else // Binary
     {
-      SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs) ;
+      SER( SmTopologyData::ReadFromDB(lDBVersionNumber,rDB,bPersistAttribs)  );
 
 #ifdef SM_USE_NEWTOL
       SM_NEWTOL_LINE double dDummyVal ;
@@ -5256,7 +5246,7 @@ SmStatus SmVertexData::ReadFromDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB) ;
+      SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,m_sAttributes,rDB)  );
     }
   return SM_SUCCESS ;
 
@@ -5272,7 +5262,7 @@ SmStatus SmVertexData::WriteToDB
    SmDatabaseIO & rDB,               // in : contains target stream
    SmBoolean      bPersistAttribs)   // in : TRUE = write attributes, false = don't, default:[TRUE]
 {
-  SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs) ;
+  SER( SmTopologyData::WriteToDB(lDBVersionNumber,rDB,bPersistAttribs)  );
 
   SmFileType eType = rDB.GetFileType() ;
   if (eType == SM_ASCII)
@@ -5305,7 +5295,7 @@ SmStatus SmVertexData::WriteToDB
 
   if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
     {
-      SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB) ;
+      SER( SmAttributeData::WriteIndexedAttributesToDB(m_sAttributes,rDB)  );
     }
 
   return SM_SUCCESS ;
@@ -5470,7 +5460,7 @@ SmStatus SmBrepData::ReadCurveFromDB
     if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
       {
         SmTArray<ULONG> sAttributes ;
-        SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,sAttributes,rDB);
+        SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,sAttributes,rDB) );
         // SmObjDelete sClean(pAttributes);
         if (sAttributes.GetSize() > 0)
           {
@@ -5535,7 +5525,7 @@ SmStatus SmBrepData::WriteCurveToDB
           // preface Curve Write with Type and Dim data
           SM_TYPE lType = SmBSplineCurve_TYPE ;
           ULONG   lDim  = pCrv->GetDim() ;
-          rDB.WriteType(lType, &lDim) ;
+          SER( rDB.WriteType(lType, &lDim)  );
 
           SmBSplineCurve *pBSC = SM_CAST_PTR(SmBSplineCurve, pCrv) ;
           SmObjDelete sClean(NULL) ;
@@ -5548,10 +5538,10 @@ SmStatus SmBrepData::WriteCurveToDB
               sBreakParams.Add(sIvl.GetMax()) ;
 
               // approximate curve with a BSpline
-              pCrv->ApproximateCurve(crContext, sBreakParams, sApproxTol3d, dAchievedTol, pBSC,
+              SER( pCrv->ApproximateCurve(crContext, sBreakParams, sApproxTol3d, dAchievedTol, pBSC,
                                      FALSE,    // in : bOptCreateAnalytics
                                      TRUE,     // in : bOptMatchParameterization
-                                     TRUE) ;   // in : bJustCopyBSplines
+                                     TRUE)  );   // in : bJustCopyBSplines
               sClean.SetObj(pBSC) ;
 
               // inform the public
@@ -5559,7 +5549,7 @@ SmStatus SmBrepData::WriteCurveToDB
             }
 
           // pass write along to SmBSplineCurve class
-          pBSC->SmBSplineCurve::WriteToDB(rDB, lDBVersionNumber) ;
+          SER( pBSC->SmBSplineCurve::WriteToDB(rDB, lDBVersionNumber)  );
 
         } // end write as BSplineCurve branch
       else // write native formats
@@ -5567,10 +5557,10 @@ SmStatus SmBrepData::WriteCurveToDB
           // preface Curve Write with Type and Dim data
           SM_TYPE lType = pCrv->GetType() ;
           ULONG   lDim  = pCrv->GetDim() ;
-          rDB.WriteType(lType, &lDim) ;
+          SER( rDB.WriteType(lType, &lDim)  );
 
           // pass write along to appropriate derived Curve type
-          pCrv->WriteToDB(rDB, lDBVersionNumber) ;
+          SER( pCrv->WriteToDB(rDB, lDBVersionNumber)  );
         }
 
     } // end branch for database versions greater than 32
@@ -5616,7 +5606,7 @@ SmStatus SmBrepData::WriteCurveToDB
                                                 //      expected NULL on input, owned by user, must be deleted by caller
                                rAllAttributes,  // i/o: accumulation of all attributes on all entities
                                rAttrMap));      // i/o: accumulation of [attribute,ObjectAttributeIndexValue+1] pairs
-      SmAttributeData::WriteIndexedAttributesToDB(sAttributes,rDB);
+      SER( SmAttributeData::WriteIndexedAttributesToDB(sAttributes,rDB) );
       // if (pAttributes) { delete pAttributes ; pAttributes = NULL ; }
     }
 
@@ -5724,7 +5714,7 @@ SmStatus SmBrepData::ReadSurfaceFromDB
     if (lDBVersionNumber > 30 && bPersistAttribs == TRUE)
       {
         SmTArray<ULONG> sAttributes ;
-        SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,sAttributes,rDB);
+        SER( SmAttributeData::ReadIndexedAttributesFromDB(crContext,rAllAttributes,sAttributes,rDB) );
         // SmObjDelete sClean(pAttributes);
 
         // when there are attributes
@@ -5790,7 +5780,7 @@ SmStatus SmBrepData::WriteSurfaceToDB
           {
             // preface Surface Write with Type and Dim data
             SM_TYPE lType = SmBSplineSurface_TYPE ;
-            rDB.WriteType(lType) ;
+            SER( rDB.WriteType(lType)  );
 
             SmBSplineSurface *pBSS = SM_CAST_PTR(SmBSplineSurface, pSrf) ;
             SmObjDelete sClean(NULL) ;
@@ -5799,7 +5789,7 @@ SmStatus SmBrepData::WriteSurfaceToDB
             if(pBSS == NULL)
               {
                 double dAchievedTol = 0.0 ;
-                pSrf->ApproximateSurface(crContext, sApproxTol3d, dAchievedTol, 3, pBSS) ;
+                SER( pSrf->ApproximateSurface(crContext, sApproxTol3d, dAchievedTol, 3, pBSS)  );
                 sClean.SetObj(pBSS) ;
 
                 // inform the public
@@ -5809,17 +5799,17 @@ SmStatus SmBrepData::WriteSurfaceToDB
             // pass write along to SmBSplineSurface class
 		    if (pBSS) 
 			{ 
-            	pBSS->SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber) ;
+            	SER( pBSS->SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber)  );
 			}
           } // end write as BSplineSurface branch
         else // write native formats
           {
             // preface Surface Write with Type and Dim data
             SM_TYPE lType = pSrf->GetType() ;
-            rDB.WriteType(lType) ;
+            SER( rDB.WriteType(lType)  );
 
             // pass write along to appropriate derived Surface type
-            pSrf->WriteToDB(rDB, lDBVersionNumber) ;
+            SER( pSrf->WriteToDB(rDB, lDBVersionNumber)  );
           }
 
       } // end branch for database versions greater than 32
@@ -5882,7 +5872,7 @@ SmStatus SmBrepData::WriteSurfaceToDB
                                                   //      expected NULL on input, owned by user, must be deleted by caller
                                  rAllAttributes,  // i/o: accumulation of all attributes on all entities
                                  rAttrMap));      // i/o: accumulation of [attribute,ObjectAttributeIndexValue+1] pairs
-        SmAttributeData::WriteIndexedAttributesToDB(sAttributes,rDB);
+        SER( SmAttributeData::WriteIndexedAttributesToDB(sAttributes,rDB) );
         // if(pAttributes != NULL) { delete pAttributes ; pAttributes = NULL ;  }
       }
 

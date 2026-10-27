@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 SolidCraft contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds the static library and its C header (capi/) on every desktop target SolidCraft ships,
+# and runs the C smoke test where the target can run.
+name: C API
+
+on:
+  push:
+    branches: [main]
+    paths: ['capi/**', 'source/SMLib/**', 'source/SM_API/**', '.github/workflows/capi.yml']
+  pull_request:
+    paths: ['capi/**', 'source/SMLib/**', 'source/SM_API/**', '.github/workflows/capi.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x86_64, runner: ubuntu-22.04 }
+          - { name: Linux aarch64, runner: ubuntu-22.04-arm }
+          - { name: macOS universal, runner: macos-14, cmake: '"-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' }
+          - { name: Windows x64 (MSVC), runner: windows-latest, cmake: '-A x64' }
+          - { name: Windows ARM64 (MSVC), runner: windows-11-arm, cmake: '-A ARM64' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: bash
+        run: cmake -S capi -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake }}
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --parallel 4
+      - name: Smoke test
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Library size
+        shell: bash
+        run: ls -l build/*.a build/Release/*.lib 2>/dev/null || true
+      - name: 'macOS: both architectures in the archive'
+        if: runner.os == 'macOS'
+        run: lipo -info build/libsmlib.a

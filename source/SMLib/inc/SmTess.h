@@ -850,6 +850,14 @@ public:
     SmTArray<SmPolyEdge*> & sNewPolyEdges   ///< [out]: newly constructed PolyEdges, including the polyedge passed in. <br>
   );
 
+  // bisect triangles of a face's tessellation that lie farther than the chord tolerance from the surface
+  SmStatus      RefineTrianglesToChordHeight
+  (
+    SmPolyBrep * pPolyBrep,                 ///< [i/o]: UV triangles of one face                                       <br>
+    SmFace     * pFace,                     ///< [in ]: the face they tessellate                                      <br>
+    double       dChordHeightTol            ///< [in ]: max allowed distance from a triangle to the surface, 0 = none <br>
+  );
+
   SmStatus      TessellateEdge          (SmEdge * pEdgeToTessellate);
 
   SmStatus      TraceLaminaLoop         

@@ -23,6 +23,11 @@
 //  #include <SmCFace.h>
 #include <SmAssertArray.h>
 #include <SmAttribute.h>
+#include <SmCrvOnSurf.h>
+
+#include <memory>
+#include <utility>
+#include <vector>
 
 //#define VALIDATE_TOPOLOGY 1
 
@@ -492,9 +497,12 @@ SmFilletExecutive::SmFilletExecutive
    m_crContext(crContext),
    m_pTargetBrep(pTargetBrep),
    m_pFilletBrep(NULL),
+   m_bCliffOverflow(FALSE),
    m_bDoPiecewiseMerge(FALSE),
    m_bDoTopologyInsertion(TRUE),
    m_bDoGlobalMerge(FALSE),
+   m_bBlendCurveAtThirds(FALSE),
+   m_bMarkCornerPatches(FALSE),
    m_bDoTrimming(TRUE),
    m_bDoClassification(TRUE),
    m_pAttributeE(NULL)
@@ -533,6 +541,12 @@ SmFilletExecutive::~SmFilletExecutive()
     {
       SmSurface * pSurf = sExtSurfaces[ii];
       if (pSurf) { delete pSurf; pSurf = NULL ; }
+    }
+
+  // SolidCraft change: copies of fillet surfaces left by a DoFilleting without DoFillet
+  for (i=0; i<m_vRadiusCornerSurfaces.GetSize(); i++)
+    {
+      delete m_vRadiusCornerSurfaces[i] ; m_vRadiusCornerSurfaces[i] = NULL ;
     }
 
   // delete filletCorners
@@ -695,6 +709,40 @@ SmStatus SmFilletExecutive::SetFilletParameters
 } // end SetFilletParameters ( edge numbers, possibly different parameters on each edge )
 
 /*******************************************************************//**
+PURPOSE: Check that every edge in rEdgePtrs is a live edge of pBrep.
+
+NOTES: Otherwise a foreign edge's own Brep is modified before the fillet
+    fails. IsLiveTopologyMember never dereferences the edge, so null and
+    stale handles are safe.
+***********************************************************************/
+SmStatus SmFilletExecutive::CheckEdgesAreInBrep
+ (SmBrep                    * pBrep,      // in :
+  const SmTArray< SmEdge* > & rEdgePtrs)  // in :
+{
+  if ( pBrep == NULL )
+    {
+      GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT, _T("SetFilletParameters: Null target Brep.\n") );
+      return SM_ERR_INVALID_INPUT;
+    }
+
+  TCHAR sBuff[SM_TBLOCK_SIZE];
+  for ( ULONG ie = 0; ie < rEdgePtrs.GetSize(); ie++ )
+    {
+      SmEdge* pEdge = rEdgePtrs[ie];
+      if ( ! pBrep->IsLiveTopologyMember( pEdge ) )
+        {
+          smos_sprintf( sBuff, _T("Edge[ %2lu ] == %p: not an edge of the target Brep\n"), ie, pEdge );
+          GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT, sBuff );
+          return SM_ERR_INVALID_INPUT;
+        }
+    }
+
+  return SM_SUCCESS;
+
+}  // end SmFilletExecutive::CheckEdgesAreInBrep
+
+
+/*******************************************************************//**
 PURPOSE: High-level call to set up filleting parameters,
     using edge pointers, with the same parameters on each edge.
 
@@ -731,9 +779,14 @@ SmStatus SmFilletExecutive::SetFilletParameters
   m_bDoGlobalMerge       = FALSE;
   m_bDoTrimming          = TRUE;
   m_bDoClassification    = TRUE;
+  m_bCliffOverflow       = FALSE; // SolidCraft change
+  m_vOpenEnds.clear();
 
   ULONG lNumFilletedEdges = rEdgePtrs.GetSize();
   if ( lNumFilletedEdges < 1 ) { return SM_SUCCESS; }
+
+  SmStatus eStatus = CheckEdgesAreInBrep( pBrep, rEdgePtrs );
+  if ( eStatus != SM_SUCCESS ) { return eStatus; }
 
   if ( eRadiusType == SM_FS_VARIABLE_RADIUS && pOptVarRadLaw == NULL )
     {
@@ -761,7 +814,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
   else if ( eXSectType == SM_FSG_CIRCULAR )
     { pFSG = new (*pContext) SmCircularCrossSectionFSG( TRUE, dXSectTol ); }
   else if ( eXSectType == SM_FSG_BLEND_CURVE )
-    { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity) ; }
+    { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity, m_bBlendCurveAtThirds) ; }
   else
     {
       GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
@@ -839,7 +892,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
           GetFilletErrorInfo()->NoteError( pEdge, SM_FIL_FAILURE, SM_FILERR_INVALID_INPUT, sBuff );
           return SM_ERR_INVALID_INPUT;
         }
-      this->LoadFilletSolver( pFS );
+      SER( this->LoadFilletSolver( pFS ) );
 
       // 3. Fillet Surface Generator: switch on cross-section type.
       pFS->SetFilletSurfaceGenerator( pFSG );
@@ -876,8 +929,11 @@ SmStatus SmFilletExecutive::SetFilletParameters
   ULONG                                      lContinuity,     // 1, 2, or 3 for G1, G2, or G3                   
                                                               // Used only when rXSectTypes[ii] == SM_FSG_BLEND_CURVE
                                                               // default:[1]                                    
-  double                                     dThumbweight)    // Used only when eXSectType == SM_FSG_BLEND_CURVE
+  double                                     dThumbweight,    // Used only when eXSectType == SM_FSG_BLEND_CURVE
                                                               // default:[1.0]
+  SmTArray< double >                       * pOptSecondRadii) // SM_FS_CONST_RADIUS only: the offset of the second
+                                                              // edgeuse's surface per edge (rRadiusValues gives the
+                                                              // first's), for an unequal chamfer. default:[NULL]
 {
   m_bIsInitialized = FALSE;
 
@@ -893,9 +949,14 @@ SmStatus SmFilletExecutive::SetFilletParameters
   m_bDoGlobalMerge       = FALSE;
   m_bDoTrimming          = TRUE;
   m_bDoClassification    = TRUE;
+  m_bCliffOverflow       = FALSE; // SolidCraft change
+  m_vOpenEnds.clear();
 
   ULONG lNumFilletedEdges = rEdgePtrs.GetSize();
   if ( lNumFilletedEdges < 1 ) { return SM_SUCCESS; }
+
+  SmStatus eStatus = CheckEdgesAreInBrep( pBrep, rEdgePtrs );
+  if ( eStatus != SM_SUCCESS ) { return eStatus; }
 
   SmBoolean bSingleXSectType   =    (rXSectTypes.GetSize() == 1)                   ? TRUE
                                  :  (rXSectTypes.GetSize() == lNumFilletedEdges)   ? FALSE
@@ -937,7 +998,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
       else if ( eXSectType == SM_FSG_CIRCULAR )
         { pFSG = new (*pContext) SmCircularCrossSectionFSG( TRUE, dXSectTol ); }
       else if ( eXSectType == SM_FSG_BLEND_CURVE )
-        { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity); }
+        { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity, m_bBlendCurveAtThirds); }
       else
         {
           GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
@@ -981,9 +1042,20 @@ SmStatus SmFilletExecutive::SetFilletParameters
         {
           case SM_FS_CONST_RADIUS:
             {
+              double * pSecond = NULL;
+              if ( pOptSecondRadii != NULL )
+                {
+                  if ( pOptSecondRadii->GetSize() != lNumFilletedEdges )
+                    {
+                      GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
+                                 _T("SetFilletParameters: second radii size mismatch.") );
+                      return SM_ERR_INVALID_INPUT;
+                    }
+                  pSecond = &(*pOptSecondRadii)[ii];
+                }
               pFS = new(*pContext) SmConstantRadiusFS( *pContext,
                   dApproxTol, dAngTolRad, dTanTolRad,
-                  dRadius, pEU );
+                  dRadius, pEU, pSecond );
               break;
             }
           case SM_FS_CONST_DIST:
@@ -1023,7 +1095,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
           GetFilletErrorInfo()->NoteError( pEdge, SM_FIL_FAILURE, SM_FILERR_INVALID_INPUT, sBuff );
           return SM_ERR_INVALID_INPUT;
         }
-      this->LoadFilletSolver( pFS );
+      SER( this->LoadFilletSolver( pFS ) );
 
 
       // 3. Fillet Surface Generator: switch on cross-section type.
@@ -1036,7 +1108,7 @@ SmStatus SmFilletExecutive::SetFilletParameters
           else if ( eXSectType == SM_FSG_CIRCULAR )
             { pFSG = new (*pContext) SmCircularCrossSectionFSG( TRUE, 0.1 ); }
           else if ( eXSectType == SM_FSG_BLEND_CURVE )
-            { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity) ; }
+            { pFSG = new (*pContext) SmBlendCurveCrossSectionFSG( dThumbweight, lContinuity, m_bBlendCurveAtThirds) ; }
           else
             {
               GetFilletErrorInfo()->NoteError( SM_FILERR_INVALID_INPUT,
@@ -1587,10 +1659,431 @@ SmStatus SmFilletExecutive::DoFillet()
   eStat = DoFilleting();  // note: increments unlocked mark value
   SER( eStat );
 
+  // SolidCraft change: a fillet surface turns where its radius has a corner; the face is
+  // split there into faces that are smooth, with an edge along the turn.
+  SER( SplitFilletFacesAtRadiusCorners() );
+
   // all done
   return SM_SUCCESS;
 
 } // end SmFilletExecutive::DoFillet
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. Whether a solver's blend adds material (a
+   concave blend, filling the void between its faces) rather than removing
+   it (a convex one).
+
+NOTES: For CreateFilletBrep. A blend goes into the sector between its two
+   faces where its ball rolls: a convex edge's (an outer edge's) material
+   wedge, which it cuts away, or a concave edge's void, which it fills
+   (SmFilletSolver::IsConcaveEdge). Not by classifying a point against the
+   body: mid-fillet that crashed in its ray fire (prog_test's fillet
+   regression, box_extrusion1.smb).
+***********************************************************************/
+static SmStatus sm_BlendAddsMaterial
+ (SmFilletSolver * pFS,      // in : the solver
+  SmBoolean      & rbAdds)   // out: TRUE = the blend fills the void between its faces
+{
+  SmEdge * pEdge = pFS->GetEdgeuse(0)->GetEdge();                     NER(pEdge);
+  SER( SmFilletSolver::IsConcaveEdge( *pEdge, rbAdds ));
+  return SM_SUCCESS;
+
+} // end sm_BlendAddsMaterial
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. Let a solver's trace reach as far as its rails
+   can lie from the filleted edge, on its surfaces' continuations.
+
+NOTES: For CreateFilletBrep, before CalcFilletGeom. The trace runs over each
+   base surface's domain extended by half its size (the solver's extension
+   factor, SetupOffsetExtension), and along the edge (a variable round) two
+   and a half edge lengths past each end. A blend wider than that reach is
+   clamped where its rails meet the extended domain's border, and the fillet
+   surface fitted over the whole trace comes out wrong all along the edge (a
+   variable round 2 -> 11 on a box edge whose top is 10 wide was 0.037 off
+   its circular sections, its law reaching 15.5 where the trace ends past
+   the edge), or ends early. A rail lies r / tan(t/2) from the edge, r the
+   radius (or offset) and t the angle between the two faces' planes: the
+   base domains are made to reach (SetTraceReach) twice the largest such
+   distance and the radius more, over the trace's whole length (a variable
+   radius as its law gives it there), when the default does not. A
+   variable round's trace then runs past the edge's ends only twice as far
+   as it is wide at its ends (its law grows on past them), where its corners
+   find the rails' ends. Planes and analytic surfaces continue exactly; a
+   B-spline surface is evaluated on its polynomial continuation. Blends the
+   default reach covers are traced as before.
+***********************************************************************/
+static SmStatus sm_ExtendTraceToItsRails
+ (SmFilletSolver * pFS)   // i/o: the solver
+{
+  SmOffsetSurface * apOffset[2] = { pFS->GetSurface(0), pFS->GetSurface(1) };
+  if ( apOffset[0] == NULL || apOffset[1] == NULL )
+    { return SM_SUCCESS; }
+  SmEdge * pEdge = pFS->GetEdgeuse(0)->GetEdge();      NER(pEdge);
+  const SmCurve * pCurve = pEdge->GetCurve();         NER(pCurve);
+
+  // the smallest angle between the faces' planes along the edge
+  double dAngle = SM_PI / 2.0;
+  for (ULONG i=1; i<8; i++)
+    {
+      SmPoint3d sPnt;
+      SER( pCurve->EvaluatePoint( pEdge->GetInterval().Evaluate( i / 8.0 ), sPnt ));
+      SmVector3d asNormal[2];
+      SmBoolean  bBoth = TRUE;
+      for (ULONG k=0; k<2 && bBoth; k++)
+        {
+          const SmSurface * pBase = apOffset[k]->GetBaseSurface();   NER(pBase);
+          SmBoolean bDropped = FALSE, bMulti = FALSE;
+          SmPoint2d sUV;
+          double    dGap = SM_BIG_DOUBLE;
+          SER( pBase->DropPoint( sPnt, pBase->GetNaturalUVDomain(), NULL, bDropped, sUV, dGap, bMulti ));
+          bBoth = bDropped;
+          if ( bDropped )
+            { SER( pBase->EvaluateNormal( sUV, TRUE, TRUE, asNormal[k] )); }
+        }
+      if ( !bBoth )
+        { continue; }
+      double dCos = smos_Min( 1.0, smos_Fabs( asNormal[0].Dot( asNormal[1] )));
+      dAngle = smos_Min( dAngle, acos( dCos ));
+    }
+  dAngle = smos_Max( dAngle, SM_PI / 180.0 );
+
+  // the largest radius over the trace's length: the edge, and for a variable round (its law
+  // growing on) as far past the ends as SmVariableRadiusFS::LoadInitialValues lets it run
+  double dRadius = smos_Max( smos_Fabs( apOffset[0]->GetOffsetDistance() ), smos_Fabs( apOffset[1]->GetOffsetDistance() ));
+  SmVariableRadiusFS * pVRFS = SM_CAST_PTR( SmVariableRadiusFS, pFS );
+  if ( pVRFS != NULL )
+    {
+      SmExtent1d sLawIvl = pVRFS->GetFilletLawInterval();
+      double     dPast   = 5.0 * pFS->GetExtensionFactor() * sLawIvl.GetLength();
+      SmExtent1d sTraced( sLawIvl.GetMin() - dPast, sLawIvl.GetMax() + dPast );
+      for (ULONG i=0; i<=64; i++)
+        { dRadius = smos_Max( dRadius, smos_Fabs( pVRFS->GetFilletRadius( sTraced.Evaluate( i / 64.0 )))); }
+    }
+  if ( !( dRadius > 0.0 ))
+    { return SM_SUCCESS; }
+  double dReach = ( 2.0 / tan( dAngle / 2.0 ) + 1.0 ) * dRadius;
+
+  // Each base surface's parameter directions that run across the edge (not mostly along it,
+  // by the edge's direction on it in 3D proportions), and whether the default reaches.
+  SmBoolean abAcross[2][2] = { { TRUE, TRUE }, { TRUE, TRUE } };
+  SmBoolean bShort = FALSE;
+  for (ULONG k=0; k<2; k++)
+    {
+      const SmSurface * pBase = apOffset[k]->GetBaseSurface();
+      SmExtent2d sDomain = pBase->GetNaturalUVDomain();
+      SmPoint2d  sMid    = sDomain.GetMid();
+      SmPoint3d  asEnds[4];
+      SER( pBase->EvaluatePoint( SmPoint2d( sDomain.GetMin().x, sMid.y ), asEnds[0] ));
+      SER( pBase->EvaluatePoint( SmPoint2d( sDomain.GetMax().x, sMid.y ), asEnds[1] ));
+      SER( pBase->EvaluatePoint( SmPoint2d( sMid.x, sDomain.GetMin().y ), asEnds[2] ));
+      SER( pBase->EvaluatePoint( SmPoint2d( sMid.x, sDomain.GetMax().y ), asEnds[3] ));
+      double     ad3D[2] = { asEnds[0].DistanceBetween( asEnds[1] ), asEnds[2].DistanceBetween( asEnds[3] ) };
+      SmVector2d sUVSize = sDomain.GetSize();
+      for (ULONG d=0; d<2; d++)
+        {
+          if ( ad3D[d] > SM_EFF_ZERO_SQRT && pFS->GetExtensionFactor() * ad3D[d] < dReach )
+            { bShort = TRUE; }
+        }
+      SmEdgeuse      * pEU = pFS->GetEdgeuse(k);
+      SmBSplineCurve * pUV = NULL;
+      if ( pEU == NULL || pEU->GetOrCreateUVTrimCurve( pUV ) != SM_SUCCESS || pUV == NULL )
+        { continue; }
+      SmPoint3d asDeriv[2];
+      SER( pUV->Evaluate( pUV->GetNaturalInterval().Evaluate( 0.5 ), 1, TRUE, asDeriv ));
+      double adAlong[2] = { 0.0, 0.0 };
+      for (ULONG d=0; d<2; d++)
+        {
+          double dScale = ( sUVSize[d] > 0.0 ) ? ad3D[d] / sUVSize[d] : 0.0;
+          adAlong[d] = asDeriv[1][d] * dScale;
+        }
+      double dLen = sqrt( adAlong[0] * adAlong[0] + adAlong[1] * adAlong[1] );
+      if ( dLen > 0.0 )
+        {
+          for (ULONG d=0; d<2; d++)
+            { abAcross[k][d] = ( smos_Fabs( adAlong[d] ) / dLen < 0.9 ) ? TRUE : FALSE; }
+        }
+    }
+  if ( bShort )
+    { pFS->SetTraceReach( dReach, abAcross ); }
+  return SM_SUCCESS;
+
+} // end sm_ExtendTraceToItsRails
+
+/*******************************************************************//**
+PURPOSE: Give an edge whose curve is a curve on a surface along an
+   isoparameter line that isoparameter curve, exactly, as its curve.
+
+NOTES: SolidCraft change, for SplitFilletFacesAtRadiusCorners. Other edges
+   are left as they are.
+***********************************************************************/
+static SmStatus sm_ReplaceIsoCrvOnSurf
+ (SmBrep * pBrep,   // i/o: Brep of the edge
+  SmEdge * pEdge)   // i/o: edge
+{
+  SmCrvOnSurf * pCOS = SM_CAST_PTR(SmCrvOnSurf, pEdge->GetCurve());
+  if (pCOS == NULL || pCOS->GetBaseSurface() == NULL || pCOS->GetUVCurve() == NULL)
+    { return SM_SUCCESS; }
+
+  // the edge's ends in the surface's parameters
+  SmExtent1d sIvl = pEdge->GetInterval();
+  SmPoint3d sUV0, sUV1;
+  SER(pCOS->GetUVCurve()->EvaluatePoint(sIvl.GetMin(), sUV0));
+  SER(pCOS->GetUVCurve()->EvaluatePoint(sIvl.GetMax(), sUV1));
+  const SmSurface * pSurface = pCOS->GetBaseSurface();
+  SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
+  double dTol = SM_EFF_ZERO_SQRT * (1.0 + sDomain.GetSize().Length());
+  SmSurfParamType eIso;
+  double dIso, dFrom, dTo;
+  if (smos_Fabs(sUV0.x - sUV1.x) <= dTol)
+    { eIso = SM_SP_U; dIso = sUV0.x; dFrom = sUV0.y; dTo = sUV1.y; }
+  else if (smos_Fabs(sUV0.y - sUV1.y) <= dTol)
+    { eIso = SM_SP_V; dIso = sUV0.y; dFrom = sUV0.x; dTo = sUV1.x; }
+  else
+    { return SM_SUCCESS; }  // not along an isoparameter line
+  if (smos_Fabs(dTo - dFrom) <= dTol)
+    { return SM_SUCCESS; }
+
+  SmBSplineCurve * pIso = NULL;
+  SER(pSurface->CreateIsoParametricCurve(*pBrep->GetContext(), eIso, dIso, 0.0, pIso));
+  NER(pIso);
+  SmObjDelete sDeleteIso(pIso);
+
+  // the isoparameter curve runs along the other parameter: keep the edge's part, its way round
+  SmExtent1d sNatural = pIso->GetNaturalInterval();
+  SmExtent1d sPart(smos_Max(sNatural.GetMin(), smos_Min(dFrom, dTo)), smos_Min(sNatural.GetMax(), smos_Max(dFrom, dTo)));
+  if (sPart.GetLength() <= dTol)
+    { return SM_SUCCESS; }
+  SER(pIso->Trim(sPart));
+  if (dTo < dFrom)
+    {
+      SmExtent1d sReversed;
+      SER(pIso->ReverseParameterization(pIso->GetNaturalInterval(), sReversed));
+    }
+
+  // it must run between the edge's own ends
+  SmPoint3d sEnd0, sEnd1, sIso0, sIso1;
+  SER(pCOS->EvaluatePoint(sIvl.GetMin(), sEnd0));
+  SER(pCOS->EvaluatePoint(sIvl.GetMax(), sEnd1));
+  SmExtent1d sIsoIvl = pIso->GetNaturalInterval();
+  SER(pIso->EvaluatePoint(sIsoIvl.GetMin(), sIso0));
+  SER(pIso->EvaluatePoint(sIsoIvl.GetMax(), sIso1));
+  double dEdgeTol = pEdge->GetTolerance();
+  if (!sIso0.CloserThan(dEdgeTol, sEnd0) || !sIso1.CloserThan(dEdgeTol, sEnd1))
+    { return SM_SUCCESS; }
+
+  sDeleteIso.Clear();
+  SER(pBrep->ReplaceCurve(pEdge, pIso));
+  return SM_SUCCESS;
+
+} // end sm_ReplaceIsoCrvOnSurf
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. Whether every face the blends roll on keeps some
+   of itself.
+
+NOTES: A face is trimmed back to each blend's rail on it. A rail can shrink
+   to a point: a rim's chamfer or round as wide as the rim's radius has its
+   rail on the face inside the rim at the rim's centre. While another edge
+   of the face's loop keeps a rail of some length, that point is a corner of
+   what is left of the face (a box's bottom loop chamfered as wide as its
+   corner rounds, the cone at each corner closing to a point on the round's
+   axis). A loop whose every edge is blended, each blend's rail on the face
+   a point, closes to that point instead: the blends take the whole of the
+   face (a cylinder's top rim chamfered or rounded as wide as the top).
+   That is a fault only where a blend's cross section meets the face at an
+   angle: a chamfer's cone then ends in a point, which is larger than the
+   face allows, and rbOutlast is FALSE. A cross section tangent to the face
+   at its rail (SmFilletSurfaceGenerator::MeetsItsFacesTangentially: the
+   round's arc, constant or variable radius or chord, and the G2 or G3
+   blend curve) closes it smoothly in the face's place, tangent to where
+   the face was (the round as wide as the top a hemispherical end), and
+   is not refused here. Each solver blends one edge, so this asks every
+   solver's rails; SmFilletSolver::RailsFitTheirFaces classifies each rail
+   against its face on its own, and a point inside the face is on it.
+***********************************************************************/
+SmStatus SmFilletExecutive::FacesOutlastTheirBlends
+  (SmBoolean & rbOutlast) // out: FALSE = the blends take the whole of a face they roll on, some at an angle to it
+{
+  rbOutlast = TRUE;
+  // Each face and blended edge whose blend's rail on that face is a point,
+  // and whether that blend's cross section meets the face tangentially.
+  struct PointRail
+  {
+    const SmFace * pFace;
+    const SmEdge * pEdge;
+    SmBoolean      bTangent;
+  };
+  std::vector<PointRail> sPointRails;
+  for (ULONG i=0; i<m_vFilletSolvers.GetSize(); i++)
+    {
+      SmFilletSolver * pSolver = m_vFilletSolvers[i];      NER(pSolver);
+      SmEdgeuse      * pFilEU = pSolver->GetEdgeuse(0);    NER(pFilEU);
+      const SmEdge   * pFilEdge = pFilEU->GetEdge();       NER(pFilEdge);
+      SmFilletSurfaceGenerator * pFSG = pSolver->GetFilletSurfaceGenerator(); NER(pFSG);
+      SmBoolean bTangent = pFSG->MeetsItsFacesTangentially();
+      SmTArray<SmFilletGeom*> sFGs;
+      pSolver->GetFilletGeoms( sFGs );
+      for (ULONG k=0; k<sFGs.GetSize(); k++)
+        {
+          SmFilletGeom * pFG = sFGs[k];
+          if (pFG == NULL || pFG->GetFilletGeomType() != SM_FG_DEFAULT)
+            { continue; }
+          for (ULONG ii=0; ii<2; ii++)
+            {
+              SmFilletEdge * pRail = pFG->GetRail(ii);     NER(pRail);
+              SmCurve      * pCurve = pRail->GetCurve();   NER(pCurve);
+              if (pCurve->IsDegenerate( pSolver->GetThisApproxTol3d() ))
+                { sPointRails.push_back( PointRail{ pRail->GetOriginalFace(), pFilEdge, bTangent } ); }
+            }
+        }
+    }
+  for (size_t i=0; i<sPointRails.size() && rbOutlast; i++)
+    {
+      const SmFace * pFace = sPointRails[i].pFace;         NER(pFace);
+      SmTArray<SmLoop*> sLoops;
+      pFace->GetLoops( sLoops );
+      for (ULONG j=0; j<sLoops.GetSize() && rbOutlast; j++)
+        {
+          SmTArray<SmEdge*> sEdges;
+          sLoops[j]->GetEdges( sEdges );
+          // The loop closes to a point when every edge of it has a point rail on
+          // the face; it ends in that point when some blend there meets the face
+          // at an angle.
+          SmBoolean bClosesToAPoint = (sEdges.GetSize() > 0);
+          SmBoolean bAllTangent = TRUE;
+          for (ULONG e=0; e<sEdges.GetSize() && bClosesToAPoint; e++)
+            {
+              bClosesToAPoint = FALSE;
+              for (const PointRail & crRail : sPointRails)
+                {
+                  if (crRail.pFace == pFace && crRail.pEdge == sEdges[e])
+                    {
+                      bClosesToAPoint = TRUE;
+                      if (!crRail.bTangent)
+                        { bAllTangent = FALSE; }
+                    }
+                }
+            }
+          if (bClosesToAPoint && !bAllTangent)
+            { rbOutlast = FALSE; }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmFilletExecutive::FacesOutlastTheirBlends
+
+/*******************************************************************//**
+PURPOSE: Keep copies of the fillet surfaces of solvers whose radius has a
+   corner, where those surfaces turn (a C0 knot).
+
+NOTES: SolidCraft change. SmCircularCrossSectionFSG::CreateSurface joins such
+   a surface from smooth pieces, C0 where the radius turns, and SMLib's check
+   refuses a face (and the edges round it) with a kink inside. The merge gives
+   the target Brep copies of the fillet faces and deletes m_pFilletBrep, so
+   SplitFilletFacesAtRadiusCorners finds the faces again by these copies.
+***********************************************************************/
+SmStatus SmFilletExecutive::NoteRadiusCornerSurfaces()
+{
+  for (ULONG i=0; i<m_vFilletSolvers.GetSize(); i++)
+    {
+      SmFilletSolver * pFS = m_vFilletSolvers[i];
+      SmTArray<double> sCorners;
+      if (pFS == NULL)
+        { continue; }
+      SER(pFS->GetRadiusCornerParameters(sCorners));
+      if (sCorners.GetSize() == 0)
+        { continue; }
+      for (ULONG j=0; j<pFS->m_vFilletGeoms.GetSize(); j++)
+        {
+          SmFilletGeom * pFG = pFS->m_vFilletGeoms[j];
+          SmSurface * pSurface = (pFG != NULL) ? pFG->GetFilletSurface() : NULL;
+          if (pSurface == NULL)
+            { continue; }
+          SmTArray<double> sUKnots, sVKnots;
+          SER(pSurface->FindKnotsByMaxContinuity(SM_CT_C0, FALSE, sUKnots, sVKnots));
+          if (sUKnots.GetSize() == 0 && sVKnots.GetSize() == 0)
+            { continue; }
+          SmSurface * pCopy = NULL;
+          SER(pSurface->Copy(*GetContext(), pCopy));
+          NER(pCopy);
+          m_vRadiusCornerSurfaces.Add(pCopy);
+        }
+    }
+  return SM_SUCCESS;
+
+} // end SmFilletExecutive::NoteRadiusCornerSurfaces
+
+/*******************************************************************//**
+PURPOSE: Split the faces of the target Brep on the surfaces noted by
+   NoteRadiusCornerSurfaces at their C0 knots.
+
+NOTES: SolidCraft change. Each face becomes faces that are smooth, with an
+   edge along the turn. Deletes the noted copies.
+***********************************************************************/
+SmStatus SmFilletExecutive::SplitFilletFacesAtRadiusCorners()
+{
+  SmObjsDelete<SmSurface*> sDeleteCopies(&m_vRadiusCornerSurfaces);
+  if (m_vRadiusCornerSurfaces.GetSize() == 0)
+    { return SM_SUCCESS; }
+  NER(m_pTargetBrep);
+
+  SmTArray<SmFace*> sFaces;
+  m_pTargetBrep->GetFaces(sFaces);
+  for (ULONG i=0; i<sFaces.GetSize(); i++)
+    {
+      // the merge gives the target an exact copy of each fillet surface
+      SmSurface * pSurface = sFaces[i]->GetSurface();
+      SmBoolean bFillet = FALSE;
+      for (ULONG j=0; j<m_vRadiusCornerSurfaces.GetSize() && pSurface != NULL && !bFillet; j++)
+        { bFillet = (*m_vRadiusCornerSurfaces[j] == *pSurface); }
+      if (!bFillet)
+        { continue; }
+      SmTArray<SmFace*> sPieces;
+      SER(m_pTargetBrep->SubdivideFaceAtDiscontinuities(sFaces[i], sPieces, SM_CT_C0));
+      // Each face's surface is cut at the turns to the side the face lies on, so the turn is
+      // its boundary, then back to the face (whose trims end within tolerance of the turn).
+      sPieces.Add(sFaces[i]);
+      for (ULONG j=0; j<sPieces.GetSize(); j++)
+        {
+          SmFace    * pPiece = sPieces[j];
+          SmSurface * pPieceSurface = pPiece->GetSurface(); NER(pPieceSurface);
+          SmExtent2d  sBox;
+          SER(pPiece->CalculateUVDomainFromUVTrimCurves(sBox));
+          SmPoint2d   sMid = (sBox.GetMin() + sBox.GetMax()) / 2.0;
+          SmExtent2d  sDomain = pPieceSurface->GetNaturalUVDomain();
+          SmPoint2d   sLo = sDomain.GetMin();
+          SmPoint2d   sHi = sDomain.GetMax();
+          SmTArray<double> sUKnots, sVKnots;
+          SER(pPieceSurface->FindKnotsByMaxContinuity(SM_CT_C0, FALSE, sUKnots, sVKnots));
+          for (ULONG k=0; k<sUKnots.GetSize(); k++)
+            {
+              if (sUKnots[k] <= sLo.x || sUKnots[k] >= sHi.x) { continue; }
+              if (sUKnots[k] < sMid.x) { sLo.x = sUKnots[k]; } else { sHi.x = sUKnots[k]; }
+            }
+          for (ULONG k=0; k<sVKnots.GetSize(); k++)
+            {
+              if (sVKnots[k] <= sLo.y || sVKnots[k] >= sHi.y) { continue; }
+              if (sVKnots[k] < sMid.y) { sLo.y = sVKnots[k]; } else { sHi.y = sVKnots[k]; }
+            }
+          SmExtent2d sSide(sLo, sHi);
+          if (!(sSide == sDomain))
+            { SER(pPieceSurface->TrimWithDomain(sSide)); }
+          SER(pPiece->ShrinkGeometry());
+        }
+
+      // The split's edges lie along isoparameter lines of the surface as it was, as curves on
+      // that surface (with its turn inside); each becomes that isoparameter curve itself.
+      for (ULONG j=0; j<sPieces.GetSize(); j++)
+        {
+          SmTArray<SmEdge*> sEdges;
+          sPieces[j]->GetEdges(sEdges);
+          for (ULONG k=0; k<sEdges.GetSize(); k++)
+            { SER(sm_ReplaceIsoCrvOnSurf(m_pTargetBrep, sEdges[k])); }
+        }
+    }
+  return SM_SUCCESS;
+
+} // end SmFilletExecutive::SplitFilletFacesAtRadiusCorners
 
 /*******************************************************************//**
 PURPOSE: Get the Fillet Corner associated with a vertex if there is
@@ -1619,7 +2112,7 @@ const
 {
   SmFilletSolver * pFilSolver = NULL;
   SmTArray< SmEdgeuse* > sEUs;
-  pEdge->GetEdgeuses( sEUs );
+  if ( pEdge->GetEdgeuses( sEUs ) != SM_SUCCESS ) { return NULL; }
 
   for ( ULONG ii=0; ii<sEUs.GetSize(); ii++ )
   {
@@ -1835,6 +2328,7 @@ SmStatus SmFilletExecutive::CreateFilletCorners
  (SmFilletErrorInfo * pOptFilletErrorInfo)
 {
   // for every vertex listed in m_vFilletedVertices array
+  SmBoolean bMissingCorner = FALSE;
   ULONG ii, lNumFVs = m_vFilletedVertices.GetSize();
   for (ii=0; ii<lNumFVs; ii++)
     {
@@ -1861,6 +2355,15 @@ SmBoolean bDebugMe = FALSE;
               sm_GraphicsLoop();
           }
 #endif // SM_DEBUG_CODE
+          // Every filleted vertex needs its corner: the corner topology, the smooth
+          // sequences and the merge all look it up. The map still holds the vertex's array
+          // of filleted edgeuses, which GetFilletCornerOfVertex() would hand out as its
+          // corner; drop it, finish the other corners (they own their arrays) and fail.
+          m_vVertexCornerMap.Remove(pVert);
+          delete pSolverEUs;
+          m_sErrorInfo.NoteError(pVert, SM_FIL_FAILURE, SM_FILERR_VERTEX_PROBLEM,
+                                 _T("Corner case not implemented"));
+          bMissingCorner = TRUE;
           continue;
         } // end no corner check
 
@@ -1875,6 +2378,9 @@ SmBoolean bDebugMe = FALSE;
     {
       *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
     }
+
+  if ( bMissingCorner )
+    { SER( SM_ERR ); }
 
   return SM_SUCCESS;
 
@@ -1935,7 +2441,24 @@ SmStatus SmFilletExecutive::CreateFilletBrep
 
   // Process smooth sequences of filleted Edges.
   // If this fails, the fillet can still continue.
-  this->ProcessSmoothEdgeSequences();
+  (void)this->ProcessSmoothEdgeSequences(); // SolidCraft: deliberate, upstream's own choice (above); the edges are filleted one by one
+
+  // SolidCraft change: a blend whose rolling ball does not fit a face it rolls on (the face
+  // curves tighter than the ball: a round wider than the rim of a pin it rounds, its ball
+  // centred beyond the axis; a round run up a box's edge into a smaller round) has a rail
+  // turned back on itself, and would pass through itself. Judged on the blend's sections along
+  // its edges, before the corners: a corner where such a rail ends looks for it where it
+  // cannot be.
+  for(ULONG lFitIdx=0; lFitIdx<m_vFilletSolvers.GetSize(); lFitIdx++)
+    {
+      SmBoolean bFits = TRUE;
+      SER( m_vFilletSolvers[lFitIdx]->BallFitsItsFaces( bFits ));
+      if ( !bFits )
+        {
+          GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: a rail turns back on itself: the blend is wider than the face's curve allows (its rolling ball does not fit)") );
+          return SM_ERR;
+        }
+    }
 
   // Process corners by calculating the vertices first.
   // Those vertices will determine the connectivity between
@@ -2165,6 +2688,9 @@ SmStatus SmFilletExecutive::CreateFilletBrep
         }
 #endif // SM_DEBUG_CODE
 
+      // SolidCraft change: a trace that reaches the rails
+      SER( sm_ExtendTraceToItsRails( pFilSolver ));
+
       // Compute untrimmed filletSurface and railCurve geometry
       if(SM_SUCCESS != pFilSolver->CalcFilletGeom())
         {
@@ -2234,6 +2760,65 @@ SmStatus SmFilletExecutive::CreateFilletBrep
   // Fillet surfaces and rail curves exist now, not trimmed to anything.
   // For example, new fillet vertices that are supposed to lie in a face
   // of the target Brep might lie outside of the face.
+
+  // SolidCraft change: a blend whose rails leave the faces they roll on between its ends is
+  // larger than those faces. A convex blend (one that removes material) whose rails leave them
+  // across cliffs is built on the faces' continuations, and the material it removes is
+  // subtracted from the body (m_bCliffOverflow, SubtractRemovalRegion): as if the cliffs were
+  // not there, then cut by what they cut away, which can only remove material and never
+  // bridges an opening. Refused: a concave blend (one that adds material) that overflows; a
+  // round or curvature-continuous blend whose rail runs on into the body's material (beyond a
+  // wall, where it would meet the wall's underside tangentially, in a knife edge); and an
+  // overflow together with a rail rolling over a tangent edge, or with a fillet end on more
+  // than one face (a corner of more than three edges, which the global merge would cut).
+  SmBoolean bOverflow = FALSE, bConcave = FALSE, bConcaveOverflow = FALSE, bRoundIntoMaterial = FALSE, bRollsOver = FALSE;
+  for(solverIdx=0; solverIdx<m_vFilletSolvers.GetSize(); solverIdx++)
+    {
+      SmFilletSolver * pFilSolver = m_vFilletSolvers[solverIdx];
+      SmBoolean bFit = TRUE, bRolls = FALSE, bIntoMaterial = FALSE;
+      SER( pFilSolver->RailsFitTheirFaces( bFit, bRolls, bIntoMaterial ));
+      if ( bRolls )
+        { bRollsOver = TRUE; }
+      if ( bFit )
+        { continue; }
+      bOverflow = TRUE;
+      SmBoolean bAdds = FALSE;
+      SER( sm_BlendAddsMaterial( pFilSolver, bAdds ));
+      if ( bAdds )
+        { bConcaveOverflow = TRUE; }
+      SmFilletSurfaceGenerator * pFSG = pFilSolver->GetFilletSurfaceGenerator();
+      if ( bIntoMaterial && ( pFSG == NULL || pFSG->GetFilletSurfaceGeneratorType() != SM_FSG_LINEAR ))
+        { bRoundIntoMaterial = TRUE; }
+    }
+  // whether the other blends add material (concave), when one overflows
+  for(solverIdx=0; solverIdx<m_vFilletSolvers.GetSize() && bOverflow && !bConcaveOverflow && !bConcave; solverIdx++)
+    { SER( sm_BlendAddsMaterial( m_vFilletSolvers[solverIdx], bConcave )); }
+  if ( bOverflow )
+    {
+      // too large for its faces, or an overflow the subtraction does not build: as before, too large
+      const TCHAR * cWhy = bConcaveOverflow   ? _T("Fillet Error: a rail leaves the face it rolls on (the blend is larger than the faces allow, and adds material)")
+                         : bRoundIntoMaterial ? _T("Fillet Error: a round's rail leaves the face it rolls on into the body's material (beyond a wall)")
+                         : bConcave           ? _T("Fillet Error: a rail leaves the face it rolls on while another blend adds material (not supported together)")
+                         : bRollsOver         ? _T("Fillet Error: a rail leaves the face it rolls on while a rail rolls over a tangent edge (not supported together)")
+                         : m_bDoGlobalMerge   ? _T("Fillet Error: a rail leaves the face it rolls on, and the fillet ends on more than one face (not supported together)")
+                         :                      NULL;
+      if ( cWhy != NULL )
+        {
+          GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, cWhy );
+          return SM_ERR;
+        }
+      m_bCliffOverflow = TRUE;
+    }
+  // SolidCraft change: blends that take the whole of a face, closing a loop of it to a point,
+  // some meeting the face at an angle (a chamfer's cone ending in a point), are larger than
+  // that face allows too.
+  SmBoolean bOutlast = TRUE;
+  SER( FacesOutlastTheirBlends( bOutlast ));
+  if ( !bOutlast )
+    {
+      GetFilletErrorInfo()->NoteError( SM_FILERR_NO_ROOM, _T("Fillet Error: the blends take the whole of a face they roll on, some at an angle to it (the blend is larger than the faces allow)") );
+      return SM_ERR;
+    }
 
 #ifdef SM_DEBUG_CODE
   if (iDebugLevel > 0 ) 
@@ -2373,7 +2958,9 @@ SmStatus SmFilletExecutive::CreateFilletBrep
   // when asked - intersect every rail curve with its originalFace->boundary
   // Edges and Vertices to find if the rail curve 'rolled' over onto another
   // surface.  If so adjust the fillets as needed to roll onto other surfaces.
-  if ( m_bDoClassification )
+  // SolidCraft change: not in a cliff overflow, which rolls over no tangent edge (refused
+  // above) and whose rails run on past the cliffs, on their faces' continuations.
+  if ( m_bDoClassification && !m_bCliffOverflow )
     {
       SmTArray<SmFilletCorner*> sAdjustedCorners; 
 
@@ -2681,6 +3268,12 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
   SmBoolean         bManifoldSolid = m_pTargetBrep->IsManifoldSolid() ;
   SmTArray<SmRegion*> sRegions;
 
+  // SolidCraft change: a copy of each filleted edge's curve (with the edge's interval on it),
+  // taken before the merge changes the target; each fillet surface names its edge's entry by an
+  // SM_AI_FILLET_EDGECURVE attribute, which the merge's copies of the surface carry along. The
+  // side of a fillet face its edge lies on is the side of the material the fillet removes (or adds).
+  std::vector<std::pair<std::unique_ptr<SmCurve>, SmExtent1d> > sFilletEdgeCurves;
+
   // get list of all current topological edges and vertices - these will remain after the fillets are done
   SM_PTR_ARRAY(sOrigTopoEdges, SmEdge, 16) ;
   SM_PTR_ARRAY(sOrigTopoVerts, SmVertex, 16) ;
@@ -2727,6 +3320,15 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
               SmRegion * pRegion       = pShell->GetRegion();
               SmBoolean  bInsideFillet = pRegion->IsVoid() ; // TRUE  = Adding to the inside
                                                             // FALSE = Adding to the outside
+              SmSurface * pGeomSurf = pFilletGeom->GetFilletSurface();
+              if (pGeomSurf != NULL && pOrigE->GetCurve() != NULL && pGeomSurf->FindAttribute(SM_AI_FILLET_EDGECURVE) == NULL)
+                {
+                  SmCurve * pEdgeCurve = NULL;
+                  SER(pOrigE->GetCurve()->Copy(m_crContext, pEdgeCurve));
+                  NER(pEdgeCurve);
+                  sFilletEdgeCurves.emplace_back(std::unique_ptr<SmCurve>(pEdgeCurve), pOrigE->GetInterval());
+                  pGeomSurf->AddAttribute(new (*cpContext) SmLongAttribute(SM_AI_FILLET_EDGECURVE, (long)(sFilletEdgeCurves.size() - 1), SM_AB_REFERENCE));
+                }
               // for both rails
               for (kk=0; kk<2; kk++)
                 {
@@ -2744,7 +3346,7 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
                     // relate FilletSurf to OrigSurf and add SM_AI_FILLET_EDGEMAP Attribute to FilletSurf
                   SmLongAttribute *pAtt = new (*cpContext) SmLongAttribute(SM_AI_FILLET_EDGEMAP,bInsideFillet,SM_AB_REFERENCE);
                   pFilletSurf->AddAttribute(pAtt);
-                  sNoSSI.RelatePair(pFilletSurf,pOrigSurf);
+                  (void)sNoSSI.RelatePair(pFilletSurf,pOrigSurf); // SolidCraft: a pair left out of this speed-up is intersected, as any other
                 }
             }
         } // end iter every FilletSolver - relating Edge->FilletSurf/OrigSurf across each rail and add SM_AI_FILLET_EDGEMAP attribute to FilletSurf
@@ -2773,7 +3375,7 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
                   for (kk=0; kk<pFilletCorner->m_vSurfaces.GetSize(); kk++)
                     {
                       SmSurface *pFBSurface = pFilletCorner->m_vSurfaces[kk];
-                      sNoSSI.RelatePair(pFBSurface,pOrigSurf);
+                      (void)sNoSSI.RelatePair(pFBSurface,pOrigSurf); // SolidCraft: a pair left out of this speed-up is intersected, as any other
                       SmLongAttribute *pAtt = new (*cpContext) SmLongAttribute(SM_AI_FILLET_VERTMAP,0,SM_AB_REFERENCE);
                       pFBSurface->AddAttribute(pAtt);
                     }
@@ -2792,7 +3394,7 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
               for (kk=0; kk<pFilletCorner->m_vSurfaces.GetSize(); kk++)
                 {
                   SmSurface *pFBSurface = pFilletCorner->m_vSurfaces[kk];
-                  sNoSSI.RelatePair(pFBSurface,pOrigSurf);
+                  (void)sNoSSI.RelatePair(pFBSurface,pOrigSurf); // SolidCraft: a pair left out of this speed-up is intersected, as any other
                 }
             }
         }
@@ -2809,6 +3411,10 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
   SmTArray<SmFace*> sFaces;
   m_pTargetBrep->GetFaces(sFaces);
 
+  // SolidCraft change: whether some fillet face was found between the region it removes (or
+  // adds) and the rest: with none, nothing of the target changes and the merge failed.
+  SmBoolean bSidesFound = FALSE;
+
   // increment and lock an unlocked mark
   SmNewMarkAndLock sMarkLock( m_pTargetBrep->GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
   SmMarkType eMarkType = sMarkLock.GetMarkType() ;
@@ -2821,24 +3427,42 @@ SmStatus SmFilletExecutive::DoPiecewiseMerge()
       if (!pAtt) { continue; }
       SmVector3d sNorm;
       SER(pSurf->EvaluateNormal(pF->GetUVDomain().Evaluate(0.5,0.5),TRUE,TRUE,sNorm));
-      SmPoint3d sPnt, sDU, sDV, sDUV, sDUU, sDVV;
-      SER(pSurf->Evaluate2ndDerivatives(pF->GetUVDomain().Evaluate(0.5,0.5),TRUE,TRUE,
-                                        sPnt,sDU,sDV,sDUV,sDUU,sDVV));
+      SmPoint3d sPnt;
+      SER(pSurf->EvaluatePoint(pF->GetUVDomain().Evaluate(0.5,0.5),sPnt));
 
       SmBoolean   bInsideFillet = pAtt->GetValue();
       SmFaceuse * pFU           = pF->GetUpwardFaceuse();
 
-      // See if the top Faceuse on the inside of the fillet
-      if (sDVV.Length() < SM_EFF_ZERO) 
+      // See if the top Faceuse on the inside of the fillet.
+      // SolidCraft change: by the side of the face its filleted edge lies on, the side of the
+      // wedge between the fillet and the edge. Upstream took the side away from the cross
+      // section's centre of curvature (the surface's second derivative across the fillet), the
+      // same side on a round, and skipped a chamfer's flat face, whose wedge then kept its
+      // material: the chamfer was merged in and removed again, the body unchanged, no error.
+      SmLongAttribute * pEdgeAtt = (SmLongAttribute*)pSurf->FindAttribute(SM_AI_FILLET_EDGECURVE);
+      if (pEdgeAtt == NULL || pEdgeAtt->GetValue() < 0 || (size_t)pEdgeAtt->GetValue() >= sFilletEdgeCurves.size())
+        { continue; }
+      const SmCurve    * pEdgeCurve = sFilletEdgeCurves[(size_t)pEdgeAtt->GetValue()].first.get();
+      const SmExtent1d & sEdgeIvl   = sFilletEdgeCurves[(size_t)pEdgeAtt->GetValue()].second;
+      SmBoolean bDropped = FALSE;
+      double dParam = 0.0, dDist = 0.0;
+      SER(pEdgeCurve->DropPoint(sEdgeIvl, sPnt, NULL, SM_BIG_DOUBLE, NULL, bDropped, dParam, dDist));
+      if (!bDropped)
+        { continue; }
+      SmPoint3d sOnEdge;
+      SER(pEdgeCurve->EvaluatePoint(dParam, sOnEdge));
+      SmVector3d sFromEdge = sPnt - sOnEdge;
+      if (sFromEdge.Length() < SM_EFF_ZERO) 
         { continue; }
 
-      if (sNorm.Dot(sDVV) > 0.0) 
+      if (sNorm.Dot(sFromEdge) > 0.0) 
         { pFU = pFU->GetMate(); }
 
       SmRegion *pReg = pFU->GetShell()->GetRegion();
       if (pFU->GetMate()->GetShell()->GetRegion() == pReg) 
         { continue; }
 
+      bSidesFound = TRUE;
       if (pReg->IsMarked(eMarkType)) 
         { continue; }
 
@@ -2862,6 +3486,12 @@ SmBoolean bDebugMe = FALSE;
       else               { pReg->SetIsVoid(FALSE); }
     }
 
+  if (!bSidesFound)
+    {
+      GetFilletErrorInfo()->NoteError(SM_FILERR_BAD_MERGE, _T("piecewise merge: no fillet face bounds the region it changes"));
+      return SM_ERR;
+    }
+
   // Now clean up attributes
   for(ii=0;ii<sFaces.GetSize();ii++) 
     {
@@ -2872,6 +3502,9 @@ SmBoolean bDebugMe = FALSE;
       if (pAtt) { pSurf->RemoveAttribute(pAtt); }
 
       pAtt = (SmLongAttribute*)pSurf->FindAttribute(SM_AI_FILLET_VERTMAP);
+      if (pAtt) { pSurf->RemoveAttribute(pAtt); }
+
+      pAtt = (SmLongAttribute*)pSurf->FindAttribute(SM_AI_FILLET_EDGECURVE);
       if (pAtt) { pSurf->RemoveAttribute(pAtt); }
     }
 
@@ -2922,6 +3555,24 @@ SmStatus SmFilletExecutive::DoFilleting
   // remember that we're using the SmTopologyIntersector and the SmCurveClassification code for fillets
   m_vTI.m_bDoingFillets = TRUE ;
 
+  // SolidCraft change: the clean-up after filleting removes topological edges next to the
+  // faces the fillet made, never one between two of the target's own faces (the faces of a
+  // sphere in patches, which it merged into a face no parameterization of theirs could carry).
+  // Booleans likewise clean up only the edges of their intersection.
+  m_sPostProcessKeptEdges.clear();
+  m_sPostProcessKeptFaces.clear();
+  if (m_pTargetBrep != NULL)
+    {
+      SmTArray<SmEdge*> sTargetEdges;
+      m_pTargetBrep->GetEdges(sTargetEdges);
+      for (ULONG ke=0; ke<sTargetEdges.GetSize(); ke++)
+        { m_sPostProcessKeptEdges.insert(sTargetEdges[ke]); }
+      SmTArray<SmFace*> sTargetFaces;
+      m_pTargetBrep->GetFaces(sTargetFaces);
+      for (ULONG kf=0; kf<sTargetFaces.GetSize(); kf++)
+        { m_sPostProcessKeptFaces.insert(sTargetFaces[kf]); }
+    }
+
   // Create m_pFilletBrep - A shell Brep containing the new Fillet Faces, 
   //  Edges, and Vertices created by filleting m_pTargetBrep Edges and Corners
   if(SM_SUCCESS != CreateFilletBrep( pOptFilletErrorInfo ))
@@ -2929,6 +3580,12 @@ SmStatus SmFilletExecutive::DoFilleting
       // Note, do not NoteFilletError here, that has presumably
       // been done, at a point where they knew more about it
       // than we do here.
+      // SolidCraft change: that holds in a cliff overflow too: a step of the overflow that finds
+      // no room notes SM_FILERR_NO_ROOM itself, and any other failure keeps its own error.
+      if ( pOptFilletErrorInfo != NULL )
+        {
+          *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
+        }
       FILEXEC_ERR(_T("Error Creating Fillet Brep"));
     }
 
@@ -3002,7 +3659,7 @@ SmBoolean bDebugMe = FALSE ;
           SmFace       * pFace          = SM_CAST_PTR( SmFace, pOwner );
           if ( pFace != NULL )
             {
-              pFace->ShrinkGeometry();  // in m_pFilletBrep
+              (void)pFace->ShrinkGeometry(); // SolidCraft: shrinking the surface to its face is a speed-up; the face is the same either way  // in m_pFilletBrep
             }
         } // end FilletSolver->FilletGeom[0] existence check
     } // end iter every FilletSolver, shrinking new fillet Surfaces
@@ -3045,7 +3702,52 @@ SmBoolean bDebugMe = FALSE ;
     }
 #endif // SM_DEBUG_CODE
 
+  // SolidCraft change: remember the fillet surfaces that turn at a radius corner, whose faces
+  // DoFillet splits there once they are in the target Brep.
+  SER( NoteRadiusCornerSurfaces() );
+
+  // SolidCraft change: mark the faces of each set-back corner's patch, which the merge copies
+  // into the target Brep with their attributes (SetMarkCornerPatches).
+  if ( m_bMarkCornerPatches )
+    {
+      for (ULONG i=0; i<m_vFilletCorners.GetSize(); i++)
+        {
+          SmFilletCorner * pCorner = m_vFilletCorners[i];
+          if ( pCorner == NULL || !(pCorner->GetSetBackDist() > 0.0) )
+            { continue; }
+          SmTArray<SmFace*> sPatch;
+          SER( pCorner->GetPatchFaces(sPatch) );
+          for (ULONG j=0; j<sPatch.GetSize(); j++)
+            {
+              SmTagAttribute * pMark = new (m_crContext) SmTagAttribute(SM_AI_FILLET_CORNER_FACE, (long)i);
+              NER( pMark );
+              sPatch[j]->AddAttribute(pMark);
+            }
+        }
+    }
+
   SmTemporaryChangeValue<SmBoolean> sChange(m_pTargetBrep->m_bEditingEnabled,TRUE);
+
+  // SolidCraft change: a cliff overflow closes the fillet faces into the region the blends
+  // remove and subtracts it from the target, instead of merging the fillet faces in.
+  if ( m_bCliffOverflow )
+    {
+      SmStatus eSubtracted = SubtractRemovalRegion();
+      if ( eSubtracted != SM_SUCCESS )
+        {
+          // the error the subtraction noted stands (SM_FILERR_NO_ROOM only where it found no room)
+          if ( pOptFilletErrorInfo != NULL )
+            {
+              *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
+            }
+          SER( eSubtracted );
+        }
+      if ( pOptFilletErrorInfo != NULL )
+        {
+          *pOptFilletErrorInfo = *( GetFilletErrorInfo() );
+        }
+      return SM_SUCCESS;
+    }
 
   // load SmMerge state parameters
 
@@ -3676,7 +4378,7 @@ SmBoolean bDebugMe = FALSE ;
         } // end stitch up all fillets
 
         SmBoolean bMaybeNotSolid = false;
-        m_pTargetBrep->OrientTrimmedSurfaces(true, bMaybeNotSolid, false);
+        SER( m_pTargetBrep->OrientTrimmedSurfaces(true, bMaybeNotSolid, false) );
 
     } // end m_bDoTrimming check
 
@@ -4237,10 +4939,11 @@ SmStatus SmFilletExecutive::SetFilletBrepEdgeMap()
 
 } // end SmFilletExecutive::SetFilletBrepEdgeMap
 
+// SolidCraft change: both steps' statuses are passed on (the macro's users return SmStatus).
 #define  SM_REVERSE_FILLET_EDGE(e) \
   { SmFilletEdgeuse * pPrimEU = (SmFilletEdgeuse*)(e)->GetPrimaryEdgeuse(); \
-    e->Remove(pPrimEU); \
-    e->PostInsert(pPrimEU); \
+    SER( (e)->Remove(pPrimEU) ); \
+    SER( (e)->PostInsert(pPrimEU) ); \
   }
 
 #define SM_MODIFY_CORNEREDGE_FILLET_RELATION(e,fg) \
@@ -4356,8 +5059,8 @@ SmBoolean bDebugMe = FALSE;
     pEndV[lRailToSqeeze]->GetVertexuses(sVUs);
     for (ULONG j=0; j<sVUs.GetSize(); j++) {
         SmVertexuse * pVU = sVUs[j];
-        pEndV[lRailToSqeeze]->Remove(pVU);
-        pStartV[lRailToSqeeze]->PostInsert(pVU);
+        SER( pEndV[lRailToSqeeze]->Remove(pVU) );
+        SER( pStartV[lRailToSqeeze]->PostInsert(pVU) );
     }
 
     SM_ASSERT(pEndV[lRailToSqeeze] != NULL) ; delete pEndV[lRailToSqeeze] ; pEndV[lRailToSqeeze] = NULL ;
@@ -4377,7 +5080,7 @@ SmBoolean bDebugMe = FALSE;
     pStartV[lRailToSqeeze]->SetMate(1,NULL);
     pStartV[lRailToSqeeze]->SetStatus(SM_FIL_UNPROCESSED);
     // Compute vertex geometry
-    pStartV[lRailToSqeeze]->CalcRailIntRail();
+    SER( pStartV[lRailToSqeeze]->CalcRailIntRail() );
 
     // Make rail an edge for the new corner
     SmFilletEdge * pRail = pFG->GetRail(1-lRailToSqeeze);
@@ -4513,7 +5216,7 @@ SmStatus SmFilletExecutive::UpdateTopologyChanges(
           for ( ULONG kk=0; kk < sFaces.GetSize(); kk++ )
           {
               SmFace *pNewFace = sFaces[kk];
-              pFilGeom->UpdateSplitFace( pOrigFace, pNewFace );
+              SER( pFilGeom->UpdateSplitFace( pOrigFace, pNewFace ) );
           }
 
       } // end for every FilletGeom in this FilletSolver
@@ -4526,7 +5229,7 @@ SmStatus SmFilletExecutive::UpdateTopologyChanges(
       for ( ULONG kk=0; kk < sFaces.GetSize(); kk++ )
       {
           SmFace *pNewFace = sFaces[kk];
-          rCorners[ii]->UpdateSplitFace( pOrigFace, pNewFace );
+          SER( rCorners[ii]->UpdateSplitFace( pOrigFace, pNewFace ) );
       }
   } // end for every FilletCorner
 
@@ -4638,6 +5341,7 @@ SmStatus SmFilletExecutive::CollectTangentEdgeSequence(
               rFilletSolvers[lIdx] = NULL;
 
               SmFilletCorner *pPrevCorner = pPrevFS->GetOtherFilletCorner( pCurrCorner );
+              NER( pPrevCorner );  // a vertex with no corner
               pCurrFS = pPrevFS;
               pPrevFS = pPrevCorner->GetTangentFilletSolver( pCurrFS );
               pCurrCorner = pPrevCorner;
@@ -4677,6 +5381,7 @@ SmStatus SmFilletExecutive::CollectTangentEdgeSequence(
           rFilletSolvers[lIdx] = NULL;
 
           SmFilletCorner *pNextCorner = pNextFS->GetOtherFilletCorner( pCurrCorner );
+          NER( pNextCorner );  // a vertex with no corner
           pCurrFS = pNextFS;
           pNextFS = pNextCorner->GetTangentFilletSolver( pCurrFS );
           pCurrCorner = pNextCorner;
@@ -4732,7 +5437,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
 
   // Make sure that the edges are all oriented in the direction of the sequence.
   // This calls ReverseOrientation() as necessary.
-  SmEdge::OrientEdgeSequence( sEdges );
+  SER( SmEdge::OrientEdgeSequence( sEdges ) );
 
   SmExtent1d sEdgeIvl, sPrevIvl;
   SmTArray< SmBSplineCurve* > sBSCurves;
@@ -4749,7 +5454,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
       // cbi todo: don't trim beginning of 1st or end of last, unless it's closed.
       // We don't want curves extending into adjacent Edges.
       // They will be Joined at the Edge boundaries.
-      pCrv->Trim( sEdgeIvl );
+      SER( pCrv->Trim( sEdgeIvl ) );
 
       if ( ii > 0 )
       {
@@ -4761,8 +5466,8 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
           double dPrevParam1 = sPrevIvl.GetMax();
           double dCurrParam0 = sEdgeIvl.GetMin();
           SmVector3d sPtDerPrev[2], sPtDerCurr[2];
-          pPrevCrv->Evaluate( dPrevParam1, 1, FALSE, sPtDerPrev );
-          pCurrCrv->Evaluate( dCurrParam0, 1, FALSE, sPtDerCurr );
+          SER( pPrevCrv->Evaluate( dPrevParam1, 1, FALSE, sPtDerPrev ) );
+          SER( pCurrCrv->Evaluate( dCurrParam0, 1, FALSE, sPtDerCurr ) );
           SM_ASSERT( sPtDerPrev[1].IsParallelTo( sPtDerCurr[1],
               SM_RAD2DEG( rSmoothSequence[ii]->GetTangencyTolerance()) ));
           double dPrevLen = sPtDerPrev[1].Length();
@@ -4772,7 +5477,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
           double dScale = dCurrLen / dPrevLen;
           double dScaledEnd = sEdgeIvl.GetMin() + dScale * sEdgeIvl.GetLength();
 
-          sEdgeIvl.SetMinMax( sEdgeIvl.GetMin(), dScaledEnd );
+          SER( sEdgeIvl.SetMinMax( sEdgeIvl.GetMin(), dScaledEnd ) );
 
           // Domains are the right lengths, make sure they're consecutive.
           if ( ! SM_ARE_SAME( sEdgeIvl.GetMin(), sPrevIvl.GetMax() ) )
@@ -4780,7 +5485,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
               sEdgeIvl.Translate( sPrevIvl.GetMax() - sEdgeIvl.GetMin() );
           }
 
-          pCrv->EditParameterization( sEdgeIvl );
+          SER( pCrv->EditParameterization( sEdgeIvl ) );
           pEdge->SetInterval( sEdgeIvl );
       }
 
@@ -4793,7 +5498,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
 
   // Join all of the curves, in order.
   SmBSplineCurve *pCompCurve = NULL;
-  SmBSplineCurve::CreateByJoining( m_crContext, sBSCurves, NULL, pCompCurve );
+  SER( SmBSplineCurve::CreateByJoining( m_crContext, sBSCurves, NULL, pCompCurve ) );
   NER( pCompCurve );
 
   // Set the Joined curve as each Edge's curve.
@@ -4805,7 +5510,7 @@ SmStatus SmFilletExecutive::CreateSmoothEdgeSequence( SmTArray< SmFilletSolver* 
       if ( ii == 0 )
         { pNewCurve = pCompCurve; }
       else
-        { pCompCurve->Copy( m_crContext, pNewCurve ); }
+        { SER( pCompCurve->Copy( m_crContext, pNewCurve ) ); }
 
       // We're going to delete the Edges' curves.  Those are probably the same curve
       // that is stored in a CurveBasedFilletSolver's m_pOriginal slot.
@@ -5033,7 +5738,8 @@ SmStatus SmTemporaryRadiusChange::SetUp()
 
   SmBoolean bRev = FALSE;  // Already checked this, and don't care about derivs.
   double adValues[3];
-  pLaw->Evaluate( dEdgeT, sEdgeIvl, bRev, adValues );
+  // A failed evaluation leaves adValues unset: change nothing and report it.
+  SER( pLaw->Evaluate( dEdgeT, sEdgeIvl, bRev, adValues ));
   double dEndRad = adValues[0];
 
   if ( pBSpLaw != NULL )
@@ -5042,11 +5748,11 @@ SmStatus SmTemporaryRadiusChange::SetUp()
       SmPoint3d sPt1( dEndRad, 1, 0 );
       SmPoint3d sPt2( dEndRad, 2, 0 );
       SmBSplineCurve *pConstBSp = NULL;
-      SmBSplineCurve::CreateLineSegment( *( pBSpLaw->GetContext() ), 3, sPt1, sPt2, pConstBSp );
+      SER( SmBSplineCurve::CreateLineSegment( *( pBSpLaw->GetContext() ), 3, sPt1, sPt2, pConstBSp ) );
       NER( pConstBSp );
 
       // The rad function should always be parameterized on [0-1].
-      pConstBSp->EditParameterization( sUnitIvl );
+      SER( pConstBSp->EditParameterization( sUnitIvl ) );
 
       // Swap the new radius function info in.
       m_pSavedBSp = pBSpLaw->GetLawCurve();
@@ -5224,7 +5930,7 @@ SmStatus SmFilletLaw::CreateLawSequence(
 
   // Make sure that the edges are all oriented in the direction of the sequence.
   // This calls ReverseOrientation() as necessary.
-  SmEdge::OrientEdgeSequence( rEdges );
+  SER( SmEdge::OrientEdgeSequence( rEdges ) );
 
   // Calculate and accumulate the edge lengths.
   SmTArray< double > sLengths;
@@ -5251,7 +5957,7 @@ SmStatus SmFilletLaw::CreateLawSequence(
       if ( ii == 0 )
         { pNewLaw = pLaw; }
       else
-        { pLaw->Copy(crContext, pNewLaw); }
+        { SER( pLaw->Copy(crContext, pNewLaw) ); }
 
       double dFraction = sLengths[ii] / dTotalLength;
       double dEndParam = dStartParam + dFraction;
@@ -5334,7 +6040,7 @@ SmLinearFilletLaw::SmLinearFilletLaw
       m_vEdgeMap = *pOptEdgeMap;
   }
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
 } // end SmLinearFilletLaw::SmLinearFilletLaw constructor
@@ -5488,7 +6194,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       m_vEdgeMap = *pOptEdgeMap;
   }
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
   ULONG lDeg = 3;
@@ -5517,7 +6223,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       sPt.Set(dEndValue, 3, 0);
       aCPts.Add(sPt);
       // SmBSplineCurve * pNewBSplineCurve = NULL;
-      SmBSplineCurve::CreateCanonical(crContext,
+      (void)SmBSplineCurve::CreateCanonical(crContext, // SolidCraft: a constructor cannot report; on failure the law has no curve (pLawCurve NULL)
                         3, 3,
                         aCPts, SM_CF_UNSPECIFIED,
                         aMults, aKnots, SM_KT_UNSPECIFIED,
@@ -5560,7 +6266,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       for (ii = 0; ii <= 100; ii++) {
           double dT = sIvl.Evaluate( ii / 100.0 );
           SmPoint3d sPnt;
-          sHerm.EvaluatePoint(dT, sPnt);
+          (void)sHerm.EvaluatePoint(dT, sPnt); // SolidCraft: a constructor cannot report; a Hermite cubic evaluates everywhere
           double dRad = sPnt.y;
           sPoints.Add(SmPoint3d(dRad, sPnt.x, 0.0));
           sParams.Add(sPnt.x);
@@ -5612,7 +6318,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw
       m_vEdgeMap = *pOptEdgeMap;
   }
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
   SmTArray<SmPoint3d> sPoints;
@@ -5680,7 +6386,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw( SmBSplineCurve * pCurve,           // in
 {
   m_vEdgeMap = crEdgeMap;
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
 } // end SmBSplineFilletLaw::SmBSplineFilletLaw constructor
@@ -5727,7 +6433,7 @@ SmBSplineFilletLaw::SmBSplineFilletLaw (const SmContext & crContext,            
   // save map interval
   m_vEdgeMap = crEdgeMap;
   if (m_vEdgeMap.GetLength() < SM_EFF_ZERO) {
-      m_vEdgeMap.SetMinMax(0, 1);
+      (void)m_vEdgeMap.SetMinMax(0, 1); // SolidCraft: 0 < 1, it cannot fail
   }
 
   // Locals, so that we can add to them.
@@ -5978,7 +6684,7 @@ SmBSplineFilletLaw & SmBSplineFilletLaw::operator=(const SmBSplineFilletLaw & cr
   SmCurve *pCurve = NULL;
   if (crOther.m_pLawCurve != NULL)
   {
-      crOther.m_pLawCurve->Copy(*(this->GetContext()), pCurve);
+      (void)crOther.m_pLawCurve->Copy(*(this->GetContext()), pCurve); // SolidCraft: an assignment cannot report; on failure the law has no curve
   }
   m_pLawCurve = SM_CAST_PTR(SmBSplineCurve, pCurve);
 
@@ -6121,6 +6827,61 @@ SmStatus SmBSplineFilletLaw::Evaluate
   return SM_SUCCESS;
 
 } // end SmBSplineFilletLaw::Evaluate
+
+/*******************************************************************//**
+PURPOSE: The edge parameters where the radius has a corner: an interior knot
+   of the law curve where its slope from the left and from the right differ.
+
+NOTES:  SolidCraft change. The fillet's center curve and rails turn at such a
+   parameter, so the fillet solver traces through it and keeps the turn
+   instead of fitting a smooth curve across it.
+***********************************************************************/
+SmStatus SmBSplineFilletLaw::GetCornerParameters
+ (const SmExtent1d & crCurveInterval,     // in : interval defining range of fillet edge
+  SmBoolean          bReverseOrientation, // in : TRUE = parameters run from interval end to interval start
+  SmTArray<double> & rParams)             // out: corner parameters in the interval, ascending (appended)
+ const
+{
+  NER(m_pLawCurve);
+  double dMapLength = m_vEdgeMap.GetLength();
+  if (crCurveInterval.GetLength() <= 0.0 || dMapLength <= 0.0)
+    { return SM_SUCCESS; }
+
+  SmTArray<double> sKnots;
+  SER(m_pLawCurve->GetKnots(sKnots));
+  SmExtent1d sIvl = m_pLawCurve->GetNaturalInterval();
+  SmTArray<double> sCorners;
+  for (ULONG i=0; i<sKnots.GetSize(); i++)
+    {
+      double dLawT = sKnots[i];
+      if (   (i > 0 && sKnots[i-1] == dLawT)
+          || dLawT <= sIvl.GetMin() || dLawT >= sIvl.GetMax()
+          || dLawT <= m_vEdgeMap.GetMin() || dLawT >= m_vEdgeMap.GetMax())
+        { continue; }
+
+      // slopes in the lower and the upper interval at the knot
+      SmVector3d sLeft[2], sRight[2];
+      SER(m_pLawCurve->Evaluate(dLawT, 1, FALSE, sLeft, FALSE));
+      SER(m_pLawCurve->Evaluate(dLawT, 1, TRUE, sRight, FALSE));
+      double dLeft  = sLeft[1].x;
+      double dRight = sRight[1].x;
+      if (smos_Fabs(dLeft - dRight) <= SM_EFF_ZERO * (1.0 + smos_Fabs(dLeft) + smos_Fabs(dRight)))
+        { continue; }
+
+      // the edge parameter of the knot (the inverse of the map in Evaluate)
+      double dT = (dLawT - m_vEdgeMap.GetMin()) / dMapLength;
+      double dParam = bReverseOrientation ? crCurveInterval.GetMax() - dT * crCurveInterval.GetLength()
+                                          : crCurveInterval.GetMin() + dT * crCurveInterval.GetLength();
+      sCorners.Add(dParam);
+    }
+
+  if (bReverseOrientation)
+    { sCorners.ReverseArray(0, sCorners.GetSize()); }
+  rParams.Append(sCorners);
+
+  return SM_SUCCESS;
+
+} // end SmBSplineFilletLaw::GetCornerParameters
 
 /*******************************************************************//**
 PURPOSE:

@@ -24,15 +24,48 @@
 #include <SmAssertArray.h>
 #include <SmDatabaseIO.h>
 #include <SmPseudoBox.h>
+#include <SmFace.h>
+#include <SmEdgeuse.h>
 
 #ifdef SM_DEBUG_CODE
-#include <SmFace.h>
 #include <SmBrep.h>
-#include <SmEdgeuse.h>
 #include <SmCrvOnSurf.h>
 // Remove Composites
 // #include <SmCEdge.h>
 #endif // SM_DEBUG_CODE
+
+/*******************************************************************//**
+PURPOSE: The first fundamental form (E, F, G) = (Su.Su, Su.Sv, Sv.Sv) of a
+   surface at a (u, v) point, its derivatives taken on the side of each
+   parameter's knot that bUFromLeft and bVFromLeft give (as
+   Evaluate1stDerivatives). The form gives the length and angle on the
+   surface of a (u, v) step: |S' d|^2 = d.(E F; F G).d.
+
+RETURNS: FALSE where the surface cannot be evaluated there.
+***********************************************************************/
+static SmBoolean sm_FirstFundamentalForm
+  (const SmSurface & crSurface,
+   const SmPoint2d & crUV,
+   SmBoolean         bUFromLeft,
+   SmBoolean         bVFromLeft,
+   double            rEFG[3])
+{
+  SmPoint3d  sPoint ;
+  SmVector3d sDu, sDv ;
+  if ( crSurface.Evaluate1stDerivatives(crUV, bUFromLeft, bVFromLeft, sPoint, sDu, sDv) != SM_SUCCESS )
+    { return FALSE ; }
+  rEFG[0] = sDu.Dot(sDu) ;
+  rEFG[1] = sDu.Dot(sDv) ;
+  rEFG[2] = sDv.Dot(sDv) ;
+  return TRUE ;
+}
+
+// Whether a first fundamental form is positive definite: no direction of zero length (not a
+// singular point of its surface).
+static SmBoolean sm_IsPositiveDefinite(const double caEFG[3])
+{
+  return caEFG[0] > 0.0 && caEFG[0] * caEFG[2] - caEFG[1] * caEFG[1] > 0.0 ;
+}
 
 /*******************************************************************//**
 PURPOSE: Private constructor to create a spline without any nurb.
@@ -122,9 +155,10 @@ SmBSplineCurve::SmBSplineCurve
   gw_CURVE *pNewCur = sm_AllocateNurbCurve(n, p, m);
 
   // okay to use smos_MemCpy on base (double) and static class (gw_CPOINT) objects.
-  SE(smos_MemCpy(pNewCur->knt->U, U, sizeof(gw_REAL) * ((size_t)m + (size_t)1), sizeof(gw_REAL) * ((size_t)m + (size_t)1)));
-  SE(smos_MemCpy(
-      pNewCur->pol->Pw, Pw, sizeof(gw_CPOINT) * ((size_t)n + (size_t)1), sizeof(gw_CPOINT) * ((size_t)n + (size_t)1)));
+  // SolidCraft: each copy fills a block allocated to its size, so it cannot fail
+  (void)smos_MemCpy(pNewCur->knt->U, U, sizeof(gw_REAL) * ((size_t)m + (size_t)1), sizeof(gw_REAL) * ((size_t)m + (size_t)1));
+  (void)smos_MemCpy(
+      pNewCur->pol->Pw, Pw, sizeof(gw_CPOINT) * ((size_t)n + (size_t)1), sizeof(gw_CPOINT) * ((size_t)n + (size_t)1)); // SolidCraft: see above
 
   m_pNurb = pNewCur;
 
@@ -384,15 +418,15 @@ SmStatus SmBSplineCurve::CalculateBoundingBox
       if (pNormalBox) { pNormalBox->Init() ; }
       if (pPseudoBox) { SmVector3d sX(1,0,0), sY(0,1,0), sZ(0,0,1) ;
                         pPseudoBox->Init() ;   // init intervals - leave basis vectors alone
-                        pPseudoBox->SetBasis(sX, sY, sZ) ;
+                        SER( pPseudoBox->SetBasis(sX, sY, sZ)  );
                       }
       if (pPolarBox)  { pPolarBox->ReSet() ; }
       for(ii=0;ii<5;ii++)
         {
-          this->Evaluate(crInterval.Evaluate((double)ii/5.0), 1, TRUE, sPV) ;  // NonZeroTangents
+          SER( this->Evaluate(crInterval.Evaluate((double)ii/5.0), 1, TRUE, sPV)  );  // NonZeroTangents
           if (pNormalBox) { pNormalBox->AddPoint3d(sPV[0]) ; }
           if (pPseudoBox) { pPseudoBox->AddPoint3d(sPV[0]) ; }
-          if (pPolarBox)  { pPolarBox->AddVector3d(sPV[1]) ; }
+          if (pPolarBox)  { SER( pPolarBox->AddVector3d(sPV[1])  ); }
         } // end iter some sample points
 
       SE_MSG(SM_ERR, _T("Derived type needs a CalculateBoundingBox method - computing approx bounding box instead")) ;
@@ -478,7 +512,7 @@ SmStatus SmBSplineCurve::CalculateBoundingBox
                         gw_CPOINT *pCP2 = &pCPolygon->Pw[kk*lInc];
                         TO_EUCLID(*pCP2,  sP2);
 
-                        smgu_TriangleAreaSquared(sP0, sP1, sP2, dThisCross) ;
+                        SER( smgu_TriangleAreaSquared(sP0, sP1, sP2, dThisCross)  );
                         if(dThisCross > dMaxCross)
                           {
                             dMaxCross = dThisCross ;
@@ -523,8 +557,8 @@ SmStatus SmBSplineCurve::CalculateBoundingBox
       else
         { 
           SmVector3d sBasis1, sBasis2, sBasis3;
-          sV0.MakeUnitOrthoVectors(&sV1,sBasis1,sBasis2,sBasis3);
-          pPseudoBox->SetBasis(sBasis1,sBasis2,sBasis3);
+          SER( sV0.MakeUnitOrthoVectors(&sV1,sBasis1,sBasis2,sBasis3) );
+          SER( pPseudoBox->SetBasis(sBasis1,sBasis2,sBasis3) );
         }
     } // end if pPseudoBox check
   
@@ -624,14 +658,14 @@ SmStatus SmBSplineCurve::CalculateBoundingBox
       if (this->IsLine(4, dTol, sLinePnt, sLineVec))
         {
           // compute line's bboxes and return
-          this->EvaluatePoint(crInterval.GetMin(), sLinePnt);
+          SER( this->EvaluatePoint(crInterval.GetMin(), sLinePnt) );
           if (pNormalBox) { *pNormalBox = SmExtent3d(sLinePnt); }
           if (pPseudoBox) { pPseudoBox->AddPoint3d(sLinePnt); }
 
-          this->EvaluatePoint(crInterval.GetMax(), sLinePnt2); 
+          SER( this->EvaluatePoint(crInterval.GetMax(), sLinePnt2) ); 
           if (pNormalBox) { pNormalBox->AddPoint3d(sLinePnt2); }
           if (pPseudoBox) { pPseudoBox->AddPoint3d(sLinePnt2); }
-          if (pPolarBox)  { pPolarBox->AddVector3d(sLinePnt2 - sLinePnt) ; }
+          if (pPolarBox)  { SER( pPolarBox->AddVector3d(sLinePnt2 - sLinePnt)  ); }
 
           return (SM_SUCCESS);
 
@@ -693,7 +727,7 @@ SmStatus SmBSplineCurve::CalculateBoundingBox
                      }
       if(pPseudoBox) { pPseudoBox->AddPoint3d(sPoint);
                      }
-      if(pPolarBox)  { if(i>0) { pPolarBox->AddVector3d(sPoint - sLastPoint) ; }
+      if(pPolarBox)  { if(i>0) { SER( pPolarBox->AddVector3d(sPoint - sLastPoint)  ); }
                        sLastPoint = sPoint ;
                      }
 
@@ -854,8 +888,8 @@ SmBoolean bDebugMe = FALSE;
             {
               // evaluate endPoints and endVecs
               SmPoint3d sStartPoint, sEndPoint ;
-              EvaluatePoint(crInterval.GetMin(), sStartPoint) ;
-              EvaluatePoint(crInterval.GetMax(), sEndPoint) ;
+              SER( EvaluatePoint(crInterval.GetMin(), sStartPoint)  );
+              SER( EvaluatePoint(crInterval.GetMax(), sEndPoint)  );
               SmVector3d sStartVec = sStartPoint - sRefFrame.GetOriginRef() ;
               SmVector3d sEndVec   = sEndPoint - sRefFrame.GetOriginRef() ;
               SM_ASSERT(SM_ARE_SAME(sStartVec.Length(), dRadius)) ;
@@ -864,8 +898,8 @@ SmBoolean bDebugMe = FALSE;
               // get angleRad to start and end Vecs
               SmVector3d sZAxis = sRefFrame.GetZAxis() ;
               double dStartAngRad, dEndAngRad ;
-              sZAxis.CCWAngleBetween(sRefFrame.GetXAxisRef(), sStartVec, dStartAngRad) ;
-              sZAxis.CCWAngleBetween(sRefFrame.GetXAxisRef(), sEndVec,   dEndAngRad) ;
+              SER( sZAxis.CCWAngleBetween(sRefFrame.GetXAxisRef(), sStartVec, dStartAngRad)  );
+              SER( sZAxis.CCWAngleBetween(sRefFrame.GetXAxisRef(), sEndVec,   dEndAngRad)  );
               
               // get angleDeg in interval [0 360] for start and end vecs
               double dStartAngDeg = dStartAngRad < 0.0 ? dStartAngRad * 180.0 / SM_PI  
@@ -888,7 +922,7 @@ SmBoolean bDebugMe = FALSE;
           // when all internal knots are not multiple = 2
           SmTArray<double> sKnots ;
           SmTArray<ULONG> sMultiplicities ;
-          GetKnots(sKnots, &sMultiplicities);
+          SER( GetKnots(sKnots, &sMultiplicities) );
           for (ULONG i=1; i+1<sMultiplicities.GetSize(); i++)  // note: can't say sMultiplicities.GetSize()-1
             {
               // copy the BSplineCurve and make its knots double
@@ -902,7 +936,7 @@ SmBoolean bDebugMe = FALSE;
                     
                   // double the knot
                   SM_ASSERT(sMultiplicities[i] == 1) ;
-                  pCrv->InsertOneKnot(sKnots[i], 1) ; 
+                  SER( pCrv->InsertOneKnot(sKnots[i], 1)  ); 
                 } // end need to double a knot check
             } // end iter all internal knot check
 
@@ -982,7 +1016,7 @@ SmStatus SmBSplineCurve::CalculateContinuities
   const
 {
   // ensure a pNurb
-  if(m_pNurb == NULL) { ((SmBSplineCurve *)this)->MakeNurb(); } 
+  if(m_pNurb == NULL) { SER( ((SmBSplineCurve *)this)->MakeNurb() ); } 
   SM_ASSERT(m_pNurb != NULL) ;
 
 #ifdef SM_DEBUG_CODE
@@ -998,7 +1032,7 @@ SmBoolean bDebugMe = FALSE;
   ULONG            slData[256];
   SmTArray<double> sKnots(256,sdData);
   SmTArray<ULONG>  sKnotMultiplicities(256,slData);
-  GetKnots(sKnots,&sKnotMultiplicities);
+  SER( GetKnots(sKnots,&sKnotMultiplicities) );
 
   // init output - 1 continuity for each knot, end continuity values SM_CT_DISCONTINUOUS
   rContinuitiesAtKnots.SetSize(sKnots.GetSize());
@@ -1019,12 +1053,12 @@ SmBoolean bDebugMe = FALSE;
       SmVector3d sPVV_Left[4], sPVV_Right[4];
 
       // calc and store this knot's continuity
-      EvaluateContinuity(dKnotVal, TRUE,            // in : from left eval
+      SER( EvaluateContinuity(dKnotVal, TRUE,            // in : from left eval
                         *this,                      // in : curve
                          dKnotVal, FALSE,           // in : from right eval
                          rContinuitiesAtKnots[i],   // out: Continuity Type
                          sPVV_Left, sPVV_Right,     // out: optional evals [pos, 1stDeriv, 2ndDeriv, 3rdDeriv]
-                         dContinuityAngleTol) ;     // in : continuity angle tolerance
+                         dContinuityAngleTol)  );     // in : continuity angle tolerance
 
       // save the minimum internal knot continuity
       if (rContinuitiesAtKnots[i] < (long)reMinContinuityInCurve) 
@@ -1233,7 +1267,7 @@ SmStatus SmBSplineCurve::CreateByJoining
       for(ii=0; ii<crSegments.GetSize(); ii++) 
         {
           SmBSplineCurve *pSeg = crSegments[ii];
-          if (pSeg->GetDim() == 3) pSeg->ConvertTo2D();
+          if (pSeg->GetDim() == 3) SER( pSeg->ConvertTo2D() );
         }
     }
 
@@ -1483,7 +1517,7 @@ SmStatus SmBSplineCurve::CreateByScaleTransRot
         SER(pRes->GetControlPoint(eForm,i,sPnt,dWeight));
         double dParam;
         // Parameter contains relative stength of start v.s. end.
-        smgu_LineClosestPoint(sStart,sLineVec,sPnt,dParam);
+        SER( smgu_LineClosestPoint(sStart,sLineVec,sPnt,dParam) );
         // Note that it is entirely possible for dParam to be outside the
         // 0-1 range.  It will effectively continue the effect of the 
         // vector transformation.  The resulting vector could be greater
@@ -1514,7 +1548,7 @@ NOTES: See STEP Part 42
 SmStatus SmBSplineCurve::CreateCanonical
   (const SmContext           & crContext,             // in : context for new object construction
    ULONG                       lDimension,            // in : valid dimension - 2 or 3  
-   ULONG                       lDegree,               // in : valid degree - 1 through 32  
+   ULONG                       lDegree,               // in : valid degree - 1 through 17  
    const SmTArray<SmPoint3d> & crControlPointsList,   // in : Euclidian form of the control points.
    SmBSplineCurveForm          eBSplineCurveForm,     // in : oneof  SM_CF_POLYLINE_FORM,  SM_CF_PARABOLIC_ARC, 
                                                       //             SM_CF_CIRCULAR_ARC,   SM_CF_HYPERBOLIC_ARC,
@@ -2075,7 +2109,7 @@ SmStatus SmBSplineCurve::CreateConicSegment
         SmVector3d sXAxis(dCos,dSin,0.0);  // X axis of the 3D coordinate system
         SmVector3d sYAxis(-dSin,dCos,0.0); // Y axis of the 3D coordinate system
         SmAxis2Placement sPosition;
-        sPosition.SetCanonical(sOrigin,sXAxis,sYAxis);
+        SER( sPosition.SetCanonical(sOrigin,sXAxis,sYAxis) );
         SmParabola * pNewParabola = NULL;
         SER(SmParabola::CreateCanonical(crContext,sPosition,
             smos_Fabs(dFocalDist),pNewParabola));
@@ -2097,7 +2131,7 @@ SmStatus SmBSplineCurve::CreateConicSegment
         SmVector3d sXAxis(dCos,dSin,0.0);
         SmVector3d sYAxis(-dSin,dCos,0.0);
         SmAxis2Placement sPosition;
-        sPosition.SetCanonical(sOrigin,sXAxis,sYAxis);
+        SER( sPosition.SetCanonical(sOrigin,sXAxis,sYAxis) );
         if (smos_Fabs(dMajRad-dMinRad) < SM_EFF_ZERO) {
             // Create SmCircle
             SmCircle * pNewCircle = NULL;
@@ -2137,7 +2171,7 @@ SmStatus SmBSplineCurve::CreateConicSegment
         SmVector3d sXAxis(dCos,dSin,0.0);
         SmVector3d sYAxis(-dSin,dCos,0.0);
         SmAxis2Placement sPosition;
-        sPosition.SetCanonical(sOrigin,sXAxis,sYAxis);
+        SER( sPosition.SetCanonical(sOrigin,sXAxis,sYAxis) );
         SmHyperbola * pNewHyperbola = NULL;
         SER(SmHyperbola::CreateCanonical(crContext,sPosition,
             dSemiAxis, dSemiImageAxis,pNewHyperbola));
@@ -2345,7 +2379,7 @@ SmStatus SmBSplineCurve::CreateMirrorCurve
   gw_CURVE* pNurb = GetGwNurbPointer();
   if (!pNurb)
   {
-      MakeNurb();
+      SER( MakeNurb() );
   }
   
   SmBSplineCurve* pBSC = new(crContext) SmBSplineCurve(*this);
@@ -2530,7 +2564,7 @@ SmStatus SmBSplineCurve::CreateSimpleOffset
               sReferenceFrame.GetCanonical(sOrigin,sXAxis,sYAxis);
               sXAxis = -sXAxis;
               sYAxis = -sYAxis;
-              sReferenceFrame.SetCanonical(sOrigin,sXAxis,sYAxis);
+              SER( sReferenceFrame.SetCanonical(sOrigin,sXAxis,sYAxis) );
             }
           if (dRadius < dApproxTol3d) 
             { 
@@ -2618,7 +2652,7 @@ SmStatus SmBSplineCurve::CreateSectionCurve
     SmBSplineCurve *pCrv = crSectionCurves[i];
     SmExtent1d sIvl = pCrv->GetNaturalInterval();
     SmPoint3d sPnt;
-    pCrv->EvaluatePoint( sIvl.Evaluate( dNormalizedParameter ), sPnt );
+    SER( pCrv->EvaluatePoint( sIvl.Evaluate( dNormalizedParameter ), sPnt ) );
     sPointsStart.Add( sPnt );
   }
 
@@ -2758,7 +2792,7 @@ SmStatus SmBSplineCurve::EditEndPoint
                                    //      default:[TRUE]
 {
   SM_REF2(eNewEndPointType, bHealUseFlag) ;
-  if(m_pNurb == NULL) { MakeNurb(); } SM_ASSERT(m_pNurb != NULL) ;
+  if(m_pNurb == NULL) { SER( MakeNurb() ); } SM_ASSERT(m_pNurb != NULL) ;
   gw_CURVE    *pCur      = SM_REINTERPRET_CAST(gw_CURVE*,m_pNurb);
   gw_CPOLYGON *pCPOLYGON = pCur->pol; // Use natural domain
 
@@ -2916,7 +2950,7 @@ SmBoolean bDebugMe = FALSE ;
         }
 
       // Give derived Analytic curves a chance to update their 'step' data
-      RefreshAnalytics() ;
+      SER( RefreshAnalytics()  );
 
       // watch out for errors
       if(IsKindOf(SmEllipse_TYPE))
@@ -2949,7 +2983,7 @@ SmBoolean bDebugMe = FALSE ;
         }
 
       // Give derived Analytic curves a chance to update their 'step' data
-      RefreshAnalytics() ;
+      SER( RefreshAnalytics()  );
 
       // watch out for errors
       if(IsKindOf(SmEllipse_TYPE))
@@ -3082,7 +3116,7 @@ SmBoolean bDebugMe = FALSE ;
             { 
               // recurse back to this function so the next section sets the 1st derivative
               SmVector3d sVals[3] ;
-              Evaluate(dParameter, 2, bFromLeft, sVals) ;
+              SER( Evaluate(dParameter, 2, bFromLeft, sVals)  );
 
               // save the 1st derivative
               aPointAndDerivatives[1] = sVals[1] ;
@@ -3355,7 +3389,7 @@ SmStatus SmBSplineCurve::EvaluateCurvature
     {
         gw_INDEX m = pCurve->knt->m;
         gw_REAL *U = pCurve->knt->U;
-        sNaturalInterval.SetMinMax(U[0],U[m]);
+        SER( sNaturalInterval.SetMinMax(U[0],U[m]) );
         if (   !sNaturalInterval.ContainsValue(dParameter)
             && !IsOutOfBoundsEnabled())  // GWC:MODIFIED OUTOFBOUNDS
           {
@@ -3427,7 +3461,7 @@ SmStatus SmBSplineCurve::FairBlendCurveDerivatives
   // Solve for t using quadratic equation.
   ULONG nSol;
   double dSol[2];
-  SmPolynomial::SolveQuadraticEqn(coeff,SM_EFF_ZERO,nSol,dSol);
+  SER( SmPolynomial::SolveQuadraticEqn(coeff,SM_EFF_ZERO,nSol,dSol) );
   double dT = 0.0;
   if (nSol == 1) { dT = 3.0 * dSol[0]; }
   if (nSol == 2) { if      (dSol[0] < 0.0) { dT = 3.0 * dSol[1]; }
@@ -3728,7 +3762,7 @@ SmBoolean SmBSplineCurve::HasInternalPole
   SmBoolean bTest = TRUE ;
   SmTArray<ULONG>   sMults ;
   SmTArray<double>  sUniqueKnots ;
-  GetKnots(sUniqueKnots, &sMults) ;
+  if ( GetKnots(sUniqueKnots, &sMults) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: knots that can't be read show no pole
   ULONG lCPIndex, lKntCnt = 0 ; 
           
   // pick tolerance
@@ -4143,7 +4177,7 @@ double SmBSplineCurve::GetGrevilleAbscissa( ULONG lCtrlPointIndex ) const
   if ( m_pNurb == NULL )
     {
       SmBSplineCurve *pNonConstThis = SM_CONST_CAST( SmBSplineCurve *, this );
-      pNonConstThis->MakeNurb();
+      if ( pNonConstThis->MakeNurb() != SM_SUCCESS ) { return SM_UNDEF_DOUBLE ; } // SolidCraft: no NURB form, no abscissa
     }
   SM_ASSERT(m_pNurb != NULL);
   gw_CURVE *pCur = GetGwNurbPointer();
@@ -4189,7 +4223,7 @@ SmStatus SmBSplineCurve::GetGrevilleAbscissae( SmTArray< double > &vGrevilles ) 
   if ( m_pNurb == NULL )
     {
       SmBSplineCurve *pNonConstThis = SM_CONST_CAST( SmBSplineCurve *, this );
-      pNonConstThis->MakeNurb();
+      SER( pNonConstThis->MakeNurb() );
     }
   NER( m_pNurb );
 
@@ -4237,7 +4271,7 @@ SmBoolean SmBSplineCurve::HasNullSegments
 {
     double dData[256];
     SmTArray<double> sKnots(256,dData);
-    GetKnots(sKnots);
+    if ( GetKnots(sKnots) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: knots that can't be read show no null segment
     SmVector3d sPV[2];
     ULONG  i;
     for (i=0; i<sKnots.GetSize(); i++) {
@@ -4273,8 +4307,9 @@ SmBoolean SmBSplineCurve::HasSameParameterization
   // Nurb parameterization locals
   SmTArray<double> sKnots1, sKnots2 ;           
   SmTArray<ULONG>  sMults1, sMults2 ;
-  cpThisCurve ->GetKnots(sKnots1, &sMults1) ;  
-  cpOtherCurve->GetKnots(sKnots2, &sMults2) ;
+  // SolidCraft: knot vectors that can't be read can't be shown the same
+  if ( cpThisCurve ->GetKnots(sKnots1, &sMults1) != SM_SUCCESS ) { return FALSE ; }
+  if ( cpOtherCurve->GetKnots(sKnots2, &sMults2) != SM_SUCCESS ) { return FALSE ; }
 
   // The analytic domains must be compatible
   SmBoolean bRtn = (   sAnalDomain1.IsContainedBy(sAnalDomain2, SM_EFF_ZERO)
@@ -4314,7 +4349,7 @@ SmStatus SmBSplineCurve::GetNullSegments
 
   double dData[256];
   SmTArray<double> sKnots(256,dData);
-  GetKnots(sKnots);
+  SER( GetKnots(sKnots) );
   SmVector3d sPV[2];
   for (ULONG i=1; i<sKnots.GetSize(); i++) 
     {
@@ -4354,7 +4389,7 @@ SmStatus SmBSplineCurve::InsertKnots(
   )
 {
   SmTArray< double > sAllKnots;
-  this->GetKnots( sAllKnots );
+  SER( this->GetKnots( sAllKnots ) );
 
   SmExtent1d sSubInterval;
   if ( pOptInterval != NULL )
@@ -4712,7 +4747,7 @@ if ( IsRational() )
 
 ULONG lNumPts = 0;
 double* pCPts = nullptr;
-this->GetControlPointsPointer( lNumPts, pCPts );
+if ( this->GetControlPointsPointer( lNumPts, pCPts ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft: no control points, not shown a line
 
 
 // Return False for a zero-length line.
@@ -4865,7 +4900,7 @@ SmBoolean SmBSplineCurve::IsDegenerate
 
   // ensure existence of m_pNurb
   if(m_pNurb == NULL) 
-    { ((SmBSplineCurve *)this)->MakeNurb(); } 
+    { if ( ((SmBSplineCurve *)this)->MakeNurb() != SM_SUCCESS ) { return FALSE ; } } // SolidCraft: no NURB form to show a degeneracy
   SM_ASSERT(m_pNurb != NULL) ;
 
 #ifdef SM_DEBUG_CODE
@@ -5594,12 +5629,12 @@ SmBoolean bDebugMe=FALSE;
               if (lJoinEndThis == 1) 
                 {
                   SER(smgu_LineClosestPoint(sLinePnt,sLineVec,sPnt2B,dParam));
-                  sNewInterval.SetMinMax(sNewInterval.GetMin(),dParam);
+                  SER( sNewInterval.SetMinMax(sNewInterval.GetMin(),dParam) );
                 }
               else 
                 {
                   SER(smgu_LineClosestPoint(sLinePnt,sLineVec,sPnt2B,dParam));
-                  sNewInterval.SetMinMax(dParam,sNewInterval.GetMax());
+                  SER( sNewInterval.SetMinMax(dParam,sNewInterval.GetMax()) );
                 }
               SER(pLine->AdjustSTEPInterval(sNewInterval));
             }
@@ -5696,8 +5731,8 @@ SmStatus SmBSplineCurve::MatchWeights
   ULONG jj, lNumCPts, lNumCPtsOther;
   double *pOurPts = NULL, *pOtherPts = NULL;
 
-  this  ->GetControlPointsPointer( lNumCPts,      pOurPts );
-  pOther->GetControlPointsPointer( lNumCPtsOther, pOtherPts );
+  SER( this  ->GetControlPointsPointer( lNumCPts,      pOurPts ) );
+  SER( pOther->GetControlPointsPointer( lNumCPtsOther, pOtherPts ) );
   if ( lNumCPtsOther != lNumCPts )
     { return SM_ERR; }
 
@@ -5792,6 +5827,66 @@ SmBoolean bDebugMe = FALSE ;
   return SmCurve::PassesValidityCheck(eChecks,reCheckFailed);
 
 } // end SmBSplineCurve::PassesValidityCheck
+
+/*******************************************************************//**
+PURPOSE: PassesValidityCheck(SM_VC_REVERSE_DIRECTION) for a UV curve on
+   crSurface: whether the control polygon turns back at an end is judged
+   by the angle its legs make on the surface, from the surface's first
+   fundamental form at that end, not by their angle in (u, v).
+
+NOTES: A trim is the affine image of its edge in (u, v), and where the
+   surface's parameters run at different speeds an angle there is not
+   the angle on the surface: on a plane spanning 60 x 4 on [0,1]^2 the
+   polygon of a quarter circle, square on the plane, folds back by 171
+   degrees in (u, v). The plain check took that for a reversal and
+   moved the arc's middle control point onto its chord (weight 1),
+   which left a straight quarter and a kink in the circle's trim.
+   Side effect as PassesValidityCheck's: a polygon that does turn back
+   on the surface is fixed the same way. A 3D curve takes the plain
+   check. A trim whose end the surface cannot evaluate fails, unfixed.
+***********************************************************************/
+SmBoolean SmBSplineCurve::PassesReverseDirectionCheckOn
+  (const SmSurface     & crSurface,      // in : surface the UV curve lies on
+   SmValidityCheckType & reCheckFailed)  // out: SM_VC_REVERSE_DIRECTION when it fails, else SM_VC_NONE
+  const
+{
+  reCheckFailed = SM_VC_NONE;
+  if ( GetDim() != 2 )
+    { return PassesValidityCheck(SM_VC_REVERSE_DIRECTION, reCheckFailed) ; }
+
+  gw_CURVE *pCur = ((SmBSplineCurve *)this)->GetOrCreateGwNurbPointer() ;
+  if ( pCur == NULL )
+    {
+      reCheckFailed = SM_VC_REVERSE_DIRECTION;
+      return FALSE;
+    }
+  const NL_INDEX n = pCur->pol->n ;
+  if ( n < 4 )
+    { return TRUE ; } // as N_CrvIsNotReversed: too few control points to tell
+
+  // Each end's form, on the side its first leg runs into.
+  NL_POINT P0, P1, Pn, Pm ;
+  N_CPtToPtEuclid( pCur->pol->Pw[0], &P0 );
+  N_CPtToPtEuclid( pCur->pol->Pw[1], &P1 );
+  N_CPtToPtEuclid( pCur->pol->Pw[n], &Pn );
+  N_CPtToPtEuclid( pCur->pol->Pw[n - 1], &Pm );
+  double aStart[3], aEnd[3] ;
+  if (   !sm_FirstFundamentalForm(crSurface, SmPoint2d(P0.x, P0.y), P1.x >= P0.x, P1.y >= P0.y, aStart)
+      || !sm_FirstFundamentalForm(crSurface, SmPoint2d(Pn.x, Pn.y), Pm.x >= Pn.x, Pm.y >= Pn.y, aEnd) )
+    {
+      reCheckFailed = SM_VC_REVERSE_DIRECTION;
+      return FALSE;
+    }
+
+  gw_FLAG err = N_CrvIsNotReversedInMetric( pCur, true, aStart, aEnd ) ;
+  if ( err )
+    {
+      reCheckFailed = SM_VC_REVERSE_DIRECTION;
+      return FALSE;
+    }
+  return TRUE;
+
+} // end SmBSplineCurve::PassesReverseDirectionCheckOn
 
 /*******************************************************************//**
 PURPOSE: Given a curve raise the degree to the specified degree.
@@ -5975,7 +6070,7 @@ SmStatus SmBSplineCurve::ReverseParameterization
     // GW_SER(N_CrvReverse(pCur,pCur,&SC));
     Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
     SmExtent1d sNewIvl = GetNaturalInterval();
-    rNewInterval.SetMinMax(sNewIvl.Evaluate(dTNewMin),sNewIvl.Evaluate(dTNewMax));
+    SER( rNewInterval.SetMinMax(sNewIvl.Evaluate(dTNewMin),sNewIvl.Evaluate(dTNewMax)) );
     return SM_SUCCESS;
 
 } // end SmBSplineCurve::ReverseParameterization
@@ -6272,7 +6367,7 @@ SmStatus SmBSplineCurve::Simplify
 
   SM_OLDTOL_LINE // get bounding box and size
   SM_OLDTOL_LINE SmExtent3d sCrvBox;
-  SM_OLDTOL_LINE this->CalculateBoundingBox(sIvl, &sCrvBox);
+  SM_OLDTOL_LINE SER( this->CalculateBoundingBox(sIvl, &sCrvBox) );
   SM_OLDTOL_LINE double size = sCrvBox.GetSize().Length();
   SM_OLDTOL_LINE if (size >= 1.0e15 || size <= 0.0) size = 1.0;
   SM_OLDTOL_LINE 
@@ -6286,14 +6381,14 @@ SmStatus SmBSplineCurve::Simplify
   sBreaks.Add(sIvl.GetMax());
 
   // Approximate the curve
-  this->ApproximateCurve(*pContext, 
+  SER( this->ApproximateCurve(*pContext, 
                           sBreaks, 
                           sApproxTol3d, 
                           dMaxGap3d, 
                           rpNewCurve,
                           TRUE,    // in : bOptCreateAnalytics      
                           FALSE,   // in : bOptMatchParameterization
-                          FALSE) ; // in : bJustCopyBSplines        
+                          FALSE)  ); // in : bJustCopyBSplines        
   
   // set output
   if(pOptMaxGap3d) { *pOptMaxGap3d = dMaxGap3d ; }
@@ -6319,7 +6414,7 @@ SmStatus SmBSplineCurve::SnapInsideInterval
    SmBoolean & bOnBoundary) 
   const        
 { 
-    if(m_pNurb == NULL) { ((SmBSplineCurve *)this)->MakeNurb(); } SM_ASSERT(m_pNurb != NULL) ;
+    if(m_pNurb == NULL) { SER( ((SmBSplineCurve *)this)->MakeNurb() ); } SM_ASSERT(m_pNurb != NULL) ;
     bOnBoundary = FALSE;
     bSuccessfulSnap = FALSE;
     
@@ -6404,7 +6499,7 @@ SmStatus SmBSplineCurve::SubdivideAtDiscontinuity
 
           // trim it to the interval between discontinuities (may be the whole curve)
           SmExtent1d sTrim(dStart,dCurrent);
-          pCopy->Trim(sTrim) ; // may snap sIvl by tol to existing knots
+          SER_DELETE( pCopy->Trim(sTrim), pCopy ); // may snap sIvl by tol to existing knots
 
           // add trimmed copy to output
           rResultingCurves.Add(pCopy);
@@ -6887,15 +6982,15 @@ int SmBSplineCurve::TrimGap
   SmPoint3d  S0, E0;
   SmExtent1d sExtent0 = pCurve0->GetNaturalInterval();
   double     t0size   = sExtent0.GetMax() - sExtent0.GetMin();
-  pCurve0->EvaluatePoint(sExtent0.GetMin(), S0);
-  pCurve0->EvaluatePoint(sExtent0.GetMax(), E0);
+  if ( pCurve0->EvaluatePoint(sExtent0.GetMin(), S0) != SM_SUCCESS ) { return (0) ; }
+  if ( pCurve0->EvaluatePoint(sExtent0.GetMax(), E0) != SM_SUCCESS ) { return (0) ; }
 
   // curve 1 start and end points
   SmPoint3d S1, E1;
   SmExtent1d sExtent1 = pCurve1->GetNaturalInterval();
   double     t1size   = sExtent1.GetMax() - sExtent1.GetMin();
-  pCurve1->EvaluatePoint(sExtent1.GetMin(), S1);
-  pCurve1->EvaluatePoint(sExtent1.GetMax(), E1);
+  if ( pCurve1->EvaluatePoint(sExtent1.GetMin(), S1) != SM_SUCCESS ) { return (0) ; }
+  if ( pCurve1->EvaluatePoint(sExtent1.GetMax(), E1) != SM_SUCCESS ) { return (0) ; }
     
   // Extend curves based on closest endpoints
   // by domain * 0.3
@@ -6925,30 +7020,30 @@ int SmBSplineCurve::TrimGap
   if (ExtCase == 1 || ExtCase == 2)
     {
       double t = sExtent0.GetMin() - 0.03*t0size;
-      pCurve0->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve0E, 1);
+      if ( pCurve0->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve0E, 1) != SM_SUCCESS ) { return (0) ; }
     }
   if (ExtCase == 3 || ExtCase == 4)
     {
       double t = sExtent0.GetMax() + 0.03*t0size;
-      pCurve0->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve0E, 1);
+      if ( pCurve0->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve0E, 1) != SM_SUCCESS ) { return (0) ; }
     }
   if (ExtCase == 1 || ExtCase == 3)
     {
       double t = sExtent1.GetMin() - 0.03*t1size;
-      pCurve1->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve1E, 1);
+      if ( pCurve1->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve1E, 1) != SM_SUCCESS ) { return (0) ; }
     }
   if (ExtCase == 2 || ExtCase == 4)
     {
       double t = sExtent1.GetMax() + 0.03*t1size;
-      pCurve1->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve1E, 1);
+      if ( pCurve1->CreateExtendedCurve(Context, t, SM_CT_G1, pCurve1E, 1) != SM_SUCCESS ) { return (0) ; }
     }
 
   // intersect the extended curves
-  pCurve0E->GlobalCurveIntersect(pCurve0E->GetNaturalInterval(),
+  if ( pCurve0E->GlobalCurveIntersect(pCurve0E->GetNaturalInterval(),
                                 *pCurve1E,  
                                  pCurve1E->GetNaturalInterval(),
                                  dmin*5.0, 
-                                 sSolutions);
+                                 sSolutions) != SM_SUCCESS ) { return (0) ; }
 
   // failure - the extended curves don't intersect
   if ( sSolutions.GetSize() < 1 ) 
@@ -6973,8 +7068,8 @@ int SmBSplineCurve::TrimGap
 
           SmExtent1d sExt0(tmin0, tmax0);    
           SmExtent1d sExt1(tmin1, tmax1);    
-          pCurve0E->Trim(sExt0) ;  // may snap sIvl by tol to existing knots
-          pCurve1E->Trim(sExt1) ;  // may snap sIvl by tol to existing knots
+          if ( pCurve0E->Trim(sExt0) != SM_SUCCESS ) { return (0) ; }  // may snap sIvl by tol to existing knots
+          if ( pCurve1E->Trim(sExt1) != SM_SUCCESS ) { return (0) ; }  // may snap sIvl by tol to existing knots
 
           // only do this once
           break ;
@@ -6988,10 +7083,10 @@ int SmBSplineCurve::TrimGap
   sExtent0 = pCurve0E->GetNaturalInterval();  // after trimming         
   sExtent1 = pCurve1E->GetNaturalInterval();
 
-  if (ExtCase == 1 || ExtCase == 2) { pCurve0E->EvaluatePoint(sExtent0.GetMin(), sP0) ; }
-  if (ExtCase == 3 || ExtCase == 4) { pCurve0E->EvaluatePoint(sExtent0.GetMax(), sP0) ; }
-  if (ExtCase == 1 || ExtCase == 3) { pCurve1E->EvaluatePoint(sExtent1.GetMin(), sP1) ; }
-  if (ExtCase == 2 || ExtCase == 4) { pCurve1E->EvaluatePoint(sExtent1.GetMax(), sP1) ; }
+  if (ExtCase == 1 || ExtCase == 2) { if ( pCurve0E->EvaluatePoint(sExtent0.GetMin(), sP0) != SM_SUCCESS ) { return (0) ; } }
+  if (ExtCase == 3 || ExtCase == 4) { if ( pCurve0E->EvaluatePoint(sExtent0.GetMax(), sP0) != SM_SUCCESS ) { return (0) ; } }
+  if (ExtCase == 1 || ExtCase == 3) { if ( pCurve1E->EvaluatePoint(sExtent1.GetMin(), sP1) != SM_SUCCESS ) { return (0) ; } }
+  if (ExtCase == 2 || ExtCase == 4) { if ( pCurve1E->EvaluatePoint(sExtent1.GetMax(), sP1) != SM_SUCCESS ) { return (0) ; } }
 
   // Compute midpoint from 2 closest points from extended curves
   // When CrvToFix == 0, move both curve endPoints to the extended curve intersection point
@@ -7002,10 +7097,10 @@ int SmBSplineCurve::TrimGap
                     : 0.5 * (sP0 + sP1) ;
 
   // replace the endpoint of the original curves
-  if( ExtCase == 1 || ExtCase == 2) { pCurve0->SetControlPoint(SM_CP_NON_RATIONAL, 0, SmMid, 1.0) ; }
-  if( ExtCase == 3 || ExtCase == 4) { pCurve0->SetControlPoint(SM_CP_NON_RATIONAL, pCurve0->GetNumberControlPoints() - 1, SmMid, 1.0) ; }
-  if( ExtCase == 1 || ExtCase == 3) { pCurve1->SetControlPoint(SM_CP_NON_RATIONAL, 0, SmMid, 1.0) ; }
-  if( ExtCase == 2 || ExtCase == 4) { pCurve1->SetControlPoint(SM_CP_NON_RATIONAL, pCurve1->GetNumberControlPoints() - 1, SmMid, 1.0) ; }
+  if( ExtCase == 1 || ExtCase == 2) { if ( pCurve0->SetControlPoint(SM_CP_NON_RATIONAL, 0, SmMid, 1.0) != SM_SUCCESS ) { return (0) ; } }
+  if( ExtCase == 3 || ExtCase == 4) { if ( pCurve0->SetControlPoint(SM_CP_NON_RATIONAL, pCurve0->GetNumberControlPoints() - 1, SmMid, 1.0) != SM_SUCCESS ) { return (0) ; } }
+  if( ExtCase == 1 || ExtCase == 3) { if ( pCurve1->SetControlPoint(SM_CP_NON_RATIONAL, 0, SmMid, 1.0) != SM_SUCCESS ) { return (0) ; } }
+  if( ExtCase == 2 || ExtCase == 4) { if ( pCurve1->SetControlPoint(SM_CP_NON_RATIONAL, pCurve1->GetNumberControlPoints() - 1, SmMid, 1.0) != SM_SUCCESS ) { return (0) ; } }
 
   return 1; // success...we have modified the curves
 
@@ -7248,15 +7343,17 @@ SmStatus SmBSplineCurve::ReadFromDB
   SER(  (   rpNewCurve == NULL
          || rpNewCurve->IsKindOf(SmBSplineCurve_TYPE)) ? SM_SUCCESS : SM_ERR) ;
 
-  // init output object
-  SmBSplineCurve *pBSplineCurve =   (rpNewCurve == NULL)
-                                  ? new (crContext) SmBSplineCurve(lDim)
-                                  : (SmBSplineCurve *)rpNewCurve ;
+  // init output object - a new one is made only once the whole curve has been read,
+  // so a read that fails part way has none to free
+  SmBSplineCurve *pBSplineCurve = (SmBSplineCurve *)rpNewCurve ;
+
   // file type
   SmFileType eType = rDB.GetFileType();
 
   // locals
   gw_REAL    wx, wy, wz, w;
+  const TCHAR *cpReadFailedMsg = _T("NURBS curve data ends early or holds text that is not a number.") ;
+  SM_REF1(cpReadFailedMsg) ; // release builds drop SER_MSG messages
 
   // Get parameters from the top 
   gw_INDEX   i, n ;
@@ -7285,6 +7382,8 @@ SmStatus SmBSplineCurve::ReadFromDB
                                 SER(rDB.ReadLong(lBSplineCurveForm));
                               }
                          }
+  SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
+
   // GWC: [prog_test SmCurve::ReadFromFile("C:\\TestFiles\\pt_TestFiles\\Drop\\PS_LiftCrv_Crv1.dat")]
   //  works when lDim == 3 and lReadDim == 2 so removing this check - its not needed.
   //      if(lDim != (ULONG)lReadDim)
@@ -7298,6 +7397,46 @@ SmStatus SmBSplineCurve::ReadFromDB
   //            }
   //        }
 
+  // A curve above NL_MAXDEG evaluates, but a surface built from it (an extrusion or a
+  // sweep) has that degree and overflows NLib's surface evaluators, which size their
+  // stack arrays by NL_MAXDEG. A degree-0 curve has a zero tangent. NLib's own curve
+  // checks also cap curves at NL_MAXDEG, so reject anything outside [1, NL_MAXDEG].
+  if (p < 1 || p > NL_MAXDEG)
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage,
+                 _T("NURBS curve degree %d is outside the supported range 1 to %d."),
+                 (int)p,
+                 NL_MAXDEG);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+
+  // The count comes straight from the file too, as the highest index. A curve needs at
+  // least degree + 1 control points, and the NURB is one block whose byte size is a ULONG,
+  // so reject a count that would overflow it before it sizes anything.
+  if (n < p)
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage,
+                 _T("NURBS curve control point count %lld is fewer than degree + 1 (%d)."),
+                 (long long)n + 1,
+                 (int)p + 1);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+  if ((ULONG)n >= ULONG_MAX / (4 * sizeof(gw_CPOINT)))
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage, _T("NURBS curve control point count %lld is too large."), (long long)n + 1);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+  // Any nonzero flag would otherwise select the rational read below.
+  if (rat != NL_NO && rat != NL_YES)
+    {
+      TCHAR sMessage[SM_TBLOCK_SIZE];
+      SM_SPRINTF(sMessage, _T("NURBS curve rational flag %d is neither %d nor %d."), (int)rat, NL_NO, NL_YES);
+      SER_MSG(SM_ERR_INVALID_INPUT, sMessage);
+    }
+
   // knot count
   gw_INDEX m = n+p+1;
 
@@ -7305,6 +7444,9 @@ SmStatus SmBSplineCurve::ReadFromDB
   gw_CURVE *cur = sm_AllocateNurbCurve(n,p,m);
   if(cur == NULL)
     { SER(SM_ERR) ; }
+
+  // frees the NURB on every failure below, until the curve takes it
+  SmMemDelete sNurbCleanup(cur) ;
 
   // curve locals
   gw_CPOINT  *Pw;
@@ -7329,6 +7471,7 @@ SmStatus SmBSplineCurve::ReadFromDB
                      else /* Binary */      { SER(rDB.ReadDouble(wx));
                                               SER(rDB.ReadDouble(wy));
                                             }
+                     SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
                      N_CPtFromWxWyWz(wx,wy,NL_NOZ,NL_NOW,&Pw[i]);
                    }
                } break ;
@@ -7345,6 +7488,7 @@ SmStatus SmBSplineCurve::ReadFromDB
                                               SER(rDB.ReadDouble(wy));
                                               SER(rDB.ReadDouble(wz));
                                             }
+                     SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
                      N_CPtFromWxWyWz(wx,wy,wz,NL_NOW,&Pw[i]);
                    }
                } break ;
@@ -7361,6 +7505,7 @@ SmStatus SmBSplineCurve::ReadFromDB
                                               SER(rDB.ReadDouble(wy));
                                               SER(rDB.ReadDouble(w));
                                             }
+                     SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
                      N_CPtFromWxWyWz(wx,wy,NL_NOZ,w,&Pw[i]);
                    }
                } break ;
@@ -7378,6 +7523,7 @@ SmStatus SmBSplineCurve::ReadFromDB
                                               SER(rDB.ReadDouble(wz));
                                               SER(rDB.ReadDouble(w));
                                             }
+                     SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
                      N_CPtFromWxWyWz(wx,wy,wz,w,&Pw[i]);
                    }
                } break ;
@@ -7396,9 +7542,13 @@ SmStatus SmBSplineCurve::ReadFromDB
                              }
       else /* Binary */      { SER(rDB.ReadDouble(U[i]));
                              }
+      SER_MSG(rDB.ReadFailed() ? SM_ERR_INVALID_INPUT : SM_SUCCESS, cpReadFailedMsg) ;
     }    
 
-  // Set output
+  // Set output - the curve now owns the NURB
+  if (pBSplineCurve == NULL)
+    { pBSplineCurve = new (crContext) SmBSplineCurve(lDim) ; }
+  sNurbCleanup.Clear() ;
   pBSplineCurve->m_pNurb               = cur ;
   pBSplineCurve->m_bNurbIsBorrowed     = FALSE ;
   pBSplineCurve->m_bOutOfBoundsEnabled = FALSE ;
@@ -7406,13 +7556,16 @@ SmStatus SmBSplineCurve::ReadFromDB
   pBSplineCurve->m_eBSplineCurveForm   = (SmBSplineCurveForm) lBSplineCurveForm ;
   pBSplineCurve->m_lDim                = (ULONG)lReadDim ;
 
-  rpNewCurve = pBSplineCurve ;
-
   // fix 2d curve representations
   if (lDim == 2 && lReadDim == 3) 
     {
-      SER(rpNewCurve->ConvertTo2D());
+      SmStatus eStatus = pBSplineCurve->ConvertTo2D() ;
+      if (eStatus != SM_SUCCESS && rpNewCurve == NULL)
+        { delete pBSplineCurve ; }
+      SER(eStatus);
     }
+
+  rpNewCurve = pBSplineCurve ;
 
   // all done
   return(SM_SUCCESS) ; 
@@ -7506,12 +7659,13 @@ void SmBSplineCurve::Dump
   if(pCur == NULL) return ;
 
   // if rational: print start and end point evaluations
-  if(N_IsCrvRat(pCur))
+  SmExtent1d sDomain0 = GetNaturalInterval();
+  SmPoint3d StartPoint, EndPoint;
+  // SolidCraft: ends that can't be evaluated aren't printed
+  if(   N_IsCrvRat(pCur)
+     && EvaluatePoint(sDomain0.GetMin(), StartPoint) == SM_SUCCESS
+     && EvaluatePoint(sDomain0.GetMax(), EndPoint) == SM_SUCCESS)
     {
-      SmExtent1d sDomain0 = GetNaturalInterval();
-      SmPoint3d StartPoint, EndPoint;
-      EvaluatePoint(sDomain0.GetMin(), StartPoint);
-      EvaluatePoint(sDomain0.GetMax(), EndPoint);
       smos_sprintf(sBuff,_T("\nStart: %6.16lf %6.16lf %6.16lf\n"), StartPoint.x, StartPoint.y, StartPoint.z);
       smos_WriteBuffer(sBuff);
       smos_sprintf(sBuff,_T("End  : %6.16lf %6.16lf %6.16lf\n"), EndPoint.x, EndPoint.y, EndPoint.z);
@@ -7635,7 +7789,7 @@ SmBoolean bDebugMe = FALSE ;
   if (m_pNurb == NULL) 
     {
       SmBSplineCurve *pBSC = SM_CONST_CAST(SmBSplineCurve*,this);
-      pBSC->MakeNurb();
+      (void)pBSC->MakeNurb(); // SolidCraft: test 0 reports a missing m_pNurb
     }
 
   /*  0 */ // check for nonNULL m_pNurb pointer
@@ -7650,7 +7804,7 @@ SmBoolean bDebugMe = FALSE ;
   ULONG idx ;
   SmTArray<double> sKnots;
   SmTArray<ULONG>  sMults;
-  GetKnots( sKnots, &sMults );
+  (void)GetKnots( sKnots, &sMults ); // SolidCraft: m_pNurb exists (above), and sm_GetKnots does not fail
   ULONG lNumKnots = sKnots.GetSize();
   SM_ASSERT( lNumKnots == sMults.GetSize() );
 
@@ -7773,9 +7927,10 @@ static       ULONG lFoundItem ;
 
           // Lower interval evaluation
           double dParam = sKnots[idx];               
-          Evaluate( dParam, 1, FALSE, pV1 ); // FALSE = evaluate P in lower interval where P is on the right of the interva     
-          SmVector3d pV1Dir = pV1[1] ;          
-          eStat1 = pV1[1].Unitize(FALSE);
+          // SolidCraft: a derivative that can't be evaluated fails test 5/6 as a zero one does
+          eStat1 = Evaluate( dParam, 1, FALSE, pV1 ); // FALSE = evaluate P in lower interval where P is on the right of the interva     
+          double dV1Length = eStat1 == SM_SUCCESS ? pV1[1].Length() : SM_UNDEF_DOUBLE ;
+          if ( eStat1 == SM_SUCCESS ) { eStat1 = pV1[1].Unitize(FALSE); }
           if ( eStat1 != SM_SUCCESS )                          
             {                                                    
               if(GetDim() == 2)
@@ -7783,7 +7938,7 @@ static       ULONG lFoundItem ;
                   /*  5 */ 
                   bRtn &= SM_ASSERT_VALUE_REPORT(5, SM_LEVEL_0, eStat1 == SM_SUCCESS, SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;
                   SM_ASSERT_SET_OWNER_PARAM(SmVector2d(dParam,0.0)) ;
-                  SM_ASSERT_SET_VALUE(pV1Dir.Length()) ; 
+                  SM_ASSERT_SET_VALUE(dV1Length) ; 
                   // SM_ASSERT_MSG( FALSE, _T("2D Curve Warning: zero-length derivative at interior multiple knot") ); 
                 }             
               if(GetDim() == 3)
@@ -7791,7 +7946,7 @@ static       ULONG lFoundItem ;
                   /*  6 */
                   bRtn &= SM_ASSERT_VALUE_REPORT(6, SM_LEVEL_0, eStat1 == SM_SUCCESS, SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;
                   SM_ASSERT_SET_OWNER_PARAM(SmVector2d(dParam,0.0)) ;
-                  SM_ASSERT_SET_VALUE(pV1Dir.Length()) ; 
+                  SM_ASSERT_SET_VALUE(dV1Length) ; 
                   // SM_ASSERT_MSG( FALSE, _T("3D Curve Warning: zero-length derivative at interior multiple knot") ); 
                 }
 #ifdef SM_DEBUG_CODE
@@ -7806,9 +7961,9 @@ static       ULONG lFoundItem ;
             } // end Lower Eval 1st Deriv is zero check
 
           // upper interval eval
-          Evaluate( dParam, 1, TRUE,  pV2 );  // TRUE  = evaluate P in upper interval where P is on the left of the interval 
-          SmVector3d pV2Dir = pV2[1] ;
-          eStat2 = pV2[1].Unitize(FALSE);
+          eStat2 = Evaluate( dParam, 1, TRUE,  pV2 );  // TRUE  = evaluate P in upper interval where P is on the left of the interval 
+          double dV2Length = eStat2 == SM_SUCCESS ? pV2[1].Length() : SM_UNDEF_DOUBLE ;
+          if ( eStat2 == SM_SUCCESS ) { eStat2 = pV2[1].Unitize(FALSE); }
           if ( eStat2 != SM_SUCCESS )
             {    
               if(GetDim() == 2)
@@ -7816,7 +7971,7 @@ static       ULONG lFoundItem ;
                   /*  5 */
                   bRtn &= SM_ASSERT_VALUE_REPORT(5, SM_LEVEL_0, eStat2 == SM_SUCCESS, SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;
                   SM_ASSERT_SET_OWNER_PARAM(SmVector2d(dParam,0.0)) ;
-                  SM_ASSERT_SET_VALUE(pV2Dir.Length()) ; 
+                  SM_ASSERT_SET_VALUE(dV2Length) ; 
                   // SM_ASSERT_MSG( FALSE, _T("2D Curve Warning: zero-length derivative at interior multiple knot" )); 
                 }
               if(GetDim() == 3)
@@ -7824,7 +7979,7 @@ static       ULONG lFoundItem ;
                   /*  6 */
                   bRtn &= SM_ASSERT_VALUE_REPORT(6, SM_LEVEL_0, eStat2 == SM_SUCCESS, SM_EFF_ZERO, SM_UNDEF_DOUBLE, _T("")) ;
                   SM_ASSERT_SET_OWNER_PARAM(SmVector2d(dParam,0.0)) ;
-                  SM_ASSERT_SET_VALUE(pV2Dir.Length()) ; 
+                  SM_ASSERT_SET_VALUE(dV2Length) ; 
                   // SM_ASSERT_MSG( FALSE, _T("3D Curve Warning: zero-length derivative at interior multiple knot" ));  
                 }
               bRtn = FALSE;
@@ -7873,9 +8028,12 @@ static       ULONG lFoundItem ;
 
       // Get a representive size
       SmExtent1d sDomain = GetNaturalInterval();
+      // SolidCraft: without a size the derivative and radius tests (11-14) can't be run; a
+      // test that can't be run fails, reported with no value
       SmExtent3d sBBox;
-      CalculateBoundingBox( sDomain, &sBBox );
-      double dSizeXYZ = sBBox.GetSize().Length();
+      SmBoolean bSized = ( CalculateBoundingBox( sDomain, &sBBox ) == SM_SUCCESS ) ;
+      bRtn &= SM_ASSERT_VALUE_REPORT(GetDim() == 2 ? 11 : 12, SM_LEVEL_0, bSized, SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE, _T("")) ;
+      double dSizeXYZ = bSized ? sBBox.GetSize().Length() : 0.0 ;
       double dSizeT   =  sDomain.GetLength() ;
 
       // dTol: for finite   curves dTol and dMinSep are proportional to curve length
@@ -7892,8 +8050,13 @@ static       ULONG lFoundItem ;
       //                                   : 5.0 ;                            //  
 
       SmSolutionArray rSolutionArray;
-      this->GlobalPropertyAnalysis( sDomain, SM_CP_MINIMIZE_FIRST_DERIVATIVE,
-                                    NULL, NULL, dMinSep, rSolutionArray );
+      if ( bSized )
+        {
+          SmBoolean bFirstDerivs = (   this->GlobalPropertyAnalysis( sDomain, SM_CP_MINIMIZE_FIRST_DERIVATIVE,
+                                                                     NULL, NULL, dMinSep, rSolutionArray )
+                                    == SM_SUCCESS ) ;
+          bRtn &= SM_ASSERT_VALUE_REPORT(GetDim() == 2 ? 11 : 12, SM_LEVEL_0, bFirstDerivs, dTol, SM_UNDEF_DOUBLE, _T("")) ;
+        }
 
 
       // Note: the solution value is not necessarily the length of 
@@ -7912,11 +8075,11 @@ static       ULONG lFoundItem ;
 
           // 1stDeriv magnitude
           SmVector3d sPtDer[2];
-          this->Evaluate( dParam, 1, FALSE, sPtDer );
-          double dDerivLength = sPtDer[1].Length();
+          SmBoolean bEvaluated = ( this->Evaluate( dParam, 1, FALSE, sPtDer ) == SM_SUCCESS ) ;
+          double dDerivLength = bEvaluated ? sPtDer[1].Length() : SM_UNDEF_DOUBLE ;
 
-          // check 1stDeriv > tolerance
-          if ( dDerivLength < dTol )
+          // check 1stDeriv > tolerance; a derivative that can't be evaluated fails
+          if ( !bEvaluated || dDerivLength < dTol )
             {
               // save values for debugging
               dMin1stDerivParam = dParam ;
@@ -7924,7 +8087,7 @@ static       ULONG lFoundItem ;
               if(GetDim() == 2)
                 { 
                   /* 11 */
-                  bRtn &= SM_ASSERT_VALUE_REPORT(11, SM_LEVEL_0, dDerivLength >= dTol, dTol, dDerivLength, _T("")) ;
+                  bRtn &= SM_ASSERT_VALUE_REPORT(11, SM_LEVEL_0, bEvaluated && dDerivLength >= dTol, dTol, dDerivLength, _T("")) ;
                   SM_ASSERT_SET_OWNER_PARAM(SmPoint2d(dMin1stDerivParam, 0.0)) ;
                   SM_ASSERT_SET_VALUE(dDerivLength) ;
                   // SM_ASSERT_MSG( FALSE, _T("2D Curve Warning: Vanishing first derivative" ));
@@ -7932,7 +8095,7 @@ static       ULONG lFoundItem ;
               if(GetDim() == 3)
                 { 
                   /* 12 */
-                  bRtn &= SM_ASSERT_VALUE_REPORT(12, SM_LEVEL_0, dDerivLength >= dTol, dTol, dDerivLength, _T("")) ;
+                  bRtn &= SM_ASSERT_VALUE_REPORT(12, SM_LEVEL_0, bEvaluated && dDerivLength >= dTol, dTol, dDerivLength, _T("")) ;
                   SM_ASSERT_SET_OWNER_PARAM(SmPoint2d(dMin1stDerivParam, 0.0)) ;
                   SM_ASSERT_SET_VALUE(dDerivLength) ;
                   // SM_ASSERT_MSG( FALSE, _T("3D Curve Warning: Vanishing first derivative" ));
@@ -7956,83 +8119,110 @@ static       ULONG lFoundItem ;
 
        } // end iter all min Deriv solutions
 
-//    // if this is a UVTrimCurve with a given pCrvOnSurf pointer
+      // SolidCraft: a radius of curvature is a length, and a UV trim's lengths are those of its
+      // face's surface. A trim is tested for its radius mapped by the surface's first fundamental
+      // form at the trim's middle (at the centre of the surface's domain where the middle is a
+      // singular point), so that steps of equal length on the surface have equal length: exact
+      // on a plane, and the surface's own lengths near the middle elsewhere. In (u, v) the exact
+      // trim of a r 4 circle on a plane face spanning 200 x 3 on [0,1]^2 is an ellipse 67 times
+      // as long as it is wide, of radius 0.0003 at its ends against the tolerance 0.00048 its
+      // own size gives. The radius tolerance and solution spacing are the mapped trim's, and a
+      // mapped trim that cannot be sized fails the test as an unsized curve does. A trim on a
+      // surface with no metric at either point is tested as it is. (The original code had this
+      // copy-and-scale commented out, for want of the surface.)
       SmBSplineCurve *pCopyCurve = NULL ;
-      SmObjDelete sCopyClean(pCopyCurve) ; // Will be set only if a copy is made.
-//    if(   this->GetDim() == 2
-//       && pOptCrvOnSurf != NULL)
-//      {
-//        // copy and scale the UVTrimCurve so that it lives on a surface
-//        // mapping which is similar to arc-length parameterizations
-//
-//        // Surface UVDomain
-//        SmExtent2d sSurfUVDomain = pOptCrvOnSurf->GetNaturalUVDomain() ;
-//
-//        // MidCurve Evaluation
-//        SmPoint3d sMidCurvePointXYZ ;
-//        this->EvaluatePoint(GetNaturalInterval().Evaluate(.5), sMidCurvePointXYZ) ;
-//
-//        // Surface deriviatives at midCurve evaluation watch out for singularities
-//        SmPoint2d sMidCurvePointUV(sMidCurvePointXYZ.x, sMidCurvePointXYZ.y) ;
-//        SmSurfParamType eSingularDirection ;
-//        if(pOptCrvOnSurf->IsSingularity(sMidCurvePointUV, eSingularDirection))
-//          {
-//            sMidCurvePointUV = sSurfUVDomain.Evaluate(.5, .5) ;
-//          }
-//        SmPoint3d sSurfPoint, sSurfDu, sSurfDv ;
-//        pOptCrvOnSurf->Evaluate1stDerivatives(sMidCurvePointUV, TRUE, TRUE,
-//                                              sSurfPoint, sSurfDu, sSurfDv) ; 
-//
-//        // pick scale factors so that surface is near arclength parameterization
-//        // watch out for surface singularities
-//        double dScaleU = sSurfDu.Length() ;
-//        double dScaleV = sSurfDv.Length() ;
-//
-//        // Copy the UVTrimCurve and scale its control points
-//        pCopyCurve = new (this->GetContext()) SmBSplineCurve(*this) ;
-//        sCopyClean.SetObj( pCopyCurve );
-//        ULONG lControlPointCount = pCopyCurve->m_pNurb->pol->n + 1 ;
-//        CPOINT *pPw = pCopyCurve->m_pNurb->pol->Pw ;
-//        for(ULONG ii=0;ii<lControlPointCount;ii++)
-//          {
-//            pPw[ii].x *= dScaleU ;
-//            pPw[ii].y *= dScaleV ;
-//          } 
-//            
-//      } // end scaling of UVTrimCurves when given pOptCrvOnSurf
+      SmObjDelete sCopyClean ; // Will be set only if a copy is made.
+      SmBoolean bRadiusSized = bSized ;
+      double dRadiusTol = dTol, dRadiusSep = dMinSep ;
+      const SmEdgeuse *pTrimOf = GetDim() == 2 ? GetEdgeuse() : NULL ;
+      const SmFace    *pTrimFace = pTrimOf ? pTrimOf->GetFace() : NULL ;
+      const SmSurface *pTrimSurface = pTrimFace ? pTrimFace->GetSurface() : NULL ;
+      if ( bSized && IsBounded() && pTrimSurface != NULL )
+        {
+          SmPoint3d sMid ;
+          double    aEFG[3] = {0.0, 0.0, 0.0} ;
+          SmBoolean bForm = (   EvaluatePoint(sDomain.Evaluate(.5), sMid) == SM_SUCCESS
+                             && sm_FirstFundamentalForm(*pTrimSurface, SmPoint2d(sMid.x, sMid.y), TRUE, TRUE, aEFG)
+                             && sm_IsPositiveDefinite(aEFG) ) ;
+          if ( !bForm )
+            {
+              bForm = (   sm_FirstFundamentalForm(*pTrimSurface, pTrimSurface->GetNaturalUVDomain().Evaluate(.5, .5), TRUE, TRUE, aEFG)
+                       && sm_IsPositiveDefinite(aEFG) ) ;
+            }
+          if ( bForm )
+            {
+              // (u, v) -> (a u + b v, c v), the Cholesky factor L of the form: |L d|^2 = d.G.d.
+              // Linear, so it maps homogeneous control points as it maps cartesian ones.
+              const double a = smos_Sqrt(aEFG[0]) ;
+              const double b = aEFG[1] / a ;
+              const double c = smos_Sqrt(aEFG[0] * aEFG[2] - aEFG[1] * aEFG[1]) / a ;
+              pCopyCurve = new (GetContext()) SmBSplineCurve(*this) ;
+              sCopyClean.SetObj( pCopyCurve ) ;
+              SmExtent3d sMappedBox ;
+              bRadiusSized = pCopyCurve->m_pNurb != NULL ;
+              if ( bRadiusSized )
+                {
+                  gw_CPOINT *pPw = pCopyCurve->m_pNurb->pol->Pw ;
+                  const ULONG lCount = (ULONG)pCopyCurve->m_pNurb->pol->n + 1 ;
+                  for ( ULONG k = 0 ; k < lCount ; k++ )
+                    {
+                      const double x = pPw[k].x, y = pPw[k].y ;
+                      pPw[k].x = a * x + b * y ;
+                      pPw[k].y = c * y ;
+                    }
+                  bRadiusSized = ( pCopyCurve->CalculateBoundingBox( sDomain, &sMappedBox ) == SM_SUCCESS ) ;
+                }
+              bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, bRadiusSized, SM_UNDEF_DOUBLE, SM_UNDEF_DOUBLE, _T("")) ;
+              if ( bRadiusSized )
+                {
+                  const double dMappedSize = sMappedBox.GetSize().Length() ;
+                  dRadiusTol = (dMappedSize / dSizeT) / 10000 ;
+                  dRadiusSep = dMappedSize / smos_Max(20., dSizeT) ;
+                }
+            }
+        }
 
       if ( pCopyCurve == NULL )
         { pCopyCurve = (SmBSplineCurve*)this; }
 
       // Another type of kink check: vanishing radius of curvature.
-      pCopyCurve->GlobalPropertyAnalysis( sDomain, SM_CP_MINIMIZE_RADIUS_OF_CURVATURE,
-                                          NULL, NULL, dMinSep, rSolutionArray );
-
-      if(dMinRadius < dTol)
+      SmBoolean bRadii = FALSE ;
+      if ( bRadiusSized )
         {
-          // Note, the same comment as for MINIMIZE_FIRST_DERIVATIVE could
-          // apply here, but in this case the function value used is indeed
-          // the actual radius of curvature.
+          bRadii = (   pCopyCurve->GlobalPropertyAnalysis( sDomain, SM_CP_MINIMIZE_RADIUS_OF_CURVATURE,
+                                                           NULL, NULL, dRadiusSep, rSolutionArray )
+                    == SM_SUCCESS ) ;
+          bRtn &= SM_ASSERT_VALUE_REPORT(GetDim() == 2 ? 13 : 14, SM_LEVEL_0, bRadii, dRadiusTol, SM_UNDEF_DOUBLE, _T("")) ;
+        }
 
-          // save values for debugging convenience
-          dMinRadius      =   rSolutionArray.GetSize() > 0
-                            ? rSolutionArray[0].m_vStart.m_dSolutionValue 
-                            : SM_BIG_DOUBLE ;
-          dMinRadiusParam =   rSolutionArray.GetSize() > 0
-                            ? rSolutionArray[0].m_vStart.m_adParameters[0]
-                            : 0.0 ;
+      // The minimum radius is the smallest solution value. Unlike
+      // MINIMIZE_FIRST_DERIVATIVE, the function minimized here is the radius
+      // of curvature itself, F = |C'|^3 / |C' x C"| (SmCurvePropertyEFO::Evaluate),
+      // and LocalPropertyAnalysis returns F at each solution in
+      // m_vStart.m_dSolutionValue.
+      ULONG lSol ;
+      for(lSol=0;bRadii && lSol<rSolutionArray.GetSize();lSol++)
+        {
+          if(rSolutionArray[lSol].m_vStart.m_dSolutionValue < dMinRadius)
+            {
+              dMinRadius      = rSolutionArray[lSol].m_vStart.m_dSolutionValue ;
+              dMinRadiusParam = rSolutionArray[lSol].m_vStart[0] ;
+            }
+        }
 
+      if(dMinRadius < dRadiusTol)
+        {
           if(GetDim() == 2)
             { 
               /* 13 */
-              bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, dMinRadius >= dTol, dTol, dMinRadius, _T("")) ;
+              bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0, dMinRadius >= dRadiusTol, dRadiusTol, dMinRadius, _T("")) ;
               SM_ASSERT_SET_OWNER_PARAM(SmPoint2d(dMinRadiusParam, 0.0)) ;
               // SM_ASSERT_MSG( FALSE, _T("2D Curve Warning: Extremely small radius of curvature") );
             }
           if(GetDim() == 3)
             { 
               /* 14 */
-              bRtn &= SM_ASSERT_VALUE_REPORT(14, SM_LEVEL_0, dMinRadius >= dTol, dTol, dMinRadius, _T("")) ;
+              bRtn &= SM_ASSERT_VALUE_REPORT(14, SM_LEVEL_0, dMinRadius >= dRadiusTol, dRadiusTol, dMinRadius, _T("")) ;
               SM_ASSERT_SET_OWNER_PARAM(SmPoint2d(dMinRadiusParam, 0.0)) ;
 
               // SM_ASSERT_MSG( FALSE, _T("3D Curve Warning: Extremely small radius of curvature") );
@@ -8185,12 +8375,12 @@ SmBoolean SmBSplineCurve::AssertNoPeriodicJump
 
   // make sure curve has a Nurb representation
   if(m_pNurb == NULL)
-    { MakeNurb() ; }
+    { if ( MakeNurb() != SM_SUCCESS ) { return FALSE ; } } // SolidCraft: a curve with no polygon can't be shown free of jumps
 
   // get curve control points in 2d euclidean space
   SmTArray<SmPoint3d> sPolygon ; 
   SmExtent1d sIvl = GetNaturalInterval() ;
-  GetPolygon(sIvl, sPolygon) ;
+  if ( GetPolygon(sIvl, sPolygon) != SM_SUCCESS ) { return FALSE ; }
 
   // no work - single pair control point curves are assumed to not jump boundaries
   if(sPolygon.GetSize() == 2) { return TRUE ; }

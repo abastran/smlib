@@ -106,6 +106,7 @@ Mirrors `source/SMLib/inc/SmMessages.h`. When fixing a failure, treat the `Typic
 | 1038 | `SM_ERR_METHOD_FAILURE_QUITING` | Algorithm voluntarily aborted | The kernel decided continuing would produce garbage. Specific to the algorithm — see the trace. |
 | 1040 | `SM_ERR_NOTYET_HEAL_FACE` | Face couldn't be healed automatically | Inspect or rebuild the offending face before retrying; `heal_brep` exposes no tolerance parameter. |
 | 1041 | `SM_ERR_TESS_FAIL_FACE` | Tessellation failed on a specific face | Defined for compatibility, but no current production path emits this status. Diagnose the actual returned status and tessellation diagnostics instead. |
+| 1042 | `SM_ERR_OFFSET_WALLS_TOUCH` | An offset's walls would meet: loops of an offset face touch without crossing | A shell or offset whose wall exactly uses up the room between two faces (a hole twice the wall from a side) would pinch to nothing along a line. Use a thinner or a thicker wall, or move the feature. The C API reports it as `SMLIB_ERR_WALLS_TOUCH`. |
 
 ## Operation-Specific Guidance
 
@@ -141,7 +142,13 @@ cable = sm.pipe_sweep(radius=0.5, path=path, cap_ends=True)
 
 `SM_ERR` from `SmApiCircularFillet` / `SmApiFilletEdges`:
 - `radius` exceeds the local geometry (the fillet would eat a neighboring face entirely). Reduce the radius and test a fresh BRep copy. `fillet_preview` takes a chosen radius and returns surfaces; it does not compute a maximum admissible radius.
-- The selection contains stale or foreign edges, or unsupported local topology. Selected edges need not form one connected chain; isolate failing edge neighborhoods and corner interactions.
+- The selection contains unsupported local topology. Selected edges need not form one connected chain; isolate failing edge neighborhoods and corner interactions.
+
+`SM_ERR_INVALID_INPUT` from the edge-list fillet wrappers (`fillet_edges`, `fillet_edges_per_edge`, `variable_radius_fillet`, `fillet_preview`, `SmApiSetBevelCorners`):
+- An edge is not a live edge of the target BRep (it belongs to another BRep, is stale, or is `None`). This is checked before any topology changes, so both BReps are left unchanged.
+
+`SM_ERR_INVALID_INPUT` from `circular_fillet`, `chamfer_fillet`, `fillet_edges`, `fillet_edges_per_edge`, `variable_radius_fillet` or `set_bevel_corners`:
+- A radius (or chamfer width) is below 8× the BRep tolerance (8e-5 by default). The BRep is left unchanged.
 
 ### Tessellation
 

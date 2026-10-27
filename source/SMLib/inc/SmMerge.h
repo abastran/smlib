@@ -43,6 +43,7 @@
 
 #ifndef __SMVERTEX_H__
 #include <SmVertex.h>
+#include <unordered_set>
 #endif
 
 #ifdef SM_USE_GLOBAL_CACHE
@@ -261,6 +262,10 @@ protected:
                                                    // default:[FALSE]
 
   long                m_lTagID;
+
+  std::unordered_set<const SmEdge*> m_sPostProcessKeptEdges; // SolidCraft change: BooleanPostProcess() removes none of
+  std::unordered_set<const SmFace*> m_sPostProcessKeptFaces; //   these edges, nor an edge between two of these faces (a
+                                                   //   fillet's input: merging its faces is not the fillet's to do)
 
   SmTArray< SmVertex* > m_sIntersectionVertices;   // Brep vertices and edges that are directly
   SmTArray< SmEdge  * > m_sIntersectionEdges;      //   involved in the intersection.  They will be

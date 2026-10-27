@@ -683,8 +683,16 @@ public:
   virtual SmStatus CreateOffsetSurface(const SmContext      & crContext,               // in : context for new obj construction                                           
                                        double                 dSignedOffsetDistance,   // in : offset dist, (neg val = Offset dir opposite surface normal)                
                                        SmApproxTol3d          sApproxTol3d,            // NotUsed: in : Max Dist between ApproxOffsetSurface and ideal offset shape                
-                                       SmSurface* &           rOffsetSurface)          // out: Offset Surf Approx, may have self-intersections                            
-                                      const ; 
+                                       SmSurface* &           rOffsetSurface)          // out: Offset Surf Approx, may have self-intersections
+                                      const ;
+
+  // SolidCraft change: TRUE when the offset by dSignedOffsetDistance shrinks this surface onto its
+  // spine or past it, its radius below dTol (a cylinder or cone onto its axis, a torus onto its centre
+  // circle, a sphere onto its centre): a convex round no thicker than the distance, whose offset
+  // is no surface, so CreateOffsetSurface gives none. FALSE for every surface whose offset is one.
+  virtual SmBoolean OffsetCollapses(double dSignedOffsetDistance,   // in : offset dist, (neg val = Offset dir opposite surface normal)
+                                    double dTol)                    // in : the radius below which the offset is its spine
+                                   const { SM_REF2(dSignedOffsetDistance, dTol); return FALSE; }
 
   virtual SmStatus CreateParallelProjectionCurves(const SmContext      & crContext,                 // in : context for new object construction                        
                                                   const SmExtent2d     & crUVDomain,                // in : surface domain limit                                       
@@ -1711,7 +1719,12 @@ public:
                             SE( SM_ERR ) ; return SM_ERR;
                           }
 
-  // given a point on the surface find its corresponding analytic UV-parameter
+  // given a point on the surface find its corresponding analytic UV-parameter.
+  // SolidCraft change: the analytic implementations (SmSphere, and SmSurfOfRevolution with a
+  // planar generator, so SmCone) answer a point that is not on the surface with
+  // SM_ERR_NOT_WITHIN_TOLERANCE, and SmSurfOfRevolution one outside its sweep with
+  // SM_ERR_OUTSIDE_OF_DOMAIN (SmSphere: SM_SUCCESS and SM_LT_EXTERIOR), each with reLocation set;
+  // any other status but SM_SUCCESS is a failure. See STEPInversionAnswered().
   virtual SmStatus STEPInversion(const SmExtent2d & crAnalUVDomain,                    // in :    
                                  const SmPoint3d  & crPointOnSurf,                     // in :    
                                  double             dDistanceTolerance,                // in :    
@@ -1722,6 +1735,15 @@ public:
                                 {
                                   SM_REF6( crAnalUVDomain, crPointOnSurf, dDistanceTolerance, rdAnalUVParameter, reLocation, pUVGuess ) ;
                                   return SM_ERR;
+                                }
+
+  // TRUE when an analytic STEPInversion() answered: the point is on the surface, off it, or on
+  // it outside its domain, with reLocation set
+  static SmBoolean STEPInversionAnswered(SmStatus eStat)
+                                {
+                                  return (   eStat == SM_SUCCESS
+                                          || eStat == SM_ERR_NOT_WITHIN_TOLERANCE
+                                          || eStat == SM_ERR_OUTSIDE_OF_DOMAIN) ? TRUE : FALSE ;
                                 }
 
   virtual SmStatus SwapUV()                                            
@@ -2049,7 +2071,7 @@ public:
                  m_bUVSet( FALSE ),
                  m_bNormalSet( FALSE ),
                  m_bSectDirSet( FALSE)
-               { SetUV( dU, dV ) ; } 
+               { (void)SetUV( dU, dV ) ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   SmSurfaceEval( const SmSurface *pSurf,  double dU, double dV, const SmVector3d &rSectDir )    
                : m_bNonZeroTangents(TRUE),
@@ -2059,7 +2081,7 @@ public:
                  m_bUVSet( FALSE ),
                  m_bNormalSet( FALSE ),
                  m_bSectDirSet( FALSE)
-               { SetUV( dU, dV ) ; SetSectDir( rSectDir) ; } 
+               { (void)SetUV( dU, dV ) ; (void)SetSectDir( rSectDir) ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   // Assignment operator
   SmSurfaceEval & operator=( const SmSurfaceEval &crOther )
@@ -2184,27 +2206,27 @@ public:
 
   // use FailsEval() when evaluating outside the DomainBoundary and possible failures are expected and handled
   SmBoolean FailsEval(SmBoolean bSignalFails=FALSE)    
-                     { Eval(bSignalFails) ; return m_bFailsEval ; }
+                     { (void)Eval(bSignalFails) ; return m_bFailsEval ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   // gwc: design flaw - when FailsEval() == TRUE, these methods return uninitialized values, check FailsEval().
   SmPoint3d    & Pos()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Pos() returning uninit value because m_pSrf->Evaluate() failed")) ; 
-                                   Eval() ; return m_sPVV[0][0] ; }
+                                   (void)Eval() ; return m_sPVV[0][0] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Su ()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Su () returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[1][0] ; }
+                                   (void)Eval() ; return m_sPVV[1][0] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Sv ()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Sv () returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[0][1] ; }
+                                   (void)Eval() ; return m_sPVV[0][1] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Suu()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Suu() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[2][0] ; }
+                                   (void)Eval() ; return m_sPVV[2][0] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Suv()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Suv() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[1][1] ; }
+                                   (void)Eval() ; return m_sPVV[1][1] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Svv()           { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Svv() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   Eval() ; return m_sPVV[0][2] ; }
+                                   (void)Eval() ; return m_sPVV[0][2] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & Normal()        { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::Normal() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   EvalNormal() ; return m_sPVV[2][2] ; }
+                                   (void)EvalNormal() ; return m_sPVV[2][2] ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   SmVector3d   & SectTangent()   { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::SectTangent() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   EvalNormalSection() ; return m_sSectTangent ; }
+                                   (void)EvalNormalSection() ; return m_sSectTangent ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
   double         SectCurvature() { SM_ASSERT_MSG(FailsEval() == FALSE, _T("SmSurfaceEval::SectCurvature() returning uninit value because m_pSrf->Evaluate() failed")) ;  
-                                   EvalNormalSection() ; return m_dSectCurvature ; }
+                                   (void)EvalNormalSection() ; return m_dSectCurvature ; } // SolidCraft: an accessor of the evaluator, which keeps its own failure flag (m_bFailsEval)
 
   // pretty print
   void Dump() ;

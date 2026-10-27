@@ -487,7 +487,7 @@ static int sm_ClassifyFacePoint( const SmPoint3d & rPos, SmFace *pOrigFace, SmFa
   SmExtent2d sFaceDomain1 = pOrigFace->GetUVDomain();
 
 //cbi_CEdge TODO: Maybe do this ahead of time.
-  pOrigFace->CalculateUVDomainFromUVTrimCurves( sFaceDomain1 );
+  (void)pOrigFace->CalculateUVDomainFromUVTrimCurves( sFaceDomain1 ); // SolidCraft: on failure the face keeps its stored domain, a looser bound for the drop
 
   // Use Normalize: it should be over the Face it's in, and don't bother
   // finding the closest approach if it's not.
@@ -503,7 +503,7 @@ static int sm_ClassifyFacePoint( const SmPoint3d & rPos, SmFace *pOrigFace, SmFa
 
   SmExtent2d sFaceDomain2 = pNewFace->GetUVDomain();
 
-  pNewFace->CalculateUVDomainFromUVTrimCurves( sFaceDomain2 );
+  (void)pNewFace->CalculateUVDomainFromUVTrimCurves( sFaceDomain2 ); // SolidCraft: on failure the face keeps its stored domain, a looser bound for the drop
 
   SmStatus eStat2 = pNewFace->GetSurface()->DropPoint( rPos,
               sFaceDomain2, NULL, bSuccess2, sUV2, dGap2, bIsMulti, SM_SO_NORMALIZE );
@@ -691,7 +691,7 @@ static ULONG lDebugCount = 0 ;
     {
       // get planar intersection
       SmPlane * pPlane = SM_CAST_PTR(SmPlane,pSurf1); NER(pPlane);
-      pSurf2->IntersectWithPlane(crContext, sDomain2,
+      (void)pSurf2->IntersectWithPlane(crContext, sDomain2, // SolidCraft: no answer here falls through to the general intersectors below
                                  *pPlane, sDomain1, bUseSurfaceEdges,
                                  &sSSITol, &dAngleTol, bNeedsMoreIntersections,
                                  &s3DCurves, &sSurface2UVCurves, &sSurface1UVCurves,
@@ -701,7 +701,7 @@ static ULONG lDebugCount = 0 ;
     {
       // get planar intersection
       SmPlane * pPlane = SM_CAST_PTR(SmPlane,pSurf2); NER(pPlane);
-      pSurf1->IntersectWithPlane(crContext,sDomain1,
+      (void)pSurf1->IntersectWithPlane(crContext,sDomain1, // SolidCraft: no answer here falls through to the general intersectors below
                                  *pPlane,sDomain2, bUseSurfaceEdges,
                                  &sSSITol, &dAngleTol, bNeedsMoreIntersections,
                                  &s3DCurves, &sSurface1UVCurves, &sSurface2UVCurves,
@@ -720,7 +720,7 @@ static ULONG lDebugCount = 0 ;
       // Note, an error return value here just means
       // that it couldn't find a solution, not that we should quit,
       // so don't SER here.
-     sm_TwoPntsIntersection( crContext,
+     (void)sm_TwoPntsIntersection( crContext, // SolidCraft: upstream: an error here only means no solution (see above)
               pStartV, pEndV, pOptDir, pOptEndDir, pSurf1, pSurf2, sSSITol,
               rp3DCurve, rpUVCurve1, rpUVCurve2, iDebugLevel );
 
@@ -900,7 +900,7 @@ static ULONG lDebugCount = 0 ;
               bReverseCurves = TRUE;
               SM_SWAP(double,dParam1,dParam2);
             }
-          sTrimIvl.SetMinMax( dParam1, dParam2 );
+          (void)sTrimIvl.SetMinMax( dParam1, dParam2 ); // SolidCraft: ordered just above, it cannot fail
           SER( pNew3DCurve->Trim( sTrimIvl ));  // may snap sIvl by tol to existing knots
           if ( pNewUVCurve1 )
               SER( pNewUVCurve1->Trim( sTrimIvl ));  // may snap sIvl by tol to existing knots
@@ -1053,8 +1053,8 @@ static SmStatus sm_InterpolateEndptsAndTangents
       { lCurveDim = 3; }
 
     // Unitize tangents  // Don't quit just because of zero vectors.
-    rStartVec.Unitize(); // SER(rStartVec.Unitize());
-    rEndVec.Unitize();   // SER(rEndVec.Unitize());
+    (void)rStartVec.Unitize(); // SER(rStartVec.Unitize()); // SolidCraft: upstream: a zero tangent stays zero, no reason to quit
+    (void)rEndVec.Unitize();   // SER(rEndVec.Unitize()); // SolidCraft: upstream: a zero tangent stays zero, no reason to quit
 
 #ifdef SM_DEBUG_CODE
     if ( iDebugLevel > 0 ) {
@@ -1847,7 +1847,7 @@ SmBoolean bDebugFVUs=FALSE;
   if ( pFilletGeom1 != NULL )
     {
       ULONG lRailIndex = 0;
-      pFilletGeom1->GetRailIndexOfSideEU( pSideEU1, lRailIndex );
+      SER( pFilletGeom1->GetRailIndexOfSideEU( pSideEU1, lRailIndex ) );
 
 #ifdef SM_DEBUG_CODE
       if ( bDebugFVUs )
@@ -2003,7 +2003,15 @@ SmBoolean bDebugFVUs=FALSE;
               // load rTsectPnt with the rail/curve intersection found as
               // point on sideEdge->UVTrimCurve and FilletFace->Surface
 
-              SmTemporaryRadiusChange sTempRad( pFilletGeom1->GetFilletSolver(), lRailIndex, pSideEU1 );
+              // SolidCraft change: the radius held constant only as in the first try, at a
+              // corner calculated as constant radius. Held anywhere else, the rail end found
+              // is at a radius the variable-radius fillet does not have there, and its trace
+              // cannot pass through it (a round running into a rounded corner, its rail on
+              // the top meeting the corner's arc only at that radius).
+              SmFilletSolver *pFSForChange = ( this->GetFilletCorner()->IsCalcAsConstRad() )
+                                               ? pFilletGeom1->GetFilletSolver()
+                                               : NULL;
+              SmTemporaryRadiusChange sTempRad( pFSForChange, lRailIndex, pSideEU1 );
 
               SER( pFilletGeom1->RailEdgeuseIntersect(lRailIndex,
                                                       pSideEU1,
@@ -2209,7 +2217,7 @@ SmBoolean bDebugMe = FALSE ;
       //SmFilletSolver * pFilSolver2= pFilletGeom2->GetFilletSolver();
       SmEdgeuse * pSideEU2 = pSideEU1->GetRadial();
       ULONG lOtherRailIndex = 0;
-      pFilletGeom2->GetRailIndexOfSideEU( pSideEU2, lOtherRailIndex );
+      SER( pFilletGeom2->GetRailIndexOfSideEU( pSideEU2, lOtherRailIndex ) );
 
       SmFilletVertexuse * pVU2 = GetVUAtRailEnd( pFilletGeom2, pVU1 );
 
@@ -3171,7 +3179,7 @@ SmStatus SmFilletVertex::CalcVertOnCrossSection
             SmVertexuse * pVU = sVertexuses[jj];
             if (pVU->GetFaceuse()->GetFace() == pFace) {
                 bFound = TRUE;
-                pVU->ComputeUVPoint(sUVs[i]);
+                SER( pVU->ComputeUVPoint(sUVs[i]) );
             }
         }
     }
@@ -3328,28 +3336,19 @@ SmStatus SmFilletVertex::CalcSetBackVert()
   SmEdgeuse * pEU = pFilSolver->GetEdgeuse(0);
   SmEdge * pE = pEU->GetEdge();
   SmCurve * pCurve = pE->GetCurve(); NER(pCurve);
-  SmExtent1d sIvl = pCurve->GetNaturalInterval();
+  // SolidCraft change: walk dSetBackDist along the edge from the filleted vertex, over the
+  // edge's own interval from the end that vertex marks: GetStartVertex() marks the interval's
+  // start. (GetVertex() is the primary edgeuse's vertex, the curve's end where that edgeuse
+  // runs against the curve, and the curve's natural interval need not be the edge's: the
+  // setback was measured from the far vertex on such an edge.)
+  SmExtent1d sIvl = pE->GetInterval();
+  SmBoolean bFromStart = (pE->GetStartVertex() == cpVertex);
   double dEndParam = SM_BIG_DOUBLE;
   SmVector3d sPV[2];
-  // Walk along the curve for dSetBackDist
-  if (pE->GetVertex() == cpVertex) {
-      double dStartParam = sIvl.GetMin();
-      SER( pCurve->FindParameterAtArcLength(
-              dStartParam, dSetBackDist, dEndParam ));
-      SER( pCurve->Evaluate( dEndParam, 1, TRUE, sPV ));
-  }
-  else {
-      const SmContext & crContext = m_cpCorner->GetContext();
-      SmCurve * pNewCurve = NULL;
-      SER(pCurve->Copy( crContext, pNewCurve ));
-      SmObjDelete sDelete( pNewCurve );
-      SmExtent1d sNewIvl;
-      SER( pNewCurve->ReverseParameterization( sIvl, sNewIvl ));
-      double dStartParam = sNewIvl.GetMin();
-      SER( pNewCurve->FindParameterAtArcLength(
-              dStartParam, dSetBackDist, dEndParam ));
-      SER( pNewCurve->Evaluate( dEndParam, 1, TRUE, sPV ));
-  }
+  SER( pCurve->FindParameterAtArcLength(
+          bFromStart ? sIvl.GetMin() : sIvl.GetMax(),
+          bFromStart ? dSetBackDist : -dSetBackDist, dEndParam ));
+  SER( pCurve->Evaluate( dEndParam, 1, TRUE, sPV ));
   SmPoint3d sPlaneOrig = sPV[0];
   SmVector3d sPlaneNormal = sPV[1];
 
@@ -3483,7 +3482,7 @@ SmStatus SmFilletVertex::CalcMateGeom()
   SmFilletVertex *pMainFV = this->GetMate( 0 );
   NER( pMainFV );
   if ( ! pMainFV->IsProcessed() )
-    { pMainFV->CalcCornerVertGeom(); }
+    { SER( pMainFV->CalcCornerVertGeom() ); }
   if ( ! pMainFV->IsProcessed() )
     { return SM_SUCCESS; }
 
@@ -3865,7 +3864,7 @@ SmFilletEdgeuse::SmFilletEdgeuse
     if (sShells.GetSize() == 0) {
         SmVertex *pNewV; // Just an artifact vertex
         SmShell *pShell;
-        pPseudoBrep->MakeShellVertexTopology(pReg,pShell,pNewV);
+        (void)pPseudoBrep->MakeShellVertexTopology(pReg,pShell,pNewV); // SolidCraft: a constructor cannot report
         pReg->GetShells(sShells);
     }
     m_pSorLU = sShells[0];
@@ -4090,7 +4089,7 @@ static SmStatus sm_CreateCubicRailRailInterpolant
     SmEdgeuse * pEU = pFilSolver1->GetEdgeuse(lRailIndex);
     if (pEU->GetVertexuse()->GetVertex() != cpCornerVert)
         pEU = pFilSolver2->GetEdgeuse(lOtherRailIndex);
-    pEU->GetVertexuse()->ComputeUVPoint(sUVGuess);
+    SER( pEU->GetVertexuse()->ComputeUVPoint(sUVGuess) );
 
 #ifdef SM_DEBUG_CODE
     SmSurface * pSurf = pFace->GetSurface();
@@ -5175,12 +5174,12 @@ SmFilletEdge::~SmFilletEdge
 
   // delete all connected edgeuses and the edgeuses' connected vertexuses
   SmTArray<SmEdgeuse*> sEdgeuses;
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a destructor cannot report
   for (ULONG i=0; i<sEdgeuses.GetSize(); i++)
     {
       SmEdgeuse   * pEU = sEdgeuses[i];
       SmVertexuse * pVU = pEU->GetVertexuse();
-      pVU->GetVertex()->Remove(pVU);
+      (void)pVU->GetVertex()->Remove(pVU); // SolidCraft: a destructor cannot report
       SM_ASSERT(pEU != NULL) ; delete pEU ; pEU = NULL ;
       SM_ASSERT(pVU != NULL) ; delete pVU ; pVU = NULL ;
     }
@@ -5703,10 +5702,10 @@ iDebugLevel = DebugLevel();
 
             if ( bCheckConnectivity )
             {
-                sm_ExamineNFixFilletGeoms(
+                SER( sm_ExamineNFixFilletGeoms(
                     pFilletGeom1, bAtStartOfGeom1,
                     pFilletGeom2, bAtStartOfGeom2,
-                    pStartFV, pEndFV, dTol, iDebugLevel );
+                    pStartFV, pEndFV, dTol, iDebugLevel ) );
             }
         }
     }
@@ -6139,7 +6138,7 @@ int iDebugLevel = 0;
         }
 
       // trim 3DCurve and UVTrimCurves to dropPoint parameter values
-      sTrimIvl.SetMinMax(dParam1,dParam2);
+      SER( sTrimIvl.SetMinMax(dParam1,dParam2) );
       SER(p3DCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
       SER(pUVCurve1->Trim(sTrimIvl)); // may snap sIvl by tol to existing knots
       SER(pUVCurve2->Trim(sTrimIvl)); // may snap sIvl by tol to existing knots
@@ -6240,11 +6239,11 @@ iDebugLevel = DebugLevel();
           sXVector /=  dXLen ;
           sYVector /=  dYLen ;
           sYVector = sXVector * sYVector * sXVector ;
-          sYVector.Unitize() ;
+          (void)sYVector.Unitize() ; // SolidCraft: a zero vector stays zero; the plane below then fails
           SmExtent2d sUVDomain(-dXLen, -dYLen, 2*dXLen, 2*dYLen) ;
 
           pSurface = new(crContext) SmPlane(sOrigin, sXVector, sYVector, sUVScale, sUVDomain) ;
-          ((SmPlane *)pSurface)->MakeNurb() ;
+          SER( ((SmPlane *)pSurface)->MakeNurb()  );
           sCleanup.SetObj(pSurface) ;
 
         } // end not building extendedSurface endFace patch branch
@@ -7024,7 +7023,7 @@ int iDebugLevel = 0;
   else
     {
       pUVCurve = pNewCurve;
-      pUVCurve->ConvertTo2D() ; // gwc: this changes z=0 to z=NL_NOZ values.  Is that a problem?
+      SER( pUVCurve->ConvertTo2D()  ); // gwc: this changes z=0 to z=NL_NOZ values.  Is that a problem?
     }
 
   if (bCreateCrvOn3D == FALSE || bProjectAndLift == TRUE)
@@ -7532,7 +7531,7 @@ SmStatus SmFilletEdge::CalcEdgeOnEdge
   // GWC: Stop Fillets from switching SmCurve objects to SmBSplineCurve objs
   SmBSplineCurve * pNew3DCurve = NULL ;
   SmCurve        * pCopyCurve  = NULL ;
-  pEdge->GetCurve()->Copy(crContext, pCopyCurve) ; 
+  SER( pEdge->GetCurve()->Copy(crContext, pCopyCurve)  ); 
   pNew3DCurve = SM_CAST_PTR(SmBSplineCurve, pCopyCurve) ; NER(pNew3DCurve);
   //  
   //  SmBSplineCurve * pCurve      = SM_CAST_PTR(SmBSplineCurve, pEdge->GetCurve()); NER(pCurve);
@@ -7607,8 +7606,8 @@ SmStatus SmFilletEdge::CalcEdgeOnEdge
     }
 
   // set 3DCurve->interval = ordered[startDropparameter, endDropParameter]
-  if (dParam1 > dParam2) { sTrimIvl.SetMinMax(dParam2,dParam1); }
-  else                   { sTrimIvl.SetMinMax(dParam1,dParam2); }
+  if (dParam1 > dParam2) { (void)sTrimIvl.SetMinMax(dParam2,dParam1); } // SolidCraft: ordered by the test, it cannot fail
+  else                   { (void)sTrimIvl.SetMinMax(dParam1,dParam2); } // SolidCraft: ordered by the test, it cannot fail
   SER(pNew3DCurve->Trim(sTrimIvl));   // may snap sIvl by tol to existing knots
 
   // reverse curve if needed
@@ -7648,6 +7647,26 @@ SmStatus SmFilletEdge::CalcEdgeOnExtendedEdge
     SmTArray<SmFace*> sFaces;
     pEdge->GetFaces(sFaces);
     if (sFaces.GetSize() < 2) SER(SM_ERR);
+
+    // Past a tangent side edge (SmFilletNx1Corner::MakeCornerTopology), the
+    // extended edge bounds the end face and a face that is not the side face
+    // this edge runs in. Its extension is where that side face meets the end
+    // face's extension (the one of the edge's faces the corner extended).
+    SmFace * pSideFace = GetOriginalFace();
+    if ( pSideFace != NULL && ! sFaces.IsIn( pSideFace ) )
+      {
+        SmFace * pEndFace = NULL;
+        for (ULONG i=0; i<sFaces.GetSize(); i++) {
+            if (pOptCorner->GetExtendedSurface(sFaces[i]) != NULL) {
+                pEndFace = sFaces[i];
+                break;
+            }
+        }
+        NER(pEndFace);
+        sFaces.ReSet();
+        sFaces.Add(pSideFace);
+        sFaces.Add(pEndFace);
+      }
 
     SmBSplineSurface * pSurface1 = NULL;
     SmBSplineSurface * pSurface2 = NULL;
@@ -7973,7 +7992,7 @@ SmStatus SmFilletEdge::CalcSetBackRail
   // GWC: Stop Fillets from switching SmCurve objects to SmBSplineCurve objs
   SmCurve           * pCopyCurve      = NULL ;
   SmBSplineCurve    * pNewRailCurve   = NULL ;
-  pRailCurve->Copy(crContext, pCopyCurve) ;  
+  SER( pRailCurve->Copy(crContext, pCopyCurve)  );  
   pNewRailCurve = SM_CAST_PTR(SmBSplineCurve, pCopyCurve) ; NER(pNewRailCurve);
   //   
   //   SmBSplineCurve    * pNewRailCurve   = new (crContext) SmBSplineCurve(*pRailCurve);
@@ -8105,9 +8124,9 @@ SmStatus SmFilletEdge::CalcSetBackRail
   // set Rail NewCurve and UVTrimCurve and NewOrigUVCurve TrimIvls to found DropParam values
   SmBoolean bReverseCurves = FALSE ;
   if (dParam1 > dParam2) { bReverseCurves = TRUE ;
-                            sTrimIvl.SetMinMax(dParam2,dParam1) ;
+                            (void)sTrimIvl.SetMinMax(dParam2,dParam1) ; // SolidCraft: ordered by the test, it cannot fail
                          }
-  else                   { sTrimIvl.SetMinMax(dParam1,dParam2) ; }
+  else                   { (void)sTrimIvl.SetMinMax(dParam1,dParam2) ; } // SolidCraft: ordered by the test, it cannot fail
   SER(pNewRailCurve->Trim(sTrimIvl));     // may snap sIvl by tol to existing knots
   SER(pNewRailUVCurve->Trim(sTrimIvl));   // may snap sIvl by tol to existing knots
   if (pNewOrigUVCurve) { SER(pNewOrigUVCurve->Trim(sTrimIvl)); }  // may snap sIvl by tol to existing knots
@@ -8484,7 +8503,7 @@ TryAgain:
       double dParam =   ( iWhichTry == 1 ) ? m_vInterval.GetMid()
                       : ( iWhichTry == 2 ) ? m_vInterval.GetMin()
                       :                      m_vInterval.GetMax();
-      this->GetCurve()->EvaluatePoint( dParam, sTestPt );
+      (void)this->GetCurve()->EvaluatePoint( dParam, sTestPt ); // SolidCraft: evaluated inside the edge interval itself
   }
   else if ( this->GetCurveClass() != NULL )
   {
@@ -8492,7 +8511,7 @@ TryAgain:
       double dParam =   ( iWhichTry == 1 ) ? sEdgeDomain.GetMid()
                       : ( iWhichTry == 2 ) ? sEdgeDomain.GetMin()
                       :                      sEdgeDomain.GetMax();
-      this->GetCurve()->EvaluatePoint( dParam, sTestPt );
+      (void)this->GetCurve()->EvaluatePoint( dParam, sTestPt ); // SolidCraft: evaluated inside the curve class interval itself
   }
   else if ( this->GetFilletCorner() != NULL )
   {
@@ -8990,7 +9009,7 @@ SmFilletGeom::SmFilletGeom
             {
                 // SmOffsetSurface::Copy() returns an SmSurface*, not SmOffsetSurface*
                 SmSurface *pNewSurf = NULL;
-                pOffSrf->Copy( pFilletSolver->GetCreationContext(), pNewSurf );
+                (void)pOffSrf->Copy( pFilletSolver->GetCreationContext(), pNewSurf ); // SolidCraft: a constructor cannot report; a failed copy leaves NULL, as for no surface
                 m_pOffSurfs[i] = SM_CAST_PTR(SmOffsetSurface, pNewSurf);
             }
             else
@@ -9095,8 +9114,8 @@ SmStatus SmFilletGeom::Copy
   // GWC: Stop Fillets from switching SmCurve and SmSurface objects to SmBSplineCurve and SmBSplineSurface objs
   SmSurface * pCopySurface = NULL ;
   SmCurve   * pCopyCurve   = NULL ;
-  if (pFilletGeomToCopy->m_pFilletSurface)   { pFilletGeomToCopy->m_pFilletSurface->Copy  (crContext, pCopySurface  ) ; }      
-  if (pFilletGeomToCopy->m_pCenterLineCurve) { pFilletGeomToCopy->m_pCenterLineCurve->Copy(crContext, pCopyCurve) ; }
+  if (pFilletGeomToCopy->m_pFilletSurface)   { SER( pFilletGeomToCopy->m_pFilletSurface->Copy  (crContext, pCopySurface  )  ); }      
+  if (pFilletGeomToCopy->m_pCenterLineCurve) { SER( pFilletGeomToCopy->m_pCenterLineCurve->Copy(crContext, pCopyCurve)  ); }
   m_pFilletSurface   = SM_CAST_PTR(SmBSplineSurface, pCopySurface) ; NER(m_pFilletSurface  ) ;
   m_pCenterLineCurve = SM_CAST_PTR(SmBSplineCurve,   pCopyCurve  ) ; NER(m_pCenterLineCurve) ;
 
@@ -9116,7 +9135,7 @@ SmStatus SmFilletGeom::Copy
           SmSurface * pNewSurf = NULL;
 
           // SmOffsetSurface::Copy() returns an SmSurface*, not SmOffsetSurface*
-          pOtherOffSurf->Copy( crContext, pNewSurf );
+          SER( pOtherOffSurf->Copy( crContext, pNewSurf ) );
           SmOffsetSurface * pNewOffSurf = SM_CAST_PTR(SmOffsetSurface, pNewSurf);
           if(pNewOffSurf != NULL)
             { m_pOffSurfs[i] = pNewOffSurf; }
@@ -9140,7 +9159,7 @@ SmStatus SmFilletGeom::Copy
           // GWC: Stop Fillets from switching SmCurve and SmSurface objects to SmBSplineCurve and SmBSplineSurface objs
           SmCurve        * pCopyCrv = NULL ;
           SmBSplineCurve * p3DCurve   = NULL ;
-          pOrig3DCurve->Copy(crContext, pCopyCrv) ; 
+          SER( pOrig3DCurve->Copy(crContext, pCopyCrv)  ); 
           p3DCurve = SM_CAST_PTR(SmBSplineCurve, pCopyCrv) ; NER(p3DCurve) ; 
           //   
           //   SmBSplineCurve *p3DCurve = new (crContext) SmBSplineCurve(*pOrig3DCurve);
@@ -9224,7 +9243,7 @@ SmStatus SmFilletGeom::FindEdgeTangentAtPoint
       SmCurve *pCurve = pE->GetCurve(); NER(pCurve);
       SER(pCurve->Evaluate(dT,1,TRUE,sPV));
       if (sPV[1].LengthSquared() > SM_EFF_ZERO_SQ) {
-          sPV[1].Unitize();
+          (void)sPV[1].Unitize(); // SolidCraft: nonzero by the test above, it cannot fail
           rTangent = sPV[1];
           rbFoundTangent = TRUE;
       }
@@ -9536,7 +9555,7 @@ iDebugLevel = DebugLevel();
       const SmContext *pContext = pBrep->GetContext();
       SmCurve * pCopyCurve = NULL ; 
       // GWC: Stop Fillets from switching SmCurve and SmSurface objects to SmBSplineCurve and SmBSplineSurface objs
-      pBSC->Copy(*pContext,pCopyCurve ) ;  s3DCurves1[kkk] = SM_CAST_PTR(SmBSplineCurve,pCopyCurve) ; NER(s3DCurves1[kkk]) ; 
+      SER( pBSC->Copy(*pContext,pCopyCurve )  );  s3DCurves1[kkk] = SM_CAST_PTR(SmBSplineCurve,pCopyCurve) ; NER(s3DCurves1[kkk]) ; 
       //
       //   s3DCurves1[kkk]           = new (*pContext) SmBSplineCurve(*pBSC);
 
@@ -10205,7 +10224,7 @@ SmStatus SmFilletGeom::CreateEndCurve
       // when 1st tangent was found
       if (bFound1)
         {
-          sTangent1.Unitize();
+          (void)sTangent1.Unitize(); // SolidCraft: a zero tangent stays zero
           sTangent1 = sTangent1 * dDist;
           SER(pFilletSurface->DropVectors(sPStart,TRUE,TRUE,1,&sTangent1,&sUVTan1));
           if (sUVTan1.y < 0.0) { sUVTan1 = - sUVTan1; }
@@ -10217,7 +10236,7 @@ SmStatus SmFilletGeom::CreateEndCurve
       // when second tangent was found
       if (bFound2)
         {
-          sTangent2.Unitize();
+          (void)sTangent2.Unitize(); // SolidCraft: a zero tangent stays zero
           sTangent2 = sTangent2 * dDist;
           SER(pFilletSurface->DropVectors(sPEnd,TRUE,TRUE,1,&sTangent2,&sUVTan2));
           if (sUVTan2.y < 0.0) { sUVTan2 = - sUVTan2; }
@@ -10254,7 +10273,7 @@ SmStatus SmFilletGeom::CreateEndCurve
                                      FALSE,    // in : bOptMatchParameterization
                                      FALSE)) ; // in : bJustCopyBSplines
           if(pUVCurve)
-            { pUVCurve->ConvertTo2D() ; }
+            { SER( pUVCurve->ConvertTo2D()  ); }
 
         } // end found a tangent branch
     } // end eTrimType == SM_BT_BLEND branch
@@ -10338,16 +10357,16 @@ SmStatus SmFilletGeom::Trim( SmExtent1d &rTrimInterval )
   SmCurve *pRailCurve = m_vRails[0]->GetCurve();
   if ( pRailCurve != NULL )
     {
-      pRailCurve->Trim( rTrimInterval );   // may snap sIvl by tol to existing knots
-      m_vRails[0]->GetInterval().Intersect( rTrimInterval, sTempIvl );
+      SER( pRailCurve->Trim( rTrimInterval ) );   // may snap sIvl by tol to existing knots
+      SER( m_vRails[0]->GetInterval().Intersect( rTrimInterval, sTempIvl ) );
       m_vRails[0]->SetInterval( sTempIvl );
     }
 
   pRailCurve = m_vRails[1]->GetCurve();
   if ( pRailCurve != NULL )
     {
-      pRailCurve->Trim( rTrimInterval );  // may snap sIvl by tol to existing knots
-      m_vRails[1]->GetInterval().Intersect( rTrimInterval, sTempIvl );
+      SER( pRailCurve->Trim( rTrimInterval ) );  // may snap sIvl by tol to existing knots
+      SER( m_vRails[1]->GetInterval().Intersect( rTrimInterval, sTempIvl ) );
       m_vRails[1]->SetInterval( sTempIvl );
     }
 
@@ -10358,8 +10377,8 @@ SmStatus SmFilletGeom::Trim( SmExtent1d &rTrimInterval )
       pRailCurve = m_vOtherRails1[i]->GetCurve();
       if ( pRailCurve != NULL )
         {
-          pRailCurve->Trim( rTrimInterval );  // may snap sIvl by tol to existing knots
-          m_vOtherRails1[i]->GetInterval().Intersect( rTrimInterval, sTempIvl );
+          SER( pRailCurve->Trim( rTrimInterval ) );  // may snap sIvl by tol to existing knots
+          SER( m_vOtherRails1[i]->GetInterval().Intersect( rTrimInterval, sTempIvl ) );
           m_vOtherRails1[i]->SetInterval( sTempIvl );
         }
     }
@@ -10368,8 +10387,8 @@ SmStatus SmFilletGeom::Trim( SmExtent1d &rTrimInterval )
       pRailCurve = m_vOtherRails2[i]->GetCurve();
       if ( pRailCurve != NULL )
         {
-          pRailCurve->Trim( rTrimInterval ); // may snap sIvl by tol to existing knots
-          m_vOtherRails2[i]->GetInterval().Intersect( rTrimInterval, sTempIvl );
+          SER( pRailCurve->Trim( rTrimInterval ) ); // may snap sIvl by tol to existing knots
+          SER( m_vOtherRails2[i]->GetInterval().Intersect( rTrimInterval, sTempIvl ) );
           m_vOtherRails2[i]->SetInterval( sTempIvl );
         }
     }
@@ -10377,7 +10396,7 @@ SmStatus SmFilletGeom::Trim( SmExtent1d &rTrimInterval )
   // Spine curve:
   if ( m_pCenterLineCurve != NULL )
     {
-      m_pCenterLineCurve->Trim( rTrimInterval );  // may snap sIvl by tol to existing knots
+      SER( m_pCenterLineCurve->Trim( rTrimInterval ) );  // may snap sIvl by tol to existing knots
     }
 
   // Fillet Surface:
@@ -10386,8 +10405,8 @@ SmStatus SmFilletGeom::Trim( SmExtent1d &rTrimInterval )
       SmExtent2d sDomain = m_pFilletSurface->GetNaturalUVDomain();
       // Trimming is in the u-direction.
       SmExtent1d sUDomain = sDomain.GetUInterval();
-      sUDomain.Intersect( rTrimInterval, sTempIvl );
-      sDomain.SetUInterval( sTempIvl );
+      SER( sUDomain.Intersect( rTrimInterval, sTempIvl ) );
+      SER( sDomain.SetUInterval( sTempIvl ) );
 
       // trim to domain
       //   GWC: The trimmed geometry will not change it's shape and
@@ -10395,7 +10414,7 @@ SmStatus SmFilletGeom::Trim( SmExtent1d &rTrimInterval )
       //        that its parameterization will stay constant as well.  If that turns out
       //        not to be true, than callers of this function will need to delete
       //        and rebuild any UVTrimCurves associated with this surface.
-      m_pFilletSurface->TrimWithDomain( sDomain );
+      SER( m_pFilletSurface->TrimWithDomain( sDomain ) );
     }
 
   return SM_SUCCESS;
@@ -10686,7 +10705,7 @@ SmStatus SmFilletGeom::TrimRailCurves
             } // end V1 is processed check
 
           // clip the interval to drop points
-          sTrimIvl.SetMinMax(dParam1,dParam2);
+          SER( sTrimIvl.SetMinMax(dParam1,dParam2) );
 
           // Trim 3D curve and both UVTrimCurves
           SER(p3DRailCurve->Trim(sTrimIvl)); // may snap sIvl by tol to existing knots
@@ -10722,7 +10741,7 @@ SmStatus SmFilletGeom::TrimRailCurves
               SmSolution & rSol = sSolutions[0];
               dParam1           = rSol.m_vStart[0];
               dParam2           = rSol.m_vStart[1];
-              sTrimIvl.SetMinMax(dParam1,dParam1);
+              (void)sTrimIvl.SetMinMax(dParam1,dParam1); // SolidCraft: an empty interval at one parameter, it cannot fail
               sTrimIvl.AddValue(dParam2);
 
               // trim curve and UVTrimCurves to interval
@@ -11097,7 +11116,7 @@ SmStatus SmFilletGeom::TrimCliffRails()
                 { SER(SM_ERR); }
 
               // Set RailCurve = Trimmed[dParam1 dParam2] OrigCurve Copy
-              sTrimIvl.SetMinMax( dParam1, dParam2 );
+              SER( sTrimIvl.SetMinMax( dParam1, dParam2 ) );
               SmCurve * pCopyCurve = NULL;
               SER( pOrigRailCurve->Copy( crContext, pCopyCurve ));
               SER( pCopyCurve->Trim( sTrimIvl ));  // may snap sIvl by tol to existing knots
@@ -11452,7 +11471,7 @@ SmStatus SmFilletGeom::ReCalcFilletGeom
         {
             SmFilletEdge * pRail= sAllRails[lAllRailIdx]; NER(pRail);
             SmTArray<SmEdgeuse*> sFilEUs;
-            pRail->GetEdgeuses( sFilEUs );
+            SER( pRail->GetEdgeuses( sFilEUs ) );
             if ( sFilEUs.GetSize() != 2 ) { SER(SM_ERR); }
 
             // Loop on both edgeuses of this rail, sorting their Vertexuses along pCurve.
@@ -11720,7 +11739,7 @@ SmStatus SmFilletGeom::ReCalcFilletGeom
                     {
                       if ( sm_CheckSeamOn( pSurf1, sTsectPnts[0]->UVPos(0), dTolerance, eSurfClosure1 ) )
                         {
-                          sm_MoveTSP( sTsectPnts, 0, lLastTspIdx );
+                          SER( sm_MoveTSP( sTsectPnts, 0, lLastTspIdx ) );
                           break;
                         }
                       iTry++;  // if it wasn't on a seam, try the other one.
@@ -11729,7 +11748,7 @@ SmStatus SmFilletGeom::ReCalcFilletGeom
                     {
                       if ( sm_CheckSeamOn( pSurf1, sTsectPnts[lLastTspIdx]->UVPos(0), dTolerance, eSurfClosure1 ) )
                         {
-                          sm_MoveTSP( sTsectPnts, lLastTspIdx , 0);
+                          SER( sm_MoveTSP( sTsectPnts, lLastTspIdx , 0) );
                           break;
                         }
                       iTry++;  // if it wasn't on a seam, try the other one.
@@ -11738,7 +11757,7 @@ SmStatus SmFilletGeom::ReCalcFilletGeom
                     {
                       if ( sm_CheckSeamOn( pSurf2, sTsectPnts[0]->UVPos(1), dTolerance, eSurfClosure2 ) )
                         {
-                          sm_MoveTSP( sTsectPnts, 0, lLastTspIdx );
+                          SER( sm_MoveTSP( sTsectPnts, 0, lLastTspIdx ) );
                           break;
                         }
                       iTry++;  // if it wasn't on a seam, try the other one.
@@ -11747,7 +11766,7 @@ SmStatus SmFilletGeom::ReCalcFilletGeom
                     {
                       if ( sm_CheckSeamOn( pSurf2, sTsectPnts[lLastTspIdx]->UVPos(1), dTolerance, eSurfClosure2 ) )
                         {
-                          sm_MoveTSP( sTsectPnts, lLastTspIdx, 0 );
+                          SER( sm_MoveTSP( sTsectPnts, lLastTspIdx, 0 ) );
                           break;
                         }
                       bDoneCheckingSeams = TRUE;  // that's all.
@@ -11862,7 +11881,7 @@ SmStatus SmFilletGeom::UpdateSplitFace( SmFace *pOrigFace, SmFace *pNewFace )
       for ( ULONG kk=0; kk<sAllRails.GetSize(); kk++ )
       {
           pThisRail = sAllRails[kk];
-          pThisRail->UpdateSplitFace( pOrigFace, pNewFace );
+          SER( pThisRail->UpdateSplitFace( pOrigFace, pNewFace ) );
 
       } // end for sAllRails
 
@@ -11874,7 +11893,7 @@ SmStatus SmFilletGeom::UpdateSplitFace( SmFace *pOrigFace, SmFace *pNewFace )
       SmFilletEdgeuse *pFEU = m_vSideEUs[ii];
       SmFilletEdge    *pFE  = SM_CAST_PTR( SmFilletEdge, pFEU->GetOwner() );
       if ( pFE != NULL )
-        { pFE->UpdateSplitFace( pOrigFace, pNewFace ); }
+        { SER( pFE->UpdateSplitFace( pOrigFace, pNewFace ) ); }
   }
 
   return SM_SUCCESS;
@@ -11984,11 +12003,11 @@ static ULONG lDebugCount = 0 ;
 
           // If MergeCurveOnSurface deleted an edge that rThisRail points to,
           // clear out that pointer.
-          rThisRail.ClearFilletBrepEdges( aDeletedEdges );
+          SER( rThisRail.ClearFilletBrepEdges( aDeletedEdges ) );
 
           // If any Faces were split, check whether objects sitting on the
           // original Face are now in the new split Face.
-          pFilExec->UpdateTopologyChanges( &sFaceAttr, pBaseFace );
+          SER( pFilExec->UpdateTopologyChanges( &sFaceAttr, pBaseFace ) );
 
 #ifdef SM_DEBUG_CODE
           // draw rail being merged(red), OriginalBrep(blue), FilletSurface(Green)
@@ -12103,11 +12122,11 @@ static ULONG lDebugCount = 0 ;
 
       // If MergeCurveOnSurface deleted an edge that rThisRail points to,
       // clear out that pointer.
-      pFE->ClearFilletBrepEdges( aDeletedEdges );
+      SER( pFE->ClearFilletBrepEdges( aDeletedEdges ) );
 
       // If any Faces were split, check whether objects sitting on the
       // original Face are now in the new split Face.
-      pFilExec->UpdateTopologyChanges( &sFaceAttr, pFace );
+      SER( pFilExec->UpdateTopologyChanges( &sFaceAttr, pFace ) );
 
       // Right now Just register no intersections - because s3DCurves is empty
       SER(rTI.RegisterExistingSSI(pFace->GetSurface(),  // in : surf1
@@ -12453,7 +12472,7 @@ SmStatus SmFilletGeom::TrimOriginalSurfaces
             }
 
           // for every Orig m_pTargetBrep->pBrepEdge->Edgeuse - find the Face connected to the edgeuse no longer needed
-          pBrepEdge->GetEdgeuses( sEdgeuses );
+          SER( pBrepEdge->GetEdgeuses( sEdgeuses ) );
           for(kk=0;kk<sEdgeuses.GetSize();kk+=2)  // gwc: potential savings - we only need faces so only look at every other Edgeuse
                                                   //      later try changing kk++ to kk+=2
             {
@@ -12678,7 +12697,7 @@ SmStatus SmFilletGeom::TopologySplit     // eff: split a single parent filletGeo
         // First, remove the end EU from the rail edge,
         // then call MakeRailEdgeuse() to create a new one
         // starting at the new FilletVertex we just made, pNewVert.
-        pThisRail->Remove( pEndEU );
+        SER( pThisRail->Remove( pEndEU ) );
 
         // hold the old Edgeuse's UVTrimCurve
         SmBSplineCurve *pUVCurve = pEndEU->GetUVTrimCurvePointer();

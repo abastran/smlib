@@ -182,7 +182,7 @@ SmSurfOfRevolution::SmSurfOfRevolution
   if (crSource.m_pGenCurve)
     {
       SmCurve *pGenCurve;
-      crSource.m_pGenCurve->Copy(*pContext,pGenCurve);
+      (void)crSource.m_pGenCurve->Copy(*pContext,pGenCurve); // SolidCraft: a constructor cannot report
       m_pGenCurve = SM_CAST_PTR(SmBSplineCurve,pGenCurve);
       m_pGenCurve->SetOwner(this) ;
       if (!m_pGenCurve)
@@ -349,7 +349,7 @@ SmBoolean bDebugMe = FALSE ;
   // set Surface and GenCurve nurb domain and enforce rules 2 and 5 assuming input GenCurve/Surf and PolarCurve/Surf knot vector compatibility
   // note: We reparameterize only to initialize the intervals and domain values so that MakeNurb() will build
   //       new Nurb structures trimmed and scaled to the input UVDomains
-  Reparameterize(sNurbDomain) ; 
+  SER( Reparameterize(sNurbDomain)  ); 
 
   // rebuild the associated m_pNurb and PolarConverter
   SER( MakeNurb() );
@@ -438,11 +438,11 @@ SmBoolean bDebugMe = FALSE ;
 
   // Rule 2 :
   if(m_pGenCurve)
-    { m_pGenCurve->EditParameterization(m_bSwapUV ? crTrimDomain.GetUInterval() : crTrimDomain.GetVInterval()) ; }
+    { SER( m_pGenCurve->EditParameterization(m_bSwapUV ? crTrimDomain.GetUInterval() : crTrimDomain.GetVInterval())  ); }
 
   // Rule 5 : Set PolarConverter from Nurb midPoint rotation isoParamCurve
   //          pRotationIsoCrv will be an SmCircle because isoParam is coming from SmSurfOfRevolution
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
   // done with modifications
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
@@ -474,8 +474,12 @@ NOTES: This method requires a point exactly on the surface.
    to the guess.  If no guess was given, it will be set to the low end
    of the closed domain.
 
-RETURNS --- SM_ERR for points outside the domain
-            SM_SUCCESS for points inside the domain
+RETURNS --- SM_SUCCESS for points inside the domain
+            SolidCraft change (planar generator): SM_ERR_OUTSIDE_OF_DOMAIN for
+            a point outside the sweep, with its parameters placed;
+            SM_ERR_NOT_WITHIN_TOLERANCE for a point whose rotation into the
+            generator's plane is not on the generator, with only U placed and
+            reLocation SM_LT_EXTERIOR. Any other status is a failure.
 
 METHOD --- 1. Rotate Point around rotation axis    - use rotation angle in degrees as U parameter.
            2. Intersect RotatedPoint with GenCurve - use GenCurve STEP Param as V parameter.
@@ -508,10 +512,10 @@ SmStatus SmSurfOfRevolution::STEPInversion
       SmExtent2d sNurbsDomain;
       SmPoint2d sStepUV, sNurbsUV;
       sStepUV = crAnalDomain.GetMin();
-      ConvertUVFromSTEPToNURBS( sStepUV, sNurbsUV );
+      SER( ConvertUVFromSTEPToNURBS( sStepUV, sNurbsUV ) );
       sNurbsDomain.AddPoint2d( sNurbsUV );
       sStepUV = crAnalDomain.GetMax();
-      ConvertUVFromSTEPToNURBS( sStepUV, sNurbsUV );
+      SER( ConvertUVFromSTEPToNURBS( sStepUV, sNurbsUV ) );
       sNurbsDomain.AddPoint2d( sNurbsUV );
 
       SmPoint2d sNurbsParameter;
@@ -591,10 +595,10 @@ SmStatus SmSurfOfRevolution::STEPInversion
                                         d3DTolerance, NULL, NULL,
                                         SM_SR_ALL, sSolutions));
 
-  // error - rotated point not on GenCurve
+  // rotated point not on GenCurve: the point is not on the surface
   if (sSolutions.GetSize() == 0)
     { reLocation = SM_LT_EXTERIOR ;
-      return SM_ERR;
+      return SM_ERR_NOT_WITHIN_TOLERANCE;
     }
 
   // set output U Coordinate
@@ -622,7 +626,7 @@ SmStatus SmSurfOfRevolution::STEPInversion
     } // end point on closed genCurve Seam check
 
   // all done
-  return( bInside ? SM_SUCCESS : SM_ERR) ;
+  return( bInside ? SM_SUCCESS : SM_ERR_OUTSIDE_OF_DOMAIN) ;
 
 } // end SmSurfOfRevolution::STEPInversion
 
@@ -655,7 +659,7 @@ SmBoolean bDebugMe = FALSE ;
 
   // unitize the rotation axis
   SmVector3d sZVec = rAxisDirection;
-  sZVec.Unitize();
+  (void)sZVec.Unitize(); // SolidCraft: a zero vector stays zero
 
   // locals
   SmExtent1d sCrvIvl = pSweptCurve->GetSTEPInterval();
@@ -1014,12 +1018,9 @@ SmBoolean bDebugMe = FALSE ;
                                                sSurfSweepStepIvl.GetLength(),
                                                pTmp, m_bSwapUV, pOptSweepCurve));
   SmObjDelete sClean2(pTmp);
-  SmSurfOfRevolution *pTmpSurfOfRevo = (SmSurfOfRevolution*)pTmp;
 
   // Swap nurbs so that the old m_pNurb is deallocated when we go out of scope
-  gw_SURFACE *pTmpNurb    = m_pNurb;
-  m_pNurb                 = pTmp->GetGwNurbPointer();
-  pTmpSurfOfRevo->m_pNurb = pTmpNurb;
+  SwapNurbPointers(pTmp);
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)
@@ -1030,7 +1031,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // Set up the Polar conversion - create a sweep isoParametric curve
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
 #ifdef SM_DEBUG_CODE
   if (bDebugMe)
@@ -1402,36 +1403,58 @@ SmBoolean bDebugMe = FALSE;
 
       // Trim the offset curve with the axis of rev to avoid self intersecting results
       SmVector3d zAxis = m_vPosition.GetZAxis();
-  
+
       SmExtent1d sDomain = pOffCurve->GetNaturalInterval();
-          
+
           SmExtent3d bbox;
-          pOffCurve->CalculateBoundingBox(sDomain, &bbox);
+          SER( pOffCurve->CalculateBoundingBox(sDomain, &bbox) );
           double dHeight = bbox.GetMaxDimension() * 1.5;                // multiply max dimension by some factor to be sure
-                                                                        
+
+          // SolidCraft change: the axis segment spans the offset curve's whole extent along the
+          // axis, on both sides of the frame's origin. It ran from the origin along +z only, so it
+          // missed an offset that crosses the axis on the origin's other side: a vase revolved
+          // about -y from a profile meeting the axis at a slant, shelled 2 mm inward, has its
+          // bottom's offset profile cross the axis 1.6 mm above the origin; untrimmed, it was
+          // revolved 0.12 mm past the axis and left a hole round the pole (tangency-labs/solidcraft#4567).
+          SmTArray<SmPoint3d> sCorners;
+          bbox.GetCorners(sCorners);
+          double dAxialMin = SM_BIG_DOUBLE, dAxialMax = -SM_BIG_DOUBLE;
+          for (ULONG kk=0; kk<sCorners.GetSize(); kk++)
+            {
+              double dAxial = (sCorners[kk] - m_vPosition.GetOrigin()).Dot(zAxis);
+              dAxialMin = smos_Min(dAxialMin, dAxial);
+              dAxialMax = smos_Max(dAxialMax, dAxial);
+            }
+
           SmLine* pAxisLine = NULL;
-          SmLine::CreateLineSegment(crContext, 3, m_vPosition.GetOrigin(), m_vPosition.GetOrigin() + dHeight * zAxis, pAxisLine);
+          SER( SmLine::CreateLineSegment(crContext, 3, m_vPosition.GetOrigin() + (dAxialMin - dHeight) * zAxis,
+                                         m_vPosition.GetOrigin() + (dAxialMax + dHeight) * zAxis, pAxisLine) );
           SmObjDelete sClean( pAxisLine );
 
           SmSolutionArray sSolutions;
-          pOffCurve->GlobalCurveIntersect(sDomain, *pAxisLine, pAxisLine->GetNaturalInterval(), dThisApproxTol3d, sSolutions);
-          
+          SER( pOffCurve->GlobalCurveIntersect(sDomain, *pAxisLine, pAxisLine->GetNaturalInterval(), dThisApproxTol3d, sSolutions) );
+
           if (sSolutions.GetSize() == 1) {
                   // if intersection is at endpoint, do not bother trimming
                   dParam = sSolutions[0].m_vStart[0];
 
-                  if (sDomain.GetMin() != dParam || sDomain.GetMax() != dParam) {
-                          
-                          // Take the largest portion for now
-                          // Eventually use a better algorithm
-                          if (dParam < sDomain.GetMid()) {
-                            sDomain.SetMin(dParam);
+                  if (sDomain.GetMin() != dParam && sDomain.GetMax() != dParam) {
+
+                          // SolidCraft change: keep the part on the generatrix's side of the axis
+                          // (positive radius along the frame's x axis), not the longer part.
+                          SmPoint3d sLowMid, sHighMid;
+                          SER( pOffCurve->EvaluatePoint(0.5*(sDomain.GetMin() + dParam), sLowMid) );
+                          SER( pOffCurve->EvaluatePoint(0.5*(dParam + sDomain.GetMax()), sHighMid) );
+                          double dLowRadius  = (sLowMid  - m_vPosition.GetOrigin()).Dot(m_vPosition.GetXAxis());
+                          double dHighRadius = (sHighMid - m_vPosition.GetOrigin()).Dot(m_vPosition.GetXAxis());
+                          if (dHighRadius > dLowRadius) {
+                            SER( sDomain.SetMin(dParam) );
                           }
                           else {
-                            sDomain.SetMax(dParam);
+                            SER( sDomain.SetMax(dParam) );
                       }
 
-                          pOffCurve->Trim(sDomain);  // may snap sIvl by tol to existing knots
+                          SER( pOffCurve->Trim(sDomain) );  // may snap sIvl by tol to existing knots
 
 #ifdef SM_DEBUG_CODE
                           if (bDebugMe)
@@ -1454,7 +1477,7 @@ SmBoolean bDebugMe = FALSE;
       // Either way, GetSTEPInterval() returns what we want.
 
       SmExtent2d sOffsetSurfDomain( m_vAnalUVDomain );
-      sOffsetSurfDomain.SetVInterval( pOffCurve->GetSTEPInterval() );
+      SER( sOffsetSurfDomain.SetVInterval( pOffCurve->GetSTEPInterval() ) );
 
       // create the new offset surface of revolution
       SmSurfOfRevolution *pOffSurf = new (crContext) SmSurfOfRevolution
@@ -1594,9 +1617,9 @@ SmStatus SmSurfOfRevolution::CreateApproxSurface
 {
   // approximate the GenCurve
   SmBSplineCurve *pNewCurve = NULL ;
-  m_pGenCurve->ApproximateRationalCurve(*GetContext(),
+  SER( m_pGenCurve->ApproximateRationalCurve(*GetContext(),
                                         dThisApproxTol3d,
-                                        pNewCurve) ;
+                                        pNewCurve)  );
   SM_ASSERT(pNewCurve != NULL) ;
 
 #ifdef SM_DEBUG_CODE
@@ -1726,8 +1749,8 @@ SmStatus SmSurfOfRevolution::CreateIsoParametricCurve
 
   double dNurbSpanSize = (sMaxUV - sMinUV).Length() ;
   SmPoint3d sMinPoint, sMaxPoint ;
-  EvaluatePoint(sMinUV, sMinPoint) ;
-  EvaluatePoint(sMaxUV, sMaxPoint) ;
+  SER( EvaluatePoint(sMinUV, sMinPoint)  );
+  SER( EvaluatePoint(sMaxUV, sMaxPoint)  );
   SmVector3d sVecMin = sMinPoint - sCenter ;
   SmVector3d sVecMax = sMaxPoint - sCenter ;
 
@@ -1748,8 +1771,8 @@ SmStatus SmSurfOfRevolution::CreateIsoParametricCurve
 //    {
   // let Ivl = angles (deg) to min/max points measured in circle coordinate system
   double dAngleMinRad, dAngleMaxRad ;
-  sRevolutionZAxis.CCWAngleBetween(m_vPosition.GetXAxisRef(), sVecMin, dAngleMinRad) ;
-  sRevolutionZAxis.CCWAngleBetween(m_vPosition.GetXAxisRef(), sVecMax, dAngleMaxRad) ;
+  SER( sRevolutionZAxis.CCWAngleBetween(m_vPosition.GetXAxisRef(), sVecMin, dAngleMinRad)  );
+  SER( sRevolutionZAxis.CCWAngleBetween(m_vPosition.GetXAxisRef(), sVecMax, dAngleMaxRad)  );
   double dAngleMinDeg = dAngleMinRad * 180.0 / SM_PI ;
   double dAngleMaxDeg = dAngleMaxRad * 180.0 / SM_PI ;
   if(   dAngleMaxDeg < dAngleMinDeg
@@ -1765,7 +1788,7 @@ SmStatus SmSurfOfRevolution::CreateIsoParametricCurve
       dAngleMaxDeg += 360;
     }
 
-  sAnalDomain.SetMinMax(dAngleMinDeg, dAngleMaxDeg) ;
+  SER( sAnalDomain.SetMinMax(dAngleMinDeg, dAngleMaxDeg)  );
 //    }
 
   // use distance between circle and refFrame centers to get radius and circle center
@@ -2106,8 +2129,8 @@ SmStatus SmSurfOfRevolution::ConvertUVFromSTEPToNURBS
       SER(EvaluateSTEPPoint(crSTEPUV,s3DPnt));
       SmBoolean bFoundAnswer;
       SmSolution sSolution;
-      LocalPointSolve(GetNaturalUVDomain(),SM_SO_MINIMIZE,
-                      s3DPnt,sNURBSGuess,bFoundAnswer,sSolution);
+      SER( LocalPointSolve(GetNaturalUVDomain(),SM_SO_MINIMIZE,
+                      s3DPnt,sNURBSGuess,bFoundAnswer,sSolution) );
       // Always set output: note, LocalPointSolve will always return something
       // even if it fails, and the output will probably be better than the input.
       rNURBSUV.x = sSolution.m_vStart[0];
@@ -2156,8 +2179,8 @@ SmStatus SmSurfOfRevolution::ConvertUVFromSTEPToNURBS
       SmExtent1d sIvl = sIsoCrv.GetNaturalInterval();
 
       // do a local point solve
-      sIsoCrv.LocalPropertyAnalysis(sIvl,SM_CP_POINT_INVERSION,
-          rNURBSUV.x,NULL,&sPnt,bFoundAnswer,sSol3);
+      SER( sIsoCrv.LocalPropertyAnalysis(sIvl,SM_CP_POINT_INVERSION,
+          rNURBSUV.x,NULL,&sPnt,bFoundAnswer,sSol3) );
 
       // Always set output; see above.
       rNURBSUV.x = sSol3.m_vStart[0];
@@ -2315,14 +2338,14 @@ SmStatus SmSurfOfRevolution::ConvertUVFromNURBSToSTEP
       SER(EvaluatePoint(crNURBSUV,s3DPnt));
       SmBoolean bFoundAnswer;
       SmSolution sSolution;
-      pSTEPSrf->LocalPointSolve(
+      SER( pSTEPSrf->LocalPointSolve(
               pSTEPSrf->GetNaturalUVDomain(),
               SM_SO_INTERSECT,
               s3DPnt,
               sAnalGuess,
               bFoundAnswer,
               sSolution
-          );
+          ) );
       // Always set output.  Note, LocalPointSolve will always return something
       // even if it fails, and the output will probably be better than the input.
       rSTEPUV.x = sSolution.m_vStart[0];
@@ -2457,8 +2480,8 @@ SmBoolean bDebugMe = FALSE ;
 
   // get the generator curve's nurb interval
   SmExtent1d sGenCurveNurbIvl ;
-  if (m_bSwapUV) { sGenCurveNurbIvl.SetMinMax(crUVDomain.GetMin().x,crUVDomain.GetMax().x); }
-  else           { sGenCurveNurbIvl.SetMinMax(crUVDomain.GetMin().y,crUVDomain.GetMax().y); }
+  if (m_bSwapUV) { SER( sGenCurveNurbIvl.SetMinMax(crUVDomain.GetMin().x,crUVDomain.GetMax().x) ); }
+  else           { SER( sGenCurveNurbIvl.SetMinMax(crUVDomain.GetMin().y,crUVDomain.GetMax().y) ); }
 
   // drop the rotated point to the generator curve
   SmSolution sSData[16];
@@ -3214,8 +3237,8 @@ static ULONG lDebugCount = 0 ;
 
   // get plane bounding box increased by tolerance
   SmPseudoBox sPlanePBox ;
-  crPlane.CalculateBoundingBox(crPlane.GetNaturalUVDomain(),
-                               NULL, &sPlanePBox, NULL) ;
+  SER( crPlane.CalculateBoundingBox(crPlane.GetNaturalUVDomain(),
+                               NULL, &sPlanePBox, NULL)  );
   sPlanePBox.ExpandAbsolute(dTol) ;
 
   // when RevolutionAxis/PlaneNormal are perpendicular
@@ -3271,15 +3294,15 @@ static ULONG lDebugCount = 0 ;
 #endif
           // get rotated curve bounding box
           SmPseudoBox sCurvePBox ;
-          pCrv->CalculateBoundingBox(pCrv->GetNaturalInterval(),
-                                     NULL, &sCurvePBox, NULL) ;
+          SER( pCrv->CalculateBoundingBox(pCrv->GetNaturalInterval(),
+                                     NULL, &sCurvePBox, NULL)  );
 
           // only use curves intersecting plane domain
           if(!sPlanePBox.AreDisjoint(sCurvePBox))
             {
               // trim curves to plane domain
               SmTArray<SmCurve *> s3dCurves ;
-              crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCrv, dTol, s3dCurves) ;
+              SER( crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCrv, dTol, s3dCurves)  );
               SmObjsDelete<SmCurve *> sCleanArray ;
               if(pOpt3DCurves == NULL) { sCleanArray.SetArray(&s3dCurves) ; }
 
@@ -3325,8 +3348,8 @@ static ULONG lDebugCount = 0 ;
 #endif
           // get rotated curve bounding box
           SmPseudoBox sCurvePBox ;
-          pCrv->CalculateBoundingBox(pCrv->GetNaturalInterval(),
-                                     NULL, &sCurvePBox, NULL) ;
+          SER( pCrv->CalculateBoundingBox(pCrv->GetNaturalInterval(),
+                                     NULL, &sCurvePBox, NULL)  );
 
           // only use curves intersecting plane domain
           sPlanePBox.ExpandAbsolute(dTol) ;
@@ -3334,7 +3357,7 @@ static ULONG lDebugCount = 0 ;
             {
               // trim curves to plane domain
               SmTArray<SmCurve *> s3dCurves ;
-              crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCrv, dTol, s3dCurves) ;
+              SER( crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCrv, dTol, s3dCurves)  );
               SmObjsDelete<SmCurve *> sCleanArray ;
               if(pOpt3DCurves == NULL) { sCleanArray.SetArray(&s3dCurves) ; }
 
@@ -3445,15 +3468,15 @@ static ULONG lDebugCount = 0 ;
 
           // get rotation curve bounding box
           SmPseudoBox sCurvePBox ;
-          pCrv->CalculateBoundingBox(pCrv->GetNaturalInterval(),
-                                       NULL, &sCurvePBox, NULL) ;
+          SER( pCrv->CalculateBoundingBox(pCrv->GetNaturalInterval(),
+                                       NULL, &sCurvePBox, NULL)  );
 
           // only use curves intersecting plane domain
           if(!sPlanePBox.AreDisjoint(sCurvePBox))
             {
               // trim curves to plane domain
               SmTArray<SmCurve *> s3dCurves ;
-              crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCrv, dTol, s3dCurves) ;
+              SER( crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCrv, dTol, s3dCurves)  );
               SmObjsDelete<SmCurve *> sCleanArray ;
               if(pOpt3DCurves == NULL) { sCleanArray.SetArray(&s3dCurves) ; }
 
@@ -4221,7 +4244,7 @@ static ULONG lDebugCount  = 0 ;
   SmExtent1d sThisSweepIvl  = sThisAnalDomain.GetUInterval() ;
   SmExtent1d sOtherSweepIvl = sOtherAnalDomain.GetUInterval() ;
   double dOtherXAngleRad ;
-  sZAxis.CCWAngleBetween(rXAxis, rOtherXAxis, dOtherXAngleRad) ;
+  SER( sZAxis.CCWAngleBetween(rXAxis, rOtherXAxis, dOtherXAngleRad)  );
   double    dOtherXAngleDeg = dOtherXAngleRad * 180.0 / SM_PI ;
   SmBoolean bSame           = (sZAxis.Dot(sOtherZAxis) > 0.0) ; // should be +/-1.0
   double dOtherStartAngDeg, dOtherEndAngDeg ;
@@ -4238,7 +4261,7 @@ static ULONG lDebugCount  = 0 ;
   // intersect the AnalDomains
   SmTArray<SmExtent1d> sIvls ;
   SmBoolean bDontCrossBoundaries = TRUE;  // True: Split result at sThisSweepIvl boundaries.
-  sThisSweepIvl.IntersectPeriodic(sOtherMappedIvl, 360.0, sIvls, bDontCrossBoundaries );
+  SER( sThisSweepIvl.IntersectPeriodic(sOtherMappedIvl, 360.0, sIvls, bDontCrossBoundaries ) );
 
   // no work - no sweep intersections
   if(sIvls.GetSize() == 0)
@@ -4298,8 +4321,8 @@ static ULONG lDebugCount  = 0 ;
 
       // get Solution Start Points
       SmPoint3d sStartPoint[2], sOtherPoint[2] ;
-      pThisGenCurve->Evaluate (rSolution.m_vStart[0], 1, TRUE, sStartPoint) ;
-      pOtherGenCurve->Evaluate(rSolution.m_vStart[1], 1, TRUE, sOtherPoint) ;
+      SER( pThisGenCurve->Evaluate (rSolution.m_vStart[0], 1, TRUE, sStartPoint)  );
+      SER( pOtherGenCurve->Evaluate(rSolution.m_vStart[1], 1, TRUE, sOtherPoint)  );
 
       // get intersection circle CenterPoint and type
       SmPoint3d sCircleCenter = rOrigin + sZAxis.Dot(sStartPoint[0]-rOrigin) * sZAxis ;
@@ -4339,7 +4362,7 @@ static ULONG lDebugCount  = 0 ;
                   SM_ASSERT(dDistIvl < dTol) ;
 #endif
                   // build and degenerate curve and type
-                  SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sSweepPoint, pCrv) ;
+                  SER( SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sSweepPoint, pCrv)  );
 
                   // A Single value solution + degenerate interval means this srf-srf XSect is a point [B661]
                   eCurveType = SM_TC_TOUCHING;
@@ -4379,7 +4402,7 @@ static ULONG lDebugCount  = 0 ;
                                            rIvl.GetMin(),
                                            pMinAngleGenCurve));
               NER(pMinAngleGenCurve) ;
-              pMinAngleGenCurve->Trim(sGenCurveIvl) ;  // may snap sIvl by tol to existing knots
+              SER( pMinAngleGenCurve->Trim(sGenCurveIvl)  );  // may snap sIvl by tol to existing knots
 
               // for degenerate sweep interval with genCurve/genCurve interval intersections
               if(bDegenerateIvl)
@@ -4402,7 +4425,7 @@ static ULONG lDebugCount  = 0 ;
                                                rIvl.GetMax(),
                                                pMaxAngleGenCurve));
                   NER(pMaxAngleGenCurve) ;
-                  pMaxAngleGenCurve->Trim(sGenCurveIvl) ;   // may snap sIvl by tol to existing knots
+                  SER( pMaxAngleGenCurve->Trim(sGenCurveIvl)  );   // may snap sIvl by tol to existing knots
 
                   // bottom Circle and Radius are stored in sCircleCenter and dCircleRadius
                   SmBSplineCurve *pBotSweepArc = NULL ;
@@ -4427,7 +4450,7 @@ static ULONG lDebugCount  = 0 ;
                   // get Top Circle Center and Radius from Solution EndPoint
                   SmBSplineCurve *pTopSweepArc = NULL ;
                   SmPoint3d sEndPoint ;
-                  pThisGenCurve->EvaluatePoint(rSolution.m_vEnd[0], sEndPoint) ;
+                  SER( pThisGenCurve->EvaluatePoint(rSolution.m_vEnd[0], sEndPoint)  );
                   SmPoint3d sTopCircleCenter = rOrigin + sZAxis.Dot(sEndPoint-rOrigin) * sZAxis ;
                   double dTopCircleRadius    = sTopCircleCenter.DistanceBetween(sEndPoint) ;
                   if(dTopCircleRadius > SM_EFF_ZERO)
@@ -4610,7 +4633,12 @@ SmBoolean SmSurfOfRevolution::IsNurbSurfaceSurfOfRevolution
   if(pTestSurface->IsKindOf(SmSurfOfRevolution_TYPE))
     {
       SmSurface * pCopySurface = NULL ;
-      pTestSurface->Copy(crContext, pCopySurface) ; 
+      // SolidCraft change: a copy that failed is no surface
+      if (pTestSurface->Copy(crContext, pCopySurface) != SM_SUCCESS)
+        { delete pCopySurface ;
+          rpSurfOfRevolution = NULL ;
+          return FALSE ;
+        }
       rpSurfOfRevolution = (SmSurfOfRevolution *)pCopySurface ;
       return TRUE ;
     }
@@ -4632,8 +4660,8 @@ SmBoolean SmSurfOfRevolution::IsNurbSurfaceSurfOfRevolution
   // evaluate min/max domain points
   SmExtent2d sUVDomain = pTgtSurface->GetNaturalUVDomain();
   SmPoint3d  sMinPnt, sMaxPnt;
-  pTgtSurface->EvaluatePoint(sUVDomain.GetMin(),sMinPnt);
-  pTgtSurface->EvaluatePoint(sUVDomain.GetMax(),sMaxPnt);
+  if ( pTgtSurface->EvaluatePoint(sUVDomain.GetMin(),sMinPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
+  if ( pTgtSurface->EvaluatePoint(sUVDomain.GetMax(),sMaxPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
 
   // scaled zero value
   double dScaledZero =   dToleranceScale
@@ -4841,7 +4869,11 @@ SmBoolean bDebugMe = FALSE ;
   //  3. make a PolarConverter for rotation angles
 
   // reparameterize the NURB so that AnalyticSurface->NurbDomain == InputSurface->NurbDomain
-  rpSurfOfRevolution->Reparameterize(pTgtSurface->GetNaturalUVDomain()) ;
+  // SolidCraft change: a surface it cannot reparameterize onto the input domain is not the input
+  if (rpSurfOfRevolution->Reparameterize(pTgtSurface->GetNaturalUVDomain()) != SM_SUCCESS)
+    { delete rpSurfOfRevolution ; rpSurfOfRevolution = NULL ;
+      return FALSE ;
+    }
 
   // obsolete - it's a mistake to introduce variations between Nurb and Anal reps by copying the m_pNurb object
   // Copy pTgtSurface->m_pNurb into newSurfOfRevolution
@@ -4939,10 +4971,10 @@ SmBoolean SmSurfOfRevolution::AreSTEPAndNURBCurrent() const
       if(m_vPolarConverter.IsPolarConversionPossible())
         {
           SmPoint2d sNurbUV, sStepUV = m_vAnalUVDomain.Evaluate(0.0, .4567) ;
-          ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ;
+          if ( ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points it cannot evaluate do not show the two parameterizations agree
           SmPoint3d sStepPoint, sNurbPoint ;
-          EvaluateSTEPPoint(sStepUV, sStepPoint) ;
-          EvaluatePoint(sNurbUV, sNurbPoint) ;
+          if ( EvaluateSTEPPoint(sStepUV, sStepPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points it cannot evaluate do not show the two parameterizations agree
+          if ( EvaluatePoint(sNurbUV, sNurbPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points it cannot evaluate do not show the two parameterizations agree
           double dScaledZero = SM_EFF_ZERO * (1.0 + sStepPoint.GetMaxDimension()) ;
           bRtn &= sStepPoint.CloserThan(dScaledZero, sNurbPoint) ;
        }
@@ -4968,10 +5000,10 @@ SmBoolean SmSurfOfRevolution::AreSTEPAndNURBCurrent() const
       if(m_vPolarConverter.IsPolarConversionPossible())
         {
           SmPoint2d sNurbUV, sStepUV = m_vAnalUVDomain.Evaluate(.4567, .7654) ;
-          ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ;
+          if ( ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points it cannot evaluate do not show the two parameterizations agree
           SmPoint3d sStepPoint, sNurbPoint ;
-          EvaluateSTEPPoint(sStepUV, sStepPoint) ;
-          EvaluatePoint(sNurbUV, sNurbPoint) ;
+          if ( EvaluateSTEPPoint(sStepUV, sStepPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points it cannot evaluate do not show the two parameterizations agree
+          if ( EvaluatePoint(sNurbUV, sNurbPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points it cannot evaluate do not show the two parameterizations agree
           double dScaledZero = SM_EFF_ZERO * (1.0 + sStepPoint.GetMaxDimension()) ;
           bRtn &= sStepPoint.CloserThan(dScaledZero, sNurbPoint) ;
        }
@@ -5014,8 +5046,8 @@ SmStatus SmSurfOfRevolution::RebuildSTEPFromNURBParameters()
   // evaluate min/max domain points
   SmExtent2d sNurbUVDomain = GetNaturalUVDomain();
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  SER( EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) );
+  SER( EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) );
 
   // scaled zero value
   double dToleranceScale = 1000.0 ;  // loose because surf is already labeled analytic
@@ -5168,11 +5200,11 @@ SmBoolean bDebugMe = FALSE ;
   m_bPlanarGenerator = bIsPlanar ;
   m_vPosition        = *pRefFrame ;
   m_bSwapUV          = bSwapUV ;
-  m_vAnalUVDomain.SetMinMax(dMinAngDeg, sInterval.GetMin(), dMaxAngDeg, sInterval.GetMax()) ;
+  SER( m_vAnalUVDomain.SetMinMax(dMinAngDeg, sInterval.GetMin(), dMaxAngDeg, sInterval.GetMax())  );
 
   // Set PolarConverter from Nurb midPoint rotation isoParamCurve
   // pRotationIsoCrv will be an SmCircle because isoParam is coming from SmSurfOfRevolution
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
   //      SmBSplineCurve *pRotationIsoCrv = NULL ;
   //      m_vPolarConverter.SetPolarConversionPossible(FALSE) ;
@@ -5376,7 +5408,7 @@ SmStatus SmSurfOfRevolution::Transform
   m_vPosition  = sTmpA2P;
 
   // transform the GenCurve
-  m_pGenCurve->Transform(crRotateNMove, cpOptScale) ;
+  SER( m_pGenCurve->Transform(crRotateNMove, cpOptScale)  );
 
   // apply transformation to underlying Nurb
   if (m_pNurb)
@@ -5385,7 +5417,7 @@ SmStatus SmSurfOfRevolution::Transform
     }
 
   // update PolarConverter
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
   //      SmBSplineCurve *pRotationIsoCrv = NULL ;
   //      SmPoint2d       sMidUV          = m_vAnalUVDomain.Evaluate(.5678, .5678) ;
@@ -5495,16 +5527,16 @@ SmBoolean bDebugMe = FALSE ;
   Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_OWNER(this), NULL);
 
   // Update just the analytic domain and the GenCurve (both analytic and NURB)
-  UpdateAnalyticalDomain(rNewNurbUVDomain) ;
+  SER( UpdateAnalyticalDomain(rNewNurbUVDomain)  );
 
   // rebuild Nurbs surface from updated analytic domain. (right shape - wrong UVDomain)
   SER(MakeNurb());
 
   // adjust Nurb Surface UVDomain
-  this->Reparameterize(rNewNurbUVDomain) ;
+  SER( this->Reparameterize(rNewNurbUVDomain)  );
 
   // rebuild the sweep polar converter
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
   // tell the public the Surface has been edited
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
@@ -5833,8 +5865,8 @@ SmBoolean bDebugMe = FALSE ;
 
   // convert given NurbUVDomain corners into STEPUVPoints
   SmPoint2d sMinAnalUV, sMaxAnalUV;
-  ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMin(), sMinAnalUV );
-  ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMax(), sMaxAnalUV );
+  SER( ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMin(), sMinAnalUV ) );
+  SER( ConvertUVFromNURBSToSTEP( crNewNurbsDomain.GetMax(), sMaxAnalUV ) );
 
   // Build desired new STEP UVDomain
   // Don't SetMinMax because Min might not be smaller (if swapped).
@@ -5850,7 +5882,7 @@ SmBoolean bDebugMe = FALSE ;
   SmExtent1d sGenIvl =   m_bSwapUV
                        ? crNewNurbsDomain.GetUInterval()
                        : crNewNurbsDomain.GetVInterval() ;
-  m_pGenCurve->ScaleKnotVector(sGenIvl.GetMin(), sGenIvl.GetMax()) ;
+  SER( m_pGenCurve->ScaleKnotVector(sGenIvl.GetMin(), sGenIvl.GetMax())  );
 
   // all done
   return SM_SUCCESS;
@@ -6007,7 +6039,7 @@ SmStatus sm_TestForIsoCircles
           if ( rbPlanarGenCurve )
             {
               double dAngRad;
-              pXAxis->AngleBetween(sThisRefFrame.GetXAxisRef(),dAngRad);
+              SER( pXAxis->AngleBetween(sThisRefFrame.GetXAxisRef(),dAngRad) );
               // angle test only
               if (   smos_Fabs(dAngRad) > dAngTolRad
                   || smos_Fabs(dStartAngDeg1-dStartAngDeg) > dAngTolRad
@@ -6052,10 +6084,10 @@ SmStatus sm_TestForIsoCircles
                   // lines must be parallel
                   // SmBoolean bAreParallel   = rCommonLineVec.IsParallelTo(sThisCommonLineVec, 2.0) ;
                   double dDist1, dDist2 ;
-                  smgu_LinePointDistance(rCommonLinePoint, rCommonLineVec,
-                                         sThisCommonLinePoint, dDist1) ;
-                  smgu_LinePointDistance(sThisCommonLinePoint, sThisCommonLineVec,
-                                         rCommonLinePoint, dDist2) ;
+                  SER( smgu_LinePointDistance(rCommonLinePoint, rCommonLineVec,
+                                         sThisCommonLinePoint, dDist1)  );
+                  SER( smgu_LinePointDistance(sThisCommonLinePoint, sThisCommonLineVec,
+                                         rCommonLinePoint, dDist2)  );
                   if(   dDist1 > d3DTol
                      || dDist2 > d3DTol)
                     {
@@ -6206,10 +6238,10 @@ SmBoolean SmSurfOfRevolution::AssertValid
           if(bRtn && m_vPolarConverter.IsPolarConversionPossible())
             {
               SmPoint2d sNurbUV, sStepUV = m_vAnalUVDomain.Evaluate(0.0, .4567) ;
-              ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ;
+              (void)ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ; // SolidCraft: a validity check reads what it computed
                SmPoint3d sStepPoint, sNurbPoint ;
-              EvaluateSTEPPoint(sStepUV, sStepPoint) ;
-              EvaluatePoint(sNurbUV, sNurbPoint) ;
+              (void)EvaluateSTEPPoint(sStepUV, sStepPoint) ; // SolidCraft: a validity check reads what it computed
+              (void)EvaluatePoint(sNurbUV, sNurbPoint) ; // SolidCraft: a validity check reads what it computed
               double dScaledZero = SM_EFF_ZERO * (1.0 + sStepPoint.GetMaxDimension()) ;
               bRtn &= SM_ASSERT_VALUE_REPORT(3, SM_LEVEL_0, (sStepPoint.CloserThan(dScaledZero, sNurbPoint)), dScaledZero, sStepPoint.DistanceBetween(sNurbPoint), _T("") ) ;
            }
@@ -6274,10 +6306,10 @@ SmBoolean SmSurfOfRevolution::AssertValid
           if(bRtn && m_vPolarConverter.IsPolarConversionPossible())
             {
               SmPoint2d sNurbUV, sStepUV = m_vAnalUVDomain.Evaluate(.4567, .7654) ;
-              ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ;
+              (void)ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ; // SolidCraft: a validity check reads what it computed
               SmPoint3d sStepPoint, sNurbPoint ;
-              EvaluateSTEPPoint(sStepUV, sStepPoint) ;
-              EvaluatePoint(sNurbUV, sNurbPoint) ;
+              (void)EvaluateSTEPPoint(sStepUV, sStepPoint) ; // SolidCraft: a validity check reads what it computed
+              (void)EvaluatePoint(sNurbUV, sNurbPoint) ; // SolidCraft: a validity check reads what it computed
               double dScaledZero = SM_EFF_ZERO * 10.0 * (1.0 + sStepPoint.GetMaxDimension()) ;
               double dDist       = sStepPoint.DistanceBetween(sNurbPoint) ;
               bRtn &= SM_ASSERT_VALUE_REPORT(8, SM_LEVEL_0, (dDist < dScaledZero), dScaledZero, dDist, _T("") ) ;
@@ -6312,12 +6344,12 @@ SmBoolean SmSurfOfRevolution::AssertValid
           double dParam =   ii == 0 ? 0.0
                           : ii == lCount-1 ? 1.0
                           : (double)ii/(double)(lCount-1) ;
-          SmBSplineSurface::EvaluatePoint(sUVDomain.Evaluate(0.0,dParam), sSurfU0[ii]) ;
-          SmBSplineSurface::EvaluatePoint(sUVDomain.Evaluate(dParam,0.0), sSurfV0[ii]) ;
-          m_pGenCurve->SmBSplineCurve::EvaluatePoint(sIvl.Evaluate(dParam), sCrvPoint[ii]) ;
+          (void)SmBSplineSurface::EvaluatePoint(sUVDomain.Evaluate(0.0,dParam), sSurfU0[ii]) ; // SolidCraft: a validity check reads what it computed
+          (void)SmBSplineSurface::EvaluatePoint(sUVDomain.Evaluate(dParam,0.0), sSurfV0[ii]) ; // SolidCraft: a validity check reads what it computed
+          (void)m_pGenCurve->SmBSplineCurve::EvaluatePoint(sIvl.Evaluate(dParam), sCrvPoint[ii]) ; // SolidCraft: a validity check reads what it computed
 
           // move curve point to Nurb Start position using step params
-          smgu_LinePointDistance(rO, sZ, sCrvPoint[ii], dR) ;
+          (void)smgu_LinePointDistance(rO, sZ, sCrvPoint[ii], dR) ; // SolidCraft: a validity check reads what it computed
           sCrvPoint[ii] = sCrvPoint[ii] -dR * rX + dR * (dCos * rX + dSin * rY) ;
 
           double dScaledZero = SM_EFF_ZERO * 100.0 * (1.0 + sCrvPoint[ii].GetMaxDimension()) ;
@@ -6341,9 +6373,9 @@ SmBoolean SmSurfOfRevolution::AssertValid
 
     } // end SurfaceNurb/GenCurveNurb compatibility
 
-  /* 13 */ // Analytic U Direction Domain too large: spheres can't overlap themselves
+  /* 13 */ // Analytic U Direction Domain too large: surfaces of revolution can't overlap themselves
   SmExtent1d sIvlU = m_vAnalUVDomain.GetUInterval() ;
-  bRtn &= SM_ASSERT_VALUE_REPORT(2, SM_LEVEL_0,
+  bRtn &= SM_ASSERT_VALUE_REPORT(13, SM_LEVEL_0,
                                  (sIvlU.GetLength() <= 360.0 + SM_EFF_ZERO_DEG),
                                  SM_EFF_ZERO_DEG, sIvlU.GetLength() - 360.0, _T("")) ;
 
@@ -6513,7 +6545,7 @@ SmStatus SmSurfOfRevolution::WriteToDB
   SER(m_vPolarConverter.WriteToDB(rDB, lDBVersionNumber)) ;
 
   // output the parent
-  SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber) ;
+  SER( SmBSplineSurface::WriteToDB(rDB, lDBVersionNumber)  );
 
   // all done
   return SM_SUCCESS;
@@ -6611,8 +6643,8 @@ SmStatus SmSurfOfRevolution::ReadFromDB
   pSurfOfRevolution->m_pGenCurve->SetOwner(pSurfOfRevolution) ;
   pSurfOfRevolution->m_bMakeNurbGenCurve = bMakeNurbGenCurve ;
   pSurfOfRevolution->m_bPlanarGenerator  = bPlanarGenerator ;
-  pSurfOfRevolution->m_vPosition.SetCanonical(sOrig, sX, sY) ;
-  pSurfOfRevolution->m_vAnalUVDomain.SetMinMax(sAnalMin, sAnalMax) ;
+  SER( pSurfOfRevolution->m_vPosition.SetCanonical(sOrig, sX, sY)  );
+  SER( pSurfOfRevolution->m_vAnalUVDomain.SetMinMax(sAnalMin, sAnalMax)  );
   pSurfOfRevolution->m_bSwapUV           = bSwapUV ;
 
   // read the parent object
@@ -6695,18 +6727,18 @@ void SmSurfOfRevolution::Dump
                  sNaturalPolarMatchIvl =   m_bSwapUV
                                          ? sNaturalUVDomain.GetVInterval()
                                          : sNaturalUVDomain.GetUInterval() ;
-                 if(m_bSwapUV) { GetKnots(SM_SP_U, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ;
-                                 GetKnots(SM_SP_V, sNaturalPolarMatchKnots, &sNaturalPolarMatchMults) ;
+                 if(m_bSwapUV) { (void)GetKnots(SM_SP_U, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ; // SolidCraft: dump only
+                                 (void)GetKnots(SM_SP_V, sNaturalPolarMatchKnots, &sNaturalPolarMatchMults) ; // SolidCraft: dump only
                                }
-                 else          { GetKnots(SM_SP_U, sNaturalPolarMatchKnots, &sNaturalPolarMatchMults) ;
-                                 GetKnots(SM_SP_V, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ;
+                 else          { (void)GetKnots(SM_SP_U, sNaturalPolarMatchKnots, &sNaturalPolarMatchMults) ; // SolidCraft: dump only
+                                 (void)GetKnots(SM_SP_V, sNaturalGenMatchKnots,   &sNaturalGenMatchMults) ; // SolidCraft: dump only
                                }
                }
 
   // genCurve analytic and natural intervals
   if(bHasGenCurve) { sGenAnalIvl    = GetGenCurve()->GetSTEPInterval() ;
                      sGenNaturalIvl = GetGenCurve()->GetNaturalInterval() ;
-                     GetGenCurve()->GetKnots(sGenKnots, &sGenMults) ;
+                     (void)GetGenCurve()->GetKnots(sGenKnots, &sGenMults) ; // SolidCraft: dump only
                      bSameGenKnots =    SM_ARE_ARRAYS_SAME(sGenKnots, sNaturalGenMatchKnots)
                                      && SM_ARE_ARRAYS_SAME(sGenMults, sNaturalGenMatchMults) ;
                    }
@@ -6714,7 +6746,7 @@ void SmSurfOfRevolution::Dump
   // polarCurve analytic and natural intervals
   if(bHasPolarCurve) { sPolarAnalIvl    = m_vPolarConverter.GetCurve()->GetSTEPInterval() ;
                        sPolarNaturalIvl = m_vPolarConverter.GetCurve()->GetNaturalInterval() ;
-                       m_vPolarConverter.GetCurve()->GetKnots(sPolarKnots, &sPolarMults) ;
+                       (void)m_vPolarConverter.GetCurve()->GetKnots(sPolarKnots, &sPolarMults) ; // SolidCraft: dump only
                        // bSamePolarKnots  = SM_ARE_ARRAYS_SAME(sPolarKnots, sNaturalPolarMatchKnots) && SM_ARE_ARRAYS_SAME(sPolarMults, sNaturalPolarMatchMults) ;
                      }
 

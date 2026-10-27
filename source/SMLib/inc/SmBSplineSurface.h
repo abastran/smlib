@@ -737,7 +737,10 @@ public:
                                                       //    :                     + TrajectoryCurve(v)                                 
                                                       //    :        this is an approximate surface.                                   
       double                 dThisApproxTol3d,        // in : Max distance between exact surface and newSurf approximation             
-      SmBSplineSurface    *& rpNewSurf                // out: new sweptSurface
+      SmBSplineSurface    *& rpNewSurf,               // out: new sweptSurface
+      SmAxis2Placement     * pOptPlacements = NULL    // out: (SolidCraft fork) optional, 3 entries: the systems the section curve's
+                                                      //      own coordinates were carried onto for its first, middle and last
+                                                      //      placed instances (the same for the same trajectory)
     );
 
     // create surface by sweeping a series of section curves along
@@ -887,7 +890,7 @@ public:
     SmBSplineSurfaceForm       GetBSplineSurfaceForm   () const { return m_eBSplineSurfaceForm; }
     SmBoolean &                GetOutOfBoundsEnabled   ()       { return m_bOutOfBoundsEnabled; }
     gw_SURFACE *               GetGwNurbPointer        () const { return m_pNurb ; }  // retrieve the NLIB NURB struct
-    gw_SURFACE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {MakeNurb() ; } 
+    gw_SURFACE *               GetOrCreateGwNurbPointer()       { if(m_pNurb==NULL) {(void)MakeNurb() ; } // SolidCraft: an accessor; a surface without its nurb returns NULL, which callers check
                                                                   SM_ASSERT(m_pNurb != NULL) ;
                                                                   return m_pNurb ;
                                                                 }

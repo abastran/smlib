@@ -120,6 +120,10 @@ protected:
                                                  // intervals during extension.
                                                  // An extension factor of 1.0 will add 1 length to each end tripling the size.
                                                  // An extension factor of 0.5 will add .5 length to each end doubling the size.
+  double              m_dTraceReach = 0.0;       // SolidCraft change: how far (3D) the trace's base surface domains reach past
+                                                 //   their own at least, across the edge (0 = by m_dSurfaceExtensionFactor alone)
+  SmBoolean           m_abTraceAcross[2][2] = { { TRUE, TRUE }, { TRUE, TRUE } }; // SolidCraft change: [surface][u, v]: whether
+                                                 //   that parameter direction runs across the edge (gets m_dTraceReach)
   double              m_dConversionTol;          // Tolerance indicating when conversion happens - represents
                                                  // a given number of decimal places.
   SmBoolean           m_bReverseTrim;            // If TRUE then we will take keep the opposite side
@@ -181,6 +185,7 @@ public:
   SmOffsetSurface           * GetSurface                 (ULONG             lRailIndex) const ;
   double                      GetOrientation             (ULONG             lRailIndex) { return m_dOrientations[lRailIndex]; }
   double                      GetExtensionFactor         () { return m_dSurfaceExtensionFactor; }
+  SmVector2d                  GetDomainExtension         (const SmSurface * pSurf, const SmExtent2d & crDomain) const; // SolidCraft change: by the factor and the reach
  
   ULONG                       FindFilGeomIndex           ( const SmFilletGeom *pFilGeom ) const;
   ULONG                       FindIndexInExec            () const;
@@ -192,6 +197,9 @@ public:
   void             SetReverseTrim           (SmBoolean bReverseTrim)                             { m_bReverseTrim = bReverseTrim; }
   virtual void     SetExtensionFlags        () ;
   virtual void     SetExtensionFactor       (double dExtFactor)                                  { m_dSurfaceExtensionFactor = dExtFactor; }
+  void             SetTraceReach            (double dReach, const SmBoolean (&crabAcross)[2][2]) // SolidCraft change
+                     { m_dTraceReach = dReach;
+                       for (int i=0; i<2; i++) { for (int j=0; j<2; j++) { m_abTraceAcross[i][j] = crabAcross[i][j]; } } }
   virtual void     SetFilletExecutive       (SmFilletExecutive * pFilExecutive)                  { m_pExecutive = pFilExecutive; }
   void             SetFilletSurfaceGenerator(SmFilletSurfaceGenerator *pFSG)                     { m_pFSG = pFSG; } // sets fillet cross-section shapes 
   void             SetFilletGeomForSurfaces (SmFilletGeom *pFG )                                 { m_pFGForSurfaces = pFG; }
@@ -206,11 +214,21 @@ public:
   virtual SmBoolean CanMakeAnalytic()      { return ! OffsetRadiiCanChange(); } // default behavior.
   virtual SmBoolean OffsetRadiiCanChange() { return TRUE; }
 
+  // SolidCraft change: the parameters on the filleted edge where the fillet radius has a corner
+  // (its slope jumps), appended to rParams; and whether an intersection point lies at one.
+  // None by default.
+  virtual SmStatus  GetRadiusCornerParameters(SmTArray<double> & rParams) { SM_REF1(rParams); return SM_SUCCESS; }
+  virtual SmBoolean IsAtRadiusCorner(const SmTsectPnt & crTsectPnt)      { SM_REF1(crTsectPnt); return FALSE; }
+  // SolidCraft change: the edge parameter of an intersection point, FALSE where the solver
+  // has no radius corners.
+  virtual SmBoolean GetRadiusParameter(const SmTsectPnt & crTsectPnt, double & rdParam) { SM_REF2(crTsectPnt, rdParam); return FALSE; }
+
   // side effects
   virtual SmStatus  CalcFilletGeom           (); // after SmFilletCorner:: Builds topology, Compute filletSurface and railCurve geometry
   virtual SmStatus  CalcCylinderFilletGeom   (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
   virtual SmStatus  CalcConeFilletGeom       (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
   virtual SmStatus  CalcTorusFilletGeom      (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
+  virtual SmStatus  CalcSphereFilletGeom     (SmTArray<SmTsectPnt*> & rTsectPnts, SmFilletGeom * pFG = NULL);
 
   SmStatus          ComputeSurfaceValues     (SmPoint2d               aUVValues[2], SmTsectPnt  & rTsectPnt);
   SmStatus          ComputePointValues       (SmPoint2d          aUVValues[2],
@@ -312,6 +330,10 @@ public:
                          SmTsectPnt       & rNextPoint);
                
   SmStatus     TestRollOver(SmTArray<SmFilletCorner*> & rAdjustedCorners);
+  SmStatus     RailsFitTheirFaces(SmBoolean & rbFit, SmBoolean & rbRollsOver, SmBoolean & rbIntoMaterial); // SolidCraft change: whether every rail stays on the face it rolls on, rolls over a tangent edge, or runs into the body
+  SmStatus     BallFitsItsFaces(SmBoolean & rbFits); // SolidCraft change: whether the rolling ball fits the faces' curvature at each section (no face curves tighter than it)
+  static SmStatus IsConcaveEdge(const SmEdge & crEdge, SmBoolean & rbConcave); // SolidCraft change: whether the body's material wedge at the edge exceeds a half turn
+  SmStatus     LeavesPastAnEnd(const SmFace & crFace, const SmCurve & crRail, double dRailParam, const SmPointClassification & crLeave, SmBoolean & rbPastAnEnd) const; // SolidCraft change: whether a rail leaves its face past an end of the filleted edge
   SmStatus     TrimRails();
 
   // utilities
@@ -361,6 +383,11 @@ public:
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_UNKNOWN; }
 
+  // SolidCraft change: whether each cross section is tangent, at its ends on the rails, to the
+  // faces the fillet rolls on. Not known of a cross section in general.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return FALSE; }
+
 } ; // end class SmFilletSurfaceGenerator
 
 /*******************************************************************//**
@@ -389,6 +416,10 @@ public:
 
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_LINEAR; }
+
+  // SolidCraft change: a line from rail to rail cuts across both faces.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return FALSE; }
 
 } ; // end class SmLinearCrossSectionFSG
 
@@ -457,6 +488,12 @@ public:
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_CIRCULAR; }
 
+  // SolidCraft change: the arc about the ball's centre is square at each rail to the radius
+  // there, which is the face's normal, so it is tangent to the face; the larger arc
+  // (m_bComplement) too. An arc mirrored about the rails' chord (m_bMirror) is not.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return !m_bMirror; }
+
 } ; // end class SmCircularCrossSectionFSG
 
 /*******************************************************************//**
@@ -470,10 +507,12 @@ class SM_EXPORT SmBlendCurveCrossSectionFSG : public SmFilletSurfaceGenerator
 protected:
   ULONG  m_lContinuity; // 1, 2, or 3 for G1, G2 or G3
   double m_dBlendScale;
+  SmBoolean m_bAtThirds; // TRUE = inner control points at thirds towards the tangent lines' meeting point
 public:
-  SmBlendCurveCrossSectionFSG(double dBlendScale=1.5, ULONG lContinuity=1)
+  SmBlendCurveCrossSectionFSG(double dBlendScale=1.5, ULONG lContinuity=1, SmBoolean bAtThirds=FALSE)
      : m_lContinuity(lContinuity), 
-       m_dBlendScale(dBlendScale)
+       m_dBlendScale(dBlendScale),
+       m_bAtThirds(bAtThirds)
   {}
 
   virtual ~SmBlendCurveCrossSectionFSG() {}
@@ -507,6 +546,11 @@ public:
 
   virtual SmFilletSurfaceGeneratorType GetFilletSurfaceGeneratorType()
   { return SM_FSG_BLEND_CURVE; }
+
+  // SolidCraft change: the blend curve takes its end tangents from the circular arc between
+  // the same rails (and, for G2 and G3, the faces' curvature too), so it is tangent to the faces.
+  virtual SmBoolean MeetsItsFacesTangentially() const
+  { return TRUE; }
 
 } ; // end class SmBlendCurveCrossSectionFSG
 

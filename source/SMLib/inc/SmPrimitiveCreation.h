@@ -60,6 +60,9 @@ class SmSweepOptions
       SmBoolean bOrientProfilePerpendicularToPath = false; // if true, orient the profile so that it begins perpendicular to the path
       SmBoolean bMoveToProfile = false;                    // if true, move the result back to the original position of the profile
                                                            // otherwise the result will be at the path
+      SmBoolean bProfileAtPathStart = false;               // if true, the profile is swept where it lies: the path's start is its
+                                                           // reference point, so the profile keeps its place relative to the path
+                                                           // (bMoveProfileCenterToPath and bMoveToProfile then change nothing)
 } ;
 
 /*******************************************************************//**
@@ -222,6 +225,13 @@ public:
                                             //    : XY Axes = Plane of Start and End angles measured from X Axis                            
   );
 
+  SmStatus CreateCylinder
+  (
+    double dHeight,                               // in : height of result, [greater than zero]
+    double dRadius,                               // in : radius of result
+    const  SmAxis2Placement & crRefFrame          // in : Origin = base centre, Z Axis = cylinder axis
+  );
+
   SmStatus CreateCone
   (
     double dHeight,                               // in : height of result                                     
@@ -287,8 +297,8 @@ public:
   SmStatus CreateLinearSweep
   (
     SmTArray<SmCurve*> & cp3DCurves,              // in : Must be coplanar - ObjMem:[owned and managed by new Edges] 
-    const SmVector3d   & crSweepVec,              // in : The sweep vector                                          
-    double               dSweepDist,              // in : Sweep = SweepDist * SweepVec                              
+    const SmVector3d   & crSweepVec,              // in : The sweep direction (non-zero; magnitude ignored)
+    double               dSweepDist,              // in : Sweep = SweepDist * unit(SweepVec)
     ULONG                nRepetitions,            // in : Number of end to end sweeps                               
     SmBoolean            bCapEnds,                // in : TRUE = build end caps                                     
     SmBoolean            bTestContinuity = TRUE   // in : TRUE = split input curves at C1 discontinuties               
@@ -305,7 +315,7 @@ public:
   SmStatus CreateLinearSweep
   ( 
     SmTArray<SmFace *> & aFaces,                  // in : Faces to sweep                 
-    const SmVector3d   & crSweepVec,              // in : The sweep vector               
+    const SmVector3d   & crSweepVec,              // in : The sweep direction (non-zero; magnitude ignored)
     double               dSweepDist,              // in : The sweep distance             
     ULONG                nRepetitions,            // in : Number of end to end sweeps    
     SmBoolean            bCapEnds                 // in : Cap ends if true               
@@ -339,7 +349,10 @@ public:
     SmTArray<SmFace*>  & rStartFaces,       // out: list of new faces for start cap                               
     SmTArray<SmFace*>  & rSideFaces,        // out: list of new faces added to this brep                          
     SmTArray<SmFace*>  & rEndFaces,         // out: list of new faces for end cap                                 
-    SmBoolean bTestContinuity = TRUE        // in : test source curves for continuity                             
+    SmBoolean bTestContinuity = TRUE,       // in : test source curves for continuity                             
+    SmAxis2Placement   * pOptPlacements = NULL // out: (SolidCraft fork) optional, 3 entries: the rigid motions carrying
+                                            //      the profile curves as given onto the sweep's first, middle and last
+                                            //      sections (without a scale curve)
   );      
 
   // Extracts curves from the face edges and calls CreateCurveSweep
@@ -388,7 +401,9 @@ public:
     int                   iEndCaps,                               // in : 0=none, 1=at curves end, 2=at offset end, 3=both                            
     SmVector3d          & crCrvsNormal,                           // in : specified normal to plane of curves                                         
                                                                   //    : or enter [0,0,0] for us to compute it for you.                              
-    SmOffsetCornerType    eOffsetCorner = SM_OC_LINEAR_EXTENSION  // in : oneof SM_OC_LINEAR_EXTENSION or SM_OC_FILLET_CORNER                         
+    SmOffsetCornerType    eOffsetCorner = SM_OC_LINEAR_EXTENSION, // in : oneof SM_OC_LINEAR_EXTENSION, SM_OC_FILLET_CORNER or SM_OC_CURVE_EXTENSION 
+    SmTaperCornerRefusal* pOptRefusal = NULL,                     // out: SM_OC_CURVE_EXTENSION only: why a corner could not be closed, NULL to ignore 
+    SmPoint3d           * pOptRefusedCorner = NULL                // out: SM_OC_CURVE_EXTENSION only: that corner's point on the curves, NULL to ignore
   );
 
   SmStatus CreatePipeSweep

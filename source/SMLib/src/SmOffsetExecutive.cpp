@@ -7,9 +7,14 @@
 **********************************************************************/
 
 #include "StdAfx.h"
+#include <algorithm>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include <SmOffsetExecutive.h>
 #include <SmSurfaceCache.h>
+#include <SmCopyBrepMap.h>
 #include <SmMerge.h>
 #include <SmStitch.h>
 #include <SmGeomUtility.h>
@@ -19,6 +24,7 @@
 #include <SmPlane.h>
 #include <SmTrimmingTools.h>
 #include <SmAssertArray.h>
+#include <SmLoop.h>
 
 #ifdef SM_DEBUG_CODE
 #include <SmTopologyTraverser.h>
@@ -127,6 +133,69 @@ SmStatus SmOffsetExecutive::OffsetBrep
     return SM_SUCCESS;
 
 } // end SmOffsetExecutive::OffsetBrep
+
+/*******************************************************************//**
+PURPOSE: Static helper: put a face whose surface is planar, but not a
+   plane, onto its plane.
+
+NOTES: SolidCraft fork. A planar B-spline patch (such as a bilinear
+   trapezoid) parameterizes its plane non-linearly: straight lines are
+   curves in its parameters. The face gets an SmPlane through its surface,
+   normal the same way, over a domain that holds the face, and its UV trim
+   curves are made anew from its edges (SmBrep::ReplaceSurface). A face on
+   a plane already, or on a surface that is not planar (its control points
+   off one plane), is left as it is.
+***********************************************************************/
+static SmStatus sm_PutPlanarFaceOnItsPlane
+  (const SmContext & crContext,   // in : context for the new plane
+   SmBrep          & rBrep,       // i/o: the face's Brep
+   SmFace          * pFace)       // i/o: the face
+{
+  NER(pFace);
+  SmSurface *pSurface = pFace->GetSurface(); NER(pSurface);
+  if (pSurface->IsKindOf(SmPlane_TYPE)) { return SM_SUCCESS; }
+  SmPoint3d  sOrigin;
+  SmVector3d sNormal;
+  if (!pSurface->IsPlanar(SM_EFF_ZERO, &sOrigin, &sNormal)) { return SM_SUCCESS; }
+
+  // the normal the face's surface has
+  SmVector3d sSurfaceNormal;
+  SER(pSurface->EvaluateNormal(pFace->GetUVDomain().GetMid(), FALSE, FALSE, sSurfaceNormal));
+  if (sSurfaceNormal.Dot(sNormal) < 0.0) { sNormal = -sNormal; }
+  SER(sNormal.Unitize());
+
+  // axes in the plane: x along the coordinate axis least along the normal
+  SmVector3d sAlong(1.0, 0.0, 0.0);
+  if (smos_Fabs(sNormal.y) < smos_Fabs(sNormal.x) && smos_Fabs(sNormal.y) <= smos_Fabs(sNormal.z)) { sAlong = SmVector3d(0.0, 1.0, 0.0); }
+  else if (smos_Fabs(sNormal.z) < smos_Fabs(sNormal.x))                                            { sAlong = SmVector3d(0.0, 0.0, 1.0); }
+  SmVector3d sXAxis = sAlong - sNormal * sAlong.Dot(sNormal);
+  SER(sXAxis.Unitize());
+  SmVector3d sYAxis = sNormal * sXAxis; // cross product: XAxis x YAxis = Normal
+  SER(sYAxis.Unitize());
+
+  // a domain holding the face: its box's corners in the plane's parameters, and as much again round them
+  SmExtent3d sBox;
+  SER(pFace->CalculateBoundingBox(sBox, TRUE));
+  SmTArray<SmPoint3d> sCorners;
+  sBox.GetCorners(sCorners);
+  double dUMin = SM_BIG_DOUBLE, dUMax = -SM_BIG_DOUBLE, dVMin = SM_BIG_DOUBLE, dVMax = -SM_BIG_DOUBLE;
+  for (ULONG kk=0; kk<sCorners.GetSize(); kk++)
+    {
+      SmVector3d sTo = sCorners[kk] - sOrigin;
+      dUMin = smos_Min(dUMin, sTo.Dot(sXAxis)); dUMax = smos_Max(dUMax, sTo.Dot(sXAxis));
+      dVMin = smos_Min(dVMin, sTo.Dot(sYAxis)); dVMax = smos_Max(dVMax, sTo.Dot(sYAxis));
+    }
+  double dMargin = smos_Max(dUMax - dUMin, dVMax - dVMin);
+  SmExtent2d sDomain(dUMin - dMargin, dVMin - dMargin, dUMax + dMargin, dVMax + dMargin);
+
+  SmPlane *pPlane = new (crContext) SmPlane(sOrigin, sXAxis, sYAxis, SmVector2d(1.0, 1.0), sDomain, &crContext);
+  NER(pPlane);
+  SmStatus eStat = pPlane->MakeNurb();
+  if (eStat != SM_SUCCESS) { delete pPlane; SER(eStat); }
+  SER(rBrep.ReplaceSurface(pFace, pPlane, FALSE, NULL, TRUE));
+  return SM_SUCCESS;
+
+} // end sm_PutPlanarFaceOnItsPlane
 
 /*******************************************************************//**
 PURPOSE: Static High Level Function to Shell a Brep.
@@ -250,6 +319,23 @@ SmStatus SmOffsetExecutive::ShellBrep
     if (pOffsetBrep) { delete pOffsetBrep; pOffsetBrep = NULL ; }
   }
 
+  // An inset of a solid whose offset leaves nothing (a wall as thick as the body's inradius or
+  // thicker) has no cavity to take away: the difference would hand back the input unhollowed.
+  // An offset that is not a closed solid bounds no cavity either.
+  if (dOffsetDistance < 0.0 && bInputIsManifoldSolid)
+    {
+      SmStatus eNoCavity = SM_SUCCESS;
+      if (pBrepShell == NULL || pBrepShell->GetNumFaces() == 0)
+        { eNoCavity = SM_ERR_INVALID_INPUT; }
+      else if (!pBrepShell->IsManifoldSolid())
+        { eNoCavity = SM_ERR; }
+      if (eNoCavity != SM_SUCCESS)
+        {
+          delete pBrepShell;
+          SER(eNoCavity);
+        }
+    }
+
   // when offset result is not manifold
   if (!pBrepShell->IsManifoldSolid()) 
     {
@@ -296,7 +382,20 @@ SmStatus SmOffsetExecutive::ShellBrep
 #endif // SM_DEBUG_CODE
 
       // combine topology without any intersection or coincidence checking
-      SER(pBrepShell->MergeBrep(*pBrepToShell));
+      SmCopyBrepMap sSheetToCopy; // the sheet's topology -> its copy in pBrepShell
+      SER(pBrepShell->MergeBrep(*pBrepToShell, NULL, &sSheetToCopy));
+      // the sheet's faces as copied (faces outlive the stitch below, which joins edges)
+      std::unordered_set<SmFace*> sSheetFaces;
+      {
+        SmTArray<SmFace*> sFaces;
+        pBrepToShell->GetFaces(sFaces);
+        for (ULONG ff=0; ff<sFaces.GetSize(); ff++)
+          {
+            SmFace *pCopy = SM_CAST_PTR(SmFace, sSheetToCopy.GetAt(sFaces[ff]));
+            NER(pCopy);
+            sSheetFaces.insert(pCopy);
+          }
+      }
       SM_ASSERT(pBrepToShell != NULL) ; delete pBrepToShell ; pBrepToShell = NULL ;
       rbInputOwnershipTransferred = TRUE;
 
@@ -321,6 +420,67 @@ SmStatus SmOffsetExecutive::ShellBrep
 #ifdef SM_VALIDATE_TOPOLOGY
       pBrepShell->ValidatePointers();
 #endif // SM_VALIDATE_TOPOLOGY
+
+      // SolidCraft change: the side walls come out as one face where consecutive walls lie on one
+      // surface. The walls are built one per lamina edge (BuildSideWallOfEdgeuse), so where two
+      // consecutive lamina edges and their offsets lie in one plane their walls were two faces on
+      // it, split along the edge from the sheet's vertex to its offset: an L-shaped sheet
+      // thickened came back with each L-shaped end as two faces (tangency-labs/solidcraft#5326).
+      // SMLib's other operations leave no topological edge of their own making (booleans in
+      // SmMerge::BooleanPostProcess, fillets keeping only the body's own), and a solid's shell
+      // gets that from its boolean; the sheet's merge here had nothing. Only edges between two
+      // walls go: the sheet's own splits (two faces of it on one surface) and their offsets stay.
+      {
+        // the walls: the faces along the sheet's boundary, other than the sheet's own
+        std::unordered_set<SmFace*> sWalls;
+        SmTArray<SmEdge*> sEdges;
+        SmTArray<SmFace*> sEdgeFaces;
+        pBrepShell->GetEdges(sEdges);
+        for (ULONG ee=0; ee<sEdges.GetSize(); ee++)
+          {
+            sEdges[ee]->GetFaces(sEdgeFaces);
+            SmBoolean bAlongSheet = FALSE;
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize(); ff++)
+              { if (sSheetFaces.count(sEdgeFaces[ff]) > 0) { bAlongSheet = TRUE; } }
+            if (!bAlongSheet) { continue; }
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize(); ff++)
+              { if (sSheetFaces.count(sEdgeFaces[ff]) == 0) { sWalls.insert(sEdgeFaces[ff]); } }
+          }
+
+        // keep every topological edge but those between two walls, and every topological vertex
+        SmTArray<SmEdge*>   sKeepEdges;
+        SmTArray<SmVertex*> sKeepVertices;
+        SmTArray<SmEdge*>   sTopoEdges;
+        pBrepShell->GetTopologicalEdges(sTopoEdges);
+        pBrepShell->GetTopologicalVertices(sKeepVertices);
+        std::vector<SmFace*> vMerging;
+        for (ULONG ee=0; ee<sTopoEdges.GetSize(); ee++)
+          {
+            sTopoEdges[ee]->GetFaces(sEdgeFaces);
+            SmBoolean bBetweenWalls = (sEdgeFaces.GetSize() == 2);
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize() && bBetweenWalls; ff++)
+              { bBetweenWalls = (sWalls.count(sEdgeFaces[ff]) > 0); }
+            if (!bBetweenWalls) { sKeepEdges.Add(sTopoEdges[ee]); continue; }
+            for (ULONG ff=0; ff<sEdgeFaces.GetSize(); ff++)
+              {
+                if (std::find(vMerging.begin(), vMerging.end(), sEdgeFaces[ff]) == vMerging.end())
+                  { vMerging.push_back(sEdgeFaces[ff]); }
+              }
+          }
+        if (!vMerging.empty())
+          {
+            // A wall is the ruled surface between a lamina edge and its offset, over its whole
+            // domain: a planar wall that is not a parallelogram (along one side of a corner the
+            // edge and its offset differ in length) is a bilinear patch, not a plane, and the
+            // merge would extend it over its neighbour, where the neighbour's straight edges are
+            // curves in its parameters. Each such wall goes onto its plane first, where they are
+            // straight, so the merged face is exact.
+            SmTemporaryChangeValue<SmBoolean> sEditing(pBrepShell->m_bEditingEnabled, TRUE);
+            for (size_t ff=0; ff<vMerging.size(); ff++)
+              { SER_DELETE(sm_PutPlanarFaceOnItsPlane(crContext, *pBrepShell, vMerging[ff]), pBrepShell); }
+            SER_DELETE(pBrepShell->RemoveTopologicalEdgesAndVertices(&sKeepEdges, &sKeepVertices), pBrepShell);
+          }
+      }
 
       rpShellBrep = pBrepShell;
     }
@@ -502,7 +662,7 @@ SmBoolean bDrawFaces = FALSE;
             }
 
           // map InfiniteRegion bounding pFU to NewFace and map their edgeuses to one another
-          m_vFUToF.RelatePair(pFU,pNewFace);
+          SER( m_vFUToF.RelatePair(pFU,pNewFace) );
           SER(MapEdgeuses(pFU,pNewFace));
 
 #ifdef SM_DEBUG_CODE
@@ -549,14 +709,16 @@ SmBoolean bDrawFaces = FALSE;
           //                              bSkipSelfIntersection == TRUE.
           //  - when bSkipSelfIntersection == FALSE single surface offsets are checked for self intersections
           sOffsetSurface = NULL;
+          SmBoolean bCollapses = FALSE;
           SER_DELETE(m_rGeometryCreation.FaceuseOffset(m_crContext,       // in : context for new obj construction
                                                 pFU,               // in : Faceuse->Surface to copy and offset
                                                 TRUE,              // in : TRUE =
                                                                    //      FALSE=
                                                 sOffsetSurface,    // out: New Surface (more than 1 for self-XSect cases)
-                                                sIntData),       // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                sIntData,          // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                bCollapses),       // out: TRUE = the offset shrinks the face onto its spine: no surface
                                                 sOffsetSurface) ;  // JLMCC hunting memory leaks
-          if ( sOffsetSurface == NULL )
+          if ( bCollapses )
             { continue; }
 
           // build a face in m_pOffsetBrep made with sOffsetSurface and pFU->Edge->UVTrimCurves. 
@@ -660,7 +822,7 @@ SmBoolean bDrawFaces = FALSE;
   for (ULONG ii=0; ii<sEdges.GetSize(); ii++) 
     {
       SmEdge *pE = sEdges[ii];
-      pE->GetEdgeuses(sEEUs);
+      SER( pE->GetEdgeuses(sEEUs) );
       for (ULONG ieu=0; ieu<sEEUs.GetSize(); ieu++) 
         {
           SmEdgeuse *pEU = sEEUs[ieu];
@@ -828,7 +990,7 @@ SmBoolean bDebugMe2 = FALSE;
         }
 
       // register vertex/newFace pair
-      m_vVToF.RelatePair( sVertices[ii], pNewFace );
+      SER( m_vVToF.RelatePair( sVertices[ii], pNewFace ) );
 
 #ifdef SM_DEBUG_CODE
       // draw originalBrep(blue), offsetBrep(green), newFace(cyan), newSurface(yellow)
@@ -1053,6 +1215,48 @@ SmBoolean bDebugMe2 = FALSE;
 } // end SmOffsetExecutive::DoSolidOffset
 
 /*******************************************************************//**
+PURPOSE: Static helper: order edgeuses by their Brep (faces, faceuses,
+   loops, reversed), not by their heap addresses, so that the extended
+   offset gives the same result in every process.
+
+NOTES: Edgeuses not found in crBrep go last, in their input order.
+***********************************************************************/
+static void sm_OrderEdgeusesByBrep
+  (const SmBrep         & crBrep,      // in : Brep that owns the edgeuses
+   SmTArray<SmEdgeuse*> & rEdgeuses)   // i/o: edgeuses to order
+{
+  std::unordered_set<SmEdgeuse*> sUnplaced;
+  for (ULONG ii=0; ii<rEdgeuses.GetSize(); ii++)
+    { sUnplaced.insert(rEdgeuses[ii]); }
+
+  SmTArray<SmEdgeuse*> sBrepOrder, sFaceuseEdgeuses;
+  SmTArray<SmFace*> sFaces;
+  crBrep.GetFaces(sFaces);
+  for (ULONG ii=0; ii<sFaces.GetSize(); ii++)
+    {
+      SmFaceuse *pFaceuses[2] = { NULL, NULL };
+      sFaces[ii]->GetFaceuses(pFaceuses[0], pFaceuses[1]);
+      for (SmFaceuse *pFU : pFaceuses)
+        {
+          if (pFU == NULL) { continue; }
+          pFU->GetEdgeuses(sFaceuseEdgeuses);
+          sBrepOrder.Append(sFaceuseEdgeuses);
+        }
+    }
+
+  SmTArray<SmEdgeuse*> sOrdered;
+  for (ULONG ii=sBrepOrder.GetSize(); ii-- > 0; )
+    {
+      if (sUnplaced.erase(sBrepOrder[ii]) > 0) { sOrdered.Add(sBrepOrder[ii]); }
+    }
+  for (ULONG ii=0; ii<rEdgeuses.GetSize(); ii++)
+    {
+      if (sUnplaced.count(rEdgeuses[ii]) > 0) { sOrdered.Add(rEdgeuses[ii]); }
+    }
+  rEdgeuses = sOrdered;
+} // end sm_OrderEdgeusesByBrep
+
+/*******************************************************************//**
 PURPOSE: This is the main top level method to offset a solid brep
     that extends convex edges instead of making rounded fillets.
 
@@ -1203,7 +1407,7 @@ SmBoolean bDebugMeAll = FALSE ;
             { pFU = pFU->GetMate(); }
 
           // relate this faceuse to the newface
-          m_vFUToF.RelatePair(pFU,pNewFace);
+          SER( m_vFUToF.RelatePair(pFU,pNewFace) );
           SER(MapEdgeuses(pFU,pNewFace));
 
 #ifdef SM_DEBUG_CODE
@@ -1286,15 +1490,27 @@ SmBoolean bDebugMeAll = FALSE ;
             { pFU = pFU->GetMate(); }
 
           // create the offset surface for this faceuse - OutSurface(s) domains = InSurface domain, but may be trimmed for singularites.
+          SmBoolean bCollapses = FALSE;
           SER(m_rGeometryCreation.FaceuseOffset(m_crContext,        // in : context for new obj construction
                                                 pFU,                // in : Faceuse->Surface to copy and offset
                                                 TRUE,               // in : TRUE =
                                                                     //      FALSE=
                                                 sOffsetSurface,     // out: New Surface (more than 1 for self-XSect cases)
-                                                sIntData)) ;        // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                sIntData,           // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                                bCollapses)) ;      // out: TRUE = the offset shrinks the face onto its spine: no surface
                                                                   
-          if (sOffsetSurface == NULL) 
-            { SER(SM_ERR); }
+          // An inset face whose offset collapses onto its spine (a convex round no thicker than
+          // the wall) gets no offset face: the faces beside it are mated across it below, as at a
+          // sharp edge. Any other offset has its surface (FaceuseOffset fails otherwise).
+          if (bCollapses) 
+            {
+              if (m_bInset && m_bExtendConvexEdges)
+                {
+                  m_sCollapsedFaces.Add(pOrigFace) ;
+                  continue ;
+                }
+              SER(SM_ERR);
+            }
 
           // signal self intersection problems
           // But -- we passed True to FaceuseOffset, telling it not to check this...
@@ -1417,6 +1633,7 @@ SmBoolean bDebugMeAll = FALSE ;
   SmTArray<SmEdgeuse*> sOffSetEUS, sRadialEUS;
   SmTArray<SmEdge*>    sNewEdges;
   m_vEUToEU.GetAllFirsts(sOffsetEdgeuses);
+  sm_OrderEdgeusesByBrep(*m_pOriginalBrep, sOffsetEdgeuses);
 
 #ifdef SM_VALIDATE_TOPOLOGY
       m_pOffsetBrep->ValidatePointers();
@@ -1440,6 +1657,35 @@ SmBoolean bDebugMe11 = FALSE;
   SmNewMarkAndLock sMarkLock( m_pOffsetBrep->GetContext(), SM_MT_ALLMARKS) ; // increment and lock any unlocked mark
   SmMarkType       eMarkType = sMarkLock.GetMarkType() ;
 
+  // Mate the faces beside each collapsed face across it: the offsets of the faces on either side
+  // of a collapsed round meet where they intersect, the round's rails becoming one sharp edge.
+  // (The rails' ends are trimmed by TrimExtendedEdge, which also looks across collapsed faces.)
+  ULONG lUnbridged = 0 ;
+  double dCollapseTanTolDeg = GetTangencyTolDegrees();
+  for (ii=0; ii<sOffsetEdgeuses.GetSize(); ii++)
+    {
+      SmEdgeuse *pEU     = sOffsetEdgeuses[ii];
+      SmEdgeuse *pRadial = pEU->GetRadial();
+      if (   pRadial == NULL
+          || pRadial == pEU
+          || !IsCollapsedFace(pRadial->GetFace())
+          || !pRadial->IsTangentSector(dCollapseTanTolDeg)
+          || pEU->IsMarked(eMarkType))
+        { continue; }
+      SmEdgeuse *pAcross    = GetEdgeuseAcrossCollapsedFace(pRadial, NULL);
+      SmEdgeuse *pOffEU     = GetOffsetEdgeuse(pEU);
+      SmEdgeuse *pOffAcross = pAcross ? GetOffsetEdgeuse(pAcross) : NULL;
+      if (   pOffEU == NULL
+          || pOffAcross == NULL
+          || m_rGeometryCreation.MateEdges(m_crContext, this, pEU, pAcross, pOffEU, pOffAcross, eMarkType) != SM_SUCCESS)
+        {
+          lUnbridged++ ;
+          continue;
+        }
+      pEU->Mark(eMarkType);     pEU->GetMate()->Mark(eMarkType);
+      pAcross->Mark(eMarkType); pAcross->GetMate()->Mark(eMarkType);
+    } // end iter every offset edgeuse beside a collapsed face
+
   // when extending convex edges - not filleting them 
   // mark offset edges which have tangent sectors
   if (GetExtendConvexEdges()) 
@@ -1449,6 +1695,7 @@ SmBoolean bDebugMe11 = FALSE;
         {
           SmEdgeuse *pEU     = sOffsetEdgeuses[ii];
           SmEdgeuse *pRadial = pEU->GetRadial();
+          if (IsCollapsedFace(pRadial->GetFace())) { continue; } // mated across it above
 
           // Mark the EU, and skip it if its radial partner is marked.
           if (pRadial->IsMarked(eMarkType)) { continue; }
@@ -1519,6 +1766,7 @@ SmBoolean bDebugMe5 = FALSE;
       // Mark the EU, and skip it if its radial partner is marked.
       SmEdgeuse * pEU     = sOffsetEdgeuses[ii];
       SmEdgeuse * pRadial = pEU->GetRadial();
+      if (IsCollapsedFace(pRadial->GetFace())) { continue; } // mated across it above
       pEU->Mark(eMarkType);
       if (pRadial->IsMarked(eMarkType)) 
         { continue; }
@@ -1577,7 +1825,64 @@ SmBoolean bDebugMe8 = FALSE;
     } // end iter every offset edgeuse
 
 
-  SER(RemoveExcessFaces( m_pOffsetBrep ));
+  // The offset of an edge along a collapsed face's end (where the round meets the face across its
+  // end) now runs from the corner where the mated faces meet back to that corner: squeeze it out.
+  for (ii=0; ii<sOffsetEdgeuses.GetSize(); ii++)
+    {
+      SmEdgeuse *pEU     = sOffsetEdgeuses[ii];
+      SmEdgeuse *pRadial = pEU->GetRadial();
+      if (   pRadial == NULL
+          || pRadial == pEU
+          || !IsCollapsedFace(pRadial->GetFace())
+          || pRadial->IsTangentSector(dCollapseTanTolDeg))
+        { continue; }
+      SmEdgeuse *pOffEU = GetOffsetEdgeuse(pEU);
+      SmEdge    *pOffEdge = pOffEU ? pOffEU->GetEdge() : NULL;
+      SmVertex  *pV1 = pOffEdge ? pOffEdge->GetStartVertex() : NULL;
+      SmVertex  *pV2 = pOffEdge ? pOffEdge->GetEndVertex()   : NULL;
+      if (   pOffEdge == NULL
+          || pV1 == pV2
+          || pV1->GetPoint().DistanceBetween(pV2->GetPoint()) > 10.0 * pOffEdge->GetTolerance())
+        {
+          lUnbridged++ ;
+          continue;
+        }
+      SER(m_vEUToEU.RemovePair(pEU, pOffEU));
+      SER(m_pOffsetBrep->SqueezeEdge(pOffEdge, pV1));
+    } // end iter every offset edgeuse along a collapsed face's end
+
+  // A collapsed face that could not be bridged (no face across it, or no meeting) leaves the
+  // offset open: refuse it rather than build a body with holes.
+  if (lUnbridged > 0)
+    { SER(SM_ERR_DEGENERATE_SURFACE); }
+
+  // A local operation has no merge to close what a step wall leaves open at its ends.
+  // SolidCraft change: nor does a solid offset's merge close a loop's gap at a vertex where two
+  // consecutive edges' offsets run parallel and never meet: a saddle vertex where the face meets
+  // two coplanar faces of opposite normals (a box's side and the base of a cylinder joined on it,
+  // its axis in the plane of the box's front face: the front face's offset runs from the side's
+  // offset to the base's, 2t apart, across the cylinder's offset). The edge along the base's
+  // offset kept the vertex at the side's offset, its curve 2t away; the merge then grew that
+  // vertex's tolerance to 4 mm, it captured another, and MakeFaceuse found an edge whose ends
+  // were not its vertices' mates (tangency-labs/solidcraft#1494). The gap's straight edge closes
+  // the loop where it lies on the face's surface (on the front face's plane and the cylinder's
+  // offset alike, a ruling), and the merge joins the faces along it. This comes after the
+  // squeeze above: the offset of an edge along a collapsed face's end runs from a corner back to
+  // it and is no gap.
+  SER(CloseLoopGaps());
+  if (m_eOffsetOperation == SM_OO_LOCAL_OPERATION)
+    { SER(SplitEdgesAtStepCorners()); }
+
+  // SolidCraft change: the excess faces are removed after the merge, not here. An offset face is
+  // not trimmed yet: its loop runs out to where its neighbours' offsets meet it, past where other
+  // offsets cut it, so a face that bounds the offset can have an edge well inside the excess (less
+  // than the offset distance from the body), and RemoveExcessFaces took every face with such an
+  // edge. Shelled closed 1.5 inward, the part of ladder 09/011 lost its five offset faces round
+  // the window that rises to 1 mm under a round (the wall, the back wall, the round, the chamfer
+  // and the window's arch, each with an edge 1.0 to 1.42 from the part), and the merged offset
+  // enclosed no region (tangency-labs/solidcore#865). The merge cuts the offset faces where they
+  // meet, so each merged face lies wholly on the offset or wholly in the excess: there the test
+  // is sound.
 
 #ifdef SM_VALIDATE_TOPOLOGY
       m_pOffsetBrep->ValidatePointers();
@@ -1734,11 +2039,17 @@ SmBoolean bDebugMe4 = FALSE;
     }
 #endif // SM_DEBUG_CODE
 
+  // SolidCraft change: an offset face whose loops cross is rebuilt from the stretches of its
+  // loops that bound it, before the merge sees it.
+  SER(ResolveCrossingLoops());
+
   SmBrep *pResult;
   SER(PiecewiseMerge(pResult));
   SmObjDelete sClean2(pResult);
 
-  if ( ! m_bCreateOffsetSolid )
+  // (A sheet's side walls, built for an offset solid, run from the sheet itself: they would be
+  // taken for excess. A solid has none.)
+  if ( ! m_bCreateOffsetSolid || m_pOriginalBrep->IsManifoldSolid() )
     { SER(RemoveExcessFaces(pResult)); }
 
   // arrive here when pResult contains all the offset and copied surfaces
@@ -1764,13 +2075,24 @@ SmBoolean bDebugMe4 = FALSE;
     }
 #endif // SM_DEBUG_CODE
 
-  // Do some stitching to close those unwanted gaps 
+  // Do some stitching to close those unwanted gaps
   //    this is a protective step that would not be needed in an ideal world.
-  ULONG lStitchedEdges;
-  double dVGap, dEGap;
-  SmBoolean bProducesSolid;
-  SmStatus sRtn = SmStitch::StitchIntoSolid(pResult,bProducesSolid,lStitchedEdges,dVGap,dEGap);
-  SM_ASSERT(sRtn == SM_SUCCESS) ;
+  // SolidCraft change: within the merged body's tolerance only. StitchIntoSolid doubles its
+  // tolerance until no lamina edge is left (up to a 200th of the body's size), but the lamina
+  // edges a merge leaves are the rims of the pieces its intersections cut off (an offset face's
+  // part beyond a neighbour's offset), which MakeManifold removes below: escalating, it welded
+  // two of them 0.12 mm apart, an arc and the chord between its ends, into one edge of tolerance
+  // 0.24 mm, and the offset came apart there.
+  {
+    SmStitchCallback sStitchCallback;
+    SmStitch sStitch(sStitchCallback, pResult->GetTolerance(), TRUE, FALSE);
+    sStitch.m_bFastEdgeCompare        = TRUE;
+    sStitch.m_bSplitEdgesWithVertices = FALSE;
+    sStitch.m_bMakingManifoldSolid    = TRUE;
+    ULONG  lStitchedEdges = 0, lLaminaEdges = 0;
+    double dVGap = 0.0, dEGap = 0.0;
+    SER(sStitch.DoStitching(pResult, NULL, NULL, lStitchedEdges, lLaminaEdges, dVGap, dEGap));
+  }
 
 #ifdef SM_DEBUG_CODE
   SmBoolean bDrawFaces = FALSE;
@@ -1973,7 +2295,7 @@ SmStatus SmOffsetExecutive::ReplaceImplicitOffsets
    double dThisApproxTol3d)        // in : max allowed deviation in approximation surfaces
 {
   // remove curve and surface portions not used by edges and faces
-  pBrepToFix->ShrinkGeometry();
+  SER( pBrepToFix->ShrinkGeometry() );
 
   // locals
   SmTArray<SmFace*>    sFixFaces;
@@ -2034,6 +2356,47 @@ SmStatus SmOffsetExecutive::ReplaceImplicitOffsets
 
 } // end SmOffsetExecutive::ReplaceImplicitOffsets
 
+// Forget the pairs of a relation whose second is gone (or, with cpLive, is not
+// live). The pointers are only compared, never followed.
+template <class FIRST, class SECOND>
+static void sm_ForgetSeconds(SmRelation<FIRST,SECOND> & rRelation,
+                             const std::unordered_set<SECOND*> & crGone,
+                             const std::unordered_set<SECOND*> * cpLive)
+{
+    SmTArray<SECOND*> sSeconds;
+    rRelation.GetAllSeconds(sSeconds);
+    for (ULONG i=0; i<sSeconds.GetSize(); i++)
+    {
+        SECOND *pSecond = sSeconds[i];
+        if (crGone.count(pSecond) == 0 && (cpLive == NULL || cpLive->count(pSecond) != 0)) { continue; }
+        SmTArray<FIRST*> sFirsts;
+        rRelation.GetFirsts(pSecond, sFirsts);
+        for (ULONG j=0; j<sFirsts.GetSize(); j++)
+        {
+            (void)rRelation.RemovePair(sFirsts[j], pSecond); // SolidCraft: each pair was just listed, so it exists
+        }
+    }
+}
+
+// Forget the pairs of a relation whose first is gone.
+template <class FIRST, class SECOND>
+static void sm_ForgetFirsts(SmRelation<FIRST,SECOND> & rRelation, const std::unordered_set<FIRST*> & crGone)
+{
+    SmTArray<FIRST*> sFirsts;
+    rRelation.GetAllFirsts(sFirsts);
+    for (ULONG i=0; i<sFirsts.GetSize(); i++)
+    {
+        FIRST *pFirst = sFirsts[i];
+        if (crGone.count(pFirst) == 0) { continue; }
+        SmTArray<SECOND*> sSeconds;
+        rRelation.GetSeconds(pFirst, sSeconds);
+        for (ULONG j=0; j<sSeconds.GetSize(); j++)
+        {
+            (void)rRelation.RemovePair(pFirst, sSeconds[j]); // SolidCraft: each pair was just listed, so it exists
+        }
+    }
+}
+
 /*******************************************************************//**
 PURPOSE: Remove Excess Faces of the Result by measurement to the original.
 
@@ -2064,7 +2427,7 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
     for (ULONG i=0; i<sEdges.GetSize(); i++) {
         SmEdge *pE = sEdges[i];
         SmPoint3d sPnt;
-        pE->GetPrimaryEdgeuse()->NormalizedEvaluate(0.5,FALSE,sPnt);  // TRUE = UV Eval, FALSE = 3d Eval
+        SER( pE->GetPrimaryEdgeuse()->NormalizedEvaluate(0.5,FALSE,sPnt) );  // TRUE = UV Eval, FALSE = 3d Eval
         sSolutions.ReSet();
         m_pOriginalBrep->m_bEditingEnabled = FALSE;
         SER(SmTopologySolver::BrepPointSolve(m_pOriginalBrep,sPnt,SM_SO_MINIMIZE,
@@ -2096,8 +2459,49 @@ SmStatus SmOffsetExecutive::RemoveExcessFaces(SmBrep * pResult)
         }
     }
 
+    // The faces about to be removed and their edgeuses, which RemoveFaces deletes
+    std::unordered_set<SmFace*> sGoneFaces;
+    std::unordered_set<SmEdgeuse*> sGone;
+    for (ULONG i=0; i<sDeleteFaces.GetSize(); i++)
+    {
+        sGoneFaces.insert(sDeleteFaces[i]);
+        SmTArray<SmEdge*> sFaceEdges;
+        sDeleteFaces[i]->GetEdges(sFaceEdges);
+        for (ULONG j=0; j<sFaceEdges.GetSize(); j++)
+        {
+            SmTArray<SmEdgeuse*> sUses;
+            SER( sFaceEdges[j]->GetEdgeuses(sUses) );
+            for (ULONG kk=0; kk<sUses.GetSize(); kk++)
+            {
+                if (sUses[kk]->GetFace() == sDeleteFaces[i])
+                {
+                    sGone.insert(sUses[kk]);
+                }
+            }
+        }
+    }
+
     // Clean up those faces we have collected.
-    pResult->RemoveFaces(sDeleteFaces);   // increments unlocked mark value
+    SER( pResult->RemoveFaces(sDeleteFaces) );   // increments unlocked mark value
+
+    // Forget the deleted faces and edgeuses, so later lookups in the relations (lamina side walls,
+    // PiecewiseMerge) cannot return them. For m_vEUToEU also forget any edgeuse no result edge has.
+    if (!sGoneFaces.empty())
+    {
+        std::unordered_set<SmEdgeuse*> sLive;
+        SmTArray<SmEdge*> sResultEdges;
+        pResult->GetEdges(sResultEdges);
+        for (ULONG i=0; i<sResultEdges.GetSize(); i++)
+        {
+            SER( sResultEdges[i]->GetEdgeuses(sLive) );
+        }
+        sm_ForgetSeconds(m_vEUToEU, sGone, &sLive);
+        sm_ForgetSeconds(m_vFUToF, sGoneFaces, (const std::unordered_set<SmFace*> *)NULL);
+        sm_ForgetSeconds(m_vEToF, sGoneFaces, (const std::unordered_set<SmFace*> *)NULL);
+        sm_ForgetSeconds(m_vVToF, sGoneFaces, (const std::unordered_set<SmFace*> *)NULL);
+        sm_ForgetSeconds(m_vBlendToFaces, sGoneFaces, (const std::unordered_set<SmFace*> *)NULL);
+        sm_ForgetFirsts(m_vBlendToFaces, sGoneFaces);
+    }
 
     return SM_SUCCESS;
 
@@ -2262,11 +2666,11 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
           // Tol: StitchIntoShell() adds in the tols of the topology objects,
           // so the Brep's tolerance should be plenty.
           double dStitchTol3d = rpResult->GetTolerance();
-          SmStitch::StitchIntoShell( rpResult, TRUE, dStitchTol3d, lStitchedEdges, dVGap, dEGap );
+          SER( SmStitch::StitchIntoShell( rpResult, TRUE, dStitchTol3d, lStitchedEdges, dVGap, dEGap ) );
         }
       else 
         {
-          SmStitch::StitchIntoSolid( rpResult, bProducesSolid, lStitchedEdges, dVGap, dEGap );
+          SER( SmStitch::StitchIntoSolid( rpResult, bProducesSolid, lStitchedEdges, dVGap, dEGap ) );
         }
 
       SmTArray<SmRegion*> sRegions;
@@ -2332,13 +2736,13 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                   for (mm=0; mm<sBlended.GetSize(); mm++) 
                     {
                       SmFace *pBlendedF = sBlended[mm];
-                      sNoSSI.RelatePair(pBlendedF->GetSurface(),pEOffSurf);
-                      sNoSSI.RelatePair(pEOffSurf, pBlendedF->GetSurface());                    
+                      (void)sNoSSI.RelatePair(pBlendedF->GetSurface(),pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                      (void)sNoSSI.RelatePair(pEOffSurf, pBlendedF->GetSurface()); // SolidCraft: a pair this speed-up misses is intersected like any other
                     }
 
                   // relate faceOffsets to their edgeOffsets
-                  sNoSSI.RelatePair(pOffSurf, pEOffSurf);
-                  sNoSSI.RelatePair(pEOffSurf, pOffSurf);
+                  (void)sNoSSI.RelatePair(pOffSurf, pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                  (void)sNoSSI.RelatePair(pEOffSurf, pOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                   
                   // Now do first vertex
                   SmVertex *pV        = pE->GetVertex();
@@ -2347,8 +2751,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                     {
                       // relate start VertexOffsets to EdgeOffsets
                       SmSurface *pVOffSurf = pVOffFace->GetSurface();
-                      sNoSSI.RelatePair(pEOffSurf,pVOffSurf);
-                      sNoSSI.RelatePair(pVOffSurf,pEOffSurf);
+                      (void)sNoSSI.RelatePair(pEOffSurf,pVOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                      (void)sNoSSI.RelatePair(pVOffSurf,pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                     }
                   
                   // Now do second vertex
@@ -2358,8 +2762,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                     {
                       // relate end VertexOffsets to EdgeOffsets
                       SmSurface *pVOffSurf = pVOffFace->GetSurface();
-                      sNoSSI.RelatePair(pEOffSurf,pVOffSurf);
-                      sNoSSI.RelatePair(pVOffSurf,pEOffSurf);
+                      (void)sNoSSI.RelatePair(pEOffSurf,pVOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+                      (void)sNoSSI.RelatePair(pVOffSurf,pEOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                     }
                   
                 } // end iter 'll' every origEdge offset capFace
@@ -2371,10 +2775,13 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
 
               // Determine if we have a tangent sector across this edge and
               // eliminate intersections if we do.
+              // SolidCraft change: with extended convex edges, every edge without an offset cap
+              // face had the offsets of its two faces mated along it (EdgeuseOffset), so those
+              // faces already share their intersection edge too.
               double dTanTolDeg = GetTangencyTolDegrees();
-              if (pE->IsManifold() && pE->GetPrimaryEdgeuse()->IsTangentSector(dTanTolDeg)) 
+              if (pE->IsManifold() && (m_bExtendConvexEdges || pE->GetPrimaryEdgeuse()->IsTangentSector(dTanTolDeg))) 
                 {
-                  pE->GetEdgeuses(sEdgeEUS);
+                  SER( pE->GetEdgeuses(sEdgeEUS) );
                   ULONG ieu, ifac;
                   for (ieu=0; ieu<sEdgeEUS.GetSize(); ieu++) 
                     {
@@ -2388,8 +2795,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
                             {
                               SmFace *pOffFRad = sOffFaces2[ifac];
                               SmSurface *pOffSurfRad = pOffFRad->GetSurface();
-                              sNoSSI.RelatePair(pOffSurf,pOffSurfRad);
-                              sNoSSI.RelatePair(pOffSurfRad,pOffSurf);
+                              (void)sNoSSI.RelatePair(pOffSurf,pOffSurfRad); // SolidCraft: a pair this speed-up misses is intersected like any other
+                              (void)sNoSSI.RelatePair(pOffSurfRad,pOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
                             }
                         }
                     } // end for each Edgeuse
@@ -2404,8 +2811,8 @@ SmStatus SmOffsetExecutive::PiecewiseMerge
               SmFace *pVOffFace = m_vVToF.GetSecond(pV);
               if (!pVOffFace) { continue; }
               SmSurface *pVOffSurf = pVOffFace->GetSurface();
-              sNoSSI.RelatePair(pOffSurf,pVOffSurf);
-              sNoSSI.RelatePair(pVOffSurf,pOffSurf);
+              (void)sNoSSI.RelatePair(pOffSurf,pVOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
+              (void)sNoSSI.RelatePair(pVOffSurf,pOffSurf); // SolidCraft: a pair this speed-up misses is intersected like any other
 
             } // end iter 'kk' every origFace->Vertex
         } // end iter 'jj' every OrigFace->Offset
@@ -2671,6 +3078,55 @@ SmEdgeuse* SmOffsetExecutive::GetOffsetEdgeuse
 } // end GetOffsetEdgeuse
 
 /*******************************************************************//**
+PURPOSE: The original edgeuse beyond a collapsed face (an inset face whose
+   offset vanished), seen from one of its edgeuses.
+
+NOTES: pEU is an edgeuse of the collapsed face. Across a rail (a tangent
+   edge of a four-sided round), the result is the radial of the opposite rail.
+   Across an end edge (where the round meets a face across its end), seen
+   from pFrom, one of that edge's vertices, it is the radial of the rail at
+   the edge's other vertex. NULL when pEU's face did not collapse, or the
+   face across collapsed too, or the face has another shape.
+***********************************************************************/
+SmEdgeuse * SmOffsetExecutive::GetEdgeuseAcrossCollapsedFace
+  (const SmEdgeuse *pEU,      // in : edgeuse of a collapsed face
+   const SmVertex  *pFrom)    // in : for an end edge, the vertex it is seen from; NULL for a rail
+ const
+{
+  if (pEU == NULL || !IsCollapsedFace(pEU->GetFace())) { return NULL; }
+  double dTanTolDeg = m_rGeometryCreation.GetTangencyTolDegrees();
+  SmEdgeuse *pNext = NULL;
+  if (pEU->IsTangentSector(dTanTolDeg))
+    {
+      SmTArray<SmEdgeuse*> sLoopEUs;
+      pEU->GetLoopuse()->GetEdgeuses(sLoopEUs);
+      if (sLoopEUs.GetSize() != 4) { return NULL; }
+      pNext = pEU->GetCCWEdgeuse()->GetCCWEdgeuse();
+    }
+  else
+    {
+      if (pFrom == NULL) { return NULL; }
+      // the end edge's vertex away from pFrom (by position: pFrom may be a vertex of the rail beside it)
+      SmVertex *pV0  = pEU->GetEdge()->GetStartVertex();
+      SmVertex *pV1  = pEU->GetEdge()->GetEndVertex();
+      SmVertex *pFar =   pV0->GetPoint().DistanceBetween(pFrom->GetPoint()) > pV1->GetPoint().DistanceBetween(pFrom->GetPoint())
+                       ? pV0
+                       : pV1 ;
+      SmEdgeuse *aSides[2] = { pEU->GetCWEdgeuse(), pEU->GetCCWEdgeuse() };
+      for (ULONG ii=0; ii<2; ii++)
+        {
+          SmEdge *pE = aSides[ii]->GetEdge();
+          if (aSides[ii] != pEU && (pE->GetStartVertex() == pFar || pE->GetEndVertex() == pFar))
+            { pNext = aSides[ii]; break; }
+        }
+    }
+  SmEdgeuse *pAcross = pNext ? pNext->GetRadial() : NULL;
+  if (pAcross == NULL || pAcross == pNext || IsCollapsedFace(pAcross->GetFace())) { return NULL; }
+  return pAcross;
+
+} // end SmOffsetExecutive::GetEdgeuseAcrossCollapsedFace
+
+/*******************************************************************//**
 PURPOSE: Syncronize the corresponding offset edgeuses of an edgeuse.
    This is done by splitting edges on one side corresponding to breaks
    on the other side.  After all is said and done there should be two
@@ -2841,6 +3297,804 @@ SmBoolean bDebugMe2 = FALSE;
 } // end BuildSideWallOfEdgeuse
 
 /*******************************************************************//**
+PURPOSE: Close the gaps a local operation's step walls leave in the loops
+   of the faces at the walls' ends.
+
+NOTES: A face beside a step (a side wall of the block whose top piece moved)
+   had one vertex where its edge along the moved face met its edge along the
+   face that stayed. The moved edge took that vertex along (ReplaceEdgeCurves
+   moves an edge's vertices to its new ends), and the other edge still starts
+   where it did: the loop's consecutive edgeuses no longer meet at their
+   vertex. Each such gap gets the straight edge from the vertex to the edge
+   end left behind, which is where the step wall's end lies, and which the
+   stitch then joins to it. A gap whose straight edge leaves the face's surface
+   is no step end: the operation fails.
+***********************************************************************/
+SmStatus SmOffsetExecutive::CloseLoopGaps()
+{
+  NER(m_pOffsetBrep);
+  double dApproxTol = m_rGeometryCreation.GetThisApproxTol3d();
+  SmTArray<SmFace*> sFaces;
+  m_pOffsetBrep->GetFaces(sFaces);
+  for (ULONG ii=0; ii<sFaces.GetSize(); ii++)
+    {
+      SmFace *pFace = sFaces[ii];
+      // Each gap closed changes the loop: look again until none is left (each gap is closed once).
+      ULONG lGuard = 0;
+      SmBoolean bClosed = TRUE;
+      while (bClosed)
+        {
+          bClosed = FALSE;
+          if (++lGuard > 64) { SER(SM_ERR); }
+          SmFaceuse *pFU = pFace->GetUpwardFaceuse(); NER(pFU);
+          SmTArray<SmLoopuse*> sLoopuses;
+          pFU->GetLoopuses(sLoopuses);
+          for (ULONG jj=0; jj<sLoopuses.GetSize() && !bClosed; jj++)
+            {
+              SmTArray<SmEdgeuse*> sEUs;
+              sLoopuses[jj]->GetEdgeuses(sEUs);
+              ULONG lNum = sEUs.GetSize();
+              for (ULONG kk=0; kk<lNum && !bClosed; kk++)
+                {
+                  SmEdgeuse *pEU   = sEUs[kk];
+                  SmEdgeuse *pNext = sEUs[(kk+1) % lNum];
+                  if (pEU == pNext) { continue; }
+                  SmVertex *pV = pNext->GetVertexuse()->GetVertex();
+                  if (pEU->GetMate()->GetVertexuse()->GetVertex() != pV) { continue; }
+                  double dTol = 10.0 * smos_Max( smos_Max( (double)pEU->GetEdge()->GetTolerance(), (double)pNext->GetEdge()->GetTolerance() ), dApproxTol );
+                  SmPoint3d sEnd, sStart;
+                  SER(pEU->NormalizedEvaluate(1.0, FALSE, sEnd));
+                  SER(pNext->NormalizedEvaluate(0.0, FALSE, sStart));
+                  if (sEnd.DistanceBetween(sStart) <= dTol) { continue; }
+                  SmPoint3d sV = pV->GetPoint();
+                  if (sEnd.DistanceBetween(sV) <= dTol && sStart.DistanceBetween(sV) > dTol)
+                    { SER(CloseLoopGap(pFace, pNext, TRUE, sV, dTol)); }
+                  else if (sStart.DistanceBetween(sV) <= dTol && sEnd.DistanceBetween(sV) > dTol)
+                    { SER(CloseLoopGap(pFace, pEU, FALSE, sV, dTol)); }
+                  else
+                    { SER(SM_ERR); }
+                  bClosed = TRUE;
+                } // end iter every pair of consecutive edgeuses
+            } // end iter every loop
+        } // end until no gap is left
+    } // end iter every offset face
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::CloseLoopGaps
+
+/*******************************************************************//**
+PURPOSE: Split the edges that run past a local operation's step walls'
+   corners.
+
+NOTES: A step wall's corners where an edge of another face runs past them
+   (the edge between a side face's pieces, one beside the moved face and
+   trimmed to the step, one beside the face that stayed): that edge is split
+   there, so that each part meets its own neighbour. (In a local operation
+   the only cap faces are step walls.)
+***********************************************************************/
+SmStatus SmOffsetExecutive::SplitEdgesAtStepCorners()
+{
+  NER(m_pOffsetBrep);
+  double dApproxTol = m_rGeometryCreation.GetThisApproxTol3d();
+  SmTArray<SmFace*> sWalls;
+  m_vEToF.GetAllSeconds(sWalls);
+  SmTArray<SmVertex*> sCorners;
+  for (ULONG ii=0; ii<sWalls.GetSize(); ii++)
+    {
+      SmTArray<SmVertex*> sV;
+      sWalls[ii]->GetVertices(sV);
+      for (ULONG jj=0; jj<sV.GetSize(); jj++) { sCorners.AddUnique(sV[jj]); }
+    }
+  for (ULONG ii=0; ii<sCorners.GetSize(); ii++)
+    {
+      SmPoint3d sP = sCorners[ii]->GetPoint();
+      SmTArray<SmEdge*> sEdges;
+      m_pOffsetBrep->GetEdges(sEdges);
+      for (ULONG jj=0; jj<sEdges.GetSize(); jj++)
+        {
+          SmEdge *pE = sEdges[jj];
+          double dTol = 10.0 * smos_Max( (double)pE->GetTolerance(), dApproxTol );
+          if (   pE->GetStartVertex()->GetPoint().DistanceBetween(sP) <= dTol
+              || pE->GetEndVertex()->GetPoint().DistanceBetween(sP)   <= dTol)
+            { continue; }
+          SmBoolean bFound = FALSE;
+          double dParam = 0.0, dDist = 0.0;
+          SER(pE->ClosestPoint(sP, bFound, dParam, dDist));
+          if (!bFound || !(dDist <= dTol)) { continue; }
+          SmEdge   *pE1 = NULL;
+          SmEdge   *pE2 = NULL;
+          SmVertex *pNewV = NULL;
+          SER(m_pOffsetBrep->MakeVertexSplitEdge(pE, dParam, pE1, pE2, pNewV));
+        } // end iter every edge
+    } // end iter every step wall corner
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::SplitEdgesAtStepCorners
+
+/*******************************************************************//**
+PURPOSE: Close one loop gap: pEdgeuse's start (bAtStart) or end lies away
+   from its vertex at crVertexPoint. The edge's curve gets the straight
+   segment from the vertex to that end joined on, and is split where they
+   join: the segment becomes an edge of its own.
+***********************************************************************/
+SmStatus SmOffsetExecutive::CloseLoopGap
+  (SmFace          * pFace,          // in : face whose loop has the gap
+   SmEdgeuse       * pEdgeuse,       // in : edgeuse whose end lies away from its vertex
+   SmBoolean         bAtStart,       // in : TRUE = its start, FALSE = its end
+   const SmPoint3d & crVertexPoint,  // in : where its vertex is
+   double            dTol)           // in : distance within which points meet
+{
+  NER(pFace);
+  NER(pEdgeuse);
+  SmEdge    *pEdge = pEdgeuse->GetEdge(); NER(pEdge);
+  SmSurface *pSurf = pFace->GetSurface(); NER(pSurf);
+
+  // The edge curve's end at the gap: its start where the edgeuse runs with it and starts there.
+  SmBoolean bSame   = (pEdgeuse->GetOrientation() == SM_OT_SAME);
+  ULONG     lCrvEnd = (bAtStart == bSame) ? 0 : 1;
+  SmBSplineCurve *pCurve = pEdge->CreateTrimmedNURBSCurve(m_crContext);
+  SmObjDelete sCleanCurve(pCurve);
+  NER(pCurve);
+  SmExtent1d sIvl = pCurve->GetNaturalInterval();
+  SmPoint3d  sGapEnd;
+  SER(pCurve->EvaluatePoint(lCrvEnd == 0 ? sIvl.GetMin() : sIvl.GetMax(), sGapEnd));
+
+  // A vertex that moved along the edge into it (a step down: the moved face's edge pulled the
+  // corner in along this one): the edge is trimmed to it.
+  {
+    SmSolution      sTData[16];
+    SmSolutionArray sTSolutions(16, sTData);
+    SER(pCurve->GlobalPointSolve(sIvl, SM_SO_MINIMIZE, crVertexPoint, dTol, NULL, NULL, SM_SR_SINGLE, sTSolutions));
+    if (sTSolutions.GetSize() > 0 && sTSolutions[0].m_vStart.m_dSolutionValue <= dTol)
+      {
+        double dAt = sTSolutions[0].m_vStart[0];
+        SmExtent1d sKeep = (lCrvEnd == 0) ? SmExtent1d(dAt, sIvl.GetMax()) : SmExtent1d(sIvl.GetMin(), dAt);
+        if (!(sKeep.GetLength() > SM_EFF_ZERO * (1.0 + sIvl.GetMaxDimension())))
+          { SER(SM_ERR); }
+        SER(pCurve->Trim(sKeep));
+        sCleanCurve.Clear();
+        pEdge->SetCurve(pCurve, TRUE);
+        pCurve->SetOwner(pEdge);
+        pEdge->SetInterval(pCurve->GetNaturalInterval());
+        return SM_SUCCESS;
+      }
+  }
+
+  // The straight segment must lie on the face's surface (as extended for the offset: the face's
+  // own surface ends at its old boundary).
+  SmSurface  *pExtSurf = NULL;
+  SmExtent2d  sExtDomain;
+  SER(GetCreateExtendedSurface(pSurf, sExtDomain, pExtSurf));
+  NER(pExtSurf);
+  SmSolution      sData[16];
+  SmSolutionArray sSolutions(16, sData);
+  for (ULONG ii=1; ii<4; ii++)
+    {
+      double dW = ii / 4.0;
+      SmPoint3d sPnt = crVertexPoint + (sGapEnd - crVertexPoint) * dW;
+      SER(pExtSurf->GlobalPointSolve(sExtDomain, SM_SO_MINIMIZE, sPnt, dTol, NULL, SM_SR_SINGLE, sSolutions));
+      if (sSolutions.GetSize() < 1 || !(sSolutions[0].m_vStart.m_dSolutionValue <= dTol))
+        { SER(SM_ERR); }
+    }
+
+  // The segment, from the vertex to the gap end, joined at the gap end.
+  SmBSplineCurve *pSegment = NULL;
+  SER(SmBSplineCurve::CreateLineSegment(m_crContext, 3, crVertexPoint, sGapEnd, pSegment));
+  SmObjDelete sCleanSegment(pSegment);
+  NER(pSegment);
+  SER(pCurve->JoinWith(lCrvEnd, pSegment, 1, &dTol));
+
+  // Where they join: the parameter of the gap end on the joined curve.
+  SmExtent1d sJoined = pCurve->GetNaturalInterval();
+  SmSolution      sCData[16];
+  SmSolutionArray sCSolutions(16, sCData);
+  SER(pCurve->GlobalPointSolve(sJoined, SM_SO_MINIMIZE, sGapEnd, dTol, NULL, NULL, SM_SR_SINGLE, sCSolutions));
+  if (sCSolutions.GetSize() < 1)
+    { SER(SM_ERR); }
+  double dJoint = sCSolutions[0].m_vStart[0];
+
+  // The edge takes the joined curve (its UV trims are rebuilt from it) and is split at the joint.
+  sCleanCurve.Clear();
+  pEdge->SetCurve(pCurve, TRUE);
+  pCurve->SetOwner(pEdge);
+  pEdge->SetInterval(sJoined);
+  SmEdge   *pNewEdge1 = NULL;
+  SmEdge   *pNewEdge2 = NULL;
+  SmVertex *pNewVertex = NULL;
+  SER(m_pOffsetBrep->MakeVertexSplitEdge(pEdge, dJoint, pNewEdge1, pNewEdge2, pNewVertex));
+  NER(pNewVertex);
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::CloseLoopGap
+
+/*******************************************************************//**
+PURPOSE: Rebuild every offset face whose loops cross one another.
+
+NOTES: SolidCraft fork. Each loop of an offset face is made of the offsets
+   of its edges, each where the face's offset surface meets a neighbour's
+   (BuildOffsetOfEdgeuses), and a loop is trimmed only where its own
+   consecutive edges meet: nothing trims one loop of a face against another.
+   An inner loop whose offset grows past the outer loop's offset crosses it.
+   Shelled 1.5 mm inward, a window whose top lies 1 mm below a round gives
+   the offset wall the window's offset rising above the wall's top edge,
+   where the wall meets the round's offset. Such a face is not valid (SmFace
+   test #38: the loops of a face are disjoint) and the merge cannot use it:
+   imprinted, its loops share the crossings as vertices (test #39) and the
+   merged offset encloses no region; before that, the imprint lost the end
+   vertex of an edge running over a crossing (SmEdgeDefinition::Imprint,
+   SM_ERR_NULL_POINTER). Each such face is rebuilt from the stretches of its
+   loops that bound it (ResolveCrossingLoopsOfFace) before the merge.
+***********************************************************************/
+SmStatus SmOffsetExecutive::ResolveCrossingLoops()
+{
+  NER(m_pOffsetBrep);
+  SmTArray<SmFace*> sFaces;
+  m_pOffsetBrep->GetFaces(sFaces);
+  for (ULONG ii=0; ii<sFaces.GetSize(); ii++)
+    { SER(ResolveCrossingLoopsOfFace(sFaces[ii])); }
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::ResolveCrossingLoops
+
+namespace
+{
+  // A stretch of a loop of an offset face between two of its crossings with other loops or the
+  // ends of its edgeuse, in the loop's direction.
+  struct sm_LoopStretch
+  {
+    ULONG            lLoop;   // its loop: 0 = the outer loop
+    SmEdgeuse      * pEU;     // the edgeuse (of the face's SM_OT_SAME faceuse) it is a stretch of
+    SmBSplineCurve * pUV;     // pEU's UV trim curve
+    double           dLo;     // its edge-parameter interval
+    double           dHi;
+    long             lStart;  // the node it starts at: a crossing (>= 0), or the vertex ending
+    long             lEnd;    //   edgeuse k of the face (-1 - k); and the node it ends at
+    SmBoolean        bKeep;   // TRUE = it bounds the face
+    SmPoint3d        sMid;    // its middle point
+  };
+
+  // A crossing of the loops of an offset face that ResolveCrossingLoopsOfFace() does not resolve:
+  // reported, and the offset fails with SM_ERR_BAD_INTERSECTIONS rather than merge a face whose
+  // loops cross.
+  SmStatus sm_UnresolvedCrossing(const TCHAR *cpWhy)
+  {
+    smos_ErrorMessage(SM_ERR_BAD_INTERSECTIONS, FILE_NAME, LINE_NUMBER, cpWhy, (TCHAR*)0, FUNC_NAME);
+    return SM_ERR_BAD_INTERSECTIONS;
+  }
+
+  // Loops of an offset face that touch without crossing: the offset walls they come from meet
+  // there, so the offset would pinch to nothing along a line (or over a stretch). No face is
+  // bounded there, and the offset is refused with SM_ERR_OFFSET_WALLS_TOUCH.
+  SmStatus sm_WallsTouch(const TCHAR *cpWhy)
+  {
+    smos_ErrorMessage(SM_ERR_OFFSET_WALLS_TOUCH, FILE_NAME, LINE_NUMBER, cpWhy, (TCHAR*)0, FUNC_NAME);
+    return SM_ERR_OFFSET_WALLS_TOUCH;
+  }
+
+  // The directions in which a loop (its edgeuses rEUs) leaves the point crP of its edgeuse pOnEU
+  // (at edge parameter dParam): both ways along pOnEU's curve where crP lies inside the edge;
+  // where crP is a vertex of the loop (within dTol3d), along each of the loop's edges from it.
+  SmStatus sm_LoopDirectionsAt(const std::vector<SmEdgeuse*> &rEUs, SmEdgeuse *pOnEU, double dParam, const SmPoint3d &crP,
+                               double dTol3d, std::vector<SmVector3d> &rDirs)
+  {
+    rDirs.clear();
+    SmEdge *pOnEdge = pOnEU->GetEdge(); NER(pOnEdge);
+    if (   crP.DistanceBetween(pOnEdge->GetStartVertex()->GetPoint()) > dTol3d
+        && crP.DistanceBetween(pOnEdge->GetEndVertex()->GetPoint())   > dTol3d)
+      {
+        SmVector3d aEval[2];
+        SER(pOnEdge->GetCurve()->Evaluate(dParam, 1, TRUE, aEval));
+        rDirs.push_back(aEval[1]);
+        rDirs.push_back(-aEval[1]);
+        return SM_SUCCESS;
+      }
+    for (size_t kk=0; kk<rEUs.size(); kk++)
+      {
+        SmEdge     *pEdge = rEUs[kk]->GetEdge(); NER(pEdge);
+        SmExtent1d  sIvl  = pEdge->GetInterval();
+        SmVector3d  aEval[2];
+        if (crP.DistanceBetween(pEdge->GetStartVertex()->GetPoint()) <= dTol3d)
+          {
+            SER(pEdge->GetCurve()->Evaluate(sIvl.GetMin(), 1, TRUE, aEval));
+            rDirs.push_back(aEval[1]);
+          }
+        if (crP.DistanceBetween(pEdge->GetEndVertex()->GetPoint()) <= dTol3d)
+          {
+            SER(pEdge->GetCurve()->Evaluate(sIvl.GetMax(), 1, FALSE, aEval));
+            rDirs.push_back(-aEval[1]);
+          }
+      }
+    return SM_SUCCESS;
+  }
+
+  // Whether loop B touches loop A where they meet (crN the face's normal there, rA and rB the
+  // directions each leaves that point in): it does when it leaves along one of A's directions
+  // (they are tangent there, to SMLib's angle tolerance for parallel vectors), or when both its
+  // directions lie on the same side of A, so that it comes up to A and goes back without
+  // passing through it. A loop passing the point more than once is not told apart (FALSE).
+  SmStatus sm_LoopTouchesAt(const std::vector<SmVector3d> &rA, const std::vector<SmVector3d> &rB, const SmVector3d &crN, SmBoolean &rbTouch)
+  {
+    rbTouch = FALSE;
+    if (rA.size() != 2 || rB.size() != 2) { return SM_SUCCESS; }
+    for (size_t bb=0; bb<2; bb++)
+      {
+        for (size_t aa=0; aa<2; aa++)
+          {
+            SmBoolean bAnti = FALSE;
+            if (rB[bb].IsParallelTo(rA[aa], SM_ANG_TOL_DEG, &bAnti) && !bAnti) { rbTouch = TRUE; return SM_SUCCESS; }
+          }
+      }
+    // The side of A from rA[0] counterclockwise about crN to rA[1], and where each of B's lies.
+    double dSide = 0.0;
+    SER(crN.CCWAngleBetween(rA[0], rA[1], dSide));
+    if (dSide <= 0.0) { dSide += 2.0*SM_PI; }
+    SmBoolean abOnSide[2];
+    for (size_t bb=0; bb<2; bb++)
+      {
+        double dAt = 0.0;
+        SER(crN.CCWAngleBetween(rA[0], rB[bb], dAt));
+        if (dAt < 0.0) { dAt += 2.0*SM_PI; }
+        abOnSide[bb] = (dAt < dSide);
+      }
+    rbTouch = (abOnSide[0] == abOnSide[1]);
+    return SM_SUCCESS;
+  }
+}
+
+/*******************************************************************//**
+PURPOSE: When the loops of an offset face cross one another, replace the
+   face with the face(s) of its surface inside the outer loop and outside
+   every inner one, bounded by the stretches of the loops between their
+   crossings.
+
+NOTES: SolidCraft fork. SMLib has nothing that resolves crossing loops: the
+   face builders and trimming tools require disjoint loops
+   (SmBrep::CreateFacesWithCurves: "does not allow for loops to touch or
+   cross each other"), and the healer's loop fixes reorder, reorient or split
+   off loops, never cut them. So:
+   - The crossings are found in the face's UV space, as SmFace test #38
+     finds them (GlobalCurveIntersect of the UV trim curves, at the
+     surface's tolerance mapped to UV).
+   - Every loop is cut at its crossings. A stretch of the outer loop bounds
+     the face where it lies outside every inner loop; a stretch of an inner
+     loop where it lies inside the outer loop and outside the other inner
+     ones (SmLoop::ContainsUVPoint at the stretch's middle).
+   - The kept stretches, in their loops' directions, close into loops at
+     the crossings: at a crossing exactly one kept stretch arrives and one
+     leaves. A new loop holding a stretch of the old outer loop bounds the
+     face from outside; the others are holes.
+   - The face is rebuilt (MakeFaceWithCurves) from each stretch's edge curve
+     and UV trim curve trimmed to it (they share the edge's parameter), on a
+     copy of its surface. When it has come apart (several outer loops),
+     SmBrep::MakeFaceFromLoopOnFace, as the healer does, gives each outer
+     loop a face of its own with the holes inside it.
+   - The new faces, edges and vertices take the attributes of the face,
+     edges and vertices they come from, and the face's places in the offset
+     maps.
+   Loops that touch without crossing are refused first, whatever else the
+   face holds: SM_ERR_OFFSET_WALLS_TOUCH, with the reason. They touch where
+   they run along one another, where they meet tangentially (one leaves the
+   contact along the other, to SMLib's angle tolerance for parallel
+   vectors), and where one comes up to the other, inside an edge or at a
+   vertex of either, and goes back on the same side. The offset walls they
+   come from then meet along a line (a hole's offset tangent to a side's,
+   the hole as far from the side as two walls are thick), and the offset
+   would pinch to nothing there: no solid. A wall thinner or thicker than
+   that has loops apart or crossing.
+   A face whose loops cross in a way this does not resolve is not merged:
+   SM_ERR_BAD_INTERSECTIONS, with the reason. Those ways: loops crossing at a
+   loop vertex, three loops through one point, a stretch neither inside nor
+   outside a loop, a crossing where the kept stretches do not continue one
+   to one, and a face whose edges bound other faces too.
+***********************************************************************/
+SmStatus SmOffsetExecutive::ResolveCrossingLoopsOfFace(SmFace *pFace)
+{
+  NER(pFace);
+  SmSurface *pSurface = pFace->GetSurface(); NER(pSurface);
+  SmFaceuse *pFU = pFace->GetUpwardFaceuse(); NER(pFU);
+  if (pFU->GetOrientation() != SM_OT_SAME) { pFU = pFU->GetMate(); NER(pFU); }
+
+  // The face's edge loops (the outer loop first) and the points of its vertex loops.
+  SmTArray<SmLoopuse*> sLoopuses;
+  pFU->GetLoopuses(sLoopuses);
+  std::vector<SmLoopuse*>                vLoops;
+  std::vector< std::vector<SmEdgeuse*> > vLoopEUs;
+  SmTArray<SmPoint3d>                    sLoopPoints;
+  for (ULONG ii=0; ii<sLoopuses.GetSize(); ii++)
+    {
+      SmLoopuse *pLU = sLoopuses[ii];
+      if (pLU->IsVertexLoopuse())
+        {
+          SmTArray<SmVertexuse*> sVUs;
+          pLU->GetVertexuses(sVUs);
+          sLoopPoints.Add(sVUs[0]->GetVertex()->GetPoint());
+          continue;
+        }
+      SmTArray<SmEdgeuse*> sEUs;
+      pLU->GetEdgeuses(sEUs);
+      vLoops.push_back(pLU);
+      vLoopEUs.push_back(std::vector<SmEdgeuse*>());
+      for (ULONG kk=0; kk<sEUs.GetSize(); kk++) { vLoopEUs.back().push_back(sEUs[kk]); }
+    }
+  if (vLoops.size() < 2) { return SM_SUCCESS; }
+
+  // Every edgeuse, in loop order, with its UV trim curve.
+  std::vector<ULONG>           vLoopOf;
+  std::vector<SmEdgeuse*>      vEU;
+  std::vector<SmBSplineCurve*> vUV;
+  std::vector<size_t>          vFirstOfLoop;
+  double dTol3d = m_rGeometryCreation.GetThisApproxTol3d();
+  for (ULONG ll=0; ll<vLoops.size(); ll++)
+    {
+      vFirstOfLoop.push_back(vEU.size());
+      for (size_t kk=0; kk<vLoopEUs[ll].size(); kk++)
+        {
+          SmEdgeuse *pEU = vLoopEUs[ll][kk];
+          SmBSplineCurve *pUV = NULL;
+          SER(pEU->GetOrCreateUVTrimCurve(pUV)); NER(pUV);
+          AERN(pUV->GetNaturalInterval().AreEqual(pEU->GetEdge()->GetInterval()), SM_ERR_ASSERT_FAILURE);
+          vLoopOf.push_back(ll);
+          vEU.push_back(pEU);
+          vUV.push_back(pUV);
+          dTol3d = smos_Max(dTol3d, (double)pEU->GetEdge()->GetTolerance());
+        }
+    }
+  vFirstOfLoop.push_back(vEU.size());
+  dTol3d *= 10.0;
+
+  // Where edgeuses of different loops meet, in UV space (as SmFace test #38 finds them).
+  SmZoneTol3d sZoneTol3d = SmTol::GetZoneTol3d(pSurface);
+  SmTol2d     sUVTol     = SmTol::MapTo2d(sZoneTol3d, pSurface->GetNaturalUVDomain().GetMid(), *pSurface);
+  struct sm_LoopContact
+  {
+    size_t lA, lB;   // the edgeuses
+    double dTa, dTb; // their edge parameters there
+  };
+  std::vector<sm_LoopContact> vContacts;
+  for (size_t aa=0; aa<vEU.size(); aa++)
+    {
+      for (size_t bb=vFirstOfLoop[vLoopOf[aa]+1]; bb<vEU.size(); bb++)
+        {
+          SmSolutionArray sSols;
+          SER(vUV[aa]->GlobalCurveIntersect(vUV[aa]->GetNaturalInterval(), *vUV[bb], vUV[bb]->GetNaturalInterval(), sUVTol, sSols));
+          for (ULONG ss=0; ss<sSols.GetSize(); ss++)
+            {
+              if (sSols[ss].m_eSolutionType != SM_ST_SINGLE_VALUE)
+                { return sm_WallsTouch(_T("Offset face loops run along one another: the offset walls meet there")); }
+              sm_LoopContact sC = { aa, bb, sSols[ss].m_vStart[0], sSols[ss].m_vStart[1] };
+              vContacts.push_back(sC);
+            }
+        }
+    }
+  if (vContacts.empty()) { return SM_SUCCESS; }
+
+  // Loops that touch without crossing bound no face there, however the rest of it is resolved.
+  for (size_t cc=0; cc<vContacts.size(); cc++)
+    {
+      const sm_LoopContact &rC = vContacts[cc];
+      SmPoint3d sPa, sPb, sUV3;
+      SER(vEU[rC.lA]->GetEdge()->GetCurve()->EvaluatePoint(rC.dTa, sPa));
+      SER(vEU[rC.lB]->GetEdge()->GetCurve()->EvaluatePoint(rC.dTb, sPb));
+      SER(vUV[rC.lA]->EvaluatePoint(rC.dTa, sUV3));
+      SmVector3d sNormal;
+      SER(pSurface->EvaluateNormal(SmPoint2d(sUV3.x, sUV3.y), TRUE, TRUE, sNormal));
+      std::vector<SmVector3d> vDirsA, vDirsB;
+      SER(sm_LoopDirectionsAt(vLoopEUs[vLoopOf[rC.lA]], vEU[rC.lA], rC.dTa, sPa, dTol3d, vDirsA));
+      SER(sm_LoopDirectionsAt(vLoopEUs[vLoopOf[rC.lB]], vEU[rC.lB], rC.dTb, sPb, dTol3d, vDirsB));
+      SmBoolean bTouch = FALSE;
+      SER(sm_LoopTouchesAt(vDirsA, vDirsB, sNormal, bTouch));
+      if (bTouch) { return sm_WallsTouch(_T("Offset face loops touch without crossing: the offset walls meet along a line")); }
+    }
+
+  // The crossings: where each edgeuse is cut.
+  std::vector< std::vector< std::pair<double,long> > > vCuts(vEU.size()); // per edgeuse: (parameter, crossing)
+  long lNumCrossings = 0;
+  for (size_t cc=0; cc<vContacts.size(); cc++)
+    {
+      const sm_LoopContact &rC = vContacts[cc];
+      SmEdge *pEdgeA = vEU[rC.lA]->GetEdge();
+      SmEdge *pEdgeB = vEU[rC.lB]->GetEdge();
+      SmPoint3d sPa, sPb;
+      SER(pEdgeA->GetCurve()->EvaluatePoint(rC.dTa, sPa));
+      SER(pEdgeB->GetCurve()->EvaluatePoint(rC.dTb, sPb));
+      if (   sPa.DistanceBetween(pEdgeA->GetStartVertex()->GetPoint()) <= dTol3d
+          || sPa.DistanceBetween(pEdgeA->GetEndVertex()->GetPoint())   <= dTol3d
+          || sPb.DistanceBetween(pEdgeB->GetStartVertex()->GetPoint()) <= dTol3d
+          || sPb.DistanceBetween(pEdgeB->GetEndVertex()->GetPoint())   <= dTol3d)
+        { return sm_UnresolvedCrossing(_T("Offset face loops cross at a loop vertex")); }
+      vCuts[rC.lA].push_back(std::make_pair(rC.dTa, lNumCrossings));
+      vCuts[rC.lB].push_back(std::make_pair(rC.dTb, lNumCrossings));
+      lNumCrossings++;
+    }
+
+  // Until the merge every offset face is a sheet of its own: its edges bound it alone.
+  for (size_t gg=0; gg<vEU.size(); gg++)
+    {
+      if (!vEU[gg]->GetEdge()->IsLamina())
+        { return sm_UnresolvedCrossing(_T("Offset face whose loops cross shares an edge with another face")); }
+    }
+
+  // Cut every edgeuse at its crossings into stretches, in the loop's direction.
+  std::vector<sm_LoopStretch> vStretches;
+  for (size_t gg=0; gg<vEU.size(); gg++)
+    {
+      SmEdgeuse *pEU   = vEU[gg];
+      SmCurve   *pCrv  = pEU->GetEdge()->GetCurve();
+      SmBoolean  bSame = (pEU->GetOrientation() == SM_OT_SAME);
+      SmExtent1d sIvl  = pEU->GetEdge()->GetInterval();
+      std::vector< std::pair<double,long> > &rCuts = vCuts[gg];
+      std::sort(rCuts.begin(), rCuts.end());
+      if (!bSame) { std::reverse(rCuts.begin(), rCuts.end()); }
+      ULONG  lLoop = vLoopOf[gg];
+      size_t lPrev = (gg == vFirstOfLoop[lLoop]) ? vFirstOfLoop[lLoop+1] - 1 : gg - 1;
+      double dFrom = bSame ? sIvl.GetMin() : sIvl.GetMax();
+      long   lFrom = -1 - (long)lPrev;
+      for (size_t cc=0; cc<=rCuts.size(); cc++)
+        {
+          double dTo = (cc < rCuts.size()) ? rCuts[cc].first  : (bSame ? sIvl.GetMax() : sIvl.GetMin());
+          long   lTo = (cc < rCuts.size()) ? rCuts[cc].second : -1 - (long)gg;
+          sm_LoopStretch sS;
+          sS.lLoop  = lLoop;
+          sS.pEU    = pEU;
+          sS.pUV    = vUV[gg];
+          sS.dLo    = smos_Min(dFrom, dTo);
+          sS.dHi    = smos_Max(dFrom, dTo);
+          sS.lStart = lFrom;
+          sS.lEnd   = lTo;
+          sS.bKeep  = FALSE;
+          SmPoint3d sFromPt, sToPt;
+          SER(pCrv->EvaluatePoint(sS.dLo, sFromPt));
+          SER(pCrv->EvaluatePoint(sS.dHi, sToPt));
+          if (!(sS.dHi > sS.dLo) || sFromPt.DistanceBetween(sToPt) <= dTol3d)
+            { return sm_UnresolvedCrossing(_T("Three offset face loops cross at one point")); }
+          SER(pCrv->EvaluatePoint(0.5*(sS.dLo + sS.dHi), sS.sMid));
+          vStretches.push_back(sS);
+          dFrom = dTo;
+          lFrom = lTo;
+        }
+    }
+
+  // Which stretches bound the face: of the outer loop, those outside every inner loop; of an
+  // inner loop, those inside the outer loop and outside the other inner ones.
+  for (size_t ss=0; ss<vStretches.size(); ss++)
+    {
+      sm_LoopStretch &rS = vStretches[ss];
+      SmPoint3d sUV3;
+      SER(rS.pUV->EvaluatePoint(0.5*(rS.dLo + rS.dHi), sUV3));
+      SmPoint2d sUV(sUV3.x, sUV3.y);
+      rS.bKeep = TRUE;
+      for (ULONG ll=0; ll<vLoops.size(); ll++)
+        {
+          if (ll == rS.lLoop) { continue; }
+          SmEdge      *pOnEdge  = NULL;
+          double       dOnParam = 0.0;
+          SmOrientType eOrient  = SM_OT_UNKNOWN;
+          SmPointObjectContainmentType eIn = vLoops[ll]->GetLoop()->ContainsUVPoint(sUV, sZoneTol3d, pOnEdge, dOnParam, eOrient);
+          if (eIn != SM_POC_INSIDE && eIn != SM_POC_OUTSIDE)
+            { return sm_UnresolvedCrossing(_T("Offset face loop stretch is neither inside nor outside another loop")); }
+          if (eIn != ((ll == 0) ? SM_POC_INSIDE : SM_POC_OUTSIDE)) { rS.bKeep = FALSE; }
+        }
+    }
+
+  // Close the kept stretches into loops: each goes on to the one kept stretch that starts where
+  // it ends (at a crossing, the stretch of the other loop that bounds the face).
+  std::vector<long> vNext(vStretches.size(), -1);
+  std::vector<long> vPrevCount(vStretches.size(), 0);
+  for (size_t ss=0; ss<vStretches.size(); ss++)
+    {
+      if (!vStretches[ss].bKeep) { continue; }
+      for (size_t tt=0; tt<vStretches.size(); tt++)
+        {
+          if (!vStretches[tt].bKeep || vStretches[tt].lStart != vStretches[ss].lEnd) { continue; }
+          if (vNext[ss] >= 0) { return sm_UnresolvedCrossing(_T("Offset face loops leave a crossing more than one way")); }
+          vNext[ss] = (long)tt;
+          vPrevCount[tt]++;
+        }
+      if (vNext[ss] < 0) { return sm_UnresolvedCrossing(_T("Offset face loops leave a crossing no way")); }
+    }
+  std::vector< std::vector<size_t> > vNewLoops;
+  std::vector<SmBoolean>             vNewLoopIsOuter;
+  std::vector<SmBoolean>             vDone(vStretches.size(), FALSE);
+  for (size_t ss=0; ss<vStretches.size(); ss++)
+    {
+      if (!vStretches[ss].bKeep || vDone[ss]) { continue; }
+      std::vector<size_t> vLoop;
+      SmBoolean bOuter = FALSE;
+      for (size_t tt=ss; !vDone[tt]; tt=(size_t)vNext[tt])
+        {
+          if (vPrevCount[tt] != 1) { return sm_UnresolvedCrossing(_T("Offset face loops arrive at a crossing more than one way")); }
+          vDone[tt] = TRUE;
+          vLoop.push_back(tt);
+          if (vStretches[tt].lLoop == 0) { bOuter = TRUE; }
+        }
+      vNewLoops.push_back(vLoop);
+      vNewLoopIsOuter.push_back(bOuter);
+    }
+
+  // Outer loops first (MakeFaceWithCurves takes the first loop for the outer one).
+  std::vector<size_t> vOrder;
+  for (size_t ll=0; ll<vNewLoops.size(); ll++) { if ( vNewLoopIsOuter[ll]) { vOrder.push_back(ll); } }
+  size_t lNumOuter = vOrder.size();
+  for (size_t ll=0; ll<vNewLoops.size(); ll++) { if (!vNewLoopIsOuter[ll]) { vOrder.push_back(ll); } }
+
+  // The face(s) the old one becomes; none when no stretch of its outer loop bounds it.
+  std::vector<SmFace*> vNewFaces;
+  if (lNumOuter > 0)
+    {
+      SmTArray<ULONG>           sLoopCounts;
+      SmTArray<SmCurve*>        s3DCurves;
+      SmTArray<SmBSplineCurve*> sUVCurves;
+      SmTArray<SmOrientType>    sOrients;
+      SmObjsDelete<SmCurve*>        sClean3D(&s3DCurves);
+      SmObjsDelete<SmBSplineCurve*> sCleanUV(&sUVCurves);
+      for (size_t oo=0; oo<vOrder.size(); oo++)
+        {
+          const std::vector<size_t> &rLoop = vNewLoops[vOrder[oo]];
+          sLoopCounts.Add((ULONG)rLoop.size());
+          for (size_t kk=0; kk<rLoop.size(); kk++)
+            {
+              const sm_LoopStretch &rS = vStretches[rLoop[kk]];
+              SmCurve *p3D = NULL;
+              SER(rS.pEU->GetEdge()->GetCurve()->Copy(m_crContext, p3D)); NER(p3D);
+              s3DCurves.Add(p3D);
+              SmExtent1d sIvl3D(rS.dLo, rS.dHi);
+              SER(p3D->Trim(sIvl3D));
+              SmCurve *pUVCopy = NULL;
+              SER(rS.pUV->Copy(m_crContext, pUVCopy)); NER(pUVCopy);
+              SmBSplineCurve *pUV = SM_CAST_PTR(SmBSplineCurve, pUVCopy);
+              if (pUV == NULL) { delete pUVCopy; SER(SM_ERR_ASSERT_FAILURE); }
+              sUVCurves.Add(pUV);
+              SmExtent1d sIvlUV(rS.dLo, rS.dHi);
+              SER(pUV->Trim(sIvlUV));
+              sOrients.Add(rS.pEU->GetOrientation());
+            }
+        }
+      SmSurface *pNewSurface = NULL;
+      SER(pSurface->Copy(m_crContext, pNewSurface)); NER(pNewSurface);
+      SmRegion *pNewRegion = NULL;
+      SmShell  *pNewShell  = NULL;
+      SmFace   *pNewFace   = NULL;
+      sClean3D.Clear(); // the new face owns its curves and its surface
+      sCleanUV.Clear();
+      SER(m_pOffsetBrep->MakeFaceWithCurves(m_pOffsetBrep->GetInfiniteRegion(), sLoopCounts, &s3DCurves, &sUVCurves, sOrients,
+                                            sLoopPoints, pNewSurface, pFace->GetUVDomain(), SM_OT_SAME,
+                                            pNewRegion, pNewShell, pNewFace));
+      NER(pNewFace);
+      vNewFaces.push_back(pNewFace);
+
+      // A face come apart: each further outer loop a face of its own, with the holes inside it.
+      if (lNumOuter > 1)
+        {
+          SmTArray<SmLoop*> sNewLoops;
+          pNewFace->GetLoops(sNewLoops);
+          for (ULONG ll=1; ll<sNewLoops.GetSize(); ll++)
+            {
+              // an outer loop holds a stretch of the old outer loop
+              SmTArray<SmEdge*> sLoopEdges;
+              sNewLoops[ll]->GetEdges(sLoopEdges);
+              SmBoolean bOuter = FALSE;
+              for (ULONG ee=0; ee<sLoopEdges.GetSize() && !bOuter; ee++)
+                {
+                  for (size_t ss=0; ss<vStretches.size() && !bOuter; ss++)
+                    {
+                      if (!vStretches[ss].bKeep || vStretches[ss].lLoop != 0) { continue; }
+                      SmBoolean bFound = FALSE;
+                      double dParam = 0.0, dDist = 0.0;
+                      SER(sLoopEdges[ee]->ClosestPoint(vStretches[ss].sMid, bFound, dParam, dDist));
+                      bOuter = (bFound && dDist <= dTol3d);
+                    }
+                }
+              if (!bOuter) { continue; }
+              SmFace *pSplitFace = NULL;
+              SER(m_pOffsetBrep->MakeFaceFromLoopOnFace(pNewFace, sNewLoops[ll], pSplitFace));
+              NER(pSplitFace);
+              vNewFaces.push_back(pSplitFace);
+            }
+          AERN(vNewFaces.size() == lNumOuter, SM_ERR_ASSERT_FAILURE);
+          // MakeFaceFromLoopOnFace leaves the new faces in the old one's shell, which they do not
+          // connect: each offset face is a sheet of its own until the merge.
+          SER(m_pOffsetBrep->SplitDisconnectedShells());
+        }
+    }
+
+  // The new faces, edges and vertices take the attributes of the face, edges and vertices they
+  // come from, and the old edgeuses' places in the edgeuse map go to the new ones.
+  for (size_t ff=0; ff<vNewFaces.size(); ff++)
+    {
+      SmFace *pNewFace = vNewFaces[ff];
+      pFace->Notify(SM_NO_COPY, pNewFace, SM_NO_GET_BREP(pNewFace), SM_NO_GET_BREP(pFace));
+      SmTArray<SmEdge*> sNewEdges;
+      pNewFace->GetEdges(sNewEdges);
+      for (ULONG ee=0; ee<sNewEdges.GetSize(); ee++)
+        {
+          SmEdge *pNewEdge = sNewEdges[ee];
+          // the stretch whose middle lies on it
+          const sm_LoopStretch *cpFrom = NULL;
+          for (size_t ss=0; ss<vStretches.size() && cpFrom == NULL; ss++)
+            {
+              if (!vStretches[ss].bKeep) { continue; }
+              SmBoolean bFound = FALSE;
+              double dParam = 0.0, dDist = 0.0;
+              SER(pNewEdge->ClosestPoint(vStretches[ss].sMid, bFound, dParam, dDist));
+              if (bFound && dDist <= dTol3d) { cpFrom = &vStretches[ss]; }
+            }
+          NER(cpFrom);
+          SmEdge *pOldEdge = cpFrom->pEU->GetEdge();
+          pOldEdge->Notify(SM_NO_COPY, pNewEdge, SM_NO_GET_BREP(pNewEdge), SM_NO_GET_BREP(pOldEdge));
+          SmVertex *apNew[2] = { pNewEdge->GetStartVertex(), pNewEdge->GetEndVertex() };
+          SmVertex *apOld[2] = { pOldEdge->GetStartVertex(), pOldEdge->GetEndVertex() };
+          for (int nn=0; nn<2; nn++)
+            for (int oo=0; oo<2; oo++)
+              if (apNew[nn]->GetPoint().DistanceBetween(apOld[oo]->GetPoint()) <= dTol3d)
+                { apOld[oo]->Notify(SM_NO_COPY, apNew[nn], SM_NO_GET_BREP(apNew[nn]), SM_NO_GET_BREP(apOld[oo])); }
+          SmTArray<SmEdgeuse*> sNewEUs;
+          SER(pNewEdge->GetEdgeuses(sNewEUs));
+          SmEdgeuse *apOldEU[2] = { cpFrom->pEU, cpFrom->pEU->GetMate() };
+          for (int oo=0; oo<2; oo++)
+            {
+              SmTArray<SmEdgeuse*> sOrigEUs;
+              m_vEUToEU.GetFirsts(apOldEU[oo], sOrigEUs);
+              for (ULONG nn=0; nn<sNewEUs.GetSize(); nn++)
+                {
+                  if (sNewEUs[nn]->GetFaceuse()->GetOrientation() != apOldEU[oo]->GetFaceuse()->GetOrientation()) { continue; }
+                  for (ULONG pp=0; pp<sOrigEUs.GetSize(); pp++) { SER(m_vEUToEU.RelatePair(sOrigEUs[pp], sNewEUs[nn])); }
+                }
+            }
+        }
+    }
+
+  // The new faces take the old one's places in the face maps; the old face, its edgeuses and
+  // their pairs go.
+  SmTArray<SmFaceuse*> sFUs;
+  m_vFUToF.GetFirsts(pFace, sFUs);
+  for (ULONG ii=0; ii<sFUs.GetSize(); ii++)
+    {
+      SER(m_vFUToF.RemovePair(sFUs[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vFUToF.RelatePair(sFUs[ii], vNewFaces[ff])); }
+    }
+  SmTArray<SmEdge*> sEs;
+  m_vEToF.GetFirsts(pFace, sEs);
+  for (ULONG ii=0; ii<sEs.GetSize(); ii++)
+    {
+      SER(m_vEToF.RemovePair(sEs[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vEToF.RelatePair(sEs[ii], vNewFaces[ff])); }
+    }
+  SmTArray<SmVertex*> sVs;
+  m_vVToF.GetFirsts(pFace, sVs);
+  for (ULONG ii=0; ii<sVs.GetSize(); ii++)
+    {
+      SER(m_vVToF.RemovePair(sVs[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vVToF.RelatePair(sVs[ii], vNewFaces[ff])); }
+    }
+  SmTArray<SmFace*> sBlend;
+  m_vBlendToFaces.GetSeconds(pFace, sBlend);
+  for (ULONG ii=0; ii<sBlend.GetSize(); ii++)
+    {
+      SER(m_vBlendToFaces.RemovePair(pFace, sBlend[ii]));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vBlendToFaces.RelatePair(vNewFaces[ff], sBlend[ii])); }
+    }
+  m_vBlendToFaces.GetFirsts(pFace, sBlend);
+  for (ULONG ii=0; ii<sBlend.GetSize(); ii++)
+    {
+      SER(m_vBlendToFaces.RemovePair(sBlend[ii], pFace));
+      for (size_t ff=0; ff<vNewFaces.size(); ff++) { SER(m_vBlendToFaces.RelatePair(sBlend[ii], vNewFaces[ff])); }
+    }
+  for (size_t gg=0; gg<vEU.size(); gg++)
+    {
+      SmEdgeuse *apOldEU[2] = { vEU[gg], vEU[gg]->GetMate() };
+      for (int oo=0; oo<2; oo++)
+        {
+          SmTArray<SmEdgeuse*> sOrigEUs;
+          m_vEUToEU.GetFirsts(apOldEU[oo], sOrigEUs);
+          for (ULONG pp=0; pp<sOrigEUs.GetSize(); pp++) { SER(m_vEUToEU.RemovePair(sOrigEUs[pp], apOldEU[oo])); }
+        }
+    }
+  SER(m_pOffsetBrep->DeleteFace(pFace, TRUE, TRUE));
+  return SM_SUCCESS;
+
+} // end SmOffsetExecutive::ResolveCrossingLoopsOfFace
+
+/*******************************************************************//**
 PURPOSE: Build the offset of an edgeuse.
 
 NOTES: Make cap faces to fill in gaps between offset faces.
@@ -2941,6 +4195,7 @@ static ULONG lDebugCount = 0 ;
 
       // build Offset CapSurface to bridge any gap made by offseting the pEdge Faces
       SmSurface *pNewSurface = NULL ;
+      SmBoolean  bClosingWall = FALSE ;
       SER(m_rGeometryCreation.EdgeuseOffset(m_crContext,       // in : context for new object construction
                                             this,              // in : offset executive managing this offset
                                             pEdgeuse,          // in : edgeuse from original brep
@@ -2951,7 +4206,8 @@ static ULONG lDebugCount = 0 ;
                                             s3DTrimCurves,     // out: 
                                             sTrimOrientations, // out: 
                                             sSSIData,          // out: currently not used 
-                                            eMarkType));       // in : uses without increment eMarkType Value
+                                            eMarkType,        // in : uses without increment eMarkType Value
+                                            &bClosingWall));   // out: TRUE = a step wall, never extended
                                                                // note: uses wihtout increment eMarkType value
       if (!pNewSurface) continue;
       SmFace *pNewFace = NULL;
@@ -2991,6 +4247,12 @@ static ULONG lDebugCount = 0 ;
           SER(m_pOffsetBrep->CreateFaceFromSurface(pNewSurface,
                                                    pNewSurface->GetNaturalUVDomain(),
                                                    pNewFace));
+          // SolidCraft: a step wall spans the gap between two edges exactly, as a lamina side wall
+          // does, and is kept out of the face extensions as one: extending the ruled wall along its
+          // rulings can carry it through its own axis (a step round a circle), where it folds over
+          // itself and its edges drop onto the folded sheet.
+          if (bClosingWall)
+            { m_sClosingFaces.Add( pNewFace ); }
         }
       else // build a trimmed face 
         {
@@ -3058,7 +4320,7 @@ static ULONG lDebugCount = 0 ;
       // pNewFace = pNewSurface->GetFace() ; - removed redundant line
       // map origEdge to its offset capFaces
       sNewFaces.Add(pNewFace) ;
-      m_vEToF.RelatePair(pEdge,pNewFace) ;
+      SER( m_vEToF.RelatePair(pEdge,pNewFace)  );
 
 // Remove Composites
 //    // map origEdge to its offset capFaces
@@ -3209,7 +4471,7 @@ SmBoolean bDebugMe = FALSE;
             SmFace *pNewFace = NULL;
             SER(m_pOffsetBrep->CreateFaceFromSurface(pNewSurface,
                 pNewSurface->GetNaturalUVDomain(),pNewFace));
-            m_vEToF.RelatePair(pEdge,pNewFace);
+            SER( m_vEToF.RelatePair(pEdge,pNewFace) );
             SER(m_vBlendToFaces.RelateToMany(pNewFace,sBlendedFaces));
         }
 
@@ -3599,22 +4861,32 @@ static ULONG lDebugCount = 0 ;
         }
 #endif // obsolete code if face = plane
 
+      // get offsetSurface and origFace domains
+      SmExtent2d sOffsetDomain = pOffsetSurf->GetNaturalUVDomain();
+      SmExtent2d sFaceDomain   = pFU->GetFace()->GetUVDomain();
+      SmBoolean  bFaceFits     = (   sFaceDomain.IsContainedBy(sOffsetDomain, SM_EFF_ZERO)
+                                  || m_eOffsetOperation == SM_OO_LOCAL_OPERATION) ;
+
       // face is not a plane
-      // copy face->UVTrimCurves and vertexLoop points 
+      // copy face->UVTrimCurves and vertexLoop points
+      // SolidCraft change: a face that does not fit the offset surface's domain is clipped to it
+      // by a 2D boolean (below) of planar faces made from its UV loops, and a planar face needs
+      // its loops counterclockwise, as the face's SM_OT_SAME faceuse runs them. The loops of an
+      // inset's faceuse (SM_OT_OPPOSITE) run clockwise: the 2D face was inside out and its
+      // intersection with the domain empty, so the face got no offset at all (the bottom of a vase
+      // whose profile meets the axis at a slant, its offset's domain trimmed at the axis,
+      // shelled inward: tangency-labs/solidcraft#4567).
       SER(pFU->GetFace()->CreateCurvesFromFace(*cpContext,             // in : context for new object construction
-                                                pFU->GetOrientation(), // in : use Faceuse whose orientation is the same as eOrientation
+                                                bFaceFits ? pFU->GetOrientation() : SM_OT_SAME,
+                                                                       // in : use Faceuse whose orientation is the same as eOrientation
                                                 sCurveLoops,           // out: number of edges in each edge loop
                                                 NULL,                  // out: optional copies of all 3D loop curves - note: one or both of pOpt3DCurves and
                                                &sUVCurves,             // out: optional copies of all 2D loop curves -         pOptUVCurves must be nonNULL
                                                 sCurveOrients,         // out: Curve orientation in relation to its loop for each curve
-                                                sLoopPoints));         // out: point position of each of face's vertex loops      
-      
-      // get offsetSurface and origFace domains
-      SmExtent2d sOffsetDomain = pOffsetSurf->GetNaturalUVDomain();
-      SmExtent2d sFaceDomain   = pFU->GetFace()->GetUVDomain();
+                                                sLoopPoints));         // out: point position of each of face's vertex loops
 
       // when sOffsetDomain is larger or equal to sFaceDomain or we are doing a local operation
-      if (   sFaceDomain.IsContainedBy(sOffsetDomain, SM_EFF_ZERO) || m_eOffsetOperation == SM_OO_LOCAL_OPERATION) 
+      if (bFaceFits)
       {
           // make a face in m_pOffset which is the offset of pFU
           SmRegion *pNewRegion = NULL;
@@ -3749,7 +5021,7 @@ static ULONG lDebugCount = 0 ;
             if(sDelFaces.GetSize() > 0)
             {
               SmTopologyIntersector sTI( m_crContext, m_pOffsetBrep, m_pOffsetBrep, SM_EFF_ZERO, SM_EFF_ZERO );
-              sTI.DeleteFaces( sDelFaces );
+              SER( sTI.DeleteFaces( sDelFaces ) );
               for(jjj = 0; jjj < sDelFaces.GetSize(); jjj++)
               {
                 ULONG lIndex;
@@ -3774,9 +5046,9 @@ static ULONG lDebugCount = 0 ;
           SmExtent3d sTotalBBox;
           for (ULONG ii=0; ii<sUVCurves.GetSize(); ii++) 
             {
-              sUVCurves[ii]->ConvertTo3D();
+              SER( sUVCurves[ii]->ConvertTo3D() );
               SmExtent3d sCrvBBox;
-              sUVCurves[ii]->CalculateBoundingBox(sUVCurves[ii]->GetNaturalInterval(),&sCrvBBox);
+              SER( sUVCurves[ii]->CalculateBoundingBox(sUVCurves[ii]->GetNaturalInterval(),&sCrvBBox) );
               sTotalBBox.Union(sCrvBBox,sTotalBBox);
             }
 
@@ -3794,23 +5066,23 @@ static ULONG lDebugCount = 0 ;
           SmBSplineCurve *pLine = NULL ;
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.GetMin(),sOffsetDomain.Evaluate(1.0,0.0),pLine));
           SmExtent1d sIvl(sOffsetDomain.GetMin().x, sOffsetDomain.GetMax().x);
-          pLine->EditParameterization(sIvl);
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine); pLine = NULL ;
 
           // line [0,1] to [1,1]
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.Evaluate(0.0,1.0),sOffsetDomain.GetMax(),pLine));
-          pLine->EditParameterization(sIvl);
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine); pLine = NULL ;
 
           // line [0,0] to [0,1]
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.GetMin(),sOffsetDomain.Evaluate(0,1.0),pLine));
-          sIvl.SetMinMax(sOffsetDomain.GetMin().y,sOffsetDomain.GetMax().y);
-          pLine->EditParameterization(sIvl);
+          SER( sIvl.SetMinMax(sOffsetDomain.GetMin().y,sOffsetDomain.GetMax().y) );
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine); pLine = NULL ;
 
           // line [1,0] to [1,1]
           SER(SmBSplineCurve::CreateLineSegment(m_crContext,3,sOffsetDomain.Evaluate(1.0,0.0),sOffsetDomain.GetMax(),pLine));
-          pLine->EditParameterization(sIvl);
+          SER( pLine->EditParameterization(sIvl) );
           sBoxCurves.Add(pLine);
 
           // make a new Brep containing 1 planar face bounded by the 3d Curves just made
@@ -3834,22 +5106,22 @@ static ULONG lDebugCount = 0 ;
           // Original code with typecast has warning: dereferencing type-punned pointer will break strict-aliasing rules [-Wstrict-aliasing]
           // pPlaneSurf->Copy(*cpContext,(SmSurface*&)pCopyPlane);
           SmPlane* pCopyPlane = NULL;
-          pPlaneSurf->Copy(*cpContext,pCopyPlane);
+          SER( pPlaneSurf->Copy(*cpContext,pCopyPlane) );
 
           SmExtent2d sCopyDomain = pCopyPlane->GetNaturalUVDomain();
 
           // increase the sCopyDomain size to include the projection of every
           // UVTrimCurve bounding box corner onto this plane we just made.
           SmPoint2d sUV;
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMin(),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMin(),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMax(),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.GetMax(),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(1,0,0),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(1,0,0),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(0,1,0),sUV);
+          SER( pCopyPlane->ProjectPointToUVDomain(sTotalBBox.Evaluate(0,1,0),sUV) );
           sCopyDomain.AddPoint2d(sUV);
-          pCopyPlane->AdjustSTEPUVDomain(sCopyDomain);
+          SER( pCopyPlane->AdjustSTEPUVDomain(sCopyDomain) );
 
           // make a planar face using the Offset UVTrimCurves
           SmRegion *pNewRegion = NULL;
@@ -3879,7 +5151,8 @@ static ULONG lDebugCount = 0 ;
           for (kkk=0; kkk<s2DFaces.GetSize(); kkk++) 
             {
               SmFace *pF = s2DFaces[kkk];
-              SER(pF->CreateCurvesFromFace(*cpContext, SM_OT_SAME, sCurveLoops,
+              // the loops in the sense of pFU's orientation, which the offset face is made with
+              SER(pF->CreateCurvesFromFace(*cpContext, pFU->GetOrientation(), sCurveLoops,
                                            (SmTArray<SmCurve*>*)&sUVCurves,   // out: optional "3d" Curves, which are actually uv curves
                                            NULL,                              // out: optional UVTrimCurves
                                            sCurveOrients, sLoopPoints));
@@ -3887,7 +5160,7 @@ static ULONG lDebugCount = 0 ;
               // Convert face 3dCurves into 2D curves (all their Z components should be zero)
               for (iii=0; iii<sUVCurves.GetSize(); iii++) 
                 {
-                  sUVCurves[iii]->ConvertTo2D();
+                  SER( sUVCurves[iii]->ConvertTo2D() );
                 }
 
               // make the offset Face with Curves from intersected Brep
@@ -3949,7 +5222,7 @@ static ULONG lDebugCount = 0 ;
       SmFace *pNewF = sNewFaces[ii];
       SM_ASSERT(pNewF->IsKindOf(SmFace_TYPE)) ;
       SM_ASSERT(pFU->IsKindOf(SmFaceuse_TYPE)) ;
-      m_vFUToF.RelatePair(pFU,pNewF);
+      SER( m_vFUToF.RelatePair(pFU,pNewF) );
       SER(MapEdgeuses(pFU,pNewF));
     }
 
@@ -4019,7 +5292,7 @@ SmBoolean bDebugMe = FALSE;
   SmExtent2d sTgtDomain ;
   SmExtent2d sOriginalDomain = pOriginalFU->GetFace()->GetUVDomain() ;
   SmExtent2d sOffsetDomain   = pOffsetFace           ->GetUVDomain() ;
-  sOriginalDomain.Intersect(sOffsetDomain, sTgtDomain) ;
+  SER( sOriginalDomain.Intersect(sOffsetDomain, sTgtDomain)  );
   
   if(sTgtDomain.IsDegenerate())
     {
@@ -4029,8 +5302,8 @@ SmBoolean bDebugMe = FALSE;
   // check OriginalFU and OffsetFace orientations by checking common midSurface Normal directions
   SmPoint3d sOrigPN[2], sCopyPN[2] ;
   SmPoint2d sMidUV       = sTgtDomain.Evaluate(0.5,0.5) ;
-  pOriginalFU->GetFace()->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sOrigPN[1]) ;
-  pOffsetFace           ->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sCopyPN[1]) ;
+  SER( pOriginalFU->GetFace()->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sOrigPN[1])  );
+  SER( pOffsetFace           ->GetSurface()->EvaluateNormal(sMidUV, TRUE, TRUE, sCopyPN[1])  );
   SmBoolean bSameSrfNorms = sOrigPN[1].Dot(sCopyPN[1]) > 0.0 ;
 
 #ifdef SM_DEBUG_CODE
@@ -4108,7 +5381,7 @@ SmBoolean bDebugMe = FALSE;
                 {
                   // found a match: relate the pair
                   bFound = TRUE;
-                  m_vEUToEU.RelatePair(pOrigEU,pOffEU);
+                  SER( m_vEUToEU.RelatePair(pOrigEU,pOffEU) );
 
                   sm_NotifyEdgeAndVertices( pOrigEU->GetEdge(), pOffEU->GetEdge(), SM_NO_COPY );
 
@@ -4159,7 +5432,7 @@ SmBoolean bDebugMe = FALSE;
                   if (bDropFound) 
                     {
                       bFound = TRUE;
-                      m_vEUToEU.RelatePair(pOrigEU,pOffEU);
+                      SER( m_vEUToEU.RelatePair(pOrigEU,pOffEU) );
 
                       sm_NotifyEdgeAndVertices( pOrigEU->GetEdge(), pOffEU->GetEdge(), SM_NO_COPY );
 

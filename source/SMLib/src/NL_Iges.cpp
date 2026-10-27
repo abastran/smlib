@@ -814,6 +814,36 @@ NL_FLAG N_Iges128Srf( NL_INDEX k1, NL_INDEX k2, NL_DEGREE m1, NL_DEGREE m2, NL_R
 
    ***********************************************************************/
 
+/* SolidCraft fork: a knot vector N_IgesClampSrf can work on: every knot finite, none
+   smaller than the one before. */
+static NL_BOOLEAN N_IgesKnotsOK( const NL_REAL *K, NL_INDEX last )
+{
+    NL_INDEX i;
+
+    if( K == NULL OR last < 1 )
+        return NL_NO;
+
+    for ( i = 0; i <= last; i++ )
+    {
+        if( !(K[i] == K[i]) OR K[i] > 1.0e300 OR K[i] < -1.0e300 )
+            return NL_NO;
+
+        if( i > 0 AND K[i] < K[i - 1] )
+            return NL_NO;
+    }
+    return NL_YES;
+}
+
+/* SolidCraft fork: clamping bounds strictly inside the knot vector's range, so the span
+   searches find a knot past each bound. */
+static NL_BOOLEAN N_IgesBoundsOK( const NL_REAL *K, NL_INDEX last, const NL_PARAMETER b[2] )
+{
+    if( !(b[0] == b[0]) OR !(b[1] == b[1]) OR !(b[0] < b[1]) )
+        return NL_NO;
+
+    return( (b[0] < K[last] AND b[1] > K[0]) ? NL_YES : NL_NO );
+}
+
 NL_FLAG N_IgesClampSrf( NL_SURFACE *sur, NL_PARAMETER ub[2], NL_PARAMETER vb[2], NL_STACKS *S )
 {
 
@@ -832,6 +862,14 @@ NL_FLAG N_IgesClampSrf( NL_SURFACE *sur, NL_PARAMETER ub[2], NL_PARAMETER vb[2],
     /* Get local notation */
 
     N_SrfGetCPtsDegreesAndKnots( sur, &n, &m, &Pw, &p, &q, &r, &s, &UP, &VP );
+
+    /* SolidCraft fork: refuse knot vectors that are not finite and nondecreasing, and bounds
+       outside them. The span searches below assume both; on a NaN knot (a surface of revolution
+       given a sweep domain past 360 degrees made one) they left a span unset and the knot copy
+       wrote past the new knot vector. */
+
+    if( !N_IgesKnotsOK( UP, r ) OR !N_IgesKnotsOK( VP, s ) OR !N_IgesBoundsOK( UP, r, ub ) OR !N_IgesBoundsOK( VP, s, vb ) )
+        { error = NL_YES; NL_OUT; }
 
     /* First clamp in u, then in v */
 

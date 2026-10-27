@@ -529,43 +529,33 @@ SmBoolean bDebugMe = FALSE;
               sProjPnt1 = sSph1Center.PerspectiveProjectPointToPlane(m_cpOptVectors[0], m_cpOptVectors[1], m_cpOptVectors[2]) ;
               sProjPnt2 = sSph2Center.PerspectiveProjectPointToPlane(m_cpOptVectors[0], m_cpOptVectors[1], m_cpOptVectors[2]) ;
 
-              // spheres project to ellipses - find max radius of sphere projections
-              SmVector3d sEyeVec1 = sSph1Center - m_cpOptVectors[2] ;
-              SmVector3d sDir1    = sEyeVec1 * m_cpOptVectors[1] ; // vec perp to eyevec and view norm
-              sDir1.Unitize() ;
-              SmVector3d sDir2    = sDir1 * sEyeVec1 ;             // vec perp to eyevec in view normal plane
-              sDir2.Unitize() ;
-              SmVector3d sRadVec ;
-              double dNewRad1MaxSq = 0.0, dNewRadSq ;
-              ULONG ii ;
-              dSph1Radius -= m_d3dTolerance ;
-              for(ii=0;ii<4;ii++)
+              // spheres project to ellipses - find max radius of sphere projections.
+              // SolidCraft: each sphere's radius vectors are projected from its own centre, along
+              // the ellipse's axes: the minor one across the eye vector and the view normal, the
+              // major one across the eye vector in their plane (MakeUnitOrthoVectors gives both,
+              // any perpendicular pair when the centre is on the view axis and the image a circle).
+              // A centre at the eye has no projection, so nothing can be ruled out.
+              const SmPoint3d asCenter[2]   = { sSph1Center, sSph2Center } ;
+              const double    adRadius[2]   = { dSph1Radius - m_d3dTolerance, dSph2Radius } ;
+              double          adProjRadSq[2] = { 0.0, 0.0 } ;
+              ULONG ii, jj ;
+              for(jj=0;jj<2;jj++)
                 {
-                  sRadVec   = sSph1Center + (  ii == 0 ?  sDir1 * dSph1Radius
-                                             : ii == 1 ? -sDir1 * dSph1Radius
-                                             : ii == 2 ?  sDir2 * dSph1Radius
-                                             :           -sDir2 * dSph1Radius) ;
-                  sRadVec   = sRadVec.PerspectiveProjectToPlane(sSph1Center, m_cpOptVectors[0], m_cpOptVectors[1], m_cpOptVectors[2]) ;
-                  dNewRadSq = sRadVec.LengthSquared();
-                  if(dNewRadSq > dNewRad1MaxSq) dNewRad1MaxSq = dNewRadSq ;
+                  SmVector3d sEyeVec = asCenter[jj] - m_cpOptVectors[2] ;
+                  SmVector3d sAlong, sMajor, sMinor ;
+                  if (sEyeVec.MakeUnitOrthoVectors(&m_cpOptVectors[1], sAlong, sMajor, sMinor) != SM_SUCCESS)
+                    { return TRUE ; }
+                  const SmVector3d asRadVec[4] = {  sMinor * adRadius[jj], -sMinor * adRadius[jj],
+                                                    sMajor * adRadius[jj], -sMajor * adRadius[jj] } ;
+                  for(ii=0;ii<4;ii++)
+                    {
+                      SmVector3d sProjVec = asRadVec[ii].PerspectiveProjectToPlane(asCenter[jj], m_cpOptVectors[0], m_cpOptVectors[1], m_cpOptVectors[2]) ;
+                      double     dProjSq  = sProjVec.LengthSquared() ;
+                      if(dProjSq > adProjRadSq[jj]) adProjRadSq[jj] = dProjSq ;
+                    }
                 }
-
-              SmVector3d sEyeVec2 = sSph2Center - m_cpOptVectors[2] ;
-              sDir1    = sEyeVec2 * m_cpOptVectors[1] ; // vec perp to eyevec and view norm
-              sDir1.Unitize() ;
-              sDir2    = sDir1 * sEyeVec2 ;             // vec perp to eyevec in view normal plane
-              sDir2.Unitize() ;
-              double dNewRad2MaxSq = 0.0 ;
-              for(ii=0;ii<4;ii++)
-                {
-                  sRadVec   = sSph2Center + (  ii == 0 ?  sDir1 * dSph1Radius
-                                             : ii == 1 ? -sDir1 * dSph1Radius
-                                             : ii == 2 ?  sDir2 * dSph1Radius
-                                             :           -sDir2 * dSph1Radius) ;
-                  sRadVec   = sRadVec.PerspectiveProjectToPlane(sSph1Center, m_cpOptVectors[0], m_cpOptVectors[1], m_cpOptVectors[2]) ;
-                  dNewRadSq = sRadVec.LengthSquared();
-                  if(dNewRadSq > dNewRad2MaxSq) dNewRad2MaxSq = dNewRadSq ;
-                }
+              double dNewRad1MaxSq = adProjRadSq[0] ;
+              double dNewRad2MaxSq = adProjRadSq[1] ;
 
               // arrive here when sProjPnt1 and sProjPnt2 are the projected centers of the spheres and
               //   dNewRad1Max and dNewRad2Max are the maximum radii of the sphere projections onto the viewing plane
@@ -869,8 +859,10 @@ SmBoolean bDebugMe = FALSE;
             {
               dFrac = ii / dNumSamples;
               dT = sIvl2.Evaluate( dFrac );
-              pCOS->EvaluatePoint( dT, sSrfPt );
-              pCOS->EvaluateSurfaceNormal( dT, FALSE, sUVPtDer, sNorm );
+              // SolidCraft: a sample that cannot be evaluated leaves the offset box unbounded
+              if (   pCOS->EvaluatePoint( dT, sSrfPt ) != SM_SUCCESS
+                  || pCOS->EvaluateSurfaceNormal( dT, FALSE, sUVPtDer, sNorm ) != SM_SUCCESS )
+                { return TRUE; }
               if ( sNorm.Dot( sDiffVec ) < 0.0 )
                 { sNorm *= -1.0; }
 

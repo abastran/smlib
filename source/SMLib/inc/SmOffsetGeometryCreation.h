@@ -118,7 +118,9 @@ public:
                                   SmTArray<SmCurve*>      & r3DTrimmingCurves,
                                   SmTArray<SmOrientType>  & rTrimOrientations,
                                   SmSSIData               & rSelfIntersections,
-                                  SmMarkType                eMarkType) ;             // in : uses without increment eMarkType Value
+                                  SmMarkType                eMarkType,               // in : uses without increment eMarkType Value
+                                  SmBoolean               * pbOptClosingWall = NULL) ; // out: TRUE = rpNewSurface is a step wall: it spans the gap between
+                                                                                       //      two edges and is never extended (as a lamina side wall)
 
     // create offset surface - Approximate When necessary - Out Surf->Domain(s) may be trimmed but not scaled
     virtual SmStatus FaceuseOffset
@@ -127,8 +129,10 @@ public:
       const SmFaceuse       * pOriginalFaceuse,           // in : Faceuse->Surface to copy and offset
       SmBoolean               bSkipSelfIntersection,      // in : TRUE =
                                                           //      FALSE=
-      SmSurface * &           rNewSurface,                // out: New Surface
-      SmSSIData             & rSelfIntersections          // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+      SmSurface * &           rNewSurface,                // out: New Surface; NULL when, and only when, rbCollapses
+      SmSSIData             & rSelfIntersections,         // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+      SmBoolean             & rbCollapses                 // out: SolidCraft: TRUE = the offset shrinks the face's surface onto its spine
+                                                          //      or past it (SmSurface::OffsetCollapses), and there is no offset surface
     ) const;
                                                          
     SmStatus TrimExtendedEdge(const SmContext   & crContext,            // in : context for new object construction 
@@ -151,6 +155,19 @@ public:
                              SmEdgeuse         * pOffsetEdgeuse,
                              SmEdgeuse         * pOtherOffsetEdgeuse,
                              SmMarkType          eMarkType) ;       // in : uses without incrementing eMarkType value
+
+    // TRUE when the faces of two offset edgeuses of a tangent edge (only one of them moved)
+    // stayed parallel across it but apart: everywhere along the edge they lie apart along both
+    // faces' normals, so no extension makes them meet and a wall between the edges closes them.
+    SmStatus IsStepAcrossEdge(SmEdgeuse * pOffsetEdgeuse,
+                              SmEdgeuse * pOtherOffsetEdgeuse,
+                              SmBoolean & rbStep) const;
+
+    // The ruled wall between two offset edgeuses that lie apart (IsStepAcrossEdge).
+    SmStatus CreateStepWall(const SmContext & crContext,
+                            SmEdgeuse       * pOffsetEdgeuse,
+                            SmEdgeuse       * pOtherOffsetEdgeuse,
+                            SmSurface      *& rpWall) const;
 
     SmBoolean HaveTangentGaps(ULONG lNumSamples,
                               SmEdgeuse * cpOffsetEdgeuse,
@@ -189,7 +206,8 @@ public:
                                  SmBoolean               bSkipSelfIntersection,       // NotUsed: in : TRUE =
                                                                                       //      FALSE=
                                  SmSurface*            & rNewSurface,                 // out: New Surface
-                                 SmSSIData             & rSelfIntersections) const ;  // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                 SmSSIData             & rSelfIntersections,          // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+                                 SmBoolean             & rbCollapses) const ;         // out: always FALSE: the surfaces are given
 
 } ; // end class SmLocalOperationGeometryCreation
 

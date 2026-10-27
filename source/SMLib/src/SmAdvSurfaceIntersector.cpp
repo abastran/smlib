@@ -11,6 +11,8 @@
 #include <SmAdvSurfaceIntersector.h>
 #include <SmGeomUtility.h>
 #include <SmConic.h>
+#include <algorithm>
+#include <cmath>
 
 #ifdef SM_DEBUG_CODE
 #include <SmFace.h>
@@ -18,6 +20,329 @@
 #endif // SM_DEBUG_CODE
 
 
+
+// SolidCraft change: interior tangential contact points.
+//
+// FindInteriorCurves() only traces crossing curves: node pairs whose surface
+// normals are (nearly) parallel are skipped, so a point where the two surfaces
+// merely touch inside both patches (an isolated tangential intersection point,
+// e.g. a paraboloid apex resting on a plane) was never reported.  The helpers
+// below solve for such points directly (Yang, Jia & Yan 2023, "Topology
+// Guaranteed B-Spline Surface/Surface Intersection", treat isolated tangential
+// points as the zeros of S1(u,v) - S2(s,t) at which the normals are parallel):
+//
+//   F1 = (Sa - Sb).Sb_s     F2 = (Sa - Sb).Sb_t     (Sb(s,t) is the foot of Sa(u,v) on Sb)
+//   F3 = Sa_u.(Sb_s x Sb_t) F4 = Sa_v.(Sb_s x Sb_t) (normals parallel)
+//
+// solved by Newton's method with the exact Jacobian; a root is a contact point
+// only if additionally |Sa - Sb| is within tolerance.  The system is regular at
+// a nondegenerate (isolated) contact, so convergence is quadratic there.
+namespace {
+
+struct SmTpEval
+{
+  double P[3], Pu[3], Pv[3], Puu[3], Puv[3], Pvv[3];
+};
+
+inline double tp_dot(const double a[3], const double b[3]) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+inline void   tp_cross(const double a[3], const double b[3], double r[3])
+{
+  r[0] = a[1]*b[2]-a[2]*b[1]; r[1] = a[2]*b[0]-a[0]*b[2]; r[2] = a[0]*b[1]-a[1]*b[0];
+}
+inline void   tp_set(double r[3], const SmVector3d & v) { r[0] = v.x; r[1] = v.y; r[2] = v.z; }
+
+SmStatus tp_Evaluate(const SmSurface & crSrf, const SmPoint2d & crUV, SmTpEval & rE)
+{
+  SmVector3d aD[9];
+  SER(crSrf.Evaluate(crUV, 2, 2, TRUE, TRUE, TRUE, aD, FALSE));
+  tp_set(rE.P,   aD[SM_S2(0,0)]);
+  tp_set(rE.Pu,  aD[SM_S2(1,0)]);
+  tp_set(rE.Pv,  aD[SM_S2(0,1)]);
+  tp_set(rE.Puu, aD[SM_S2(2,0)]);
+  tp_set(rE.Puv, aD[SM_S2(1,1)]);
+  tp_set(rE.Pvv, aD[SM_S2(0,2)]);
+  return SM_SUCCESS;
+}
+
+// Solve the 4x4 system A x = b (partial pivoting).  FALSE when singular.
+SmBoolean tp_Solve4(double A[4][4], double b[4], double x[4])
+{
+  int i, j, k;
+  for (k=0; k<4; k++)
+    {
+      int iPiv = k;
+      for (i=k+1; i<4; i++) if (fabs(A[i][k]) > fabs(A[iPiv][k])) iPiv = i;
+      if (fabs(A[iPiv][k]) < 1.0e-300) return FALSE;
+      if (iPiv != k)
+        {
+          for (j=0; j<4; j++) { double t = A[k][j]; A[k][j] = A[iPiv][j]; A[iPiv][j] = t; }
+          double t = b[k]; b[k] = b[iPiv]; b[iPiv] = t;
+        }
+      for (i=k+1; i<4; i++)
+        {
+          double f = A[i][k]/A[k][k];
+          for (j=k; j<4; j++) A[i][j] -= f*A[k][j];
+          b[i] -= f*b[k];
+        }
+    }
+  for (i=3; i>=0; i--)
+    {
+      double s = b[i];
+      for (j=i+1; j<4; j++) s -= A[i][j]*x[j];
+      x[i] = s/A[i][i];
+    }
+  // reject a numerically singular system (relative pivot test)
+  double dMax = 0.0, dMin = SM_BIG_DOUBLE;
+  for (i=0; i<4; i++) { dMax = std::max(dMax, fabs(A[i][i])); dMin = std::min(dMin, fabs(A[i][i])); }
+  return (dMin > 1.0e-13*dMax) ? TRUE : FALSE;
+}
+
+// Newton iteration for a tangential contact of Sa (u,v) and Sb (s,t), seeded at
+// rUVa, rUVb.  On success the parameters are updated, rdGap is |Sa - Sb| and
+// rbConverged tells whether the iteration converged (independently of the gap).
+SmStatus tp_Newton(const SmSurface & crSa, const SmExtent2d & crDomA,
+                   const SmSurface & crSb, const SmExtent2d & crDomB,
+                   const SmExtent2d & crSeedA, const SmExtent2d & crSeedB,
+                   SmPoint2d & rUVa, SmPoint2d & rUVb,
+                   SmBoolean & rbConverged, double & rdGap)
+{
+  // a seed only has to find a contact near its own patch pair: give up when
+  // the iteration leaves the seed patches grown by half their size each side
+  SmExtent2d sLocA = crSeedA, sLocB = crSeedB;
+  SmPoint2d sGrowA = crSeedA.GetSize(), sGrowB = crSeedB.GetSize();
+  SER( sLocA.SetMinMax(crSeedA.GetMin().x - 0.5*sGrowA.x, crSeedA.GetMin().y - 0.5*sGrowA.y,
+                  crSeedA.GetMax().x + 0.5*sGrowA.x, crSeedA.GetMax().y + 0.5*sGrowA.y) );
+  SER( sLocB.SetMinMax(crSeedB.GetMin().x - 0.5*sGrowB.x, crSeedB.GetMin().y - 0.5*sGrowB.y,
+                  crSeedB.GetMax().x + 0.5*sGrowB.x, crSeedB.GetMax().y + 0.5*sGrowB.y) );
+
+  rbConverged = FALSE;
+  rdGap = SM_BIG_DOUBLE;
+  SmPoint2d sSizeA = crDomA.GetSize(), sSizeB = crDomB.GetSize();
+  double adMaxStep[4] = { 0.25*sSizeA.x, 0.25*sSizeA.y, 0.25*sSizeB.x, 0.25*sSizeB.y };
+  double adPar[4] = { rUVa.x, rUVa.y, rUVb.x, rUVb.y };
+
+  // a few Gauss-Newton projection steps first so (s,t) starts at the foot of Sa(u,v)
+  for (int it=0; it<8; it++)
+    {
+      SmTpEval A, B;
+      SER(tp_Evaluate(crSa, SmPoint2d(adPar[0],adPar[1]), A));
+      SER(tp_Evaluate(crSb, SmPoint2d(adPar[2],adPar[3]), B));
+      double D[3] = { A.P[0]-B.P[0], A.P[1]-B.P[1], A.P[2]-B.P[2] };
+      double a11 = tp_dot(B.Pu,B.Pu), a12 = tp_dot(B.Pu,B.Pv), a22 = tp_dot(B.Pv,B.Pv);
+      double r1 = tp_dot(D,B.Pu), r2 = tp_dot(D,B.Pv);
+      double det = a11*a22 - a12*a12;
+      if (fabs(det) < 1.0e-300) break;
+      double ds = ( a22*r1 - a12*r2)/det;
+      double dt = (-a12*r1 + a11*r2)/det;
+      ds = std::max(-adMaxStep[2], std::min(adMaxStep[2], ds));
+      dt = std::max(-adMaxStep[3], std::min(adMaxStep[3], dt));
+      SmPoint2d sNew = crDomB.ClampPoint2d(SmPoint2d(adPar[2]+ds, adPar[3]+dt));
+      double dMove = fabs(sNew.x-adPar[2])/std::max(sSizeB.x,SM_EFF_ZERO) + fabs(sNew.y-adPar[3])/std::max(sSizeB.y,SM_EFF_ZERO);
+      adPar[2] = sNew.x; adPar[3] = sNew.y;
+      if (dMove < 1.0e-12) break;
+    }
+
+  for (int it=0; it<25; it++)
+    {
+      SmTpEval A, B;
+      SER(tp_Evaluate(crSa, SmPoint2d(adPar[0],adPar[1]), A));
+      SER(tp_Evaluate(crSb, SmPoint2d(adPar[2],adPar[3]), B));
+      double D[3] = { A.P[0]-B.P[0], A.P[1]-B.P[1], A.P[2]-B.P[2] };
+      double M[3], Ms[3], Mt[3], t1[3], t2[3];
+      tp_cross(B.Pu, B.Pv, M);
+      tp_cross(B.Puu, B.Pv, t1); tp_cross(B.Pu, B.Puv, t2);
+      Ms[0] = t1[0]+t2[0]; Ms[1] = t1[1]+t2[1]; Ms[2] = t1[2]+t2[2];
+      tp_cross(B.Puv, B.Pv, t1); tp_cross(B.Pu, B.Pvv, t2);
+      Mt[0] = t1[0]+t2[0]; Mt[1] = t1[1]+t2[1]; Mt[2] = t1[2]+t2[2];
+
+      double F[4] = { tp_dot(D,B.Pu), tp_dot(D,B.Pv), tp_dot(A.Pu,M), tp_dot(A.Pv,M) };
+      double J[4][4] = {
+        { tp_dot(A.Pu,B.Pu), tp_dot(A.Pv,B.Pu), -tp_dot(B.Pu,B.Pu)+tp_dot(D,B.Puu), -tp_dot(B.Pv,B.Pu)+tp_dot(D,B.Puv) },
+        { tp_dot(A.Pu,B.Pv), tp_dot(A.Pv,B.Pv), -tp_dot(B.Pu,B.Pv)+tp_dot(D,B.Puv), -tp_dot(B.Pv,B.Pv)+tp_dot(D,B.Pvv) },
+        { tp_dot(A.Puu,M),   tp_dot(A.Puv,M),    tp_dot(A.Pu,Ms),                     tp_dot(A.Pu,Mt) },
+        { tp_dot(A.Puv,M),   tp_dot(A.Pvv,M),    tp_dot(A.Pv,Ms),                     tp_dot(A.Pv,Mt) } };
+      double b[4] = { -F[0], -F[1], -F[2], -F[3] };
+      double dx[4];
+      if (!tp_Solve4(J, b, dx)) return SM_SUCCESS;
+
+      double dRel = 0.0;
+      for (int k=0; k<4; k++)
+        {
+          dx[k] = std::max(-adMaxStep[k], std::min(adMaxStep[k], dx[k]));
+          double dSize = (k<2) ? (k==0 ? sSizeA.x : sSizeA.y) : (k==2 ? sSizeB.x : sSizeB.y);
+          dRel = std::max(dRel, fabs(dx[k])/std::max(dSize,SM_EFF_ZERO));
+        }
+      SmPoint2d sA = crDomA.ClampPoint2d(SmPoint2d(adPar[0]+dx[0], adPar[1]+dx[1]));
+      SmPoint2d sB = crDomB.ClampPoint2d(SmPoint2d(adPar[2]+dx[2], adPar[3]+dx[3]));
+      adPar[0] = sA.x; adPar[1] = sA.y; adPar[2] = sB.x; adPar[3] = sB.y;
+      if (dRel < 1.0e-13) { rbConverged = TRUE; break; }
+      if (!sLocA.ContainsPoint2d(sA) || !sLocB.ContainsPoint2d(sB)) return SM_SUCCESS;
+    }
+  if (!rbConverged) return SM_SUCCESS;
+
+  rUVa = SmPoint2d(adPar[0],adPar[1]);
+  rUVb = SmPoint2d(adPar[2],adPar[3]);
+  SmPoint3d sPa, sPb;
+  SER(crSa.EvaluatePoint(rUVa, sPa));
+  SER(crSb.EvaluatePoint(rUVb, sPb));
+  rdGap = sPa.DistanceBetween(sPb);
+  return SM_SUCCESS;
+}
+
+} // end anonymous namespace
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: find isolated tangential contact points in the
+   interior of both surfaces, seeded by the node pairs FindInteriorCurves()
+   could not trace (near parallel normals / no local intersection), and add
+   each one as a degenerate SM_TC_TOUCHING curve.
+
+NOTES: A point is reported only when Newton converges to a parameter pair
+   strictly inside both domains, the surfaces meet there within the
+   approximation tolerance, their normals are parallel, and the point is not
+   on an intersection curve already found.
+***********************************************************************/
+static SmStatus sm_FindTangentContactPoints
+  (const SmContext          & crContext,
+   const SmSurface          & crSrf1,
+   const SmExtent2d         & crDom1,
+   const SmSurface          & crSrf2,
+   const SmExtent2d         & crDom2,
+   double                     dTol3d,
+   const SmTArray<SmExtent2d> & crSeedDom1,
+   const SmTArray<SmExtent2d> & crSeedDom2,
+   const SmSurfaceIntersector & crSSI,
+   SmTArray<SmCurve*>         & r3DCurves,
+   SmTArray<SmCurve*>         & rSurface1UVCurves,
+   SmTArray<SmCurve*>         & rSurface2UVCurves,
+   SmTArray<SmTsectCurveType> & rCurveTypes,
+   SmTArray<double>           & rDeviations)
+{
+  SmTArray<SmPoint3d> sTried;   // contact candidates already examined (accepted or not)
+  ULONG lNumCurvesIn = r3DCurves.GetSize();
+  // A true contact converges to a numerically zero gap.  A small nonzero gap at
+  // a parallel-normal point means a near miss or a small intersection loop of
+  // radius ~sqrt(gap/curvature), which must not be reported as a point; the
+  // gap limit keeps such loops below the approximation tolerance.
+  const double dGapTol = 1.0e-7*dTol3d;
+  auto GapOk = [&](double dGap, const SmPoint3d & sP) -> SmBoolean
+    {
+      double dScale = 1.0 + fabs(sP.x) + fabs(sP.y) + fabs(sP.z);
+      return dGap <= std::max(dGapTol, 1.0e-14*dScale) ? TRUE : FALSE;
+    };
+
+  // Accept the contact candidate (sUV1,sUV2) when the normals are parallel and it
+  // is new; add it as a degenerate SM_TC_TOUCHING curve.
+  auto Accept = [&](const SmPoint2d & sUV1, const SmPoint2d & sUV2, double dGap) -> SmStatus
+    {
+      SmPoint3d sP1, sP2;
+      SER(crSrf1.EvaluatePoint(sUV1, sP1));
+      SER(crSrf2.EvaluatePoint(sUV2, sP2));
+      SmPoint3d sPnt = (sP1 + sP2) / 2.0;
+      if (!GapOk(dGap, sPnt)) return SM_SUCCESS;
+
+      for (ULONG k=0; k<sTried.GetSize(); k++)
+        { if (sTried[k].DistanceBetween(sPnt) < 100.0*dTol3d) return SM_SUCCESS; }
+      sTried.Add(sPnt);
+
+      // normals must be parallel (EvaluateNormal also handles poles)
+      SmVector3d sN1, sN2;
+      SER(crSrf1.EvaluateNormal(sUV1, TRUE, TRUE, sN1));
+      SER(crSrf2.EvaluateNormal(sUV2, TRUE, TRUE, sN2));
+      if (sN1.LengthSquared() < SM_EFF_ZERO_SQ || sN2.LengthSquared() < SM_EFF_ZERO_SQ) return SM_SUCCESS;
+      double dAng;
+      SER(sN1.AngleBetween(sN2, dAng));
+      if (dAng > SM_PI/2.0) dAng = SM_PI - dAng;
+      if (dAng > 1.0e-4) return SM_SUCCESS;
+
+      // skip points on curves already found
+      if (crSSI.IsPointOnCurve(sPnt, r3DCurves)) return SM_SUCCESS;
+      for (ULONG k=0; k<lNumCurvesIn; k++)
+        {
+          SmCurve * pCurve = r3DCurves[k];
+          SmExtent1d sIvl = pCurve->GetNaturalInterval();
+          SmBoolean bOk = FALSE; double dPar, dDist;
+          SER(pCurve->DropPoint(sIvl, sPnt, NULL, 100.0*dTol3d, NULL, bOk, dPar, dDist, SM_SO_INTERSECT));
+          if (bOk && dDist < 100.0*dTol3d) return SM_SUCCESS;
+        }
+
+      SmBSplineCurve * pNew = NULL;
+      SER(SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sPnt, pNew));
+      r3DCurves.Add(pNew);
+      pNew = NULL;
+      SER(SmBSplineCurve::CreateDegenerateCurve(crContext, 2, SmPoint3d(sUV1.x, sUV1.y, 0.0), pNew));
+      rSurface1UVCurves.Add(pNew);
+      pNew = NULL;
+      SER(SmBSplineCurve::CreateDegenerateCurve(crContext, 2, SmPoint3d(sUV2.x, sUV2.y, 0.0), pNew));
+      rSurface2UVCurves.Add(pNew);
+      rDeviations.Add(dGap);
+      rCurveTypes.Add(SM_TC_TOUCHING);
+      return SM_SUCCESS;
+    };
+
+  // Poles: the Newton system above degenerates where a surface's partials
+  // vanish, so test each collapsed domain edge (pole) of either surface
+  // directly: a pole lying on the other surface with parallel normals is a
+  // contact point (e.g. two surfaces of revolution sharing an axis point).
+  for (int iSrf=0; iSrf<2; iSrf++)
+    {
+      const SmSurface  & rSrf  = iSrf == 0 ? crSrf1 : crSrf2;
+      const SmExtent2d & rDom  = iSrf == 0 ? crDom1 : crDom2;
+      const SmSurface  & rOth  = iSrf == 0 ? crSrf2 : crSrf1;
+      const SmExtent2d & rODom = iSrf == 0 ? crDom2 : crDom1;
+      for (int iEdge=0; iEdge<4; iEdge++)
+        {
+          SmPoint2d aUV[3];
+          for (int k=0; k<3; k++)
+            {
+              double f = 0.25*(k+1);
+              aUV[k] = iEdge == 0 ? rDom.Evaluate(f, 0.0) : iEdge == 1 ? rDom.Evaluate(f, 1.0)
+                     : iEdge == 2 ? rDom.Evaluate(0.0, f) : rDom.Evaluate(1.0, f);
+            }
+          SmPoint3d aP[3];
+          for (int k=0; k<3; k++) SER(rSrf.EvaluatePoint(aUV[k], aP[k]));
+          if (   !GapOk(aP[0].DistanceBetween(aP[1]), aP[1])
+              || !GapOk(aP[1].DistanceBetween(aP[2]), aP[1])) continue;   // not a pole
+          SmBoolean bOk = FALSE, bMulti = FALSE;
+          SmPoint2d sOthUV;
+          double dGap = SM_BIG_DOUBLE;
+          SER(rOth.DropPoint(aP[1], rODom, NULL, bOk, sOthUV, dGap, bMulti));
+          if (!bOk) continue;
+          if (iSrf == 0) { SER(Accept(aUV[1], sOthUV, dGap)); }
+          else           { SER(Accept(sOthUV, aUV[1], dGap)); }
+        }
+    }
+
+  for (ULONG i=0; i<crSeedDom1.GetSize(); i++)
+    {
+      const SmExtent2d & rD1 = crSeedDom1[i];
+      const SmExtent2d & rD2 = crSeedDom2[i];
+      static const double sadFr[5][2] = { {0.5,0.5}, {0.2,0.2}, {0.8,0.2}, {0.2,0.8}, {0.8,0.8} };
+      for (int iSeed=0; iSeed<5; iSeed++)
+      for (int iRole=0; iRole<2; iRole++)
+        {
+          // seed on one patch, start the other at its patch center
+          SmPoint2d sUV1, sUV2;
+          SmBoolean bConverged = FALSE;
+          double dGap = SM_BIG_DOUBLE;
+          if (iRole == 0)
+            {
+              sUV1 = rD1.Evaluate(sadFr[iSeed][0], sadFr[iSeed][1]);
+              sUV2 = rD2.Evaluate(0.5, 0.5);
+              SER(tp_Newton(crSrf1, crDom1, crSrf2, crDom2, rD1, rD2, sUV1, sUV2, bConverged, dGap));
+            }
+          else
+            {
+              sUV2 = rD2.Evaluate(sadFr[iSeed][0], sadFr[iSeed][1]);
+              sUV1 = rD1.Evaluate(0.5, 0.5);
+              SER(tp_Newton(crSrf2, crDom2, crSrf1, crDom1, rD2, rD1, sUV2, sUV1, bConverged, dGap));
+            }
+          if (!bConverged) continue;
+          SER(Accept(sUV1, sUV2, dGap));
+        }
+    }
+  return SM_SUCCESS;
+}
 
 /*******************************************************************//**
 PURPOSE: Construct a surface intersector object.
@@ -130,8 +455,9 @@ SmStatus SmAdvSurfaceIntersector::ComputeSingularityPoint
 // macro to flip output CUrveDir when it happens to be off by 180 degrees
 #define ALIGN_DIR_WITH_PREVIOUS_POINT \
   if(pPrev)                           \
-   { rTsectPnt.CrvDeriv().AngleBetween(pPrev->CrvDeriv(), dAngleRadians) ;                  \
-     if(smos_Fabs(dAngleRadians - SM_PI) < smos_Min( SM_PI / 30.0, 5.0 * m_dThisAngTolRad)) \
+   { /* SolidCraft change: without an angle (a zero tangent) there is nothing to align */      \
+     if(   rTsectPnt.CrvDeriv().AngleBetween(pPrev->CrvDeriv(), dAngleRadians) == SM_SUCCESS    \
+        && smos_Fabs(dAngleRadians - SM_PI) < smos_Min( SM_PI / 30.0, 5.0 * m_dThisAngTolRad)) \
        { rTsectPnt.CrvDeriv() = -rTsectPnt.CrvDeriv() ;                                     \
        }                                                                                    \
    }
@@ -182,10 +508,10 @@ SmStatus SmAdvSurfaceIntersector::ComputeSingularityPoint
       // project pPrev CrvDeriv() vector into rTsectPnt tangency plane
       SmPoint3d sEndPt = rTsectPnt.CrvPos() + pPrev->CrvDeriv();
       SmPoint3d sPtOnPlane;
-      smgu_PointProjectToPlane(sEndPt,
+      SER( smgu_PointProjectToPlane(sEndPt,
                                rTsectPnt.CrvPos(),
                                rTsectPnt.SrfNorm(0),
-                               sPtOnPlane);
+                               sPtOnPlane) );
       SmVector3d sDir = sPtOnPlane - rTsectPnt.CrvPos();
 
       // when projection worked - update the pPrev->CrvDeriv direction to that
@@ -280,8 +606,8 @@ SmStatus SmAdvSurfaceIntersector::ComputeSingularityPoint
             }
 
           // unitize the assymptotic directions
-          sAsympDir1.Unitize() ;
-          sAsympDirIn1.Unitize() ;
+          (void)sAsympDir1.Unitize() ; // SolidCraft: a zero vector stays zero
+          (void)sAsympDirIn1.Unitize() ; // SolidCraft: a zero vector stays zero
 
           // the other start directions are in the negative assymptotic directions
           SmVector3d sAsympDir2   = - sAsympDir1 ;
@@ -1150,6 +1476,31 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
   SER(SolveIt(SM_SO_INTERSECT, SM_SR_ALL, m_dThisApproxTol3d,
               SM_BIG_DOUBLE, NULL, sSolutions));
 
+  // SolidCraft change: node pairs that cannot start a crossing curve (near
+  // parallel normals, no local intersection) seed the tangential contact
+  // point search below.
+  SmTArray<SmExtent2d> sTangentSeeds1, sTangentSeeds2;
+
+  // SolidCraft change: 3D curves traced from low-angle start points and then
+  // rejected; later low-angle start points on them are not traced again.
+  SmTArray<SmCurve*> sRejectedCurves;
+  SmObjsDelete<SmCurve*> sCleanRejected(&sRejectedCurves);
+
+  // SolidCraft change: smallest normal angle worth tracing from. On a
+  // transversal loop of radius r between surfaces of relative curvature
+  // radius R the normals differ by about r/R. Loops of radius above the
+  // tolerance on surfaces curved at model scale stay above tol/modelSize,
+  // while tangent curves and tangent points (angle at round-off level, or
+  // tol-sized offsets from a contact point) fall below it.
+  double dMinLoopAngleRad = 0.0;
+  {
+    SmExtent3d sBox1, sBox2;
+    SER(m_cpSurface[0]->CalculateBoundingBox(m_vUVDomain[0],&sBox1));
+    SER(m_cpSurface[1]->CalculateBoundingBox(m_vUVDomain[1],&sBox2));
+    double dModelSize = smos_Max(sBox1.GetSize().Length(),sBox2.GetSize().Length());
+    dMinLoopAngleRad = (dModelSize > m_dThisApproxTol3d) ? 2.0*m_dThisApproxTol3d/dModelSize : SM_PI;
+  }
+
   // Now for each node pair do a test to see if produces a unique start point
   // Note that our first pass at this is naive and slow.
   for (ULONG i=0; i<sSolutions.GetSize(); i++) 
@@ -1173,6 +1524,16 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
       SM_ASSERT(pNode2->GetOwnerObject() == pBezPatch2->mBA_pSurface) ;
 
       // Skip cases where surface normals are very close
+      // SolidCraft change: a low-angle start point is no longer skipped
+      // outright. A small closed loop between nearly tangent surfaces (a plane
+      // dipping into a paraboloid or a sphere) has normals within a fraction of
+      // a degree everywhere along it, so the angle tests below dropped every
+      // start point on it and the loop was lost. Such a start point is now
+      // traced on probation: the result is kept only when it is a closed,
+      // transversal loop larger than the tolerance (see below); anything else
+      // (tangent curves, coincident regions, tangent points) is discarded as
+      // before.
+      SmBoolean bLowAngleStart = FALSE;
       {
         SmVector3d sNorm1, sNorm2;
         SER(sBSS1.EvaluateNormal(sUVGuess1,TRUE,TRUE,sNorm1));
@@ -1182,7 +1543,13 @@ SmStatus SmAdvSurfaceIntersector::FindInteriorCurves
         SER(sNorm1.AngleBetween(sNorm2,dAngleRad));
         if (dAngleRad > SM_PI/2.0) dAngleRad = SM_PI - dAngleRad;
         if (SM_RAD2DEG(dAngleRad) < 5.0) 
-          { continue; }
+          { // SolidCraft change: a seed for the tangent point search and FindTangentCurves(),
+            // and a probation start for a small loop
+            sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
+            sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+            m_vTangentSeeds.Add(sUVGuess1); m_vTangentSeeds.Add(sUVGuess2);
+            bLowAngleStart = TRUE;
+          }
       }
 
 #ifdef SM_DEBUG_CODE
@@ -1287,7 +1654,11 @@ SmBoolean bDebugMe = FALSE;
 // end DEBUG
       // for nodes that do not intersect - skip to next node pair
       if (!bFoundAnswer) 
-        { continue ; }
+        {
+          sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
+          sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+          continue ;
+        }
 
       // Get solution 3d and UV points point
       SmPoint3d sSurfPnt ;
@@ -1307,8 +1678,19 @@ SmBoolean bDebugMe = FALSE;
           SER(sNorm1.AngleBetween(sNorm2,dAngleRad)) ;
           if (dAngleRad > SM_PI/2.0) dAngleRad = SM_PI - dAngleRad ;
 
-          // skip this node pair when angle between normals is small
+          // probation for this node pair when angle between normals is small;
+          // skip it when the angle is too small for a loop above tolerance
           if (SM_RAD2DEG(dAngleRad) < 2.0) 
+            { // SolidCraft change: a seed for the tangent point search and FindTangentCurves()
+              if (!bLowAngleStart)
+                {
+                  sTangentSeeds1.Add(pBezPatch1->GetUVDomain());
+                  sTangentSeeds2.Add(pBezPatch2->GetUVDomain());
+                }
+              m_vTangentSeeds.Add(sUV); m_vTangentSeeds.Add(sUV2);
+              bLowAngleStart = TRUE;
+            }
+          if (bLowAngleStart && dAngleRad < dMinLoopAngleRad)
             {
               continue;
             }
@@ -1317,6 +1699,8 @@ SmBoolean bDebugMe = FALSE;
       // skip start points that are already on xsect curves
       SmBoolean bPointIsOnCurve = IsPointOnCurve(sSurfPnt,r3DCurves);
       if ( bPointIsOnCurve ) 
+        { continue; }
+      if ( bLowAngleStart && IsPointOnCurve(sSurfPnt,sRejectedCurves) )
         { continue; }
           
       // If we made it this far then we have a point which should serve as
@@ -1356,11 +1740,72 @@ SmBoolean bDebugMe = FALSE;
           SER(ReverseCurveDirection());
         }
 
+      // SolidCraft change: a low-angle start point only yields output when it
+      // traced a closed loop that is not a single point within tolerance.
+      SmBoolean bKeepCurve = TRUE;
+      if (bLowAngleStart)
+        {
+          bKeepCurve = FALSE;
+          if (m_bCurveIsClosed)
+            {
+              SmTsectPnt *aPntData[130];
+              SmTArray<SmTsectPnt*> sLoopPnts(130,aPntData);
+              m_vCurvePoints.GetAllNodes(sLoopPnts);
+              if (sLoopPnts.GetSize() > 2)
+                {
+                  SmExtent3d sLoopBox(sLoopPnts[0]->CrvPos());
+                  for (ULONG lPnt=1; lPnt<sLoopPnts.GetSize(); lPnt++)
+                    { sLoopBox.Union(SmExtent3d(sLoopPnts[lPnt]->CrvPos()),sLoopBox); }
+                  bKeepCurve = (sLoopBox.GetSize().Length() > 2.0*m_dThisApproxTol3d) ? TRUE : FALSE;
+                }
+            }
+        }
+
       // turn m_vCurvePoints into an intersection curve
+      ULONG lNumCurves = r3DCurves.GetSize();
       SER(FlushCurve(r3DCurves,rSurface1UVCurves,rSurface2UVCurves,rCurveTypes,rDeviations));
       m_pStartPoint = NULL;
+
+      // drop a probationary curve that is not a transversal loop, and
+      // remember it and its start point so nearby start points are not
+      // traced again
+      SmBoolean bReject =    bLowAngleStart
+                          && (   r3DCurves.GetSize() == lNumCurves
+                              || !bKeepCurve
+                              || rCurveTypes.GetLast() == SM_TC_TANGENT
+                              || rCurveTypes.GetLast() == SM_TC_COINCIDENT
+                              || rCurveTypes.GetLast() == SM_TC_TOUCHING);
+      if (bReject)
+        {
+          while (r3DCurves.GetSize() > lNumCurves)
+            {
+              sRejectedCurves.Add(r3DCurves.GetLast());
+              r3DCurves.RemoveLast();
+              if (rSurface1UVCurves.GetSize() > lNumCurves)
+                { SmObjDelete sDelUV1(rSurface1UVCurves.GetLast()); rSurface1UVCurves.RemoveLast(); }
+              if (rSurface2UVCurves.GetSize() > lNumCurves)
+                { SmObjDelete sDelUV2(rSurface2UVCurves.GetLast()); rSurface2UVCurves.RemoveLast(); }
+              if (rCurveTypes.GetSize() > lNumCurves) rCurveTypes.RemoveLast();
+              if (rDeviations.GetSize() > lNumCurves) rDeviations.RemoveLast();
+            }
+          SmBSplineCurve *pStartPnt = NULL;
+          SER(SmBSplineCurve::CreateDegenerateCurve(*m_cpContext,3,sSurfPnt,pStartPnt));
+          sRejectedCurves.Add(pStartPnt);
+        }
     
     } // end iter every node/node solution result
+
+  // SolidCraft change: isolated tangential contact points
+  if (!m_bDoingSelfIntersection)
+    {
+      SER(sm_FindTangentContactPoints(*m_cpContext,
+                                      *m_cpSurface[0], m_vUVDomain[0],
+                                      *m_cpSurface[1], m_vUVDomain[1],
+                                      m_dThisApproxTol3d,
+                                      sTangentSeeds1, sTangentSeeds2, *this,
+                                      r3DCurves, rSurface1UVCurves, rSurface2UVCurves,
+                                      rCurveTypes, rDeviations));
+    }
 
   // sll done
   return SM_SUCCESS;
@@ -1632,7 +2077,7 @@ SmStatus SmAdvSurfaceIntersector::LocalSolve
           SmExtent3d sBBox = pSurfaceNode1->m_sBBox;
           sBBox.ExpandAbsolute( m_d3dTolerance );
           SmExtent3d sResult;
-          sBBox.Intersect( pSurfaceNode2->m_sBBox, sResult );
+          SER( sBBox.Intersect( pSurfaceNode2->m_sBBox, sResult ) );
 
           // Add intersection to solution: 
           //   Union 3D and UV Solution BBoxes, inc solution count

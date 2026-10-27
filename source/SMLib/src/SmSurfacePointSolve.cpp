@@ -256,7 +256,7 @@ class SmSurfPtSolveStepper : public SmSurfacePointSolver
 
  public:
   // Access methods:
-  void   SetUV(SmPoint2d const &sUVPos ) { m_sSrfEval.SetUV( sUVPos ) ;
+  void   SetUV(SmPoint2d const &sUVPos ) { (void)m_sSrfEval.SetUV( sUVPos ) ; // SolidCraft: an inline accessor of the lazy evaluator, which cannot report
                                            m_bSet = FALSE;
                                          }
 
@@ -272,10 +272,10 @@ class SmSurfPtSolveStepper : public SmSurfacePointSolver
 
   SmVector3d & Normal()                  { return m_sSrfEval.Normal(); }
 
-  SmVector3d & Gap()                     { Eval(); return m_sGap; }
-  SmVector3d & GapU()                    { Eval(); return m_sGapU; }
-  SmVector3d & GapV()                    { Eval(); return m_sGapV; }
-  double       GapLength()               { Eval(); return m_dGapLen; }
+  SmVector3d & Gap()                     { (void)Eval(); return m_sGap; } // SolidCraft: an inline accessor of the lazy evaluator, which cannot report
+  SmVector3d & GapU()                    { (void)Eval(); return m_sGapU; } // SolidCraft: an inline accessor of the lazy evaluator, which cannot report
+  SmVector3d & GapV()                    { (void)Eval(); return m_sGapV; } // SolidCraft: an inline accessor of the lazy evaluator, which cannot report
+  double       GapLength()               { (void)Eval(); return m_dGapLen; } // SolidCraft: an inline accessor of the lazy evaluator, which cannot report
 
   int          IterCount()               { return m_iIter; }
   SmBoolean    NRStepSuspect()           { return m_bNRSuspect; }
@@ -331,7 +331,7 @@ class SmSurfPtSolveStepper : public SmSurfacePointSolver
                                                  }
                                              }
 
-                                           m_sSrfEval.SetUV( rUV );
+                                           (void)m_sSrfEval.SetUV( rUV ); // SolidCraft: an inline accessor of the lazy evaluator, which cannot report
                                          }
 
   // Copy Constructor.
@@ -453,14 +453,14 @@ SmSurfacePointSolver::SmSurfacePointSolver
 
       m_sDirVec = - crTestPoint;
 
-      m_sDirVec.Unitize();
+      (void)m_sDirVec.Unitize(); // SolidCraft: a constructor cannot report
 
       // Find a point to define a plane: anything in the right direction
       // that doesn't intersect the surface.
       // We'll use one corner of the bounding box, expanded.
       // That point gets put into m_sTestPt.
       SmExtent3d sBBox;
-      m_pSrf->CalculateBoundingBox( m_sDomain, &sBBox, NULL, NULL );
+      (void)m_pSrf->CalculateBoundingBox( m_sDomain, &sBBox, NULL, NULL ); // SolidCraft: a constructor cannot report
       sBBox.ExpandRelative( 0.2 );
 
       m_sTestPt.x = m_sDirVec.x > 0 ? sBBox.GetMin().x : sBBox.GetMax().x;
@@ -588,8 +588,8 @@ double SmSurfPtGlobalSolver::CalcFuncVal( const SmPoint2d & crUV )
 
       SmVector3d sGap( sSrfPt - m_sTestPt );
 
-      sSu.Unitize();
-      sSv.Unitize();
+      (void)sSu.Unitize(); // SolidCraft: a zero vector stays zero
+      (void)sSv.Unitize(); // SolidCraft: a zero vector stays zero
 
       dRetVal += smos_Fabs( sGap.Dot( sSu ) );
       dRetVal += smos_Fabs( sGap.Dot( sSv ) );
@@ -707,7 +707,7 @@ SmStatus SmSurfPtGlobalSolver::FindRoughGuess
       sDomainSize.y *= dFractionV;
       sUVMin = m_sDomain.ClampPoint2d( sGridUVGuess - sDomainSize );
       sUVMax = m_sDomain.ClampPoint2d( sGridUVGuess + sDomainSize );
-      sSubDomain.SetMinMax( sUVMin, sUVMax );
+      SER( sSubDomain.SetMinMax( sUVMin, sUVMax ) );
 
       // Decrease grid size for the next iteration: 7-5-3.
       if ( iGridSizeU > 4 ) { iGridSizeU--; }
@@ -785,6 +785,15 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
   // If PolygonTriangleGuess is suspicious, also check distance.
   rbSuspicious = FALSE;
 
+  // A suspicious triangle guess stays a candidate: the per-control-point
+  // guess below can be worse.  Nearest control point is a poor proxy when
+  // the control net is coarser than the gaps between distant parts of the
+  // surface, e.g. a helical wall whose control points along a turn are
+  // farther apart than its neighbouring turns.
+  SmBoolean bHaveTriangleGuess = FALSE;
+  SmPoint2d sTriangleUVGuess;
+  ULONG     lTriangleIdxU = 0, lTriangleIdxV = 0;
+
   constexpr SmBoolean sbDoTriangleGuess=TRUE;
   if ( sbDoTriangleGuess )
     {
@@ -809,7 +818,7 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
             {
               // Also check distance to the surface, not just to the polygon. [091002]
               SmPoint3d sSrfPt;
-              m_pSrf->EvaluatePoint( rUVGuess, sSrfPt );
+              SER( m_pSrf->EvaluatePoint( rUVGuess, sSrfPt ) );
               double dSurfDist = sSrfPt.DistanceBetween( m_sTestPt );
 
               // when dist between the guessed surfPoint and the TestPt is small compared to average ControlPoint Spacing
@@ -825,6 +834,16 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
       if ( ! rbSuspicious )
         {
           return SM_SUCCESS;
+        }
+
+      // Keep the suspicious guess for comparison with the one found below.
+      if(   eStat       == SM_SUCCESS
+         && m_eSolverOp != SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
+        {
+          bHaveTriangleGuess = TRUE;
+          sTriangleUVGuess   = m_sDomain.ClampPoint2d( rUVGuess );
+          lTriangleIdxU      = rlBestIdxU;
+          lTriangleIdxV      = rlBestIdxV;
         }
     } // end asked to guess from ControlPointMesh Triangles check
 
@@ -907,7 +926,7 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
     } // end iter i, every control point in the ControlPointMesh
 
   // Have to check here for seams.
-  CheckGuessForSeams( rlBestIdxU, rlBestIdxV, lNumU, lNumV, pCPts, bRational );
+  SER( CheckGuessForSeams( rlBestIdxU, rlBestIdxV, lNumU, lNumV, pCPts, bRational ) );
 
   // Refine along the legs of the control polygon.
 
@@ -938,7 +957,7 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
 
           if ( eStat == SM_SUCCESS )
             {
-              m_pSrf->EvaluatePoint( sThisPolyGuess, sSrfPt );
+              SER( m_pSrf->EvaluatePoint( sThisPolyGuess, sSrfPt ) );
               dThisDist = sSrfPt.DistanceBetween( m_sTestPt );
               if ( dThisDist < dBestDist )
                 {
@@ -965,7 +984,7 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
 
           if ( eStat == SM_SUCCESS )
             {
-              m_pSrf->EvaluatePoint( sThisPolyGuess, sSrfPt );
+              SER( m_pSrf->EvaluatePoint( sThisPolyGuess, sSrfPt ) );
               dThisDist = sSrfPt.DistanceBetween( m_sTestPt );
               if ( dThisDist < dBestDist )
                 {
@@ -997,6 +1016,16 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonGuess
 
   // set output
   rUVGuess = m_sDomain.ClampPoint2d( rUVGuess );
+
+  // Return the better of the triangle guess and the control-point guess,
+  // judged on the surface itself.
+  if ( bHaveTriangleGuess
+    && CalcFuncVal( sTriangleUVGuess ) < CalcFuncVal( rUVGuess ) )
+    {
+      rUVGuess   = sTriangleUVGuess;
+      rlBestIdxU = lTriangleIdxU;
+      rlBestIdxV = lTriangleIdxV;
+    }
 
   // all done
   return SM_SUCCESS;
@@ -1063,8 +1092,8 @@ static double GetTrianglesDist
   double dDist1, dDist2;
   double dU1, dV1, dU2, dV2;
   SmPoint3d sDummy;
-  smgu_TrianglePointDistance( sPt00, sPt10, sPt01, crTestPt, dDist1, sDummy, dU1, dV1 );
-  smgu_TrianglePointDistance( sPt11, sPt01, sPt10, crTestPt, dDist2, sDummy, dU2, dV2 );
+  (void)smgu_TrianglePointDistance( sPt00, sPt10, sPt01, crTestPt, dDist1, sDummy, dU1, dV1 ); // SolidCraft: smgu_TrianglePointDistance always succeeds (SmGeomUtility.cpp)
+  (void)smgu_TrianglePointDistance( sPt11, sPt01, sPt10, crTestPt, dDist2, sDummy, dU2, dV2 ); // SolidCraft: smgu_TrianglePointDistance always succeeds (SmGeomUtility.cpp)
 
   double dRetVal;
   if ( dDist1 <= dDist2 )
@@ -1430,7 +1459,7 @@ SmStatus SmSurfPtGlobalSolver::FindPolygonTriangleGuess
   rdAveCPtDist = dAccumDist / lDistCount;
 
   // Have to check here for seams.
-  CheckGuessForSeams( rlBestIdxU, rlBestIdxV, lNumU, lNumV, pCPts, bRational );
+  SER( CheckGuessForSeams( rlBestIdxU, rlBestIdxV, lNumU, lNumV, pCPts, bRational ) );
 
   // Use the Greville abscissae for the control point indices.
   sUVGuess.x = m_pBSplSrf->GetGrevilleAbscissa( SM_SP_U, rlBestIdxU );
@@ -1588,7 +1617,7 @@ static ULONG bDebugLevel = 0;
       if ( bRational )
           { sThisPt /= pPtPtr[3]; }
 
-      smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dDownShift );
+      SER( smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dDownShift ) );
       SM_ASSERT( dDownShift <= 0.5+SM_EFF_ZERO ); // otherwise, sThisPt was closer
 
       if ( dDownShift < 0 )
@@ -1603,7 +1632,7 @@ static ULONG bDebugLevel = 0;
       if ( bRational )
           { sThisPt /= pPtPtr[3]; }
 
-      smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dUpShift );
+      SER( smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dUpShift ) );
       SM_ASSERT( dUpShift <= 0.5+SM_EFF_ZERO ); // otherwise, sThisPt was closer
 
       if ( dUpShift < 0 )
@@ -1645,7 +1674,7 @@ static ULONG bDebugLevel = 0;
       if ( bRational )
           { sThisPt /= pPtPtr[3]; }
 
-      smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dDownShift );
+      SER( smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dDownShift ) );
       SM_ASSERT( dDownShift <= 0.5+SM_EFF_ZERO ); // otherwise, sThisPt was closer
 
       if ( dDownShift < 0 )
@@ -1660,7 +1689,7 @@ static ULONG bDebugLevel = 0;
       if ( bRational )
           { sThisPt /= pPtPtr[3]; }
 
-      smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dUpShift );
+      SER( smgu_LineClosestPoint( sBestPt, (sThisPt-sBestPt), m_sTestPt, dUpShift ) );
       SM_ASSERT( dUpShift <= 0.5+SM_EFF_ZERO ); // otherwise, sThisPt was closer
 
       if ( dUpShift < 0 )
@@ -1711,7 +1740,7 @@ SmStatus SmSurfPtGlobalSolver::RefineGuess
   SM_REF2(lBestIdxU, lBestIdxV) ;
     // Note: don't use a Newton step here, we're presumably not close enough.
     // Try a couple of plane steps.
-    CheckGuessForSeams( rUVGuess ); // Since we do this on subsequent guesses...
+    SER( CheckGuessForSeams( rUVGuess ) ); // Since we do this on subsequent guesses...
 
     SmPoint2d sThisUV( rUVGuess );
     SmPoint2d sNextUV( rUVGuess );
@@ -1777,7 +1806,7 @@ SmStatus SmSurfPtGlobalSolver::RefineGuess
         {
             // Plane step doesn't work here.  All we can get is a direction.
             SmVector2d sUVStep;
-            smgu_VecLinCombTwoVectors( sSu, sSv, -m_sDirVec, sUVStep );
+            (void)smgu_VecLinCombTwoVectors( sSu, sSv, -m_sDirVec, sUVStep ) ; // SolidCraft: SM_ERR is a degenerate Su/Sv frame, leaving the step zero, which ends the refinement below
             double dMag = sUVStep.Length();
             if ( dMag < SM_EFF_ZERO_SQRT )
               { break; }
@@ -1862,7 +1891,7 @@ SmStatus SmSurfPtGlobalSolver::RefineGuess
 
         sNextUV = m_sDomain.ClampPoint2d( sNextUV );
 
-        CheckGuessForSeams( sNextUV );
+        SER( CheckGuessForSeams( sNextUV ) );
 
     } // end iteration on plane steps.
 
@@ -1948,7 +1977,7 @@ SmBoolean SmSurfPtGlobalSolver::CheckBadGuessStride(
 
   SmPoint2d sNewUV0 = crGridPt0.GetUV() + sUVStep;
   sNewUV0 = m_sDomain.ClampPoint2d( sNewUV0 ); // Clamp to whole domain: ok if outside 'subdomain'.
-  rNewGridPt.SetUV( sNewUV0 );
+  (void)rNewGridPt.SetUV( sNewUV0 ); // SolidCraft: setting a stepper point only stores its UV
   rdNewFuncVal = CalcFuncVal( sNewUV0 );
 
   // If the step was big, take another one.  [B51]
@@ -1979,7 +2008,7 @@ if ( bDebugMe ) {
           sm_GraphicsLoop();
 }
 #endif
-          rNewGridPt.SetUV( sNewUV0 );
+          (void)rNewGridPt.SetUV( sNewUV0 ); // SolidCraft: setting a stepper point only stores its UV
           rdNewFuncVal = dTempFuncVal;
       }
   }
@@ -2025,7 +2054,7 @@ SmStatus SmSurfPtGlobalSolver::RefinePatchByGrid
 
           sThisUV = crSubDomain.Evaluate( dFracU, dFracV );
 
-          sThisGridPt.SetUV( sThisUV );
+          SER( sThisGridPt.SetUV( sThisUV ) );
 
           dThisVal = CalcFuncVal( sThisUV );
 
@@ -2147,7 +2176,7 @@ SmStatus SmSurfPtGlobalSolver::RefineGuessByGrid(
 
   double dThisVal = SM_BIG_DOUBLE;
 
-  RefinePatchByGrid( sSubDomain, iGridSize, iGridSize, rUVGuess, dThisVal );
+  SER( RefinePatchByGrid( sSubDomain, iGridSize, iGridSize, rUVGuess, dThisVal ) );
 
   // Check whether it improved.
   if ( dThisVal < dBestVal )
@@ -2168,9 +2197,9 @@ SmStatus SmSurfPtGlobalSolver::RefineGuessByGrid(
   sMinUV = m_sDomain.ClampPoint2d( sMinUV );
   sMaxUV = m_sDomain.ClampPoint2d( sMaxUV );
 
-  sSubDomain.SetMinMax( sMinUV, sMaxUV );
+  SER( sSubDomain.SetMinMax( sMinUV, sMaxUV ) );
 
-  RefinePatchByGrid( sSubDomain, iGridSize, iGridSize, rUVGuess, dThisVal );
+  SER( RefinePatchByGrid( sSubDomain, iGridSize, iGridSize, rUVGuess, dThisVal ) );
 
   // Check whether it improved.
   if ( dThisVal < dBestVal )
@@ -2191,9 +2220,9 @@ SmStatus SmSurfPtGlobalSolver::RefineGuessByGrid(
   sMinUV = m_sDomain.ClampPoint2d( sMinUV );
   sMaxUV = m_sDomain.ClampPoint2d( sMaxUV );
 
-  sSubDomain.SetMinMax( sMinUV, sMaxUV );
+  SER( sSubDomain.SetMinMax( sMinUV, sMaxUV ) );
 
-  RefinePatchByGrid( sSubDomain, iGridSize, iGridSize, rUVGuess, dThisVal );
+  SER( RefinePatchByGrid( sSubDomain, iGridSize, iGridSize, rUVGuess, dThisVal ) );
 
   // Check whether it improved.
   if ( dThisVal > dBestVal )
@@ -2230,8 +2259,8 @@ SmStatus SmSurfPtGlobalSolver::CheckGuessForSeams( SmPoint2d & rUVGuess )
       if ( ClosedSurface( SM_SP_U ) )
       {
           // Check whether low or high bound is better.
-          m_pSrf->Evaluate1stDerivatives( rUVGuess,
-              FALSE, FALSE, sPt, sSu, sSv );
+          SER( m_pSrf->Evaluate1stDerivatives( rUVGuess,
+              FALSE, FALSE, sPt, sSu, sSv ) );
 
           sGap = sPt - m_sTestPt;
           if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
@@ -2254,8 +2283,8 @@ SmStatus SmSurfPtGlobalSolver::CheckGuessForSeams( SmPoint2d & rUVGuess )
       if ( ClosedSurface( SM_SP_V ) )
       {
           // Check whether low or high bound is better.
-          m_pSrf->Evaluate1stDerivatives( rUVGuess,
-              FALSE, FALSE, sPt, sSu, sSv );
+          SER( m_pSrf->Evaluate1stDerivatives( rUVGuess,
+              FALSE, FALSE, sPt, sSu, sSv ) );
 
           sGap = sPt - m_sTestPt;
           if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
@@ -2322,7 +2351,7 @@ SmStatus SmSurfPtGlobalSolver::CheckGuessForSeams(
           if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
             { dDownShift = - m_sDirVec.Dot( (sOtherPt-sSeamPt) ); }
           else
-            { smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dDownShift ); }
+            { SER( smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dDownShift ) ); }
 
           lIdx = 1;
           pPtPtr = pCPts + 4 * ( lIdx * lNumV + rlIdxV );
@@ -2332,7 +2361,7 @@ SmStatus SmSurfPtGlobalSolver::CheckGuessForSeams(
           if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
             { dUpShift = - m_sDirVec.Dot( (sOtherPt-sSeamPt) ); }
           else
-            { smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dUpShift ); }
+            { SER( smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dUpShift ) ); }
 
           // Ideally, these would have opposite signs (or both zero).
           // Lean towards the one that's positive.
@@ -2369,7 +2398,7 @@ SmStatus SmSurfPtGlobalSolver::CheckGuessForSeams(
           if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
             { dDownShift = - m_sDirVec.Dot( (sOtherPt-sSeamPt) ); }
           else
-            { smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dDownShift ); }
+            { SER( smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dDownShift ) ); }
 
           lIdx = 1;
           pPtPtr = pCPts + 4 * ( rlIdxU * lNumV + lIdx );
@@ -2379,7 +2408,7 @@ SmStatus SmSurfPtGlobalSolver::CheckGuessForSeams(
           if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
             { dUpShift = - m_sDirVec.Dot( (sOtherPt-sSeamPt) ); }
           else
-            { smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dUpShift ); }
+            { SER( smgu_LineClosestPoint( sSeamPt, (sOtherPt-sSeamPt), m_sTestPt, dUpShift ) ); }
 
           // Ideally, these would have opposite signs (or both zero).
           // Lean towards the one that's positive.
@@ -2425,7 +2454,7 @@ if ( ! sbDoCreaseSubdomains )
   SmExtent1d sDomain = m_sDomain.GetUInterval();
   double dTol = sDomain.GetLength() / 1000;
   dTol = -dTol;  // on-boundary means Outside.
-  m_pBSplSrf->GetKnots( SM_SP_U, aKnots, &aMults );
+  SER( m_pBSplSrf->GetKnots( SM_SP_U, aKnots, &aMults ) );
   lNumKnots = aMults.GetSize();
   lDeg = m_pBSplSrf->GetDegree( SM_SP_U );
   // For each interior knot:
@@ -2447,12 +2476,12 @@ if ( ! sbDoCreaseSubdomains )
                   double dHighEnd = sNewUDomain.GetMax();
                   // Reset in place to one piece, copy that to the end,
                   // then reset to the other piece.
-                  sNewUDomain.SetMinMax( sNewUDomain.GetMin(), aKnots[ii] );
-                  sDomainList[jj].SetUInterval( sNewUDomain );
+                  SER( sNewUDomain.SetMinMax( sNewUDomain.GetMin(), aKnots[ii] ) );
+                  SER( sDomainList[jj].SetUInterval( sNewUDomain ) );
 
                   sDomainList.Add( sDomainList[jj] );
-                  sNewUDomain.SetMinMax( aKnots[ii], dHighEnd );
-                  sDomainList[jj].SetUInterval( sNewUDomain );
+                  SER( sNewUDomain.SetMinMax( aKnots[ii], dHighEnd ) );
+                  SER( sDomainList[jj].SetUInterval( sNewUDomain ) );
               }
           }
       }
@@ -2462,7 +2491,7 @@ if ( ! sbDoCreaseSubdomains )
   sDomain = m_sDomain.GetVInterval();
   dTol = sDomain.GetLength() / 1000;
   dTol = -dTol;  // on-boundary means Outside.
-  m_pBSplSrf->GetKnots( SM_SP_V, aKnots, &aMults );
+  SER( m_pBSplSrf->GetKnots( SM_SP_V, aKnots, &aMults ) );
   lNumKnots = aMults.GetSize();
   lDeg = m_pBSplSrf->GetDegree( SM_SP_V );
   // For each interior knot:
@@ -2484,12 +2513,12 @@ if ( ! sbDoCreaseSubdomains )
                   double dHighEnd = sNewVDomain.GetMax();
                   // Reset in place to one piece, copy that to the end,
                   // then reset to the other piece.
-                  sNewVDomain.SetMinMax( sNewVDomain.GetMin(), aKnots[ii] );
-                  sDomainList[jj].SetVInterval( sNewVDomain );
+                  SER( sNewVDomain.SetMinMax( sNewVDomain.GetMin(), aKnots[ii] ) );
+                  SER( sDomainList[jj].SetVInterval( sNewVDomain ) );
 
                   sDomainList.Add( sDomainList[jj] );
-                  sNewVDomain.SetMinMax( aKnots[ii], dHighEnd );
-                  sDomainList[jj].SetVInterval( sNewVDomain );
+                  SER( sNewVDomain.SetMinMax( aKnots[ii], dHighEnd ) );
+                  SER( sDomainList[jj].SetVInterval( sNewVDomain ) );
               }
           }
       }
@@ -2953,7 +2982,7 @@ SmStatus SmSurfPtGlobalSolver::Solve( SmSolutionArray & rSolutions )
   // Note: this is currently not used.
 
   SmTArray< SmExtent2d > sDomainList;
-  GetCreaseSubdomains( sDomainList );
+  SER( GetCreaseSubdomains( sDomainList ) );
 
   SmSolutionArray sSolArray;
   for ( ii = 0; ii < sDomainList.GetSize(); ii++ )
@@ -2969,7 +2998,7 @@ SmStatus SmSurfPtGlobalSolver::Solve( SmSolutionArray & rSolutions )
       eStat = RefineGuess( sUVGuess, lBestIdxU, lBestIdxV );
 
       // We have to check here for seams: start on the proper side.
-      CheckGuessForSeams( sUVGuess );
+      SER( CheckGuessForSeams( sUVGuess ) );
 
       // Do the local solve.
       SmPoint3d sPtForLocal = ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
@@ -3050,7 +3079,7 @@ SmStatus SmSurfPtGlobalSolver::Solve( SmSolutionArray & rSolutions )
 
                   if ( eStat == SM_SUCCESS && bFoundAnswer )
                   {
-                      sSurfEval.SetUV( sSol.m_vStart[0], sSol.m_vStart[1] );
+                      SER( sSurfEval.SetUV( sSol.m_vStart[0], sSol.m_vStart[1] ) );
                   }
               }
           }
@@ -3184,7 +3213,7 @@ SmSurfPtSolveStepper::SmSurfPtSolveStepper( const SmSurfPtSolveStepper & crOther
  : SmSurfacePointSolver( crOther ),
    m_sSrfEval( crOther.m_pSrf )
 {
-  m_sSrfEval.SetUV( crOther.UV() );
+  (void)m_sSrfEval.SetUV( crOther.UV() ); // SolidCraft: a constructor cannot report
   m_bSet         = FALSE;  // see note above.
   m_iIter        = crOther.m_iIter;
   m_iBndHitU     = crOther.m_iBndHitU;
@@ -3199,7 +3228,7 @@ SmSurfPtSolveStepper & SmSurfPtSolveStepper::operator=( const SmSurfPtSolveStepp
 {
   SmSurfacePointSolver::operator=( crOther );
 
-  m_sSrfEval.SetUV( crOther.UV() );
+  (void)m_sSrfEval.SetUV( crOther.UV() ); // SolidCraft: a constructor cannot report
   m_bSet       = crOther.m_bSet;
   m_iIter      = crOther.m_iIter;
   m_iBndHitU   = crOther.m_iBndHitU;
@@ -3471,7 +3500,7 @@ NOTES:
 ***********************************************************************/
 double SmSurfPtSolveStepper::ErrorNorm( SmSrfPtErrorNormType eNormType )
 {
-  Eval();  // Make sure we're initialized.
+  if ( Eval() != SM_SUCCESS ) { return SM_BIG_DOUBLE ; }  // Make sure we're initialized. // SolidCraft change: an unevaluated point is no solution
 
   // Method: the 'Check' values use unitized derivatives.
   // We will use them when comparing values, to allow stepping over
@@ -3524,7 +3553,7 @@ SmBoolean SmSurfPtSolveStepper::Converged( SmBoolean bUseTightTol )
 ***************************************************/
 SmBoolean SmSurfPtSolveStepper::Converged( double dTol )
 {
-  Eval();
+  if ( Eval() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
   // If surface point equals test point, we're done.
   if ( ErrorNorm( SM_SPN_GAP ) < dTol ) { return TRUE; }
@@ -3589,7 +3618,7 @@ NOTES: Purely geometric, doesn't check SolverOp.
 ***********************************************************************/
 SmBoolean SmSurfPtSolveStepper::IsLocalMin( double dTol )
 {
-  Eval();
+  if ( Eval() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
   if ( ErrorNorm( SM_SPN_GAP     ) <= dTol ) { return TRUE; }
   if ( ErrorNorm( SM_SPN_SUM_ABS ) >  dTol ) { return FALSE; }
@@ -3638,7 +3667,7 @@ NOTES: Purely geometric, doesn't check SolverOp.
 SmBoolean SmSurfPtSolveStepper::IsLocalMax( double dTol )
 {
   // See comments in IsLocalMin().
-  Eval();
+  if ( Eval() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
   if ( ErrorNorm( SM_SPN_GAP     ) <= dTol ) { return FALSE; }
   if ( ErrorNorm( SM_SPN_SUM_ABS ) >  dTol ) { return FALSE; }
@@ -3672,7 +3701,7 @@ SmBoolean SmSurfPtSolveStepper::IsSingular(
         SmSurfParamType * peWhichParam // out: if not null, one of SM_SP_U, SM_SP_V, SM_SP_NEITHER.
     )
 {
-  Eval();
+  if ( Eval() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
   double dRatioLimitSquared = 10000 * 10000;
   double dAbsMagLimit       = SM_EFF_ZERO_PARAM;
@@ -3715,8 +3744,8 @@ SmTerminationReasonType SmSurfPtSolveStepper::Step(
         SmBoolean bDoPlaneStep
     )
 {
-  this->Eval();
-  rPrevEval.Eval();
+  if ( this->Eval() != SM_SUCCESS ) { return SM_TR_UNABLE_TO_CONVERGE ; } // SolidCraft change: an unevaluated point gives no step
+  if ( rPrevEval.Eval() != SM_SUCCESS ) { return SM_TR_UNABLE_TO_CONVERGE ; } // SolidCraft change: an unevaluated point gives no step
 
   // Special case: Plane step with directed operations:
   // Can get direction but not step size.
@@ -3724,7 +3753,7 @@ SmTerminationReasonType SmSurfPtSolveStepper::Step(
   if ( bDoPlaneStep && SolverOp() == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
   {
       SmVector2d sStep;
-      smgu_VecLinCombTwoVectors( rPrevEval.Su(), rPrevEval.Sv(), -m_sDirVec, sStep );
+      if ( smgu_VecLinCombTwoVectors( rPrevEval.Su(), rPrevEval.Sv(), -m_sDirVec, sStep ) != SM_SUCCESS ) { return SM_TR_BAD_JACOBIAN ; } // SolidCraft change: the derivatives give no step
       double dMag = sStep.Length();
       if ( dMag > SM_EFF_ZERO_SQRT / 100 )
       {
@@ -4248,7 +4277,7 @@ SmBoolean SmSurfPtSolveStepper::ConvergedOnBoundary( double dTol, SmSurfParamTyp
             || eRetVal == SM_SP_VMIN || eRetVal == SM_SP_VMAX
             || eRetVal == SM_SP_BOTH );
 
-    Eval();
+    if ( Eval() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
     // For u or v: check whether it's normal to the boundary curve.
     // For u, that would be the value of the G-function; F-function for v.
@@ -4326,7 +4355,7 @@ SmBoolean SmSurfPtSolveStepper::PushingBoundary( double dTol, SmSurfParamType *p
 {
   SmSurfParamType eRetVal = SM_SP_NEITHER;
 
-  Eval();
+  if ( Eval() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
   SmVector3d sGap( m_sTestPt - Pos() );
   if ( m_eSolverOp == SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE )
@@ -4685,7 +4714,7 @@ SmBoolean SmSurfPtSolveStepper::DropToIsoCurve
 {
   //cbi todo: use an SmIsoCurve instead.
   SmBSplineCurve *pIsoCurve = NULL;
-  m_pSrf->CreateIsoParametricCurve( *m_pSrf->GetContext(),
+  (void)m_pSrf->CreateIsoParametricCurve( *m_pSrf->GetContext(), // SolidCraft: unused (upstream: "Currently not used")
                                      eWhichParam,
                                      dCreaseParamVal,
                                      m_dLooseTol,
@@ -4703,7 +4732,7 @@ SmBoolean SmSurfPtSolveStepper::DropToIsoCurve
   // [ Some of our unit tests... ]
   SmContinuityType eMinCont;
   SmTArray< SmContinuityType > sConts;
-  pIsoCurve->CalculateContinuities( eMinCont, sConts );
+  (void)pIsoCurve->CalculateContinuities( eMinCont, sConts ); // SolidCraft: unused (upstream: "Currently not used")
 
   SmBoolean bGotIsoDrop = false, bGotThisDrop = false;
   double dDist;
@@ -4716,21 +4745,21 @@ SmBoolean SmSurfPtSolveStepper::DropToIsoCurve
 
   SmTArray< double > sKnots;
   SmTArray< ULONG  > sMults;
-  pIsoCurve->GetKnots( sKnots, &sMults ); //cbi: not using sMults?
+  (void)pIsoCurve->GetKnots( sKnots, &sMults ); //cbi: not using sMults? // SolidCraft: unused (upstream: "Currently not used")
   SmExtent1d sIvl( sKnots[0], sKnots[0] );
   ULONG ii;
   for ( ii=1; ii<sConts.GetSize(); ii++ )
   {
       if ( sConts[ii] <= SM_CT_G1 )
       {
-          sIvl.SetMinMax( sIvl.GetMin(), sKnots[ii] );
+          (void)sIvl.SetMinMax( sIvl.GetMin(), sKnots[ii] ); // SolidCraft: unused (upstream: "Currently not used")
 
           // in case surface domain is smaller:
-          sIvl.Intersect( sDomain, sIvl );
+          (void)sIvl.Intersect( sDomain, sIvl ); // SolidCraft: unused (upstream: "Currently not used")
 
           double dGuessParam = sIvl.ClampValue( dParamOnCrease );
 
-          pIsoCurve->DropPoint(sIvl,          // in : target curve allowed domain
+          (void)pIsoCurve->DropPoint(sIvl,          // in : target curve allowed domain // SolidCraft: unused (upstream: "Currently not used")
                                m_sTestPt,     // in : Point to drop to curve
                                NULL,          // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                               //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
@@ -4756,7 +4785,7 @@ SmBoolean SmSurfPtSolveStepper::DropToIsoCurve
           }
 
           // Set up for next interval.
-          sIvl.SetMinMax( sIvl.GetMax(), sIvl.GetMax() );
+          (void)sIvl.SetMinMax( sIvl.GetMax(), sIvl.GetMax() ); // SolidCraft: unused (upstream: "Currently not used")
       }
   }
 
@@ -4865,7 +4894,7 @@ if ( ! sbDoCreaseSubdomains )
       dMax = rPrevEval.UV().x;
   }
 
-  m_pBSplSrf->GetKnots( SM_SP_U, aKnots, &aMults );
+  if ( m_pBSplSrf->GetKnots( SM_SP_U, aKnots, &aMults ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
   lDeg = m_pBSplSrf->GetDegree( SM_SP_U );
   SmExtent1d sInterval = m_sDomain.GetUInterval();
   double dTol = sInterval.GetLength() / 10000;
@@ -4927,7 +4956,7 @@ if ( ! sbDoCreaseSubdomains )
           dMax = rPrevEval.UV().y;
       }
 
-      m_pBSplSrf->GetKnots( SM_SP_V, aKnots, &aMults );
+      if ( m_pBSplSrf->GetKnots( SM_SP_V, aKnots, &aMults ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
       lDeg = m_pBSplSrf->GetDegree( SM_SP_V );
 
       sInterval = m_sDomain.GetVInterval();
@@ -4988,9 +5017,9 @@ if ( ! sbDoCreaseSubdomains )
   SmPoint3d sPt;
   SmVector3d sSu, sSv;
   SmVector3d sDerivLo, sDerivHi;
-  m_pSrf->Evaluate1stDerivatives( sCreaseUV, FALSE, FALSE, sPt, sSu, sSv );
+  if ( m_pSrf->Evaluate1stDerivatives( sCreaseUV, FALSE, FALSE, sPt, sSu, sSv ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
   sDerivLo = ( eWhichParam == SM_SP_U ) ? sSu : sSv;
-  m_pSrf->Evaluate1stDerivatives( sCreaseUV,  TRUE,  TRUE, sPt, sSu, sSv );
+  if ( m_pSrf->Evaluate1stDerivatives( sCreaseUV,  TRUE,  TRUE, sPt, sSu, sSv ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
   sDerivHi = ( eWhichParam == SM_SP_U ) ? sSu : sSv;
   SmVector3d sGap( sPt - m_sTestPt );
 
@@ -5006,9 +5035,9 @@ if ( ! sbDoCreaseSubdomains )
   // In that case, drop to the isocurve anyway, and check the results.
   // Note, the deriv in that direction should be the same above and below.
   SmVector3d sCreaseDir = ( eWhichParam == SM_SP_U ) ? sSv : sSu;
-  sCreaseDir.Unitize();
+  if ( sCreaseDir.Unitize() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
   SmVector3d sGapDir( sGap );
-  sGapDir.Unitize();
+  if ( sGapDir.Unitize() != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
   double dDot = sGapDir.Dot( sCreaseDir );
 
   SmBoolean bDidCreaseDrop = FALSE;
@@ -5109,7 +5138,7 @@ if ( ! sbDoCreaseSubdomains )
           // First step on the low side:
           sLoEval1.Step( sLoEval2, TRUE ); // TRUE: plane step
 
-          sLoEval2.AdjustStep( sLoEval1, bAdjusted, dScale );
+          if ( sLoEval2.AdjustStep( sLoEval1, bAdjusted, dScale ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
           if ( sLoEval2.Converged( TRUE ) )
           {
@@ -5124,7 +5153,7 @@ if ( ! sbDoCreaseSubdomains )
           // Now the high side:
           sHiEval1.Step( sHiEval2, TRUE );
 
-          sHiEval2.AdjustStep( sHiEval1, bAdjusted, dScale );
+          if ( sHiEval2.AdjustStep( sHiEval1, bAdjusted, dScale ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: not shown without the evaluation
 
           if ( sHiEval2.Converged( TRUE ) )
           {
@@ -5207,7 +5236,7 @@ SmStatus SmSurfPtSolveStepper::FindNextStep(
       }
 
       // Search along the boundary.
-      this->FindBoundarySolution( bFoundOBSol );
+      SER( this->FindBoundarySolution( bFoundOBSol ) );
       if ( bFoundOBSol )
       {
           reReason = SM_TR_FOUND_ANSWER_CONVERGED;
@@ -5396,7 +5425,7 @@ SmStatus SmSurfPtSolveStepper::FindNextStep(
   // Check for out-of-bounds or creases.
   if ( bGotPlaneStep )
   {
-      sPlaneEval.FindBoundarySolution( bFoundOBSol );
+      SER( sPlaneEval.FindBoundarySolution( bFoundOBSol ) );
       if ( bFoundOBSol )
       {
           // But don't accept it if we have something better.
@@ -5452,7 +5481,7 @@ SmStatus SmSurfPtSolveStepper::FindNextStep(
 
   if ( bGotNRStep )
   {
-      sNREval.FindBoundarySolution( bFoundOBSol );
+      SER( sNREval.FindBoundarySolution( bFoundOBSol ) );
       if ( bFoundOBSol )
       {
           // But don't accept it if we have something better.
@@ -5513,11 +5542,11 @@ SmStatus SmSurfPtSolveStepper::FindNextStep(
   // Do a line search on both before comparing.
   if ( bGotNRStep )
   {
-      sNREval.LineSearch( rPrevEval );
+      SER( sNREval.LineSearch( rPrevEval ) );
   }
   if ( bGotPlaneStep )
   {
-      sPlaneEval.LineSearch( rPrevEval );
+      SER( sPlaneEval.LineSearch( rPrevEval ) );
   }
 
   // Now set *this to the better of NR and Plane steps.
@@ -5621,7 +5650,7 @@ void SmSurfPtSolveStepper::Dump( int iDumpLevel, const TCHAR *cMsg, SmStatus eSt
         smos_WriteBuffer(sBuff);
     }
 
-    Eval();
+    (void)Eval() ; // SolidCraft: a dump prints the values as they are
     smos_sprintf(sBuff, _T("\nSmSurfPtSolveStepper Dump iter %3d       U %18.14f V %18.14f"),
         m_iIter, UV().x, UV().y );
     smos_WriteBuffer(sBuff);

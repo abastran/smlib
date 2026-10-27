@@ -96,33 +96,12 @@ inline SmStatus smos_MemCpy
   if (src_count > dest_count)
     { return SM_ERR ;}
   
-  uintptr_t addr1 = uintptr_t(src);
-  uintptr_t addr2 = uintptr_t(dest);
-  
-  SmBoolean bOverlap = FALSE;
-  
-  if (addr1 < addr2)
-    {
-      if (addr2 - addr1 >= src_count)
-        {
-          bOverlap = TRUE;
-        }
-    }
-  else if (addr1 > addr2)
-    {
-      if (addr1 - addr2 >= dest_count)
-        {
-          bOverlap = TRUE;
-        }
-    }
-  
-  if (bOverlap)
+  // SolidCraft: memmove is right for disjoint and overlapping ranges alike (the test that chose
+  // between memcpy and memmove had overlap backwards, sending overlapping ranges to memcpy).
+  // Zero bytes need no pointers; memmove of a NULL pointer is undefined even for zero bytes.
+  if (src_count != 0)
     {
       memmove(dest, src, src_count);
-    }
-  else
-    {
-      memcpy(dest, src, src_count);
     }
   
   return SM_SUCCESS;

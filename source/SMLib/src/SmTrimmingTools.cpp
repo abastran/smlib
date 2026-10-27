@@ -47,6 +47,8 @@
 
 #include <nurbs.h>
 
+#include <vector>
+
 #ifdef SM_DEBUG_CODE
   #include <SmCrvOnSurf.h>
 #endif // SM_DEBUG_CODE
@@ -662,7 +664,7 @@ void SmTrimmingTools::ClearUVTrimCurves
     for (ii = 0; ii < lNumEdges; ii++)
     {
         SmTArray<SmEdgeuse*> sEUs;
-        sEdges[ii]->GetEdgeuses( sEUs );
+        (void)sEdges[ii]->GetEdgeuses( sEUs ); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
         ULONG lNumEUs = sEUs.GetSize();
         for (jj = 0; jj < lNumEUs; jj++)
         {
@@ -1051,7 +1053,7 @@ SmStatus SmTrimmingTools::FindLoopCurveOrientations
       // ThisCurve 2d and 3d evaluate: {ThisCurveEndUV[2], ThisCurveEnd3d[2]}
         {
           // ThisCurve evaluate(dim=2 or 3)
-          pThisCurve->Evaluate(sThisOrient == SM_OT_SAME ? sThisIvl.GetMin() : sThisIvl.GetMax(), 1, TRUE, sThisCurveEnd3d) ;
+          SER( pThisCurve->Evaluate(sThisOrient == SM_OT_SAME ? sThisIvl.GetMin() : sThisIvl.GetMax(), 1, TRUE, sThisCurveEnd3d)  );
 
           // 2d branch
           if(pThisCurve->GetDim() == 2)
@@ -1059,19 +1061,19 @@ SmStatus SmTrimmingTools::FindLoopCurveOrientations
               sThisCurveEndUV[0] = sThisCurveEnd3d[0] ;
               sThisCurveEndUV[1] = sThisCurveEnd3d[1] ;
           
-              rSurface.EvaluateDirectionalDerivs(sThisCurveEndUV[0], sThisCurveEndUV[1], 1, sThisCurveEnd3d, TRUE, TRUE) ;
+              SER( rSurface.EvaluateDirectionalDerivs(sThisCurveEndUV[0], sThisCurveEndUV[1], 1, sThisCurveEnd3d, TRUE, TRUE)  );
             } // end curve in 2d branch
 
           // 3d branch
           else // Curve in 3d branch
             {
-              rSurface.DropPoint(sThisCurveEnd3d[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sThisCurveEndUV[0], dGap, bIsMulti) ;
-              rSurface.DropVectors(sThisCurveEndUV[0], TRUE, TRUE, 1, &sThisCurveEnd3d[1], &sThisCurveEndUV[1]) ;
+              SER( rSurface.DropPoint(sThisCurveEnd3d[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sThisCurveEndUV[0], dGap, bIsMulti)  );
+              SER( rSurface.DropVectors(sThisCurveEndUV[0], TRUE, TRUE, 1, &sThisCurveEnd3d[1], &sThisCurveEndUV[1])  );
             }
         } // end scope - {ThisCurveEndUV[2], ThisCurveEnd3d[2]} from 2d or 3d Curves
 
       // surface normal
-      rSurface.EvaluateNormal(sThisCurveEndUV[0], TRUE, TRUE, sSurfaceNormal) ; 
+      SER( rSurface.EvaluateNormal(sThisCurveEndUV[0], TRUE, TRUE, sSurfaceNormal)  ); 
 
       // for every curve - check for multiple curves connecting to the same point3d - remember curves can be closed
       // GWC note:  Assuming lCurveCnt is small this code is okay being N**2.  We could use the SmObjsInVoxels class to reduce that for large CurveCnt cases.
@@ -1087,8 +1089,8 @@ SmStatus SmTrimmingTools::FindLoopCurveOrientations
           // NextCurve end   evaluate(dim=2 and 3): {sNextCurveEndUV[2],   sNextCurveEnd3d[2]}
             {
               // NextCurve evaluate(dim=2 or 3)
-              pNextCurve->Evaluate(sNextIvl.GetMin(), 1, TRUE, sNextCurveStart3d) ;
-              pNextCurve->Evaluate(sNextIvl.GetMax(), 1, TRUE, sNextCurveEnd3d) ;
+              SER( pNextCurve->Evaluate(sNextIvl.GetMin(), 1, TRUE, sNextCurveStart3d)  );
+              SER( pNextCurve->Evaluate(sNextIvl.GetMax(), 1, TRUE, sNextCurveEnd3d)  );
 
               // 2d branch
               if(pNextCurve->GetDim() == 2)
@@ -1098,18 +1100,18 @@ SmStatus SmTrimmingTools::FindLoopCurveOrientations
                   sNextCurveEndUV[0]   = sNextCurveEnd3d[0] ;
                   sNextCurveEndUV[1]   = sNextCurveEnd3d[1] ;
               
-                  rSurface.EvaluateDirectionalDerivs(sNextCurveStartUV[0], sNextCurveStartUV[1], 1, sNextCurveStart3d, TRUE, TRUE) ;
-                  rSurface.EvaluateDirectionalDerivs(sNextCurveEndUV[0],   sNextCurveEndUV[1],   1, sNextCurveEnd3d,   TRUE, TRUE) ;
+                  SER( rSurface.EvaluateDirectionalDerivs(sNextCurveStartUV[0], sNextCurveStartUV[1], 1, sNextCurveStart3d, TRUE, TRUE)  );
+                  SER( rSurface.EvaluateDirectionalDerivs(sNextCurveEndUV[0],   sNextCurveEndUV[1],   1, sNextCurveEnd3d,   TRUE, TRUE)  );
                 } // end curve in 2d branch
 
               // 3d branch
               else // Curve in 3d branch
                 {
-                  rSurface.DropPoint  (sNextCurveStart3d[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sNextCurveStartUV[0], dGap, bIsMulti) ;
-                  rSurface.DropVectors(sNextCurveStartUV[0], TRUE, TRUE, 1, &sNextCurveStart3d[1], &sNextCurveStartUV[1]) ;
+                  SER( rSurface.DropPoint  (sNextCurveStart3d[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sNextCurveStartUV[0], dGap, bIsMulti)  );
+                  SER( rSurface.DropVectors(sNextCurveStartUV[0], TRUE, TRUE, 1, &sNextCurveStart3d[1], &sNextCurveStartUV[1])  );
 
-                  rSurface.DropPoint  (sNextCurveEnd3d[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sNextCurveEndUV[0], dGap, bIsMulti) ;
-                  rSurface.DropVectors(sNextCurveEndUV[0], TRUE, TRUE, 1, &sNextCurveEnd3d[1], &sNextCurveEndUV[1]) ;
+                  SER( rSurface.DropPoint  (sNextCurveEnd3d[0], rSurface.GetNaturalUVDomain(), NULL, bSuccess, sNextCurveEndUV[0], dGap, bIsMulti)  );
+                  SER( rSurface.DropVectors(sNextCurveEndUV[0], TRUE, TRUE, 1, &sNextCurveEnd3d[1], &sNextCurveEndUV[1])  );
                 }
             } // end scope - NextCurveEndUV and NextCurveEnd3d from 2d or 3d Curves
           
@@ -1163,14 +1165,14 @@ SmStatus SmTrimmingTools::FindLoopCurveOrientations
          // This and Next Curve End Vectors pointing away from the CoincidentPosition
          SmVector3d sThisCrvAway = (sThisOrient                  == SM_OT_SAME) ? sThisCurveEnd3d[1] :             -sThisCurveEnd3d[1] ;
          SmVector3d sNextCrvAway = (sNextCurveOrients[lLastIndx] == SM_OT_SAME) ? sNextCurve1stDir3ds[lLastIndx] : -sNextCurve1stDir3ds[lLastIndx] ;
-         sSurfaceNormal.CCWAngleBetween(sThisCrvAway, sNextCrvAway, dMinAngRad) ; 
+         SER( sSurfaceNormal.CCWAngleBetween(sThisCrvAway, sNextCrvAway, dMinAngRad)  ); 
 
          // For every candidate - find and place the most left-handed NextCurve at the end of the sNextCurves Array
          for(jj=lLastIndx;jj>0;jj--)
            {
              // Next Curve End Vector pointing away from the CoincidentPosition
              sNextCrvAway = (sNextCurveOrients[jj-1] == SM_OT_SAME) ? sNextCurve1stDir3ds[jj-1] : -sNextCurve1stDir3ds[jj-1] ;
-             sSurfaceNormal.CCWAngleBetween(sThisCrvAway, sNextCrvAway, dAngRad) ;
+             SER( sSurfaceNormal.CCWAngleBetween(sThisCrvAway, sNextCrvAway, dAngRad)  );
 
              // place candidates closer to ThisCrvAway in the ClockWise direction at end of the sNextCurves array
              SM_ASSERT_MSG(SM_ARE_SAME(dAngRad, dMinAngRad) == FALSE, _T("SmTrimmingTools::FindLoopCurveOrientations: Found a loop where multiple edges are coincident and tangent at a single vertex - method needs extensions here to handle this case. order those curves by sampling pts moving away from the vertex.")) ; 
@@ -1640,7 +1642,7 @@ SmStatus SmTrimmingTools::FixTrimLoopOrder
     SER( pFace->ComputeLoopOrientation(outer_loop, loop_orientation ));
     if (loop_orientation == SM_OT_OPPOSITE)   // showing inner
     {
-        FixTrimLoopOrientation (pFace, outer_loop, TRUE, rbLoopsReordered);
+        SER( FixTrimLoopOrientation (pFace, outer_loop, TRUE, rbLoopsReordered) );
     }
 
     // set direction of the inner loops
@@ -1651,7 +1653,7 @@ SmStatus SmTrimmingTools::FixTrimLoopOrder
         SER(pFace->ComputeLoopOrientation(inner_loop, loop_orientation));
         if (loop_orientation == SM_OT_SAME)   // showing outer
         {
-            FixTrimLoopOrientation (pFace, inner_loop, FALSE, rbLoopsReordered);
+            SER( FixTrimLoopOrientation (pFace, inner_loop, FALSE, rbLoopsReordered) );
         }
     }
 
@@ -1872,8 +1874,9 @@ SmBoolean bDebugMe = FALSE;
         { break ; }
       
       // arrive here when pC = first curve of a new loop:
-      SmOrientType eCurveOrient = SM_OT_SAME;
-      ULONG        nLoopEdges   = 0;
+      SmOrientType eCurveOrient     = SM_OT_SAME;
+      ULONG        nLoopEdges       = 0;
+      ULONG        nFirstCurveIndex = nCurveIndex;
       
       // build-this-loop while block
       while( TRUE ) 
@@ -1982,6 +1985,12 @@ SmBoolean bDebugMe = FALSE;
           // expected exit: from build-this-loop block: closed loop
           if (bNextCurveSeen) 
             {
+              // a closed loop ends at its first curve's start point; ending on another
+              //   seen curve (e.g. the start of a closed curve in the chain) leaves it open
+              const SmPoint3d& sLoopEndPt = (eCurveOrient == SM_OT_SAME) ? sEndPt : sStartPt;
+              if (sLoopEndPt.DistanceBetween(sVertexPoints[2*nFirstCurveIndex]) >= smos_Max(d3DTol,dFeatureSize))
+                { sRet = SM_ERR ; }
+
               // back into the start-next-loop block
               break;
           }
@@ -2229,7 +2238,7 @@ SmBoolean bDebug = FALSE;
           SmCurve * pCrv = rsInCurves[jj];
 
           // tessellate the curve
-          pCrv->Tessellate( pCrv->GetNaturalInterval(), dCH, dAng, lMinSegs, NULL, &sCrvTessPts );
+          SER( pCrv->Tessellate( pCrv->GetNaturalInterval(), dCH, dAng, lMinSegs, NULL, &sCrvTessPts ) );
 
           // ensure tessellate pts run in proper direction for loop
           if(rsInOrients[jj] == SM_OT_OPPOSITE )
@@ -2451,6 +2460,126 @@ SmBoolean bDebug = FALSE;
   return SM_SUCCESS;
 
 } // end SmTrimmingTools::FindOuterLoops
+
+
+/*******************************************************************//**
+PURPOSE: Join each loop that touches another loop of its face at a vertex
+         into that loop: the face's boundary passes the vertex twice, in
+         one loop, as SMLib keeps a face (its loops share no vertex:
+         SmFace tests 38 and 39).
+NOTES:
+   The input is FindOuterLoops' output: each outer loop (CCW) followed by
+   its inner loops (CW). OrderCurvesIntoLoops accepts loops that touch at
+   a vertex (FindFirstPointWithinTolToPnt takes a double match there), so
+   an inner loop with a corner on its outer loop, or two inner loops
+   meeting at a corner, come here as separate loops of one outer loop.
+   Built as separate loops, their vertices there would be distinct and
+   coincident, and once merged the loops would share a vertex.
+METHOD ---
+   Within each outer loop's set: while a curve of one loop starts where a
+   curve of a later loop starts, splice the later loop into the earlier one
+   there: the earlier loop's curves up to that vertex, the later loop's
+   from that vertex round to it again, then the rest of the earlier loop.
+   Each loop keeps its direction, so the joined loop keeps the material on
+   its left. The outer loop stays first.
+***********************************************************************/
+SmStatus SmTrimmingTools::JoinTouchingLoops
+  (SmTArray< SmCurve* >     & rsCurves,           // i/o: FindOuterLoops' curves: each outer loop's CrvSet, then its inner loops'
+   SmTArray< ULONG >        & rsLoopCounts,       // i/o: Num of Crvs in each Loop, sized:[NumLoops]
+   SmTArray< SmOrientType > & rsOrients,          // i/o: assoc orientation of each Crv in its Loop, sized:[NumCrvs]
+   SmTArray< ULONG >        & rsOuterLoopCounts,  // i/o: Num of Loops in each outerLoop, sized:[NumOuterLoops]
+   double                     d3DTol)             // in : max dist between points taken as one vertex
+{
+  typedef std::pair< SmCurve*, SmOrientType > LoopCurve;
+  typedef std::vector< LoopCurve >            CurveLoop;
+
+  // Each outer loop's set of loops.
+  std::vector< std::vector< CurveLoop > > sSets;
+  ULONG lCurve = 0, lLoop = 0;
+  for (ULONG ii = 0; ii < rsOuterLoopCounts.GetSize(); ii++)
+    {
+      std::vector< CurveLoop > sSet;
+      for (ULONG jj = 0; jj < rsOuterLoopCounts[ii]; jj++, lLoop++)
+        {
+          if (lLoop >= rsLoopCounts.GetSize()) { SER(SM_ERR); }
+          CurveLoop sLoop;
+          for (ULONG kk = 0; kk < rsLoopCounts[lLoop]; kk++, lCurve++)
+            {
+              if (lCurve >= rsCurves.GetSize() || lCurve >= rsOrients.GetSize() || rsCurves[lCurve] == NULL) { SER(SM_ERR); }
+              sLoop.push_back(LoopCurve(rsCurves[lCurve], rsOrients[lCurve]));
+            }
+          sSet.push_back(sLoop);
+        }
+      sSets.push_back(sSet);
+    }
+  if (lLoop != rsLoopCounts.GetSize() || lCurve != rsCurves.GetSize() || lCurve != rsOrients.GetSize()) { SER(SM_ERR); }
+
+  // Where a curve starts as its loop runs it.
+  auto Start = [](const LoopCurve& crCurve, SmPoint3d& rPoint) -> SmStatus
+    {
+      SmExtent1d sIvl(crCurve.first->GetNaturalInterval());
+      return crCurve.first->EvaluatePoint(crCurve.second == SM_OT_SAME ? sIvl.GetMin() : sIvl.GetMax(), rPoint);
+    };
+
+  SmBoolean bJoined = FALSE;
+  for (std::vector< CurveLoop > & rSet : sSets)
+    {
+      SmBoolean bFound = TRUE;
+      while (bFound)
+        {
+          bFound = FALSE;
+          for (size_t aa = 0; !bFound && aa < rSet.size(); aa++)
+            {
+              for (size_t bb = aa + 1; !bFound && bb < rSet.size(); bb++)
+                {
+                  for (size_t ia = 0; !bFound && ia < rSet[aa].size(); ia++)
+                    {
+                      SmPoint3d sA;
+                      SER(Start(rSet[aa][ia], sA));
+                      for (size_t ib = 0; ib < rSet[bb].size(); ib++)
+                        {
+                          SmPoint3d sB;
+                          SER(Start(rSet[bb][ib], sB));
+                          if (sA.DistanceBetween(sB) >= d3DTol)
+                            { continue; }
+                          // Loop aa up to the vertex, loop bb round from it, then the rest of aa.
+                          CurveLoop sJoined(rSet[aa].begin(), rSet[aa].begin() + ia);
+                          sJoined.insert(sJoined.end(), rSet[bb].begin() + ib, rSet[bb].end());
+                          sJoined.insert(sJoined.end(), rSet[bb].begin(), rSet[bb].begin() + ib);
+                          sJoined.insert(sJoined.end(), rSet[aa].begin() + ia, rSet[aa].end());
+                          rSet[aa] = sJoined;
+                          rSet.erase(rSet.begin() + bb);
+                          bFound = bJoined = TRUE;
+                          break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+  if (!bJoined)
+    { return SM_SUCCESS; }
+
+  // set output
+  rsCurves.ReSet();
+  rsOrients.ReSet();
+  rsLoopCounts.ReSet();
+  rsOuterLoopCounts.ReSet();
+  for (const std::vector< CurveLoop > & crSet : sSets)
+    {
+      rsOuterLoopCounts.Add((ULONG)crSet.size());
+      for (const CurveLoop & crLoop : crSet)
+        {
+          rsLoopCounts.Add((ULONG)crLoop.size());
+          for (const LoopCurve & crCurve : crLoop)
+            {
+              rsCurves.Add(crCurve.first);
+              rsOrients.Add(crCurve.second);
+            }
+        }
+    }
+  return SM_SUCCESS;
+} // end SmTrimmingTools::JoinTouchingLoops
 
 /*******************************************************************//**
 PURPOSE: AssertValid() Test reporting static labels
@@ -3042,16 +3171,19 @@ PURPOSE: AssertValid() Test reporting static labels
 SmAssertReportLabel sTrimmingCheckLoop_list[] =
 /* lOwnerLabelIndex == 3 */
 {
-  /*  0 */ {SM_AT_GEOMETRIC, _T("Edge/Edge Gap"),     _T("Gap between edge endPoints exceeds tolerance") },
+  /*  0 */ {SM_AT_GEOMETRIC, _T("Edge/Edge Gap"),     _T("Gap between an edge endPoint and the vertex its edges meet at exceeds tolerance") },
   /*  1 */ {SM_AT_DOMAIN,    _T("UVEdge/UVEdge Gap"), _T("too large U Dir gap between loop Edge endPoints that are not on a singularity") },
   /*  2 */ {SM_AT_DOMAIN,    _T("UVEdge/UVEdge Gap"), _T("too large V Dir gap between loop Edge endPoints that are not on a singularity") }
 } ;
 
 /*******************************************************************//**
-PURPOSE:  signal errors when gap between any connecting
-             pair of loop->edges exceeds d3DTolerance.
+PURPOSE:  signal errors when a connecting pair of loop->edges does not
+             meet at the vertex between them.
 
-             gap = Surface(loop->edge->StartUVPoint) - Surface(loop->prevEdge->EndUVPoint)
+             The edges meet there when each lifted UV end lies within the
+             edge/vertex XSectTol3d of the vertex point:
+               Surface(loop->prevEdge->EndUVPoint) to Vertex, and
+               Surface(loop->edge->StartUVPoint)   to Vertex
 
           Large nonperiodic UV gaps may close within the edge intersection
           tolerance when their entire intervening B-spline subpatch (or
@@ -3117,6 +3249,25 @@ SmStatus SmTrimmingTools::CheckLoop
                             previous_start,
                             previous_end));
 
+      // An edgeuse with no UVTrimCurve has its ends from its vertexuses' projections
+      // (GetEdgeUVExtremes), which on a closed direction are known only modulo the period: a
+      // seam edge's two uses project to the same side. Such an end is taken on the period
+      // nearest the end it is compared with, so the seam is not read as a jump.
+      if(sEdgeuses[ii]->GetUVTrimCurve() == NULL || sEdgeuses[previous]->GetUVTrimCurve() == NULL)
+        {
+          SmExtent2d sNatural = pSurface->GetNaturalUVDomain();
+          if(pSurface->IsClosed(sNatural, SM_SP_U))
+            {
+              double dPeriod = sNatural.XLength();
+              current_start.x -= dPeriod * floor((current_start.x - previous_end.x) / dPeriod + 0.5);
+            }
+          if(pSurface->IsClosed(sNatural, SM_SP_V))
+            {
+              double dPeriod = sNatural.YLength();
+              current_start.y -= dPeriod * floor((current_start.y - previous_end.y) / dPeriod + 0.5);
+            }
+        }
+
       // When UVPoints vary by more than 1e-10
       if (previous_end.DistanceBetween(current_start) > 1e-10)
         {
@@ -3127,16 +3278,29 @@ SmStatus SmTrimmingTools::CheckLoop
           SER(pSurface->EvaluatePoint(current_start,
                                       current_start_3d));
 
-          // error - when SurfacePoints vary by more than d3DTolerance
           double dEndStartDist = previous_end_3d.DistanceBetween(current_start_3d) ;
 
-          // check the Edge/Edge xsect distance
-          //   gwc: this is a tight test - edges must be within XSectTol3d of Vertices, but two edges connected to one
-          //        vertex could be positioned so that their EndPoint distance is greater than XSectTol3d(pEdge1,pEdge2)
-          SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(sEdgeuses[ii]->GetEdge(), sEdgeuses[previous]->GetEdge()) ; 
+          // The two edges meet at the vertex between them, so the loop is closed in 3d
+          // when each edge end classifies to that vertex: it lies within the edge/vertex
+          // XSectTol3d of the vertex point (SmTol.h, tolerance model 3a, rule 1). The
+          // edge/edge XSectTol3d is tighter than the model: two edge ends inside one vertex
+          // neighborhood can lie farther apart than their edges' tolerances.
+          SmEdge   *pPrevEdge = sEdgeuses[previous]->GetEdge() ;
+          SmEdge   *pCurrEdge = sEdgeuses[ii]->GetEdge() ;
+          SmVertex *pVertex   = sEdgeuses[ii]->GetVertexuse()->GetVertex() ;
+          const SmPoint3d &rVertexPoint = pVertex->GetPoint() ;
+          double       dPrevGap      = previous_end_3d.DistanceBetween(rVertexPoint) ;
+          double       dCurrGap      = current_start_3d.DistanceBetween(rVertexPoint) ;
+          SmXSectTol3d sPrevXSectTol = SmTol::GetXSectTol3d(pPrevEdge, pVertex) ;
+          SmXSectTol3d sCurrXSectTol = SmTol::GetXSectTol3d(pCurrEdge, pVertex) ;
+          SmBoolean    bClosed3d     = (dPrevGap <= sPrevXSectTol && dCurrGap <= sCurrXSectTol) ;
 
-          bOK &= SM_ASSERT_OBJ_VALUE_REPORT(pLoop, SM_LIST_3, 0, SM_LEVEL_0, (dEndStartDist <= sXSectTol3d), pLoop, sXSectTol3d, dEndStartDist, _T("") ) ;
-          if(dEndStartDist > sXSectTol3d )
+          // the edges' own XSectTol3d bounds the UV subpatch test below
+          SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(pCurrEdge, pPrevEdge) ;
+
+          bOK &= SM_ASSERT_OBJ_VALUE_REPORT(pLoop, SM_LIST_3, 0, SM_LEVEL_0, (dPrevGap <= sPrevXSectTol), pLoop, sPrevXSectTol, dPrevGap, _T("") ) ;
+          bOK &= SM_ASSERT_OBJ_VALUE_REPORT(pLoop, SM_LIST_3, 0, SM_LEVEL_0, (dCurrGap <= sCurrXSectTol), pLoop, sCurrXSectTol, dCurrGap, _T("") ) ;
+          if(!bClosed3d)
             {
               rlClosure = 3;
 
@@ -3193,8 +3357,8 @@ SmBoolean bDebugMe = FALSE ;
                 }
 #endif // SM_DEBUG_CODE
               TCHAR sBuff[SM_TBLOCK_SIZE] ;
-              smos_sprintf(sBuff, _T("SmTrimmingTools::CheckLoop() - Gap/Tol [%16.16lf / %16.16lf] in Loop for edgeuse.\n"),
-                                dEndStartDist, (double)sXSectTol3d /* , sEdgeuses[i] */ ) ;
+              smos_sprintf(sBuff, _T("SmTrimmingTools::CheckLoop() - EdgeEnd/Vertex Gap/Tol [%16.16lf / %16.16lf] and [%16.16lf / %16.16lf] in Loop for edgeuse.\n"),
+                                dPrevGap, (double)sPrevXSectTol, dCurrGap, (double)sCurrXSectTol) ;
               SE_MSG(SM_ERR,sBuff);  // was SER_MSG(SM_ERR,sBuff); prevented further tests.
             }
 
@@ -3549,11 +3713,11 @@ SmBoolean SmTrimmingTools::IsIsoCurve
   rdParamValue = 0;
 
   SmExtent3d sTempBBox;
-  cpUVCurve->CalculateBoundingBox( cpUVCurve->GetNaturalInterval(), &sTempBBox );
+  if ( cpUVCurve->CalculateBoundingBox( cpUVCurve->GetNaturalInterval(), &sTempBBox ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without the box the curve is not shown iso
   SM_ASSERT( sTempBBox.GetWInterval().GetLength() < SM_EFF_ZERO );
   SmExtent2d sCurveBBox( sTempBBox.GetUInterval(), sTempBBox.GetVInterval() );
   SmExtent2d sSrfDomain = cpSurf->GetNaturalUVDomain();
-  sCurveBBox.Intersect( sSrfDomain, sCurveBBox );
+  if ( sCurveBBox.Intersect( sSrfDomain, sCurveBBox ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without the box the curve is not shown iso
 
   SmExtent1d sCrvUIvl = sCurveBBox.GetUInterval();
   SmExtent1d sCrvVIvl = sCurveBBox.GetVInterval();
@@ -4153,7 +4317,7 @@ SmStatus SmCurveLoops::FindAdjacentLoopCurve
     { return SM_ERR; }
 
   // get range of curves in the loop that contains pCrv
-  this->GetLoopStartEnd( lCurveIndx, lStart, lEnd );
+  SER( this->GetLoopStartEnd( lCurveIndx, lStart, lEnd ) );
 
   // dParam in 1st half of curve branch
   if(dParam < pCrv->GetNaturalInterval().GetMid()) { // get previous curve on circular list
@@ -4275,9 +4439,9 @@ SmStatus SmCurveLoops::SampleNearbyPoints
     {
       // Use 1/5 of the way to the ends of the domain.
       dT = 0.8 * dParam + 0.2 * sDomain.GetMin();
-      pCrv->EvaluatePoint( dT, rPt1 );
+      SER( pCrv->EvaluatePoint( dT, rPt1 ) );
       dT = 0.8 * dParam + 0.2 * sDomain.GetMax();
-      pCrv->EvaluatePoint( dT, rPt2 );
+      SER( pCrv->EvaluatePoint( dT, rPt2 ) );
     }
   else // dParam is within tol of the boundaries - eval point on adjacent curve
     {
@@ -4288,7 +4452,7 @@ SmStatus SmCurveLoops::SampleNearbyPoints
       ULONG lAdjIndx = 0 ;
 
       // find adjacent loop curve
-      this->FindAdjacentLoopCurve( pCrv, dParam, lAdjIndx );
+      SER( this->FindAdjacentLoopCurve( pCrv, dParam, lAdjIndx ) );
       SmCurve     * pAdjCrv    = m_sCurves[ lAdjIndx ];
       SmExtent1d    sAdjDomain = pAdjCrv->GetNaturalInterval();
       SmOrientType  eAdjOrient = m_sOrients[ lAdjIndx ];
@@ -4297,20 +4461,20 @@ SmStatus SmCurveLoops::SampleNearbyPoints
       if(dParam < sDomain.GetMid() )
         {
           dT = sDomain.Evaluate( 0.2 );
-          pCrv->EvaluatePoint( dT, rPt1 );
+          SER( pCrv->EvaluatePoint( dT, rPt1 ) );
 
           dT = (eAdjOrient == SM_OT_SAME) ? sAdjDomain.Evaluate( 0.8 )
                                           : sAdjDomain.Evaluate( 0.2 );
-          pAdjCrv->EvaluatePoint( dT, rPt2 );
+          SER( pAdjCrv->EvaluatePoint( dT, rPt2 ) );
         }
       else // when dParam is at curve end - evaluate adjacent curve near connection
         {
           dT = sDomain.Evaluate( 0.8 );
-          pCrv->EvaluatePoint( dT, rPt1 );
+          SER( pCrv->EvaluatePoint( dT, rPt1 ) );
 
           dT = (eAdjOrient == SM_OT_SAME ) ? sAdjDomain.Evaluate( 0.2 )
                                            : sAdjDomain.Evaluate( 0.8 );
-          pAdjCrv->EvaluatePoint( dT, rPt2 );
+          SER( pAdjCrv->EvaluatePoint( dT, rPt2 ) );
         }
     } // end dParam is within tol of curve end branch - evaluate point on adjacent curve
 
@@ -4337,7 +4501,7 @@ SmBoolean SmCurveLoops::IsSameSideIntersection
   SmPoint3d sPt1, sPt2;
 
   // sample points near TgtCurve
-  this->SampleNearbyPoints( pCrv, dParam, sPt1, sPt2 );
+  if ( this->SampleNearbyPoints( pCrv, dParam, sPt1, sPt2 ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without the nearby points the sides are not shown the same
   SmPoint3d sUv1( sPt1 ), sUv2( sPt2 );
 
   // when Curves are in 3d - drop nearby Pts to Surface UV domain

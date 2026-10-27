@@ -108,6 +108,7 @@ namespace
             case SM_ERR_METHOD_FAILURE_QUITING:  return "SM_ERR_METHOD_FAILURE_QUITING";
             case SM_ERR_NOTYET_HEAL_FACE:        return "SM_ERR_NOTYET_HEAL_FACE";
             case SM_ERR_TESS_FAIL_FACE:          return "SM_ERR_TESS_FAIL_FACE";
+            case SM_ERR_OFFSET_WALLS_TOUCH:      return "SM_ERR_OFFSET_WALLS_TOUCH";
             default:                             return "SM_ERR_???";
         }
     }

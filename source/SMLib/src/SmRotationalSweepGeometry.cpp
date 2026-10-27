@@ -14,6 +14,10 @@
 #include <SmBSplineSurface.h>
 #include <SmGeomUtility.h>
 #include <SmTopologySweep.h>
+#include <SmCylinder.h>
+#include <SmCone.h>
+#include <SmSphere.h>
+#include <SmTorus.h>
 
 #ifdef SM_DEBUG_CODE
   #include <SmCircle.h>
@@ -856,7 +860,7 @@ SmStatus SmRotationalSweepGeometry::GetStartCoordSystem
 
   sDiffVec /= dLen;
 
-  rCoordSys.SetCanonical( rPt, m_sAxis, sDiffVec );
+  SER( rCoordSys.SetCanonical( rPt, m_sAxis, sDiffVec ) );
 
   return SM_SUCCESS;
 
@@ -952,7 +956,7 @@ SmStatus SmRotationalSweepGeometry::VertexSweepHigher
   double dRad = (sRotCenter - sOriginalPt).Length();
 
   SmAxis2Placement sA2P;
-  sA2P.SetCanonical(sRotCenter,sXVect,sYVect);
+  SER( sA2P.SetCanonical(sRotCenter,sXVect,sYVect) );
 
   SmNurbCircleParam eParameterization = SM_CO_QUADRATIC;  // degree 2
   // The circle generator can cope all angles.
@@ -1067,6 +1071,151 @@ static SmStatus sm_CreateRotSrf
   return SM_SUCCESS;
 
 } // end sm_CreateRotSrf
+
+/*******************************************************************//**
+PURPOSE: The analytic surface a curve sweeps turning dAngleDeg about the axis through
+    crBasePt along the unit crAxis, bounded to the curve and the turn; NULL for any other
+    curve (it is then a B-spline surface of revolution). One rule per curve kind:
+      a line parallel to the axis   - an SmCylinder,
+      any other line off the axis   - an SmCone (a line square to the axis is a plane, made by
+                                      the caller),
+      an arc centred on the axis    - an SmSphere,
+      an arc in a plane through the
+      axis, its centre off the axis - an SmTorus.
+    Each surface's frame has Z along the axis and X from the axis into the curve's half-plane,
+    so the sweep runs from angle 0 to dAngleDeg counter-clockwise about Z, as the topology
+    sweep turns; its other parameter is bounded to the curve's extent (height along the axis
+    for a cylinder or cone, latitude for a sphere, the generating circle's angle for a torus).
+    An end on the axis is a pole or an apex; the caller drops the degenerate side curve there.
+NOTES: SolidCraft: upstream swept every curve as a B-spline surface of revolution and then
+    asked CopyAndAddAnalytics for an analytic copy, which recognises no cylinder or torus and
+    whose cone and sphere are parameterised otherwise than the B-spline the face's trims are
+    made on, so they were refused: a revolved profile had no cylinder, cone, sphere or torus
+    faces. This is the rotational counterpart of the linear sweep's ArcSweepCylinder. A full
+    turn (SmPrimitiveCreation::CreateRotationalSweep without an angle) uses it too.
+***********************************************************************/
+SmStatus SmRotationalSweepGeometry::AnalyticSurface
+  (const SmContext    & crContext,   // in : context for new geometry creation
+   const SmCurve      * pCurve,      // in : the curve swept (trimmed to its edge)
+   const SmPoint3d    & crBasePt,    // in : a point on the axis
+   const SmVector3d   & crAxisArg,   // in : the axis
+   double               dAngleDeg,   // in : the turn, (0, 360]
+   double               dEps,        // in : distance tolerance
+   SmBSplineSurface  *& rpSurface)   // out: the analytic surface, or NULL
+{
+  rpSurface = NULL;
+  NER(pCurve);
+  SmVector3d crAxis(crAxisArg);
+  SER(crAxis.Unitize());
+  SmPoint3d sStart, sEnd, sMid;
+  pCurve->GetEnds(sStart, sEnd);
+  SmExtent1d sIvl = pCurve->GetNaturalInterval();
+  SER(pCurve->EvaluatePoint(0.5 * (sIvl.GetMin() + sIvl.GetMax()), sMid));
+  // Distance along the axis, and the offset from it.
+  auto axial  = [&](const SmPoint3d & p) { return SmVector3d(p - crBasePt).Dot(crAxis); };
+  auto radial = [&](const SmPoint3d & p) { SmVector3d d(p - crBasePt); return d - d.Dot(crAxis) * crAxis; };
+  SmVector3d sX = radial(sMid);
+  if (sX.Length() <= dEps)
+    { return SM_SUCCESS; }
+  SER(sX.Unitize());
+  SmAxis2Placement sFrame;
+  SmExtent2d       sDomain;
+  if (pCurve->IsLinear(dEps))
+    {
+      double dH0 = axial(sStart), dH1 = axial(sEnd);
+      double dR0 = radial(sStart).Length(), dR1 = radial(sEnd).Length();
+      double dLow = smos_Min(dH0, dH1), dHigh = smos_Max(dH0, dH1);
+      if (dHigh - dLow <= dEps)
+        { return SM_SUCCESS; } // square to the axis: a plane
+      double dRLow = (dH0 < dH1) ? dR0 : dR1, dRHigh = (dH0 < dH1) ? dR1 : dR0;
+      SER(sFrame.SetCanonical(crBasePt + dLow * crAxis, sX, crAxis * sX));
+      SER(sDomain.SetMinMax(0.0, 0.0, dAngleDeg, dHigh - dLow));
+      SmCone* pCone = NULL;
+      if (smos_Fabs(dRLow - dRHigh) <= dEps)
+        {
+          SmCylinder* pCylinder = NULL;
+          SER(SmCylinder::CreateCanonical(crContext, sFrame, 0.5 * (dRLow + dRHigh), pCylinder));
+          pCone = pCylinder;
+        }
+      else
+        {
+          SER(SmCone::CreateCanonical(crContext, sFrame, dRLow, dRHigh, dHigh - dLow, pCone));
+        }
+      NER(pCone);
+      SmStatus eStat = pCone->AdjustSTEPUVDomain(sDomain);
+      if (eStat != SM_SUCCESS)
+        { delete pCone; return eStat; }
+      rpSurface = pCone;
+      return SM_SUCCESS;
+    }
+  SmAxis2Placement sArcFrame;
+  double dRadius = 0.0, dStartDeg = 0.0, dEndDeg = 0.0;
+  if (!pCurve->IsArc(8, dEps, sArcFrame, dRadius, dStartDeg, dEndDeg))
+    { return SM_SUCCESS; }
+  // The arc's plane holds the axis: its normal square to it, its centre in the plane.
+  SmPoint3d  sCenter = sArcFrame.GetOrigin();
+  SmVector3d sNormal = sArcFrame.GetZAxis();
+  if (smos_Fabs(sNormal.Dot(crAxis)) > dEps / smos_Max(dRadius, 1.0) || smos_Fabs(SmVector3d(sCenter - crBasePt).Dot(sNormal)) > dEps)
+    { return SM_SUCCESS; }
+  SmVector3d sCenterOff = radial(sCenter);
+  double     dMajor     = sCenterOff.Length();
+  if (dMajor <= dEps)
+    {
+      // A sphere centred on the axis through the curve's two ends, which the profile's
+      // neighbouring edges share. Its centre's height h, from the arc centre's, makes
+      // (a - h)^2 + r^2 the same at both ends. The arc's own centre and radius are off such a
+      // sphere by up to dEps; taken as they were, the sphere missed the ends by that much, and
+      // an end on the axis fell short of the pole by a parallel of radius about
+      // sqrt(2 dEps R): a hole in a face whose loop runs up the seam to a pole.
+      double dA0 = axial(sStart) - axial(sCenter), dA1 = axial(sEnd) - axial(sCenter);
+      double dR0 = radial(sStart).Length(), dR1 = radial(sEnd).Length();
+      double dH  = (smos_Fabs(dA1 - dA0) > dEps)
+                 ? 0.5 * (dA0 + dA1) + 0.5 * (dR1 - dR0) * (dR1 + dR0) / (dA1 - dA0) : 0.0;
+      SmPoint3d sSphereCenter = crBasePt + (axial(sCenter) + dH) * crAxis;
+      dA0 -= dH;
+      dA1 -= dH;
+      dRadius = 0.5 * (sqrt(dA0 * dA0 + dR0 * dR0) + sqrt(dA1 * dA1 + dR1 * dR1));
+      // Latitude from -90 at the bottom pole to 90 at the top one. An end the sweep takes to be
+      // on the axis (sm_CheckEdgeVerticesOnAxis, within dEps) is the pole.
+      auto latitude = [&](double dA, double dR)
+        { if (dR < dEps)
+            { return (dA < 0.0) ? -90.0 : 90.0; }
+          return SM_RAD2DEG(atan2(dA, dR)); };
+      double dLat0 = latitude(dA0, dR0), dLat1 = latitude(dA1, dR1);
+      SER(sDomain.SetMinMax(0.0, smos_Min(dLat0, dLat1), dAngleDeg, smos_Max(dLat0, dLat1)));
+      // Built on its domain, as SmSphere::CreateCanonical builds the whole sphere: a whole
+      // sphere trimmed to it (AdjustSTEPUVDomain) is reparameterised, and a boolean's trim
+      // curves on that came out with near-cusps SMLib's own check refuses.
+      SmSphere* pSphere = new (crContext) SmSphere(sSphereCenter, sX, crAxis * sX, sDomain, dRadius);
+      NER(pSphere);
+      if (pSphere->MakeNurb() != SM_SUCCESS || pSphere->GetGwNurbPointer() == NULL)
+        { delete pSphere; SER(SM_ERR); }
+      rpSurface = pSphere;
+      return SM_SUCCESS;
+    }
+  // A torus: the generating circle about origin + major X, its angle from X toward Z.
+  SmVector3d sTX = (1.0 / dMajor) * sCenterOff;
+  SmPoint3d  sOrigin = crBasePt + axial(sCenter) * crAxis;
+  auto tube = [&](const SmPoint3d & p)
+    { SmVector3d d(p - sCenter); return SM_RAD2DEG(atan2(d.Dot(crAxis), d.Dot(sTX))); };
+  double dV0 = tube(sStart), dVm = tube(sMid);
+  double dSpan = dEndDeg - dStartDeg;
+  // The arc runs from its start one way or the other: the way that passes its middle.
+  double dUp = dVm - dV0;
+  while (dUp < 0.0)   dUp += 360.0;
+  while (dUp > 360.0) dUp -= 360.0;
+  double dV1 = (2.0 * dUp <= dSpan + 1e-9) ? dV0 + dSpan : dV0 - dSpan;
+  double dLow = smos_Min(dV0, dV1), dHigh = smos_Max(dV0, dV1);
+  while (dHigh > 360.0) { dLow -= 360.0; dHigh -= 360.0; }
+  while (dLow < -360.0) { dLow += 360.0; dHigh += 360.0; }
+  SER(sFrame.SetCanonical(sOrigin, sTX, crAxis * sTX));
+  SER(sDomain.SetMinMax(0.0, dLow, dAngleDeg, dHigh));
+  SmTorus* pTorus = NULL;
+  SER(SmTorus::CreateCanonical(crContext, sFrame, dMajor, dRadius, pTorus, FALSE, FALSE, NULL, &sDomain));
+  NER(pTorus);
+  rpSurface = pTorus;
+  return SM_SUCCESS;
+} // end SmRotationalSweepGeometry::AnalyticSurface
 
 /*******************************************************************//**
 PURPOSE: Create geometry for sweeping an SmEdge into higher dim.
@@ -1293,19 +1442,23 @@ SmBoolean bDebugMe1 = FALSE;
     }
   else
     {
-      // Creates the surface by SmBSplineSurface::CreateSurfOfRevolution,
-      // (Should be using SmSurfOfRevolution except SmSurfOfRevolution needs to be more general than coplanar generator curves)
-      SER(sm_CreateRotSrf(crContext,                // in : context for new geometry creation
-                          pCopiedOrigEdgeCurve,     // in : generator curve
-                          m_sBasePt,                // in : rotation point
-                          m_sAxis,                  // in : rotation axis
-                          m_dAngle,                 // in : rotation angle
-                          dEps,                     // in : not used
-                          this,                     // in : not used
-                          pStartVtx,                // in : not used
-                          pEndVtx,                  // in : not used
-                          pNewSurf,                 // out: the new surface
-                          eStartTrimCurveParam));   // out: one of SM_SP_U or SM_SP_V (always SM_SP_U)
+      // The analytic surface the curve sweeps where it is one, else a B-spline surface of
+      // revolution (SmBSplineSurface::CreateSurfOfRevolution).
+      SER(AnalyticSurface(crContext, pCopiedOrigEdgeCurve, m_sBasePt, m_sAxis, m_dAngle, dEps, pNewSurf));
+      if (pNewSurf == NULL)
+        {
+          SER(sm_CreateRotSrf(crContext,                // in : context for new geometry creation
+                              pCopiedOrigEdgeCurve,     // in : generator curve
+                              m_sBasePt,                // in : rotation point
+                              m_sAxis,                  // in : rotation axis
+                              m_dAngle,                 // in : rotation angle
+                              dEps,                     // in : not used
+                              this,                     // in : not used
+                              pStartVtx,                // in : not used
+                              pEndVtx,                  // in : not used
+                              pNewSurf,                 // out: the new surface
+                              eStartTrimCurveParam));   // out: one of SM_SP_U or SM_SP_V (always SM_SP_U)
+        }
     }
 
   if (pNewSurf==NULL)

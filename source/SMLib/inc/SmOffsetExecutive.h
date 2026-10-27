@@ -148,6 +148,8 @@ protected:
   SmRelation<SmVertex,SmFace>     m_vVToF;              // map origVertices to CapFaces created to fill gaps created by offsetting surfaces from the vertex
   SmRelation<SmFace,SmFace>       m_vBlendToFaces;
   SmMapPtrToPtr<SmSurface, SmSurface> & m_vSurfExtSurf;
+  SmTArray<SmFace*>               m_sCollapsedFaces;    // inset faces whose offset collapses (a round thinner than the wall),
+                                                        //  mated across instead of offset (DoExtendedOffset())
 
 public:
 
@@ -225,6 +227,18 @@ public:
   // Internals:
 
   SmStatus BuildSideWallOfEdgeuse(SmEdgeuse *pEdgeuse);
+  // Close the loop gaps the offset leaves (a local operation's steps, a solid offset's vertex
+  // where two consecutive edges' offsets run parallel): where consecutive edgeuses of an offset
+  // face no longer meet at their vertex, the straight edge between their ends.
+  SmStatus CloseLoopGaps();
+  SmStatus CloseLoopGap(SmFace *pFace, SmEdgeuse *pEdgeuse, SmBoolean bAtStart, const SmPoint3d &crVertexPoint, double dTol);
+  // A local operation's step walls' corners where an edge of another face runs past them: that
+  // edge split there.
+  SmStatus SplitEdgesAtStepCorners();
+  // SolidCraft fork: the offset faces whose loops cross (an inner loop's offset grown past the
+  // outer loop's) rebuilt from the stretches of their loops that bound the face, before the merge.
+  SmStatus ResolveCrossingLoops();
+  SmStatus ResolveCrossingLoopsOfFace(SmFace *pFace);
 
   virtual SmStatus BuildOffsetOfEdgeuses(SmEdgeuse *pEdgeuse,
                                          SmEdgeuse *pOtherEdgeuse,
@@ -253,6 +267,8 @@ public:
                                     SmSurface *& rpExtSurface);
 
   SmEdgeuse * GetOffsetEdgeuse(SmEdgeuse *cpOrigEu);
+  SmBoolean   IsCollapsedFace(const SmFace *pFace) const { return m_sCollapsedFaces.IsIn(SM_CONST_CAST(SmFace*, pFace)); }
+  SmEdgeuse * GetEdgeuseAcrossCollapsedFace(const SmEdgeuse *pEU, const SmVertex *pFrom) const;
 
   SmStatus MapEdgeuses(SmFaceuse * pOriginalFU,
                        SmFace * pOffsetFace);

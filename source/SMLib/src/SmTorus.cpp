@@ -68,7 +68,7 @@ SmTorus::SmTorus
       SmVector3d        sZAxis     = crXAxis * crYAxis;
       SmPoint3d         sCircleCenter(crOrigin + dMajorRadius*crXAxis);
       SmCircle        * pNewCircle = NULL ; 
-      SmCircle::CreateCanonical(*pContext,
+      (void)SmCircle::CreateCanonical(*pContext, // SolidCraft: a constructor cannot report
                                 SmAxis2Placement(sCircleCenter,
                                                  crXAxis,
                                                  crXAxis * crYAxis),
@@ -224,6 +224,22 @@ SmStatus SmTorus::CreateCanonical
 } // end SmTorus::CreateCanonical
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when the offset by dSignedOffsetDistance
+    shrinks the torus onto its centre circle or past it: the offset's minor
+    radius below dTol (SmSurface::OffsetCollapses).
+***********************************************************************/
+SmBoolean SmTorus::OffsetCollapses
+(
+  double dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double dTol                    // in : the radius below which the offset is the centre circle
+) const
+{
+  // When UVs are swapped - reverse orientation of offset
+  double dOffsetSign = m_bSwapUV ? -1.0 : 1.0 ;
+  return m_dMinorRadius + dOffsetSign * dSignedOffsetDistance < dTol;
+} // end SmTorus::OffsetCollapses
+
+/*******************************************************************//**
 PURPOSE: Create an offset torus for the torus.
 
 NOTES: 
@@ -298,7 +314,8 @@ SmBoolean bDebugMe = FALSE ;
   // skip building degenerate or negative radius minor circles
   // gwc: currently we can construct self intersection tori when
   //      majorRadius < minorRadius.  A warning is signaled in the constructor.
-  if(   dNewMinRadius < dThisApproxTol3d)
+  // (SolidCraft: the offset collapses onto the centre circle, OffsetCollapses)
+  if ( OffsetCollapses(dSignedOffsetDistance, dThisApproxTol3d) )
     { return SM_SUCCESS; }
 
   // copy the current torus
@@ -322,7 +339,7 @@ SmBoolean bDebugMe = FALSE ;
       SmVector3d       sScale(dScale, dScale, dScale) ;
       SmAxis2Placement sMove ;
       sMove.Translate(sMoveVec) ;
-      pOffTorus->m_pGenCurve->Transform(sMove, &sScale) ; 
+      SER( pOffTorus->m_pGenCurve->Transform(sMove, &sScale)  ); 
     }
 
   // rebuild the underlying Nurb Surface
@@ -817,14 +834,14 @@ SmStatus SmTorus::CreateIsoParametricCurve
 
   // get the BSplineCurve          
   SmBSplineCurve *pIsoCurve ;
-  SmBSplineSurface::CreateIsoParametricCurve(crContext, 
+  SER( SmBSplineSurface::CreateIsoParametricCurve(crContext, 
                                              eSurfParam, 
                                              dIsoParameter, 
                                              0.0, 
                                              pIsoCurve, 
                                              pOptDomain,
                                              pOptMaxGap3d,     // out: opt achieved max gap, NULL to ignore, default:[NULL]
-                                             pOptUVIsoCurve) ; // out: opt 2d UVTrimCurve Line (diff parameterization), NULL to ignore, default:[NULL]
+                                             pOptUVIsoCurve)  ); // out: opt 2d UVTrimCurve Line (diff parameterization), NULL to ignore, default:[NULL]
 
   // low work - when curve is degenerate don't bother making a circle
   if(pIsoCurve->IsDegenerate()) { rpNewIsoCurve = pIsoCurve ;
@@ -849,8 +866,8 @@ SmStatus SmTorus::CreateIsoParametricCurve
   // Get IsoCurve Nurb endPoints
   SmPoint3d sNurbMinPoint, sNurbMaxPoint ;
   SmExtent1d sNurbIvl = pIsoCurve->GetNaturalInterval() ;
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sNurbMinPoint) ;
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sNurbMaxPoint) ;
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sNurbMinPoint)  );
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sNurbMaxPoint)  );
   SmVector3d sNurbMinVec = sNurbMinPoint - rTorusOrigin ;
   SmVector3d sNurbMaxVec = sNurbMaxPoint - rTorusOrigin ;
 
@@ -867,7 +884,7 @@ SmStatus SmTorus::CreateIsoParametricCurve
       if(dLength < SM_EFF_ZERO_SQRT)
         {
           SmPoint3d sNurbMidPoint ;
-          pIsoCurve->EvaluatePoint(sNurbIvl.Evaluate(.5), sNurbMidPoint) ;
+          SER( pIsoCurve->EvaluatePoint(sNurbIvl.Evaluate(.5), sNurbMidPoint)  );
           SmVector3d sNurbMidVec = sNurbMidPoint - rTorusOrigin ;
           sXAxis = sTorusZAxis * sNurbMinVec * sTorusZAxis ;
           dLength = sXAxis.Length() ;
@@ -903,10 +920,17 @@ SmStatus SmTorus::CreateIsoParametricCurve
   else // get angles to min/max points inside periodic interval
     {
       SmVector3d sCircleZAxis = sXAxis * sYAxis ;
+      // SolidCraft: the angles are the circle's own, measured from its centre. Upstream measured
+      // them from the torus's origin, which for the minor circle is not its centre: the iso
+      // curve then got an interval outside the torus's own (a turn starting at 135 degrees on
+      // a 13.1 x 1.5 torus came out as 5.04..365.04 against -225..135, later collapsing to a
+      // zero-length circle).
+      SmVector3d sCircleMinVec = sNurbMinPoint - sCircleCenter ;
+      SmVector3d sCircleMaxVec = sNurbMaxPoint - sCircleCenter ;
       double dMinAngRad, dMaxAngRad ;
       double dMinAngDeg, dMaxAngDeg ;
-      sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMinVec, dMinAngRad) ;
-      sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMaxVec, dMaxAngRad) ;
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sCircleMinVec, dMinAngRad)  );
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sCircleMaxVec, dMaxAngRad)  );
       sAnalDomain.ContainsPeriodicValue(dMinAngRad * 180.0 / SM_PI, 360.0, &dMinAngDeg) ; 
       sAnalDomain.ContainsPeriodicValue(dMaxAngRad * 180.0 / SM_PI, 360.0, &dMaxAngDeg) ;
       
@@ -923,8 +947,8 @@ SmStatus SmTorus::CreateIsoParametricCurve
           // set isoCurve analytic domain accounting for m_binside reversals
           if ( smos_Fabs( dMaxAngDeg-dMinAngDeg ) < sAnalDomain.GetLength()-SM_EFF_ZERO )
             { dMaxAngDeg = dMinAngDeg + sAnalDomain.GetLength(); }
-          sCircleAnalDomain.SetMinMax(smos_Min(dMinAngDeg, dMaxAngDeg),
-                                      smos_Max(dMinAngDeg, dMaxAngDeg))  ;
+          SER( sCircleAnalDomain.SetMinMax(smos_Min(dMinAngDeg, dMaxAngDeg),
+                                      smos_Max(dMinAngDeg, dMaxAngDeg))   );
         }
     } // end need to compute interval from angles branch
   
@@ -991,6 +1015,43 @@ SmStatus SmTorus::GetCanonical
 } // end SmTorus::GetCanonical
 
 /*******************************************************************//**
+PURPOSE: The generating circle's analytic interval, in degrees, from the NURB surface's
+    first and last points, each given by its circle's X axis (from the torus axis out to the
+    circle's centre) and the vector from that centre to the point. The angle of a point is
+    measured counter-clockwise from X toward the torus's Z axis, as SmTorus::EvaluateSTEP
+    measures V, over a whole turn; an inside-out torus runs its generating NURB the other way
+    round, so its first point ends the interval and its last one starts it.
+
+NOTES: SolidCraft: upstream measured both angles with AngleBetween, which is unsigned (0 to
+    180 degrees): an interval below the torus's equator or past 180 degrees came out mirrored
+    (-90..90 as 90..450, the inner half of the tube), so a face's torus rebuilt from its NURB by
+    SmFace::SwapUV (the sweep orienting its faces) no longer matched it.
+***********************************************************************/
+static SmStatus sm_TorusGenCurveInterval
+  (const SmVector3d & crXAxisForFirst,  // in : unit X of the first point's generating circle
+   const SmVector3d & crVecFirst,       // in : from that circle's centre to the first point
+   const SmVector3d & crXAxisForLast,   // in : unit X of the last point's generating circle
+   const SmVector3d & crVecLast,        // in : from that circle's centre to the last point
+   const SmVector3d & crTorusZAxis,     // in : the torus's axis
+   SmBoolean          bInsideOut,       // in : TRUE = the NURB runs against the analytic angle
+   double             dZeroDeg,         // in : angles this close to 0 or to a whole turn snap to it
+   double           & rdLowDeg,         // out: the interval's start
+   double           & rdHighDeg)        // out: the interval's end, above the start by at most 360
+{
+  double dFirstRad = 0.0, dLastRad = 0.0;
+  SER((crXAxisForFirst * crTorusZAxis).CCWAngleBetween(crXAxisForFirst, crVecFirst, dFirstRad));
+  SER((crXAxisForLast * crTorusZAxis).CCWAngleBetween(crXAxisForLast, crVecLast, dLastRad));
+  double dFirstDeg = 180.0 * dFirstRad / SM_PI;
+  double dLastDeg  = 180.0 * dLastRad / SM_PI;
+  rdLowDeg  = bInsideOut ? dLastDeg : dFirstDeg;
+  rdHighDeg = bInsideOut ? dFirstDeg : dLastDeg;
+  if (smos_Fabs(rdLowDeg) < dZeroDeg)  { rdLowDeg = 0.0; }
+  if (smos_Fabs(rdHighDeg) < dZeroDeg) { rdHighDeg = 0.0; }
+  if (rdHighDeg < rdLowDeg + dZeroDeg) { rdHighDeg += 360.0; }
+  return SM_SUCCESS;
+} // end sm_TorusGenCurveInterval
+
+/*******************************************************************//**
 PURPOSE: Static function to determine if a given nurbs is a Torus.
             If it is a Torus then one is created.
 
@@ -1036,8 +1097,8 @@ static ULONG lDebugCount = 0 ;
   // evaluate Nurb min/max domain points
   SmExtent2d sNurbUVDomain = pTestSurface->GetNaturalUVDomain();
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
 
   // scale zero value
   double dScaledZero =   dToleranceScale  
@@ -1144,12 +1205,12 @@ static ULONG lDebugCount = 0 ;
   // Get GenCurve angles from each genCurves center point coordinate system
   // project Nurb Min/Max Point to Torus XY plane to get vec to Center of each GenCurve
   SmVector3d sMinPlanePoint, sMaxPlanePoint ;
-  smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint) ;
-  smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint) ;
+  if ( smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
+  if ( smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
   SmVector3d sStartForMinAngle = sMinPlanePoint - sTorusOrigin ; 
   SmVector3d sStartForMaxAngle = sMaxPlanePoint - sTorusOrigin ;
-  sStartForMinAngle.Unitize() ; 
-  sStartForMaxAngle.Unitize() ;
+  (void)sStartForMinAngle.Unitize() ; // SolidCraft: a zero vector stays zero
+  (void)sStartForMaxAngle.Unitize() ; // SolidCraft: a zero vector stays zero
   SmVector3d sMinOrigin = sTorusOrigin + dMajRad * sStartForMinAngle ; 
   SmVector3d sMaxOrigin = sTorusOrigin + dMajRad * sStartForMaxAngle ; 
 
@@ -1159,16 +1220,9 @@ static ULONG lDebugCount = 0 ;
 
   // get GenCurve min and max angles measured from each GenCurve's origin and start vector
   double dGenAngleMin, dGenAngleMax;
-  SE(sStartForMinAngle.AngleBetween(sVecMin,dGenAngleMin));
-  SE(sStartForMaxAngle.AngleBetween(sVecMax,dGenAngleMax));
-  dGenAngleMin = 180.0 * dGenAngleMin / SM_PI;
-  dGenAngleMax = 180.0 * dGenAngleMax / SM_PI;
-
-  // snap to ends for small tolerances
-  if(   smos_Fabs(dGenAngleMin) < SM_EFF_ZERO)       { dGenAngleMin = 0.0 ; }
-  if(   smos_Fabs(dGenAngleMax) < SM_EFF_ZERO
-     || smos_Fabs(dGenAngleMax-360.0) < SM_EFF_ZERO) { dGenAngleMax = 360.0 ; }
-  if(dGenAngleMax < dGenAngleMin) { dGenAngleMax += 360.0 ; }
+  if (sm_TorusGenCurveInterval(sStartForMinAngle, sVecMin, sStartForMaxAngle, sVecMax, sTorusZAxis, bInsideOut,
+                               SM_EFF_ZERO, dGenAngleMin, dGenAngleMax) != SM_SUCCESS)
+    { return FALSE ; }
 
   // define Torus domain
   SmExtent2d sAnalUVDomain(pSweepIvl->GetMin(), dGenAngleMin, pSweepIvl->GetMax(), dGenAngleMax);
@@ -1213,7 +1267,11 @@ static ULONG lDebugCount = 0 ;
   //  3. make a Torus PolarConverter for rotation angles
 
   // reparameterize the NURB so that AnalyticSurface->NurbDomain == InputSurface->NurbDomain
-  rpTorus->Reparameterize(pTestSurface->GetNaturalUVDomain()) ;
+  // SolidCraft change: a torus it cannot reparameterize onto the input domain is not the input
+  if (rpTorus->Reparameterize(pTestSurface->GetNaturalUVDomain()) != SM_SUCCESS)
+    { delete rpTorus; rpTorus = NULL;
+      return FALSE;
+    }
 
   // obsolete - it's a mistake to introduce tol sized variations between the Nurb and Anal reps by copying the m_pNurb object
   // Copy pTestSurface->m_pNurb into newTorus
@@ -1292,8 +1350,8 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
   // evaluate min/max domain points
   SmExtent2d sNurbUVDomain = GetNaturalUVDomain();
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  SER( EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) );
+  SER( EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) );
 
   // scaled zero value
   double dToleranceScale = 1000.0 ;  // loose because surf is already labeled analytic
@@ -1377,7 +1435,7 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
                            * sCommonVec ;
 
   // Install the origin into pRefFrame.  // [B328]
-  pRefFrame->SetCanonical( sTorusOrigin, pRefFrame->GetXAxisRef(), pRefFrame->GetYAxisRef() );
+  SER( pRefFrame->SetCanonical( sTorusOrigin, pRefFrame->GetXAxisRef(), pRefFrame->GetYAxisRef() ) );
 
   // get torus orientation and size
   SmVector3d sMajorVec = pOtherFrame->GetOriginRef() - pRefFrame->GetOriginRef() ;
@@ -1398,12 +1456,12 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
   // Get GenCurve angles from each genCurves center point coordinate system
   // project Nurb Min/Max Point to Torus XY plane to get vec to Center of each GenCurve
   SmVector3d sMinPlanePoint, sMaxPlanePoint ;
-  smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint) ;
-  smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint) ;
+  SER( smgu_PointProjectToPlane(sNurbMinPoint, sTorusOrigin, sTorusZAxis, sMinPlanePoint)  );
+  SER( smgu_PointProjectToPlane(sNurbMaxPoint, sTorusOrigin, sTorusZAxis, sMaxPlanePoint)  );
   SmVector3d sStartForMinAngle = sMinPlanePoint - sTorusOrigin ; 
   SmVector3d sStartForMaxAngle = sMaxPlanePoint - sTorusOrigin ;
-  sStartForMinAngle.Unitize() ; 
-  sStartForMaxAngle.Unitize() ;
+  (void)sStartForMinAngle.Unitize() ; // SolidCraft: a zero vector stays zero
+  (void)sStartForMaxAngle.Unitize() ; // SolidCraft: a zero vector stays zero
   SmVector3d sMinOrigin = sTorusOrigin + dMajRad * sStartForMinAngle ; 
   SmVector3d sMaxOrigin = sTorusOrigin + dMajRad * sStartForMaxAngle ; 
 
@@ -1413,16 +1471,8 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
 
   // get GenCurve min and max angles measured from each GenCurve's origin and start vector
   double dGenAngleMin, dGenAngleMax;
-  SE(sStartForMinAngle.AngleBetween(sVecMin,dGenAngleMin));
-  SE(sStartForMaxAngle.AngleBetween(sVecMax,dGenAngleMax));
-  dGenAngleMin = 180.0 * dGenAngleMin / SM_PI;
-  dGenAngleMax = 180.0 * dGenAngleMax / SM_PI;
-
-  // snap to ends for small tolerances
-  if(   smos_Fabs(dGenAngleMin) < SM_EFF_ZERO_DEG)       { dGenAngleMin  =   0.0; }
-  if(   smos_Fabs(dGenAngleMax) < SM_EFF_ZERO_DEG
-     || smos_Fabs(dGenAngleMax-360.0) < SM_EFF_ZERO_DEG) { dGenAngleMax  = 360.0; }
-  if ( dGenAngleMax < dGenAngleMin+SM_EFF_ZERO_DEG )     { dGenAngleMax += 360.0; }
+  SER(sm_TorusGenCurveInterval(sStartForMinAngle, sVecMin, sStartForMaxAngle, sVecMax, sTorusZAxis, bInsideOut,
+                               SM_EFF_ZERO_DEG, dGenAngleMin, dGenAngleMax));
 
   // define Torus domain
   SmExtent2d sAnalUVDomain(pSweepIvl->GetMin(), dGenAngleMin, pSweepIvl->GetMax(), dGenAngleMax);
@@ -1465,7 +1515,7 @@ SmStatus SmTorus::RebuildSTEPFromNURBParameters()
 
   // Set PolarConverter from Nurb midPoint rotation isoParamCurve
   // pRotationIsoCrv will be an SmCircle because isoParam is coming from SmTorus
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
   
   //      SmBSplineCurve *pRotationIsoCrv = NULL ;
   //      m_vPolarConverter.SetPolarConversionPossible(FALSE) ;
@@ -1588,7 +1638,7 @@ SmStatus SmTorus::Transform
   m_dMinorRadius *= dScale;
 
   // finish the call in the parent function
-  SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale) ;
+  SER( SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale)  );
 
   // all done
   return SM_SUCCESS;
@@ -1648,7 +1698,8 @@ SmAssertReportLabel sAssertTorus_list[] =
   /*  1 */ {SM_AT_RADIUS,           _T("Minor Radius"),          _T("m_dMinorRadius is greater than zero") },
   /*  2 */ {SM_AT_PARAMETERIZATION, _T("Same Parameterization"), _T("Curve and Surface have same paramterization") },
   /*  3 */ {SM_AT_GEOMETRIC,        _T("Overlapping Domain"),    _T("Analytic U Direction Domain too large: Tori can't overlap themselves") },
-  /*  4 */ {SM_AT_GEOMETRIC,        _T("Overlapping Domain"),    _T("Analytic V Direction Domain too large: Tori can't overlap themselves") }
+  /*  4 */ {SM_AT_GEOMETRIC,        _T("Overlapping Domain"),    _T("Analytic V Direction Domain too large: Tori can't overlap themselves") },
+  /*  5 */ {SM_AT_GEOMETRIC,        _T("Self Intersection"),     _T("Spindle torus: Analytic V Direction Domain runs through an apex on the axis") }
 } ;
 
 /*******************************************************************//**
@@ -1680,17 +1731,25 @@ SmBoolean SmTorus::AssertValid
   bRtn &= SM_ASSERT_VALUE_REPORT(0, SM_LEVEL_0, (m_dMajorRadius > 0.0), 0.0, m_dMajorRadius, _T("")) ;
   bRtn &= SM_ASSERT_VALUE_REPORT(1, SM_LEVEL_0, (m_dMinorRadius > 0.0), 0.0, m_dMinorRadius, _T("")) ;
 
-  // check for self intersections
+  /*  5 */ // check for self intersections
   if(m_dMajorRadius < m_dMinorRadius)
     {
-      // surface will self intersect unless saved by trimming
-      double dAngleLimitDeg =  90.0 
-                             + smos_ArcCosine(m_dMajorRadius / m_dMinorRadius) 
-                             * 180.0 / SM_PI ;
-      SmExtent1d sSelfIntersectIvl(dAngleLimitDeg, 360.0 - dAngleLimitDeg) ;
-      if(!sSelfIntersectIvl.AreDisjointPeriodic(m_vAnalUVDomain.GetUInterval(), 360.0))
+      // A spindle torus: its minor circles cross the axis where MajRadius + MinRadius * cos(V) = 0,
+      // at the apexes V = +-(90 + asin(MajRadius/MinRadius)) degrees, and the inner sheet between
+      // them passes through the outer sheet there. Like a sphere's poles (SmSphere tests 4 and 5),
+      // an apex may bound the V domain but not lie inside it.
+      double dApexDeg = 90.0 + smos_ArcSine(m_dMajorRadius / m_dMinorRadius) * 180.0 / SM_PI ;
+      SmExtent1d sApexIvlV = m_vAnalUVDomain.GetVInterval() ;
+      const double adApexDeg[2] = { dApexDeg, -dApexDeg } ;
+      for(ULONG ii=0;ii<2;ii++)
         {
-          bRtn &= FALSE ;
+          double dMappedApex = 0.0, dDistToMin = 0.0, dDistToMax = 0.0 ;
+          SmBoolean bContains = sApexIvlV.ContainsPeriodicValue(adApexDeg[ii], 360, &dMappedApex, &dDistToMin, &dDistToMax, SM_EFF_ZERO_DEG) ;
+          bRtn &= SM_ASSERT_VALUE_REPORT(5, SM_LEVEL_0,
+                                         (   bContains == FALSE
+                                          || SM_IS_ZERO_TO_TOL(dDistToMin, SM_EFF_ZERO_DEG)
+                                          || SM_IS_ZERO_TO_TOL(dDistToMax, SM_EFF_ZERO_DEG)),
+                                         SM_EFF_ZERO_DEG, smos_Min(dDistToMin, dDistToMax), _T("")) ;
         }
     } // end majorRadius < minorRadius check
 
@@ -1701,7 +1760,7 @@ SmBoolean SmTorus::AssertValid
   // check temporary genCurve against parameterization of NurbSurface
   const SmContext &crContext = *GetContext() ;
   SmBSplineCurve  *pGenCurve = NULL ;
-  CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ;
+  (void)CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ; // SolidCraft: a validity check reads what it computed
   SmObjDelete sClean(pGenCurve) ;
 
   // GenCurve must have same parameterization as Surface in GenCurve direction
@@ -1718,13 +1777,13 @@ SmBoolean SmTorus::AssertValid
 
   // Analytic U Direction Domain too large: tori can't overlap themselves
   SmExtent1d sIvlU = m_vAnalUVDomain.GetUInterval() ;
-  bRtn &= SM_ASSERT_VALUE_REPORT(2, SM_LEVEL_0,
+  bRtn &= SM_ASSERT_VALUE_REPORT(3, SM_LEVEL_0,
                                  (sIvlU.GetLength() <= 360.0 + SM_EFF_ZERO_DEG),
                                  SM_EFF_ZERO_DEG, sIvlU.GetLength() - 360.0, _T("") ) ;   
 
   // Analytic V Direction Domain too large: tori can't overlap themselves
-  SmExtent1d sIvlV = m_vAnalUVDomain.GetUInterval() ;
-  bRtn &= SM_ASSERT_VALUE_REPORT(3, SM_LEVEL_0,
+  SmExtent1d sIvlV = m_vAnalUVDomain.GetVInterval() ;
+  bRtn &= SM_ASSERT_VALUE_REPORT(4, SM_LEVEL_0,
                                  (sIvlV.GetLength() <= 360.0 + SM_EFF_ZERO_DEG),
                                  SM_EFF_ZERO_DEG, sIvlV.GetLength() - 360.0, _T("")) ;   
 

@@ -223,6 +223,10 @@ SmFaceProps & SmFaceProps::operator= (const SmFaceProps &crOther)
       for(ii=0;m_sRawTouchListV.GetSize() ;ii++) { m_sRawTouchListV[ii]  = crOther.m_sRawTouchListV[ii] ; }
       for(ii=0;m_sDoneTouchListV.GetSize();ii++) { m_sDoneTouchListV[ii] = crOther.m_sDoneTouchListV[ii] ; }
 
+      m_bBadCrossedPole       = crOther.m_bBadCrossedPole ;
+      m_pCrossedPoleEdge      = crOther.m_pCrossedPoleEdge ;
+      m_dCrossedPoleParameter = crOther.m_dCrossedPoleParameter ;
+
       m_eBadCrossedSeam  = crOther.m_eBadCrossedSeam ;   // SM_SP_U       = 1 or more FaceEdges cross periodic U BndrySeam (Edges should be split at the seam)
                                                          // SM_SP_V       = 1 or more FaceEdges cross periodic V BndrySeam (Edges should be split at the seam)
                                                          // SM_SP_BOTH    = FaceEdges cross both periodic U and V BndrySeams 
@@ -409,6 +413,9 @@ SmBoolean SmFaceProps::operator== (const SmFaceProps &crOther) const
           { bRtn &= m_sDoneTouchListV[ii] == crOther.m_sDoneTouchListV[ii] ; }
       } // end m_sPolePoints array deep compare
 
+      bRtn &= m_bBadCrossedPole == crOther.m_bBadCrossedPole ;
+      bRtn &= m_pCrossedPoleEdge == crOther.m_pCrossedPoleEdge ;
+      bRtn &= m_dCrossedPoleParameter == crOther.m_dCrossedPoleParameter ;
       bRtn &= m_bBadCrossedSeam  == crOther.m_bBadCrossedSeam ;  // SM_SP_U       == 1 or more FaceEdges cross periodic U BndrySeam (Edges should be split at the seam)
       bRtn &= m_eBadCrossedSeam  == crOther.m_eBadCrossedSeam ;  // SM_SP_V       == 1 or more FaceEdges cross periodic V BndrySeam (Edges should be split at the seam)
                                                                  // SM_SP_BOTH    == FaceEdges cross both periodic U and V BndrySeams 
@@ -590,6 +597,9 @@ void SmFaceProps::ReSet
       if(m_pCrvClassU) { delete m_pCrvClassU ; m_pCrvClassU = NULL ; m_sRawTouchListU.ReSet() ; m_sDoneTouchListU.ReSet() ; }
       if(m_pCrvClassV) { delete m_pCrvClassV ; m_pCrvClassV = NULL ; m_sRawTouchListV.ReSet() ; m_sDoneTouchListV.ReSet() ; }
 
+      m_bBadCrossedPole       = FALSE ;
+      m_pCrossedPoleEdge      = NULL ;
+      m_dCrossedPoleParameter = 0.0 ;
       m_bBadCrossedSeam  = FALSE ;
       m_eBadCrossedSeam  = SM_SP_UNKNOWN ;
 
@@ -599,10 +609,11 @@ void SmFaceProps::ReSet
       m_bBadNearMissSeam = FALSE ;
       m_eBadNearMissSeam = SM_SP_UNKNOWN ;
 
+      // Stage 3 loop classification must retain the earlier crossing-repair result.
+      m_eBeenThroughSplitEdgesAtSeam = SM_TRY_NONE ;
     } // end eClearPropStage <= SM_PROPSTAGE_GAPS check
 
   m_eBeenThroughMoveSeam         = SM_TRY_NONE ;
-  m_eBeenThroughSplitEdgesAtSeam = SM_TRY_NONE ;
   m_eBeenThroughSplitFacesAtSeam = SM_TRY_NONE ;
 
   // when asked - clear SetProps_AfterSplitEdge values
@@ -962,6 +973,73 @@ SmStatus SmFaceProps::SetProps_Stage2
 
     } // end Pole existence check
 
+  // Find a boundary edge passing through a pole, using defining 3D geometry.
+  // Endpoints already on the pole do not need splitting. Cache one crossing:
+  // the repair refreshes Stage 2 after each split before consuming another.
+  m_bBadCrossedPole       = FALSE ;
+  m_pCrossedPoleEdge      = NULL ;
+  m_dCrossedPoleParameter = 0.0 ;
+  if(m_ePoles == SM_MP_PROB)
+    {
+      SmTArray<SmEdge*> sEdges ;
+      m_pFace->GetEdges(sEdges) ;
+
+      // for every pole
+      for(ULONG lPole=0; lPole<m_sPolePoints.GetSize() && !m_bBadCrossedPole; ++lPole)
+        {
+          // no work unless pole is not marked with a vertex
+          if(    ((lPole == 0) && ((m_lNoVertexPoles & SM_SS_UMIN) == 0))
+             ||  ((lPole == 1) && ((m_lNoVertexPoles & SM_SS_VMIN) == 0))
+             ||  ((lPole == 2) && ((m_lNoVertexPoles & SM_SS_UMAX) == 0))
+             ||  ((lPole == 3) && ((m_lNoVertexPoles & SM_SS_VMAX) == 0))
+            ) { continue ; }
+
+          // loop local
+          const SmPoint3d &crPole = m_sPolePoints[lPole] ;
+
+          // for every edge on this face
+          for(ULONG lEdge=0; lEdge<sEdges.GetSize(); ++lEdge)
+            {
+              // loop locals
+              SmEdge   *pEdge      = sEdges[lEdge] ;
+              double    dTol       = SmTol::GetXSectTol3d(pEdge, m_pFace) ;
+              SmBoolean bFound     = FALSE ;
+              double    dParameter = 0.0, dGap = 0.0 ;
+              const SmExtent1d &crInterval = pEdge->GetInterval() ;
+
+              const SmVertex *pStartVertex = pEdge->GetStartVertex() ;
+              const SmVertex *pEndVertex   = pEdge->GetEndVertex() ;
+              SmXSectTol3d    sStartTol3d  = SmTol::GetXSectTol3d(pStartVertex, m_pFace) ;
+              SmXSectTol3d    sEndTol3d    = SmTol::GetXSectTol3d(pEndVertex, m_pFace) ;
+
+              if(   pStartVertex->GetPoint().DistanceBetween(crPole) <= sStartTol3d
+                 || pEndVertex->GetPoint().DistanceBetween(crPole) <= sEndTol3d)
+                { continue ; }
+              
+              // Drop the pole to the edge curve. INTERSECT will be faster than MINIMIZE by culling out points that are too far away.
+              SE(pEdge->GetCurve()->DropPoint(crInterval,        // in : target curve allowed domain
+                                              crPole,            // in : point to drop to curve
+                                              NULL,              // in : for Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
+                                              dTol,              // in : used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
+                                              NULL,              // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()
+                                              bFound,            // out: TRUE = found a drop point
+                                              dParameter,        // out: found drop curve param
+                                              dGap,              // out: found drop distance
+                                              SM_SO_INTERSECT)) ;// in : SM_SO_INTERSECT= like Minimize but point must be within dDistTol
+
+              if(   bFound && dGap <= dTol
+                 && dParameter > crInterval.GetMin()
+                 && dParameter < crInterval.GetMax())
+                {
+                  m_bBadCrossedPole       = TRUE ;
+                  m_pCrossedPoleEdge      = pEdge ;
+                  m_dCrossedPoleParameter = dParameter ;
+                  break ;
+                }
+            }
+        }
+    }
+
   // Flat Corner Surface Classification: m_lBadFlatCorners 
   m_lBadFlatCorners  = m_cpSurface->GetFlatCorners(&m_sFlatCornerPoints) ;
 
@@ -971,7 +1049,7 @@ SmStatus SmFaceProps::SetProps_Stage2
   // m_eBadMissingSeam, m_eBadCrossedSeam, m_eBadNearMissSeam
   if(m_bClosedU == TRUE || m_bClosedV == TRUE)
     {
-      m_pFace->HasSeamProblem
+      SER( m_pFace->HasSeamProblem // SolidCraft change: its status is passed on
         (
          *m_pCrvClassU,       // i/o: ConstU_Seam/Face Classification <br>
          *m_pCrvClassV,       // i/o: ConstV_Seam/Face Classification <br>
@@ -998,7 +1076,7 @@ SmStatus SmFaceProps::SetProps_Stage2
                               //      gets access to m_sRawTouchListU   m_sRawTouchListV
                               //                     m_sDoneTouchListU  m_sDoneTouchListV
                               //  TODO: see if input args m_bClosedU, m_bClosedV, and the m_eBad... flags can be passed through the SmFaceProps argument.
-        ) ;
+        ) ) ;
 
        // set the boolean error flags
        m_bBadMissingSeam  = (m_eBadMissingSeam  != SM_SP_NEITHER) ; // TRUE = Face has a problem
@@ -1313,7 +1391,7 @@ SmBoolean bDebugMe = FALSE ;
       m_sLoopProps[ii].SetContext(m_cpContext) ; 
 
       // Set Loop props (when m_bAreaLoop==FALSE, m_eDesiredLoopOrient && m_bGoodOrient are set in this method)
-      m_sLoopProps[ii].SetProps(pLoop, *this) ; // sets: following Loop Props marked with '*'
+      SER( m_sLoopProps[ii].SetProps(pLoop, *this)  ); // sets: following Loop Props marked with '*'
                                                 //       (Loop Props marked with '##' are set later in this method with SmFace::ClassifyLoops() results)
                                                 //       SmLoopProps::m_cpLoop *              m_tLoopuseType *
                                                 //                  ::m_lEdgeCnt *            m_lEdgeuseCnt *
@@ -1393,8 +1471,8 @@ SmBoolean bDebugMe = FALSE ;
                                 //                           //        SM_CMT_BOTLOOP,         // NoArea_Loop (invalid) contains upperdomain UVPoints - AddMisingSeam heals to OuterLoop
                                 //                           //        SM_CMT_TOPLOOP,         // NoArea_Loop (invalid) contains lowerdomain UVPoints - AddMisingSeam heals to OuterLoop
                                 //                           //        SM_CMT_WIRELOOP,        // A set of connected Edgeuses without a closed portion.
-     eClassifyCrv_StartType,    // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
-     eClassifyCrv_StopType,     // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
+     eClassifyCrv_StartType,    // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_SEAM_NO_EDGEUSE SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
+     eClassifyCrv_StopType,     // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_SEAM_NO_EDGEUSE SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
      sOrderedNoAreaIndices,     // out: NoArea_loop indices in rLoops/rClassifyLoopIOs ordered from lowest domain to highest domain.
      m_pLooptreeRoot,           // out: LoopContainmentTree based solely on geometry relations, NULL on Input
      sCrvClassification,        // in : scratch CurveClassification memory to save time
@@ -1788,6 +1866,7 @@ SmBoolean SmFaceProps::HasProblems
                 || m_lBadFlatCorners & SM_FC_UMIN_VMAX
                 || m_lBadFlatCorners & SM_FC_UMAX_VMIN
                 || m_lBadFlatCorners & SM_FC_UMAX_VMAX) ;
+      bProb |= (m_bBadCrossedPole == TRUE) ;
       bProb |= (m_bBadCrossedSeam == TRUE) ;
       bProb |= (m_bBadMissingSeam == TRUE) ;
       // NOT Yet - needed later when Fix_BadGaps() gets built
@@ -1950,11 +2029,11 @@ SmDisplayList * SmFaceProps::Draw
       for(ii=0,lCnt=0;ii<m_pCrvClassU->GetSize();ii++)
         { SmCurveInterval & rCrvIvl = m_pCrvClassU->GetAt(ii) ;
           if(rCrvIvl.m_vStart.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ;
+            { (void)m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ; // SolidCraft: drawing only
              sPoint.Draw() ; lCnt++ ;  
             }
           if(rCrvIvl.m_vEnd.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ;
+            { (void)m_pCrvClassU->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ; // SolidCraft: drawing only
              sPoint.Draw() ; lCnt++ ;  
             }
         } // end iter CrvClassU intervals looking for SeamCrossings
@@ -1974,11 +2053,11 @@ SmDisplayList * SmFaceProps::Draw
       for(ii=0,lCnt=0;ii<m_pCrvClassV->GetSize();ii++)
         { SmCurveInterval & rCrvIvl = m_pCrvClassV->GetAt(ii) ;
           if(rCrvIvl.m_vStart.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ;
+            { (void)m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMin(), sPoint) ; // SolidCraft: drawing only
               sPoint.Draw() ; lCnt++ ;
             }
           if(rCrvIvl.m_vEnd.GetPointClass() == SM_PC_EDGE)
-            { m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ;
+            { (void)m_pCrvClassV->GetCurve()->EvaluatePoint(rCrvIvl.GetMax(), sPoint) ; // SolidCraft: drawing only
               sPoint.Draw() ; lCnt++ ;
             }
         } // end iter CrvClassV intervals looking for SeamCrossings
@@ -2717,6 +2796,10 @@ void SmFaceProps::DumpProblems_Stage2() const
             }
         } // end iter FlatCorner Points
     } // end m_lBadFlatCorners existence check
+
+  smos_sprintf(sBuff, _T("\n   CrossedPole:[%s], EdgeParameter:[%.17g]"),
+               m_bBadCrossedPole ? _T("TRUE") : _T("FALSE"), m_dCrossedPoleParameter) ;
+  smos_WriteBuffer(sBuff) ;
 
   // m_eBadCrossedSeam
   smos_sprintf(sBuff, _T("\n             : Bad_EdgeCrossingSeam[%s] :[%s]%s"),

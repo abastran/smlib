@@ -357,6 +357,49 @@ SmBoolean bDebugMe2 = FALSE;
 
 
 /*******************************************************************//**
+PURPOSE: Set a point's tangents from one side only: from a small step
+         backward (dSide < 0) or forward (dSide > 0) along the trace.
+
+NOTES: SolidCraft change. Where the fillet radius has a corner the curves
+   turn, and ComputePointValues' central difference averages the tangents
+   of the two sides. rbFound is FALSE (and rTsectPnt unchanged) when the
+   step finds no point.
+***********************************************************************/
+static SmStatus sm_OneSidedTangents
+ (SmFilletSolver   & rFilletSolver,  // in : solver of the fillet being traced
+  const SmExtent2d   aUVDomain[2],   // in : uv domains of the two offset surfaces
+  double             dSide,          // in : < 0 = from before the point, > 0 = from after it
+  SmTsectPnt       & rTsectPnt,      // i/o: point whose tangents are set
+  SmBoolean        & rbFound)        // out: TRUE = tangents set
+{
+  rbFound = FALSE;
+  double dStep = (dSide < 0.0) ? -1.0e-5 : 1.0e-5;  // as ComputePointValues steps
+  SmTsectPnt sStep;
+  SmBoolean bFound, bClipped, bBoundaryHit;
+  SER(rFilletSolver.StepSolve(rTsectPnt, dStep, aUVDomain[0], aUVDomain[1],
+                              bFound, bClipped, bBoundaryHit, sStep));
+  if (!bFound)
+    { return SM_SUCCESS; }
+
+  // the stepped point on the center curve, evaluated before anything resets the offsets
+  SmPoint3d sPnt0, sPnt1;
+  SER(rFilletSolver.GetSurface(0)->EvaluatePoint(sStep.UVPos(0), sPnt0));
+  SER(rFilletSolver.GetSurface(1)->EvaluatePoint(sStep.UVPos(1), sPnt1));
+  SmVector3d sDiff = (sPnt0 + sPnt1) / 2.0 - rTsectPnt.CrvPos();
+  if (dSide < 0.0)
+    { sDiff = -sDiff; }
+  if (sDiff.LengthSquared() < SM_EFF_ZERO_SQ)
+    { return SM_SUCCESS; }
+  SER(sDiff.Unitize());
+
+  rTsectPnt.CrvDeriv() = sDiff;
+  SER(rFilletSolver.ComputeUVVectors(rTsectPnt));
+  rbFound = TRUE;
+  return SM_SUCCESS;
+
+} // end sm_OneSidedTangents
+
+/*******************************************************************//**
 PURPOSE: Compute the next point in the intersection stepping algorithm.
     This algorithm will compute the point based on the step size and return
     a boolean indicating if the step size satisfies all of our stepping
@@ -422,6 +465,21 @@ SmStatus SmFilletIntersector::ComputeNextPoint
       return SM_SUCCESS;
     }
 
+  // SolidCraft change: where the radius has a corner the curves turn. A step from a point at
+  // a corner starts along the tangents after it (ComputePointValues averages the two sides).
+  if (m_rFilletSolver.IsAtRadiusCorner(rTsectPnt))
+    {
+      SmTsectPnt sAfter(rTsectPnt);
+      SmBoolean bOneSided = FALSE;
+      SER(sm_OneSidedTangents(m_rFilletSolver, m_vUVDomain, 1.0, sAfter, bOneSided));
+      if (bOneSided)
+        {
+          rTsectPnt.CrvDeriv() = sAfter.CrvDeriv();
+          rTsectPnt.UVDeriv(0) = sAfter.UVDeriv(0);
+          rTsectPnt.UVDeriv(1) = sAfter.UVDeriv(1);
+        }
+    }
+
   // solve for the next SmTsectPt - save step output values
   SmBoolean bClipped, bBoundaryHit;
   if (   m_rFilletSolver.StepSolve( rTsectPnt,      dStepSize, 
@@ -430,6 +488,57 @@ SmStatus SmFilletIntersector::ComputeNextPoint
                                     bBoundaryHit,   rNextTSP)
       != SM_SUCCESS)
     { bFoundAnswer = FALSE ; }
+
+  // SolidCraft change: a step across a radius corner is shortened to end at the corner (a
+  // span across it can't follow the turn, and the trace would creep up to it in tiny steps).
+  double dFromParam, dToParam;
+  SmTArray<double> sCorners;
+  if (   bFoundAnswer
+      && m_rFilletSolver.GetRadiusParameter(rTsectPnt, dFromParam)
+      && m_rFilletSolver.GetRadiusParameter(rNextTSP, dToParam)
+      && m_rFilletSolver.GetRadiusCornerParameters(sCorners) == SM_SUCCESS)
+    {
+      for (ULONG k=0; k<sCorners.GetSize(); k++)
+        {
+          double dCorner = sCorners[k];
+          if (   m_rFilletSolver.IsAtRadiusCorner(rTsectPnt)
+              || (dCorner - dFromParam) * (dCorner - dToParam) >= 0.0)
+            { continue; }
+
+          // secant steps on the step size until the point lands on the corner
+          double dStep0 = 0.0, dParam0 = dFromParam;
+          double dStep1 = dStepSize, dParam1 = dToParam;
+          SmTsectPnt sOnCorner;
+          SmBoolean bLanded = FALSE;
+          for (ULONG lIter=0; lIter<8 && !bLanded; lIter++)
+            {
+              if (dParam1 == dParam0)
+                { break; }
+              double dStep = dStep0 + (dStep1 - dStep0) * (dCorner - dParam0) / (dParam1 - dParam0);
+              SmBoolean bFound, bClip, bHit;
+              SER(m_rFilletSolver.StepSolve(rTsectPnt, dStep, m_vUVDomain[0], m_vUVDomain[1],
+                                            bFound, bClip, bHit, sOnCorner));
+              double dParam;
+              if (!bFound || !m_rFilletSolver.GetRadiusParameter(sOnCorner, dParam))
+                { break; }
+              dStep0 = dStep1; dParam0 = dParam1;
+              dStep1 = dStep;  dParam1 = dParam;
+              bLanded = m_rFilletSolver.IsAtRadiusCorner(sOnCorner);
+            }
+          if (bLanded)
+            {
+              rNextTSP  = sOnCorner;
+              dStepSize = dStep1;
+            }
+          else
+            {
+              // back to the full step (StepSolve leaves the offsets at its last point)
+              SER(m_rFilletSolver.StepSolve(rTsectPnt, dStepSize, m_vUVDomain[0], m_vUVDomain[1],
+                                            bFoundAnswer, bClipped, bBoundaryHit, rNextTSP));
+            }
+          break;
+        }
+    }
 
   // Set return values
   rbClipped     = bClipped;
@@ -464,6 +573,20 @@ SmStatus SmFilletIntersector::ComputeNextPoint
     {
       rbFoundGoodPoint = FALSE;
       return SM_SUCCESS;
+    }
+
+  // SolidCraft change: a step that ends at a radius corner arrives along the tangents before it
+  if (m_rFilletSolver.IsAtRadiusCorner(rNextTSP))
+    {
+      SmTsectPnt sBefore(rNextTSP);
+      SmBoolean bOneSided = FALSE;
+      SER(sm_OneSidedTangents(m_rFilletSolver, m_vUVDomain, -1.0, sBefore, bOneSided));
+      if (bOneSided)
+        {
+          rNextTSP.CrvDeriv() = sBefore.CrvDeriv();
+          rNextTSP.UVDeriv(0) = sBefore.UVDeriv(0);
+          rNextTSP.UVDeriv(1) = sBefore.UVDeriv(1);
+        }
     }
 
   // stop criteria: next point stepsize is zero
@@ -1094,7 +1217,7 @@ static void sm_FindGuessMidTsectPnt
   pMidPnt->CrvDeriv() =  dF1 * pCurrPnt->CrvDeriv() + dF0 * pNextPnt->CrvDeriv();
   double dLen         =  dF1 * pCurrPnt->CrvDeriv().Length()
                        + dF0 * pNextPnt->CrvDeriv().Length();
-  pMidPnt->CrvDeriv().Unitize();
+  (void)pMidPnt->CrvDeriv().Unitize(); // SolidCraft: a zero vector stays zero
   pMidPnt->CrvDeriv() = pMidPnt->CrvDeriv() * dLen;
 
   // Surface uv points:
@@ -1405,6 +1528,34 @@ SmBoolean bDebugMe = FALSE;
         } // end iter every span
     } // end while spans are not uniformly sized
 
+  // 5b. SolidCraft change: where the fillet radius has a corner, the center curve and rails
+  //     turn. A point there carries the average of the tangents of the two sides; the span
+  //     that ends there takes the tangents from before the corner (sIncoming), the span that
+  //     starts there those from after it, so the curves keep the turn.
+  SmTArray<SmTsectPnt*> sIncoming;
+  for (ULONG k=0; k<sPnts.GetSize(); k++)
+    {
+      SmTsectPnt * pIn = NULL;
+      if (   k > 0 && k+1 < sPnts.GetSize()
+          && m_rFilletSolver.IsAtRadiusCorner(*sPnts[k]))
+        {
+          SmTsectPnt sOut(*sPnts[k]);
+          SmTsectPnt * pBefore = new SmTsectPnt(*sPnts[k]);
+          sDeletePnts.Add(pBefore);
+          SmBoolean bIn, bOut;
+          SER(sm_OneSidedTangents(m_rFilletSolver, m_vUVDomain, -1.0, *pBefore, bIn));
+          SER(sm_OneSidedTangents(m_rFilletSolver, m_vUVDomain,  1.0, sOut,     bOut));
+          if (bIn && bOut)
+            {
+              pIn = pBefore;
+              sPnts[k]->CrvDeriv()  = sOut.CrvDeriv();
+              sPnts[k]->UVDeriv(0)  = sOut.UVDeriv(0);
+              sPnts[k]->UVDeriv(1)  = sOut.UVDeriv(1);
+            }
+        }
+      sIncoming.Add(pIn);
+    }
+
   // set the stored fillet-surface OffsetDistances to 0.0
   m_rFilletSolver.SetSurfacesToZeroOffset();
 
@@ -1416,6 +1567,8 @@ SmBoolean bDebugMe = FALSE;
       // get span end points
       SmTsectPnt *pTSPLast = sPnts[i-1];
       SmTsectPnt *pTSPCurr = sPnts[i];
+      // the end tangents of this span (the incoming ones at a radius corner)
+      SmTsectPnt *pTSPEnd  = sIncoming[i] ? sIncoming[i] : pTSPCurr;
 
       // save max angle between offset surfaces along xsect curve sample points
       dMaxAngle = smos_Max(dMaxAngle,pTSPCurr->m_dTangentPlaneAngleRad);
@@ -1444,7 +1597,7 @@ SmBoolean bDebugMe = FALSE;
       SmPoint3d  sP1(pTSPLast->CrvPos());
       SmPoint3d  sP4(pTSPCurr->CrvPos());
       SmVector3d sD1(pTSPLast->CrvDeriv()*dScale);
-      SmVector3d sD2(pTSPCurr->CrvDeriv()*dScale);
+      SmVector3d sD2(pTSPEnd->CrvDeriv()*dScale);
 
       // Note that the quick and easy way to convert from a Hermite
       // into a Bezier is to divide the vectors in the Hermite by the
@@ -1473,7 +1626,7 @@ SmBoolean bDebugMe = FALSE;
           SmPoint2d sUV1(pTSPLast->UVPos(lSrf)) ;
           SmPoint2d sUV4(pTSPCurr->UVPos(lSrf)) ;
           SmVector2d sDer1(pTSPLast->UVDeriv(lSrf)*dScale) ;
-          SmVector2d sDer2(pTSPCurr->UVDeriv(lSrf)*dScale) ;
+          SmVector2d sDer2(pTSPEnd->UVDeriv(lSrf)*dScale) ;
 
           // Convert from Hermite to Bezier.
           SmPoint2d sUV2 = sUV1 + sDer1 / 3.0 ;
@@ -1654,7 +1807,7 @@ static constexpr SmBoolean bTempTrySelfIntHandler = FALSE ;
 
               // check for a self-intersecting surface 
               //   - warning not implemented yet (bSelfIntersecting always FALSE)
-              pSelfIntHandler->IsSelfIntersecting(*m_cpContext,
+              SER( pSelfIntHandler->IsSelfIntersecting(*m_cpContext,
                                                   pFilletSurface,
                                                   pFilletGeom->GetFilletSolver()->GetThisApproxTol3d(),
                                                   pCenterLine,
@@ -1663,7 +1816,7 @@ static constexpr SmBoolean bTempTrySelfIntHandler = FALSE ;
                                                   dFilletRadius,
                                                   bSelfIntersecting,  // in the future - use this when needed
                                                   sStartPoint,
-                                                  sEndPoint) ;
+                                                  sEndPoint)  );
 
               // split topology of pFilletGeom into 3 connected neighbors, pFilletGeom => pBlendFilletGeom => pNewFilletGeom  
               //    (geometry is not yet set)

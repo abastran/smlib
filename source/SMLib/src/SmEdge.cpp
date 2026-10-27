@@ -530,7 +530,7 @@ SmBSplineCurve * SmEdge::GetUVTrimCurveOfSurface
     SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
 
     // for every edgeuse
-    GetEdgeuses(sEdgeuses);
+    (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
     for (ULONG i=0; i<sEdgeuses.GetSize(); i++) 
       {
         SmEdgeuse *pEU = sEdgeuses[i];
@@ -664,7 +664,7 @@ SmEdgeuse * SmEdge::GetEdgeuseOfFace
 
   // for every edgeuse - check for a face == pFace match
   // for a CFace, we check against all child faces
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
 // Remove Composites
 //  if ( bIsCFace ) 
@@ -792,7 +792,7 @@ SmEdgeuse * SmEdge::GetUpwardEdgeuseOfFace
   ULONG ii ;
   SmFaceuse *pUpwardFaceuse = pFace->GetUpwardFaceuse() ;
   SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 32) ;  // SmTArray<SmEdgeuse*> sEdgeuses
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
   // for every edgeuse - check for a face == pFace && faceuse == pUpwardFaceuse match
   for(ii=0;ii<sEdgeuses.GetSize();ii++)
@@ -1814,7 +1814,7 @@ SmStatus SmEdge::FindRadialSector
   SmTArray<SmEdgeuse*> sEUs(32,pData2);       // list of all edgeuses
 
   // get edgeuses that pass input region and orientation specifications
-  GetEdgeuses(sEUs);
+  SER( GetEdgeuses(sEUs) );
   for (ii=0; ii<sEUs.GetSize(); ii++) 
     {
       SmEdgeuse *pEU     = sEUs[ii];
@@ -1980,7 +1980,7 @@ SmStatus SmEdge::FindRadialSectorOfCurve
   SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
 
   // for every Edgeuse
-  GetEdgeuses(sEdgeuses);
+  SER( GetEdgeuses(sEdgeuses) );
   for (ULONG j=0; j<sEdgeuses.GetSize(); j++) 
     {
       SmEdgeuse *pEU = sEdgeuses[j];
@@ -2101,10 +2101,10 @@ SmBoolean bDebugMe=FALSE;
                                               sPnt2, sBin2, &sTan2)) ;
 
       // calculate ClassificationCurve stepOff point and tangent
-      crCurve.EuclidianStepOff(crInterval, dStartParam,
+      SER( crCurve.EuclidianStepOff(crInterval, dStartParam,
                                eOrientationToSector,
                                dStepoffDistance, dStepoffDistance/100.0,
-                               bClampped, dStepParam);
+                               bClampped, dStepParam) );
       SmVector3d sPV[2];
       SER(crCurve.Evaluate(dStepParam,1,TRUE,sPV));
       if (eOrientationToSector == SM_OT_OPPOSITE) { sPV[1] = - sPV[1]; }
@@ -2270,9 +2270,9 @@ SmStatus SmEdge::ResetPrimaryEdgeuse( SmEdgeuse *pNewPrimary )
   SmEdgeuse *pPrimMate = pNewPrimary->GetMate();
   if (    pNewPrimary->GetFace()    != pPrimMate->GetFace()
        || pNewPrimary->GetLoopuse() == pPrimMate->GetLoopuse() )
-    { this->ReverseList(); }
+    { SER( this->ReverseList() ); }
 
-  UpdateListSize();
+  SER( UpdateListSize() );
 
   return SM_SUCCESS;
   
@@ -2405,7 +2405,7 @@ SmStatus SmEdge::SetTrimCurve
                                             //      FALSE=
 {
   SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 32) ; // SmTArray<SmEdgeuse*>
-  GetEdgeuses(sEdgeuses);
+  SER( GetEdgeuses(sEdgeuses) );
 
   // for every Edge->Edgeuse
   for (ULONG i=0; i<sEdgeuses.GetSize(); i++) 
@@ -2640,8 +2640,8 @@ SmStatus SmEdge::RefineGeometry
       SM_OLDTOL_LINE SetTolerance(smos_Max((double)sZoneTol3d, dMaxGap3d)) ;
 
       SetInterval (pBestCurve->GetNaturalInterval()) ;
-      SetTrimCurve(pFace1, pSurface1UVCurve, dMaxGap3d) ; // deletes old UVTrimCurve
-      SetTrimCurve(pFace2, pSurface2UVCurve, dMaxGap3d) ; // deletes old UVTrimCurve
+      SER( SetTrimCurve(pFace1, pSurface1UVCurve, dMaxGap3d)  ); // deletes old UVTrimCurve
+      SER( SetTrimCurve(pFace2, pSurface2UVCurve, dMaxGap3d)  ); // deletes old UVTrimCurve
 
       // inform the public - change done
       Notify(SM_NO_POST_EDIT, this, SM_NO_GET_BREP(this), NULL) ;
@@ -2758,11 +2758,11 @@ const
   SmExtent1d   sIvl           = GetInterval() ;
   SmExtent3d   sBBox ;
   SmTArray<SmEdgeuse *> sEdgeuses ; 
-  GetEdgeuses(sEdgeuses) ;
+  SER( GetEdgeuses(sEdgeuses)  );
 
   // Get edge EndPoint Tangents
-  pCurve->Evaluate(sIvl.Evaluate(0.0), 1, TRUE, sPVStart) ; sPVStart[1].Unitize() ;
-  pCurve->Evaluate(sIvl.Evaluate(1.0), 1, TRUE, sPVEnd) ;   sPVEnd[1].Unitize() ;
+  (void)pCurve->Evaluate(sIvl.Evaluate(0.0), 1, TRUE, sPVStart) ; (void)sPVStart[1].Unitize() ; // SolidCraft: a zero vector stays zero
+  (void)pCurve->Evaluate(sIvl.Evaluate(1.0), 1, TRUE, sPVEnd) ;   (void)sPVEnd[1].Unitize() ; // SolidCraft: a zero vector stays zero
   
   // find tolerances
   // SmZoneTol3d   sZoneTol3d   = SmTol::GetZoneTol3d(GetBrep()) ;      // default for this edge
@@ -2804,7 +2804,7 @@ const
   // arrive here when the Edge is not connected to parallel faces with significant offsets
 
   // build a tolerant target bounding box slightly bigger than current curve and edge endPoints 
-  pCurve->CalculateBoundingBox(sIvl, &sBBox) ;
+  SER( pCurve->CalculateBoundingBox(sIvl, &sBBox)  );
   sBBox.AddPoint3d(sStartVertexPt) ;
   sBBox.AddPoint3d(sEndVertexPt) ;
   sBBox.ExpandAbsolute(5.0 * sXSectTol3d) ;
@@ -2925,8 +2925,8 @@ const
           rbFoundFaceEdgeForm = TRUE ;
           rdMaxGap3d          = dMaxDist ;
           rpBestCurve         = pNew3dCurve ;
-          pSurface1->EvaluatePoint( sStartUV1,rBestStartVertexPos );
-          pSurface1->EvaluatePoint( sEndUV1,  rBestEndVertexPos   );
+          SER( pSurface1->EvaluatePoint( sStartUV1,rBestStartVertexPos ) );
+          SER( pSurface1->EvaluatePoint( sEndUV1,  rBestEndVertexPos   ) );
   
           if ( pOptFace1 )        { *pOptFace1        = pFace1;   }
           if ( pOptUVTrimCurve1 ) { *pOptUVTrimCurve1 = pUVCurve; }
@@ -2950,10 +2950,10 @@ const
       SmPoint3d sStart3d2, sEnd3d2 ;       
                                                 
       // Map UVPoints to 3dPoints and get SurfPt-SurfPt gap sizes
-      pSurface1->EvaluatePoint(sStartUV1, sStart3d1) ; 
-      pSurface1->EvaluatePoint(sEndUV1,   sEnd3d1  ) ; 
-      pSurface2->EvaluatePoint(sStartUV2, sStart3d2) ; 
-      pSurface2->EvaluatePoint(sEndUV2,   sEnd3d2  ) ;
+      SER( pSurface1->EvaluatePoint(sStartUV1, sStart3d1)  ); 
+      SER( pSurface1->EvaluatePoint(sEndUV1,   sEnd3d1  )  ); 
+      SER( pSurface2->EvaluatePoint(sStartUV2, sStart3d2)  ); 
+      SER( pSurface2->EvaluatePoint(sEndUV2,   sEnd3d2  )  );
 
       // SurfPt-SurfPt gap sizes
       double dStartGap3d = (sStart3d2 - sStart3d1).Length() ;
@@ -3000,8 +3000,8 @@ const
               sStartUV2 = sUVs[1] ;
 
               // Map UVPoints to 3dPoints and get OrigPt-RefinePt move sizes
-              pSurface1->EvaluatePoint(sStartUV1, sRefineStart3d1) ; 
-              pSurface2->EvaluatePoint(sStartUV2, sRefineStart3d2) ; 
+              SER( pSurface1->EvaluatePoint(sStartUV1, sRefineStart3d1)  ); 
+              SER( pSurface2->EvaluatePoint(sStartUV2, sRefineStart3d2)  ); 
 
               double dStartMove3d1 = (sRefineStart3d1 - sStart3d1).Length() ;
               double dStartMove3d2 = (sRefineStart3d2 - sStart3d2).Length() ;
@@ -3040,8 +3040,8 @@ const
               sEndUV2 = sUVs[1] ;
 
               // Map UVPoints to 3dPoints and get OrigPt-RefinePt move sizes
-              pSurface1->EvaluatePoint(sEndUV1, sRefineEnd3d1) ; 
-              pSurface2->EvaluatePoint(sEndUV2, sRefineEnd3d2) ; 
+              SER( pSurface1->EvaluatePoint(sEndUV1, sRefineEnd3d1)  ); 
+              SER( pSurface2->EvaluatePoint(sEndUV2, sRefineEnd3d2)  ); 
 
               double dEndMove3d1 = (sRefineEnd3d1 - sEnd3d1).Length() ;
               double dEndMove3d2 = (sRefineEnd3d2 - sEnd3d2).Length() ;
@@ -3215,8 +3215,8 @@ SmBoolean bDebugMe = FALSE ;
       rbFoundFaceEdgeForm = TRUE ;
       rdMaxGap3d          = dDeviation ;
       rpBestCurve         = p3DCurve ;
-      pSurface1->EvaluatePoint(sStartUV1,rBestStartVertexPos) ;
-      pSurface1->EvaluatePoint(sEndUV1,  rBestEndVertexPos) ;
+      SER( pSurface1->EvaluatePoint(sStartUV1,rBestStartVertexPos)  );
+      SER( pSurface1->EvaluatePoint(sEndUV1,  rBestEndVertexPos)  );
   
       if(pOptFace1)        { *pOptFace1        = pFace1 ; }
       if(pOptUVTrimCurve1) { *pOptUVTrimCurve1 = pSurface1UVCurve ; 
@@ -3314,14 +3314,14 @@ SmBoolean SmEdge::CalcMaxParallelFaceGap
     {
       SmPoint2d sUV1 = rSampleSet1[ii].GetOtherParam() ;
       SmPoint3d sPt1 = rSampleSet1[ii].GetOtherPos() ;
-      pSurface1->EvaluateNormal(sUV1, TRUE, TRUE, sNorm1) ;
+      if ( pSurface1->EvaluateNormal(sUV1, TRUE, TRUE, sNorm1)  != SM_SUCCESS ) { continue ; } // SolidCraft change: a sample whose normals cannot be evaluated is not compared
 
       SmPoint2d sUV2 = rSampleSet2[ii].GetOtherParam() ;
       SmPoint3d sPt2 = rSampleSet2[ii].GetOtherPos() ;
-      pSurface2->EvaluateNormal(sUV2, TRUE, TRUE, sNorm2) ;
+      if ( pSurface2->EvaluateNormal(sUV2, TRUE, TRUE, sNorm2)  != SM_SUCCESS ) { continue ; } // SolidCraft change: a sample whose normals cannot be evaluated is not compared
 
       // dihedral angle between faces at sample point
-      sNorm1.AngleBetween(sNorm2, dAngRad) ;
+      if ( sNorm1.AngleBetween(sNorm2, dAngRad)  != SM_SUCCESS ) { continue ; } // SolidCraft change: a sample whose normals cannot be evaluated is not compared
       dAngDeg = SM_RAD2DEG(dAngRad) ;
 
       if(rMinDihedralAngDeg > dAngDeg)
@@ -3470,7 +3470,7 @@ SmStatus SmEdge::UpdateDomain()
   if ( eStat == SM_SUCCESS && bSuccess )
     {
       SM_ASSERT( dDist <= sTol );
-      sNewDomain.SetMinMax( dNewParam0, sNewDomain.GetMax() );
+      SER( sNewDomain.SetMinMax( dNewParam0, sNewDomain.GetMax() ) );
     }
   else
     { WARN( _T("Bad Vertex drop to Edge curve\n") ); }
@@ -3499,13 +3499,13 @@ SmStatus SmEdge::UpdateDomain()
   if ( eStat == SM_SUCCESS && bSuccess )
     {
       SM_ASSERT( dDist <= sTol );
-      sNewDomain.SetMinMax( sNewDomain.GetMin(), dNewParam1 );
+      SER( sNewDomain.SetMinMax( sNewDomain.GetMin(), dNewParam1 ) );
     }
   else
     { WARN( _T("Bad Vertex drop to Edge curve\n") ); }
 
   if ( !sNewDomain.AreEqual( sThisDomain ) )
-  { RemoveUVTrimCurves(); }
+  { SER( RemoveUVTrimCurves() ); }
 
   this->SetInterval( sNewDomain );
 
@@ -3547,14 +3547,10 @@ void SmEdge::Notify                    // expected calls: caller->Notify(Event, 
     {
       case SM_NO_PRE_EDIT              : break ;
                                        
-      case SM_NO_CHANGE_GEOMETRY       : {                        
-                                           SmBrep *pBrep = ( pData2 != NULL ) ? SM_CAST_PTR( SmBrep, pData2 ) : GetBrep();
-                                           if ( pBrep != NULL )
-                                             {
-                                               pBrep->Notify( SM_NO_RM_FROM_BREP, pData3, pBrep, this->GetCurve() );
-                                               pBrep->Notify( SM_NO_ADD_TO_BREP , pData1, pBrep, this->GetCurve() );
-                                             }                    
-                                         }                        
+      case SM_NO_CHANGE_GEOMETRY       : // SolidCraft: the Brep's spatial tree is updated by SetCurve, which sends
+                                         // SM_NO_RM_FROM_BREP and SM_NO_ADD_TO_BREP with this edge round the change.
+                                         // This case used to send them too, with the old and new curves where the
+                                         // Brep takes a topology object (a no-op behind a curve cast to SmTopology).
       case SM_NO_POST_EDIT             : 
       case SM_NO_SPLIT_IN_BREP         : 
       case SM_NO_MERGE_IN_BREP         : // pass the notify call along to all Vertexuses, Edgeuses, and Edgeuse->Vertexuses
@@ -3563,7 +3559,7 @@ void SmEdge::Notify                    // expected calls: caller->Notify(Event, 
                                            ULONG ii ;
                                            SM_PTR_ARRAY(sVertexuses, SmVertexuse, 32) ;
                                            SM_PTR_ARRAY(sEdgeuses,   SmEdgeuse, 32) ;
-                                           GetEdgeuses(sEdgeuses) ;
+                                           (void)GetEdgeuses(sEdgeuses) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
                                            GetVertexuses(sVertexuses) ;
                                            for(ii=0;ii<sEdgeuses.GetSize();ii++)
                                              { sEdgeuses[ii]->Notify(eNotifyOperation, pData1, pData2, pData3) ; }
@@ -3607,7 +3603,7 @@ void SmEdge::SetOrientation
   SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
 
   // for every edgeuse/mate pair
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   for (ULONG i=1; i<sEdgeuses.GetSize(); i+=2) 
     {
       SmEdgeuse *pEU1 = (SmEdgeuse*)sEdgeuses[i-1];
@@ -3637,14 +3633,18 @@ NOTES: Assumes edgeuses are ordered and oriented for current CurveParameterizati
          Note, we could try reversing them, but domain intervals can get messed up
          on some analytic curves.
 ***********************************************************************/
-void SmEdge::ReverseOrientation()
+SmStatus SmEdge::ReverseOrientation() // SolidCraft change: returns the reparameterization's status
 {
   // locals
   SmExtent1d sNewIvl, sOldIvl = m_vInterval;
 
   // reverse Curve Parameterization
+  // SolidCraft change: a curve that could not be reparameterized leaves the edge as it was (the
+  // edge took an unset interval and went on reversing its edgeuses)
   if(m_pCurve) 
-    { m_pCurve->ReverseParameterization( sOldIvl, sNewIvl ); }
+    { SER( m_pCurve->ReverseParameterization( sOldIvl, sNewIvl ) ); }
+  else
+    { sNewIvl = sOldIvl; }
 
   m_vInterval = sNewIvl;
 
@@ -3667,6 +3667,7 @@ void SmEdge::ReverseOrientation()
     } while ( pEU != pStart );
 
   // all done
+  return SM_SUCCESS;
 
 } // end SmEdge::ReverseOrientation  
 
@@ -3715,13 +3716,13 @@ SmStatus SmEdge::OrientEdgeSequence( SmTArray< SmEdge* > & rEdgeList )
 
           if ( pV00 == pV10  &&  pV01 == pV11 )
             {
-              pEdge1->ReverseOrientation();
+              SER( pEdge1->ReverseOrientation() );
               return SM_SUCCESS;
             }
         }
 
       // Not a closed 2-Edge sequence.
-      pEdge0->ReverseOrientation();
+      SER( pEdge0->ReverseOrientation() );
       pV00 = pEdge0->GetStartVertex();
       pV01 = pEdge0->GetEndVertex();
     }
@@ -3733,7 +3734,7 @@ SmStatus SmEdge::OrientEdgeSequence( SmTArray< SmEdge* > & rEdgeList )
     {}  // it's in order
   else if ( pV11 == pV01 )
     {
-      pEdge1->ReverseOrientation();
+      SER( pEdge1->ReverseOrientation() );
       pV10 = pEdge1->GetStartVertex();
       pV11 = pEdge1->GetEndVertex();
     }
@@ -3763,7 +3764,7 @@ SmStatus SmEdge::OrientEdgeSequence( SmTArray< SmEdge* > & rEdgeList )
         {}  // it's in order
       else if ( pV01 == pV11 )
       {
-          pEdge1->ReverseOrientation();
+          SER( pEdge1->ReverseOrientation() );
           pV10 = pEdge1->GetStartVertex();
           pV11 = pEdge1->GetEndVertex();
       }
@@ -3917,7 +3918,7 @@ void SmEdge::GetFaces
   SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
 
   // for every loop edgeuse
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   for (ULONG i=0; i<sEdgeuses.GetSize(); i++) 
     {
       SmEdgeuse *pEU = (SmEdgeuse*)sEdgeuses[i];
@@ -3972,7 +3973,7 @@ void SmEdge::GetShells
   SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
 
   // for every loop edgeuse
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   for (ULONG i=0; i<sEdgeuses.GetSize(); i++) 
     {
       SmEdgeuse * pEU    = (SmEdgeuse*)sEdgeuses[i];
@@ -4007,7 +4008,7 @@ void SmEdge::GetRegions
   SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
 
   // for every loop edgeuse
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   for (ULONG i=0; i<sEdgeuses.GetSize(); i++) 
     {
       SmEdgeuse * pEU     = (SmEdgeuse*)sEdgeuses[i] ;
@@ -4301,7 +4302,7 @@ ULONG SmEdge::GetNumberFaceOccurances // rtn: number of times edge bounds this f
   SmFaceuse *pFU = pFace->GetUpwardFaceuse();
 
   // for every Edge-Edgeuse
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
   for (ULONG i=0; i<sEdgeuses.GetSize(); i++) 
     {
       SmEdgeuse *pEU = (SmEdgeuse*)sEdgeuses[i];
@@ -4338,7 +4339,7 @@ const SmGap * SmEdge::GetMaxUpDimGap3d
   ULONG ii ;
   SmGap * pMaxGap = NULL ;
   SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 16) ;                                  
-  GetEdgeuses(sEdgeuses) ;
+  (void)GetEdgeuses(sEdgeuses) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
   // for every edgeuse
   for(ii=0;ii<sEdgeuses.GetSize();ii++)
@@ -4461,14 +4462,14 @@ SmBoolean bDebugMe = FALSE ;
   if (pInsertAfter->GetOrientation() == pEU1->GetOrientation()) 
     {
       // EU1 and pInsertAfter are the same orient, put EU2 next to it
-      InsertAfter(pEU1,pInsertAfter);  // make list {pInsertAfter, pEU1}
-      InsertAfter(pEU2,pInsertAfter);  // make list {pInsertAfter, pEU2, pEU1}
+      SER( InsertAfter(pEU1,pInsertAfter) );  // make list {pInsertAfter, pEU1}
+      SER( InsertAfter(pEU2,pInsertAfter) );  // make list {pInsertAfter, pEU2, pEU1}
     }
   else 
     {  
       // EU1 and pInsertAfter are opposite EU1, put EU1 next to it
-      InsertAfter(pEU2,pInsertAfter);  // make list {pInsertAfter, pEU2}
-      InsertAfter(pEU1,pInsertAfter);  // make list {pInsertAfter, pEU1, pEU2}
+      SER( InsertAfter(pEU2,pInsertAfter) );  // make list {pInsertAfter, pEU2}
+      SER( InsertAfter(pEU1,pInsertAfter) );  // make list {pInsertAfter, pEU1, pEU2}
     }
 
   // all done
@@ -4605,7 +4606,7 @@ SmStatus SmEdge::InsertManifoldEdgeEnd
 {
   // locals
   SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 16) ; 
-  GetEdgeuses(sEdgeuses);
+  SER( GetEdgeuses(sEdgeuses) );
 
   // check state: ThisEdge expected to be a manifold edge with 4 Edgeuses
   if (sEdgeuses.GetSize() != 4) SER(SM_ERR_INVALID_INPUT);
@@ -4639,8 +4640,8 @@ SmStatus SmEdge::InsertManifoldEdgeEnd
   SmVertex *pV = pVertexuse->GetVertex();
 
   // Insert new start vertexuses into TgtVertex
-  pV->PostInsert(pVUTop);
-  pV->PostInsert(pVUBot);
+  SER( pV->PostInsert(pVUTop) );
+  SER( pV->PostInsert(pVUBot) );
 
   // When connecting to a LoopVertex - make a Strut edge
   if (pVertexuse->IsLoopVertexuse()) 
@@ -4705,7 +4706,7 @@ SmBoolean SmEdge::IsLamina
 {
     SmEdgeuse *pData[32];
     SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
-    GetEdgeuses(sEdgeuses);
+    (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
     if (sEdgeuses.GetSize() != 2) return FALSE;
     SmEdgeuse *pEU = sEdgeuses[0];
     if (!pEU->IsLoopEdgeuse()) return FALSE;
@@ -4725,7 +4726,7 @@ SmBoolean SmEdge::IsManifold
 {
   SmEdgeuse *pData[32];
   SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
-  GetEdgeuses(sEdgeuses);
+  (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
   // manifold edges connect to two sides of two faces through 4 edgeuses
   if (sEdgeuses.GetSize() != 4) 
@@ -4848,7 +4849,7 @@ SmBoolean SmEdge::IsSeam
     SmEdgeuse *apEUOfF[2] = { NULL, NULL };
     SmEdgeuse *pData[32];
     SmTArray<SmEdgeuse*> sEdgeuses(32,pData);
-    GetEdgeuses(sEdgeuses);
+    (void)GetEdgeuses(sEdgeuses); // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
     // for everyother edgeuse on the edge's edgeuse list
     for (ULONG i=0; i<sEdgeuses.GetSize(); i+=2) 
@@ -4998,7 +4999,7 @@ const
 
   // locals
   SM_PTR_ARRAY(sEUs, SmEdgeuse, 16) ; // SmTArray<SmEdgeuse*> sEUs ;
-  GetEdgeuses( sEUs ) ; // expect 4 EUs because this->Edge is manifold
+  if ( GetEdgeuses( sEUs )  != SM_SUCCESS ) { return FALSE ; } // expect 4 EUs because this->Edge is manifold // SolidCraft change: without its edgeuses the edge is not shown removable
    
   // cheap test 1 - only Manifold edges can be "topological" - not calling IsManifold just to save a little time
   if(   sEUs.GetSize() != 4 
@@ -5063,8 +5064,8 @@ const
       double dGapTol = SmTol::GetXSectTol3d(pFace1, pFace2) ; 
       
       SmPoint3d sPt1, sPt2;
-      paSurf[0]->EvaluatePoint( saUV[0][ii], sPt1 );
-      paSurf[1]->EvaluatePoint( saUV[1][ii], sPt2 );
+      if ( paSurf[0]->EvaluatePoint( saUV[0][ii], sPt1 ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points that cannot be evaluated do not show the faces coincide, so the edge stays
+      if ( paSurf[1]->EvaluatePoint( saUV[1][ii], sPt2 ) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: points that cannot be evaluated do not show the faces coincide, so the edge stays
       if ( sPt1.DistanceBetween( sPt2 ) > dGapTol )
         {
           return(FALSE) ;
@@ -5393,7 +5394,7 @@ SmBoolean SmEdge::IsWithinXSectTol3dOfFaces
   ULONG ii ;
   SmTArray<SmEdgeuse*> sEdgeuses ;
   SmXSectTol3d         sXSectTol3d = SmTol::GetXSectTol3d(GetContext()) ;
-  GetEdgeuses(sEdgeuses) ;
+  (void)GetEdgeuses(sEdgeuses) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
   // when asked - clear Edge/Face gap cache to force gap calculations for every Edgeuse
   if(bForceCalc)
@@ -5532,7 +5533,7 @@ SmBoolean SmEdge::IsEmbedded
   else                 { sFaces.Add((SmFace*)pOptFace) ; }
 
   SmTArray<SmEdgeuse*> sEdgeuses ;
-  GetEdgeuses(sEdgeuses) ;
+  (void)GetEdgeuses(sEdgeuses) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
   // for every face
   for(ii=0;ii<sFaces.GetSize();ii++)
@@ -5832,7 +5833,7 @@ SmStatus SmEdge::ClearUVCaches()
   // edge locals
   SmTArray<SmEdgeuse*> sEdgeuses(256) ;
   SmTArray<SmVertexuse*> sVertexuses(256) ;
-  GetEdgeuses(sEdgeuses) ;
+  SER( GetEdgeuses(sEdgeuses)  );
   GetVertexuses(sVertexuses) ;
 
   // for every Edgeuse
@@ -5910,7 +5911,7 @@ SmBoolean bDebugMe = FALSE ;
       if(pBaseCurve->IsKindOf(SmBSplineCurve_TYPE))
         {
           SmBSplineCurve *pBSplineCurve = ((SmBSplineCurve *)pBaseCurve) ;
-          pBSplineCurve->CreateSimpleOffset(*cpContext,        // in : context for new object construction
+          SER( pBSplineCurve->CreateSimpleOffset(*cpContext,        // in : context for new object construction
                                             dApproxTol3d,      // in : Distance between curve created and theoretical
                                                                //      exact offset (1.0e-2 to 1.0e-6) are typical
                                                                //      values used for curves of size 1.0.
@@ -5922,7 +5923,7 @@ SmBoolean bDebugMe = FALSE ;
                                                                //      base curve.
                                             pNewBSplineCurve,  // out: If there is no valid offset, this value will be NULL.
                                                                //      Otherwise, it will be offset curve.
-                                            dAchievedTol3d) ;  // out: Max error of offset approximation.
+                                            dAchievedTol3d)  );  // out: Max error of offset approximation.
                                                                // in : TRUE = approxCurve(param) within 3DApproxTol of ThisCurve(param) for all param values
                                                                //      FALSE= ApproxCurve(param) within 3d ApproxTol of ThisCurve(AnyParam)
                                                                //      default:[FALSE], FALSE produces lower control point count curves for slightly more cost.
@@ -5985,7 +5986,7 @@ SmBoolean bDebugMe = FALSE ;
         }
 
       // Build the approximation curve
-      pCurve->ApproximateConstrainedCurve
+      SER( pCurve->ApproximateConstrainedCurve
                         (*cpContext,           // in : context for new object construction
                           dApproxTol3d,        // in : maximum allowed distance between Approx and original curves
                           GetInterval(),       // in : curve interval to approximate
@@ -5993,14 +5994,14 @@ SmBoolean bDebugMe = FALSE ;
                           pNewBSplineCurve,    // out: The new curve when successful, else NULL.
                                                //      expected to be NULL on input - otherwise can cause a memory leak
                          &s3DTrimPoints,       // in : optional array of 3d Point constraints, NULL to ignore, default:[NULL]
-                         &sTParamTrimPoints) ; // in : associated curve UVPoints made close to each 3DTrimPoint, NULL to ignore, default:[NULL] 
+                         &sTParamTrimPoints)  ); // in : associated curve UVPoints made close to each 3DTrimPoint, NULL to ignore, default:[NULL] 
     } // end couldn't convert to an exact BSpline check
 
   // when ApproximateCurveWithTrimPoints worked
   if(sRtn == SM_SUCCESS && pNewBSplineCurve != NULL)
     {
       // swap the edge's curve - delete appropriate objects (old curve and UVTrimCurves)
-      pBrep->ReplaceCurve(this, pNewBSplineCurve) ;
+      SER( pBrep->ReplaceCurve(this, pNewBSplineCurve)  );
     }
   else // ApproximateCurveWithTrimPoints failed
     {
@@ -6245,7 +6246,7 @@ SmBoolean bDebugMe2 = FALSE;
   // Check that the parameters of the geometry match up
   SmEdgeuse * sEUData[64];
   SmTArray<SmEdgeuse*> sEUs(64,sEUData);
-  GetEdgeuses(sEUs);
+  SER( GetEdgeuses(sEUs) );
 
   double dMaxUVDist = -2;
   for (ULONG i=0; i<sEUs.GetSize(); i++) 
@@ -6260,7 +6261,7 @@ SmBoolean bDebugMe2 = FALSE;
               MSG(_T("Possible Accuracy problems in Edge Trim Intervals"));
               if ( bFixTolerances )
                 {
-                  pEU->m_pUVTrimCurve->EditParameterization(m_vInterval);
+                  SER( pEU->m_pUVTrimCurve->EditParameterization(m_vInterval) );
                   bEditedParameterization = TRUE ;
                 }
             }
@@ -6269,7 +6270,7 @@ SmBoolean bDebugMe2 = FALSE;
               MSG(_T("Possible Accuracy problems in Edge Trim Intervals"));
               if ( bFixTolerances )
                 {
-                  pEU->m_pUVTrimCurve->EditParameterization(m_vInterval);
+                  SER( pEU->m_pUVTrimCurve->EditParameterization(m_vInterval) );
                   bEditedParameterization = TRUE ;
                 }
             }
@@ -6287,10 +6288,10 @@ SmBoolean bDebugMe2 = FALSE;
               SmCrvOnSurf sCrvOnSurf( *pUVCrv, *pSrf, NULL, 0, GetContext() );
 
               double dUVDist = -1;
-              this->GetCurve()->CurveMaxDistanceBetween( m_vInterval, sCrvOnSurf,
+              SER( this->GetCurve()->CurveMaxDistanceBetween( m_vInterval, sCrvOnSurf,
                                                          sUVIvl.GetMin(),
                                                          sUVIvl.GetMax(),
-                                                         51, NULL, dUVDist );
+                                                         51, NULL, dUVDist ) );
 
 #ifdef SM_DEBUG_CODE
               // draw 
@@ -6325,7 +6326,8 @@ SmBoolean bDebugMe2 = FALSE;
             } // end check accuracy of uv-curve.
 
           // check UV curve does not reverse direction at ends - side effect - reversed curves are fixed in this call
-          if (!pEU->m_pUVTrimCurve->PassesValidityCheck(SM_VC_REVERSE_DIRECTION, eCheckFailed))
+          // SolidCraft: judged on the face's surface, not in (u, v) (see PassesReverseDirectionCheckOn)
+          if (!pEU->m_pUVTrimCurve->PassesReverseDirectionCheckOn(*pEU->GetFace()->GetSurface(), eCheckFailed))
             {
 #ifdef SM_DEBUG_CODE
               // draw 
@@ -6384,14 +6386,14 @@ SmStatus SmEdge::OutputGraphics
   SmExtent1d  sEdgeIvl = GetInterval();
 
   // pass the call along to the curve
-  pCurve->OutputGraphics(sEdgeIvl, crDisp, NULL, NULL, pOptGfxSet) ;
+  SER( pCurve->OutputGraphics(sEdgeIvl, crDisp, NULL, NULL, pOptGfxSet)  );
 
   // When asked draw Neighbor data, output sequence of connected edegeuses (removed: and their faces) 
   if(crDisp.m_bDrawNeighbors)
     {
       SmTArray<SmEdgeuse *>sEdgeuses ;
       SmTArray<SmFace *>sDoneFaces ;
-      GetEdgeuses(sEdgeuses) ;
+      SER( GetEdgeuses(sEdgeuses)  );
       ULONG lCnt;
       
       lCnt = sEdgeuses.GetSize() ;
@@ -6438,7 +6440,7 @@ SmStatus SmEdge::OutputGraphics
     {
       // locals
       SmTArray<SmEdgeuse*> sEdgeuses ;
-      GetEdgeuses(sEdgeuses) ;
+      SER( GetEdgeuses(sEdgeuses)  );
       double        dMicroEdgeParam =   crDisp.m_dMicroEdgeParam != SM_BIG_DOUBLE
                                       ? crDisp.m_dMicroEdgeParam
                                       : sEdgeIvl.Evaluate(0.5) ;
@@ -6500,8 +6502,8 @@ SmStatus SmEdge::OutputGraphics
                   while(sEdgeIvl.ContainsValue(dS))
                     {
                       // Curve evaluate EdgePt, DropSurfPt, and DropSurfBiNormDir 
-                      pCrv->EvaluatePoint(dS,               // in : value within Edge->m_vInterval.
-                                          sEdgePoint) ;     // out: 3D pt on edge
+                      SER( pCrv->EvaluatePoint(dS,               // in : value within Edge->m_vInterval.
+                                          sEdgePoint)  );     // out: 3D pt on edge
  
                       // load gfx arrays
                       pTgtPoints->Add(sEdgePoint) ;
@@ -6573,14 +6575,14 @@ SmDisplayList * SmEdge::DrawWTransform
   // transform a temporary copy of the edge->Curve
   SmBSplineCurve *pNewCurve = new (*GetContext()) SmBSplineCurve(*SM_CAST_PTR(SmBSplineCurve,m_pCurve));
   SmObjDelete sCleanup(pNewCurve);
-  pNewCurve->Transform(crTransform);
+  (void)pNewCurve->Transform(crTransform); // SolidCraft: drawing only
 
   // open new displayList (unless one is already open)
   SmVector3d sColor = smgfx_GetOutputColor() ;
   smgfx_Open(smgfx_GetRuleColor(this));
 
   // add transformed curve graphics
-  pNewCurve->OutputGraphics(m_vInterval, rDisp, NULL) ;
+  (void)pNewCurve->OutputGraphics(m_vInterval, rDisp, NULL) ; // SolidCraft: drawing only
 
   // end display list
   smgfx_OutputColor(sColor) ;
@@ -6619,7 +6621,7 @@ SmDisplayList * SmEdge::Draw
   smgfx_Open(smgfx_GetRuleColor(this), NULL, NULL, FALSE, pOptGfxSet);
 
   // output the graphics
-  OutputGraphics(rDisp, pOptGfxSet) ;
+  (void)OutputGraphics(rDisp, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end display list
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -6665,7 +6667,7 @@ SmDisplayList * SmEdge::DrawNeighbors
   smgfx_Open(smgfx_GetRuleColor(this), NULL, NULL, FALSE, pOptGfxSet);
 
   // output the graphics
-  OutputGraphics(sDisp, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end display list
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -6713,7 +6715,7 @@ SmDisplayList * SmEdge::DrawMicro
   smgfx_Open(smgfx_GetRuleColor(this), NULL, NULL, FALSE, pOptGfxSet);
 
   // output the graphics
-  OutputGraphics(sDisp, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end display list
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -7513,7 +7515,7 @@ SmBoolean SmEdge::AssertValid
 
   // Check all connected Edgeuses
   SmTArray<SmEdgeuse *> sEdgeuses ;
-  GetEdgeuses(sEdgeuses) ;
+  (void)GetEdgeuses(sEdgeuses) ; // SolidCraft: a validity check reads what it computed
   ULONG ii, lNumEUs = sEdgeuses.GetSize();;
 
 // Remove Composites  - moved check up from below
@@ -7580,7 +7582,7 @@ SmBoolean SmEdge::AssertValid
           {
             SmPoint3d sVtxPt = pVtx->GetPoint();
             SmPoint3d sEdgePt ;
-            m_pCurve->EvaluatePoint( m_vInterval.GetMin(), sEdgePt );
+            (void)m_pCurve->EvaluatePoint( m_vInterval.GetMin(), sEdgePt ); // SolidCraft: a validity check reads what it computed
             double dDist = sVtxPt.DistanceBetween( sEdgePt );
             double dVtxTol = pVtx->GetTolerance();
             /* 16 */ // start edge/vertex gap must be less than edge + vertex tolerance
@@ -7590,7 +7592,7 @@ SmBoolean SmEdge::AssertValid
             if ( pVtx != NULL )
               {
                 sVtxPt = pVtx->GetPoint();
-                m_pCurve->EvaluatePoint( m_vInterval.GetMax(), sEdgePt );
+                (void)m_pCurve->EvaluatePoint( m_vInterval.GetMax(), sEdgePt ); // SolidCraft: a validity check reads what it computed
                 dDist = sVtxPt.DistanceBetween( sEdgePt );
                 dVtxTol = pVtx->GetTolerance();
                 /* 17 */ // end edge/vertex gap must be less than edge + vertex tolerance
@@ -7622,6 +7624,62 @@ SmBoolean SmEdge::AssertValid
       // Must watch out for zero sectors: coincident faces.
       SmBoolean bHaveNonzeroAngle = FALSE;
 
+      // A sector between faces tangent along the edge (a cylinder touching a plane it rests on,
+      // left by a boolean as a non-manifold edge) has binormals that agree to first order: the
+      // faces leave the edge in the same direction and only their curvature parts them, so the
+      // binormal angles tie (or differ by rounding, either way round) and cannot show the order.
+      // Where any sector is that narrow, every face is measured by the direction from the edge to
+      // its point a short step into the face (20 edge tolerances, as IsConvexRadialSector steps),
+      // which tells tangent faces apart and gives every other face its binormal's angle within
+      // the curvature over that step.
+      const double dSeqParam    = sExtent.Evaluate(.456) ;
+      const double dStepOffDist = 20.0 * dEdgeTol ;
+      SmBoolean    bStepOff     = FALSE ;
+      {
+        const double dTieDot = smos_Cosine( SM_ANG_TOL_DEG * SM_PI/180.0 ) ;
+        const SmEdgeuse *pEU = pTargetEdgeuse ;
+        ULONG lSectors = 0 ;
+        do
+          {
+            const SmEdgeuse *pRad = pEU->GetRadial() ;
+            if(   pRad == NULL
+               || pEU->m_tEdgeuseType != SmLoopuse_TYPE
+               || pRad->m_tEdgeuseType != SmLoopuse_TYPE)
+              { break ; }
+            SmPoint3d  sP0, sP1 ;
+            SmVector3d sB0, sB1 ;
+            if(   pEU ->EvaluateBinormal(dSeqParam, TRUE, sP0, sB0) == SM_SUCCESS
+               && pRad->EvaluateBinormal(dSeqParam, TRUE, sP1, sB1) == SM_SUCCESS
+               && sB0.Unitize() == SM_SUCCESS
+               && sB1.Unitize() == SM_SUCCESS
+               && sB0.Dot(sB1) > dTieDot )
+              { bStepOff = TRUE ; }
+            pEU = pRad->GetMate() ;
+          }
+        while( !bStepOff && pEU != NULL && pEU != pTargetEdgeuse && ++lSectors < lNumEUs ) ;
+      }
+
+      // The direction an edgeuse's face leaves the edge in: its binormal, or (bStepOff) the
+      // direction to its step-off point, square to the edge.
+      auto sm_SectorDirection = [&]( const SmEdgeuse * pEU, SmPoint3d & rPnt, SmVector3d & rDir,
+                                     SmVector3d & rTangent, SmVector3d & rFaceNormal )
+      {
+        (void)pEU->EvaluateBinormal(dSeqParam, TRUE, rPnt, rDir, &rTangent, &rFaceNormal) ; // SolidCraft: a validity check reads what it computed
+        if ( !bStepOff )
+          { return ; }
+        SmPoint3d  sStepPnt ;
+        SmVector3d sStepBin ;
+        if ( pEU->EvaluateBinormalStepOff(dSeqParam, dStepOffDist, sStepPnt, sStepBin) != SM_SUCCESS )
+          { return ; }
+        SmVector3d sUnitTan = rTangent ;
+        if ( sUnitTan.Unitize() != SM_SUCCESS )
+          { return ; }
+        SmVector3d sAway = sStepPnt - rPnt ;
+        sAway = sAway - sAway.Dot(sUnitTan) * sUnitTan ;
+        if ( sAway.Unitize() == SM_SUCCESS )
+          { rDir = sAway ; }
+      } ;
+
       // for every edgeuse-radial partner set, get angles from this edgeuse biVec in ascending order
       while(pTargetEdgeuse != pPrimaryEdgeuse)
         {
@@ -7634,8 +7692,8 @@ SmBoolean SmEdge::AssertValid
              && pRadialEdgeuse->m_tEdgeuseType == SmLoopuse_TYPE)
             {
               // get BinormalEvaluations
-              pTargetEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sTargetPnt, sTargetBiVec, &sTargetTangent, &sTargetFaceNormal) ;
-              pRadialEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sRadialPnt, sRadialBiVec, &sRadialTangent, &sRadialFaceNormal) ;
+              sm_SectorDirection(pTargetEdgeuse, sTargetPnt, sTargetBiVec, sTargetTangent, sTargetFaceNormal) ;
+              sm_SectorDirection(pRadialEdgeuse, sRadialPnt, sRadialBiVec, sRadialTangent, sRadialFaceNormal) ;
 
               // 1st iteration save variables
               if(pPrimaryEdgeuse == NULL) { pPrimaryEdgeuse = pTargetEdgeuse ;
@@ -7645,7 +7703,7 @@ SmBoolean SmEdge::AssertValid
 
               // Primary BiVec to current Radial BiVec Angle
               double dAngFromPrimaryRad = 0.0;
-              sPrimaryTangent.CCWAngleBetween(sPrimaryBiVec, sRadialBiVec, dAngFromPrimaryRad) ;
+              (void)sPrimaryTangent.CCWAngleBetween(sPrimaryBiVec, sRadialBiVec, dAngFromPrimaryRad) ; // SolidCraft: a validity check reads what it computed
               double dAngFromPrimaryDeg = SM_RAD2DEG(dAngFromPrimaryRad) ;
 
               if ( dAngFromPrimaryDeg < -SM_EFF_ZERO )                             { dAngFromPrimaryDeg += 360.0; }
@@ -8003,7 +8061,7 @@ void SmEdge::Dump
 
   // Edge->Edgeuses
   SmTArray<SmEdgeuse*> sEdgeuses;
-  GetEdgeuses( sEdgeuses );
+  (void)GetEdgeuses( sEdgeuses ); // SolidCraft: dump only
   uCount = sEdgeuses.GetSize();
 
   smos_sprintf( sBuff, _T("    %2lu Edgeuses: "), uCount );
@@ -8083,7 +8141,7 @@ void SmEdge::DumpTopology
   SmEdgeuse   *pEdgeuse = (SmEdgeuse*) m_pList;
 
   // count the number of loopuses directly connected to this Edge
-  SmTArray<SmEdgeuse*>   sEdgeuses;  GetEdgeuses(sEdgeuses) ;
+  SmTArray<SmEdgeuse*>   sEdgeuses;  (void)GetEdgeuses(sEdgeuses) ; // SolidCraft: dump only
   SmTArray<SmVertexuse*> sVertexuses ;
 
   SM_ASSERT(sEdgeuses.GetSize() == m_lListSize) ;

@@ -3620,6 +3620,8 @@ NL_VOID N_InitRealMatrix( NL_RMATRIX *rma )
     rma->n = -1;
     rma->m = -1;
     rma->RM = NULL;
+    /* Set too: N_RealMatrixIsNULL reads every field, and an indeterminate enum is undefined. */
+    rma->mtp = NL_MT_FULL;
     rma->bw = 0;
 } /* end N_InitRealMatrix */
 

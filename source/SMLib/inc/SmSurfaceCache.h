@@ -232,7 +232,7 @@ class SM_EXPORT SmVertexList : public SmListNode
   SmVector2d       m_vUVTol;
 
  public:
-  virtual void Dump() const ;
+  void Dump() const ; // SolidCraft: not virtual; SmVertexLists come from an SmMemBlockMgr unconstructed
 
 } ; // end class SmVertexList
 

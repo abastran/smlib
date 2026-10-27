@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 SolidCraft contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Prebuilt static libraries of the C API (capi/), one archive per Rust target SolidCraft builds,
+# attached to the release `prebuilt-<commit>`. SolidCraft pins the commit and each archive's
+# SHA-256 and links these instead of compiling SMLib in every build (scripts/fetch-smlib.sh there).
+# A release is never rebuilt: the same commit always means the same archives.
+name: Prebuilt libraries
+
+on:
+  push:
+    branches: [main, 'replay/**']
+    paths: ['capi/**', 'source/SMLib/**', 'source/SM_API/**', '.github/workflows/prebuilt.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prebuilt-${{ github.sha }}
+
+env:
+  WASI_SDK_VERSION: '34'
+  WASI_SDK_SHA256: b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm }
+          - { target: aarch64-apple-darwin, runner: macos-14, cmake: '-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' }
+          - { target: x86_64-apple-darwin, runner: macos-14, cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0', cross: true }
+          - { target: x86_64-pc-windows-msvc, runner: windows-latest, cmake: '-A x64' }
+          - { target: i686-pc-windows-msvc, runner: windows-latest, cmake: '-A Win32', cross: true }
+          - { target: aarch64-pc-windows-msvc, runner: windows-11-arm, cmake: '-A ARM64' }
+          - { target: wasm32-unknown-unknown, runner: ubuntu-22.04, wasm: true, cross: true }
+    steps:
+      - uses: actions/checkout@v4
+      - name: wasi-sdk
+        if: matrix.wasm
+        run: |
+          curl -fsSL -o wasi-sdk.tar.gz "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz"
+          echo "$WASI_SDK_SHA256  wasi-sdk.tar.gz" | sha256sum -c -
+          mkdir wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components 1
+          echo "WASI_SDK=$PWD/wasi-sdk" >> "$GITHUB_ENV"
+      - name: Configure
+        shell: bash
+        run: |
+          # macOS 11.0: SolidCraft's deployment target (packaging/macos/package.sh there).
+          args=(-DCMAKE_BUILD_TYPE=Release -DSMLIB_RAND_SEED=20240101)
+          # A target this runner cannot run builds no tests.
+          if [ -n "${{ matrix.cross }}" ]; then args+=(-DSMLIB_CAPI_TESTS=OFF); fi
+          if [ -n "${{ matrix.wasm }}" ]; then
+            # The exnref encoding of wasm exceptions, as wasi-sdk's libc++ and Rust use.
+            eh="-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false"
+            args+=(-DWASI_SDK_PREFIX="$WASI_SDK" -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk-p1.cmake"
+              "-DCMAKE_C_FLAGS=$eh" "-DCMAKE_CXX_FLAGS=$eh")
+          fi
+          cmake -S capi -B build "${args[@]}" ${{ matrix.cmake }}
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --parallel 4
+      - name: Smoke test
+        if: ${{ !matrix.cross }}
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package
+        shell: bash
+        run: |
+          d="smlib-${{ matrix.target }}"
+          mkdir -p "$d/lib"
+          cp LICENSE "$d/"
+          echo "$GITHUB_SHA" > "$d/REV"
+          if [ -f build/Release/smlib.lib ]; then cp build/Release/smlib.lib "$d/lib/"; else cp build/libsmlib.a "$d/lib/"; fi
+          if [ -n "${{ matrix.wasm }}" ]; then
+            # The C++ runtime and C library the archive was compiled against, so a browser build
+            # needs no wasi-sdk of its own.
+            sys="$WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1"
+            cp "$sys/eh/libc++.a" "$sys/eh/libc++abi.a" "$sys/eh/libunwind.a" "$sys/libc.a" "$d/lib/"
+            {
+              echo "lib/libc++.a, lib/libc++abi.a, lib/libunwind.a: LLVM's libc++, libc++abi and libunwind,"
+              echo "Apache-2.0 WITH LLVM-exception (https://github.com/llvm/llvm-project)."
+              echo "lib/libc.a: wasi-libc, Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT, including musl (MIT)"
+              echo "(https://github.com/WebAssembly/wasi-libc)."
+              echo "Both from wasi-sdk ${WASI_SDK_VERSION} (https://github.com/WebAssembly/wasi-sdk), exception-handling build."
+            } > "$d/NOTICE"
+          fi
+          tar -czf "$d.tar.gz" "$d"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smlib-${{ matrix.target }}
+          path: smlib-${{ matrix.target }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release prebuilt-${{ github.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          sha256sum smlib-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+          tag="prebuilt-$GITHUB_SHA"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag already exists; a release is never rebuilt"
+            exit 0
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --prerelease --title "Prebuilt C API ${GITHUB_SHA:0:12}" \
+            --notes "Static libraries of the C API at $GITHUB_SHA, one per Rust target, with SHA256SUMS." smlib-*.tar.gz SHA256SUMS

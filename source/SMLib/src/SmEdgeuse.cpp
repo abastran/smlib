@@ -190,11 +190,11 @@ SmStatus SmEdgeuse::CreateDerivativeSurface
               sEUStartTan = - sEUStartTan;
 
               // average this and prev edgeuse tangents together
-              sEUStartTan.Unitize();
-              sStartUVTangent.Unitize();
+              (void)sEUStartTan.Unitize(); // SolidCraft: a zero vector stays zero
+              (void)sStartUVTangent.Unitize(); // SolidCraft: a zero vector stays zero
               if(bIntoFace == TRUE) { sStartUVTangent = - sStartUVTangent ; }
               sStartUVTangent.Set(sEUStartTan.x + sStartUVTangent.x, sEUStartTan.y + sStartUVTangent.y);
-              sStartUVTangent.Unitize();
+              (void)sStartUVTangent.Unitize(); // SolidCraft: a zero vector stays zero
             }
 
           // edge end loopCorner
@@ -205,11 +205,11 @@ SmStatus SmEdgeuse::CreateDerivativeSurface
               SER(NormalizedEvaluate(1.0,TRUE,sPnt3d,&sEUEndTan));  // TRUE = UV Eval, FALSE = 3d Eval
 
               // average this and next edgeuse tangents together
-              sEUEndTan.Unitize();
-              sEndUVTangent.Unitize();
+              (void)sEUEndTan.Unitize(); // SolidCraft: a zero vector stays zero
+              (void)sEndUVTangent.Unitize(); // SolidCraft: a zero vector stays zero
               if(bIntoFace == TRUE) { sEndUVTangent = - sEndUVTangent ; }
               sEndUVTangent.Set(sEUEndTan.x + sEndUVTangent.x, sEUEndTan.y + sEndUVTangent.y) ;
-              sEndUVTangent.Unitize();
+              (void)sEndUVTangent.Unitize(); // SolidCraft: a zero vector stays zero
             }
 
         } // end when asked to match same-loop neighbor end-tangent values check
@@ -225,10 +225,10 @@ SmStatus SmEdgeuse::CreateDerivativeSurface
       // start/end binormal evaluations
       SmVector3d sPnt, sVec ;
       SmVector2d sStartUVDir, sEndUVDir ;
-      EvaluateBinormal(sEdgeIvl.GetMin(), TRUE, sPnt, sVec, NULL, NULL, NULL, &sStartUVDir) ;
-      EvaluateBinormal(sEdgeIvl.GetMax(), TRUE, sPnt, sVec, NULL, NULL, NULL, &sEndUVDir) ;
-      sStartUVDir.Unitize() ;
-      sEndUVDir.Unitize() ;
+      SER( EvaluateBinormal(sEdgeIvl.GetMin(), TRUE, sPnt, sVec, NULL, NULL, NULL, &sStartUVDir)  );
+      SER( EvaluateBinormal(sEdgeIvl.GetMax(), TRUE, sPnt, sVec, NULL, NULL, NULL, &sEndUVDir)  );
+      (void)sStartUVDir.Unitize() ; // SolidCraft: a zero vector stays zero
+      (void)sEndUVDir.Unitize() ; // SolidCraft: a zero vector stays zero
 
       // compute and store angles
       SER(sStartUVDir.CCWAngleBetween(sStartUVTangent, crDS.m_dStartDerivDirAngleDeg)) ;
@@ -709,8 +709,8 @@ SmContinuityType SmEdgeuse::GetSectorContinuity
       // Surface binormals
       SE_MSG(pEdgeuse1->EvaluateBinormal(dParam, TRUE, sBinormal1, sBinormalVec1, NULL, NULL, &sUV1, &sUVDir1),_T("Failed EvaluateBinormal")) ;
       SE_MSG(pEdgeuse2->EvaluateBinormal(dParam, TRUE, sBinormal2, sBinormalVec2, NULL, NULL, &sUV2, &sUVDir2),_T("Failed EvaluateBinormal")) ;
-      sUVDir1.Unitize() ;
-      sUVDir2.Unitize() ;
+      (void)sUVDir1.Unitize() ; // SolidCraft: a zero vector stays zero
+      (void)sUVDir2.Unitize() ; // SolidCraft: a zero vector stays zero
 
       // negate the UVdir for Surface2
       sUVDir2.Set(-sUVDir2.x, -sUVDir2.y) ;
@@ -751,7 +751,7 @@ SmBoolean SmEdgeuse::IsMaxEdgeFaceGapFresh
       SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(this->GetContext()) ;
 
       // calculate the gap without changing the cache
-      ((SmEdgeuse *)this)->CalcMaxEdgeFaceGap( &rCalcMaxEdgeFaceGap, FALSE) ;
+      if ( ((SmEdgeuse *)this)->CalcMaxEdgeFaceGap( &rCalcMaxEdgeFaceGap, FALSE)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a gap that cannot be calculated is not shown fresh
 
       // check that fresh gap == cached gap
       bRtn = SM_ARE_SAME_TO_TOL(rCalcMaxEdgeFaceGap, m_sMaxEdgeFaceGap3d, sXSectTol3d/1000.0) ;
@@ -779,7 +779,7 @@ SmBoolean SmEdgeuse::IsEdgeCCWEdgeGapFresh
       SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d(this->GetContext()) ;
 
       // calculate the gap without changing the cache
-      ((SmEdgeuse *)this)->CalcEdgeCCWEdgeGap( &rCalcEdgeCCWEdgeGap, FALSE) ;
+      if ( ((SmEdgeuse *)this)->CalcEdgeCCWEdgeGap( &rCalcEdgeCCWEdgeGap, FALSE)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a gap that cannot be calculated is not shown fresh
 
       // check that fresh gap == cached gap
       bRtn = SM_ARE_SAME_TO_TOL(rCalcEdgeCCWEdgeGap, m_sEdgeCCWEdgeGap3d, sXSectTol3d/1000.0) ;
@@ -927,13 +927,13 @@ SmBoolean SmEdgeuse::IsEdgeuseSideInSurface
       double dParam     = sEdgeInterval.Evaluate(dNormParam) ;
 
       // Edge->3d Point
-      pEdgeCurve->EvaluatePoint( dParam, sEdgePoint );
+      if ( pEdgeCurve->EvaluatePoint( dParam, sEdgePoint ) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: a sample that cannot be evaluated or dropped gives no evidence: TRUE (OK), as for what it cannot classify
 
       // next Drop GuessUV = UVTrimCurve(dParam) or last Drop point 
       pUVGuessPoint = NULL;
       if(pUVTrimCurve != NULL)
       {
-        pUVTrimCurve->EvaluatePoint( dParam, sUVTrimCurve3d );
+        if ( pUVTrimCurve->EvaluatePoint( dParam, sUVTrimCurve3d ) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: a sample that cannot be evaluated or dropped gives no evidence: TRUE (OK), as for what it cannot classify
         sUVGuessPoint = sUVTrimCurve3d;
         pUVGuessPoint = &sUVGuessPoint;
       }
@@ -943,14 +943,14 @@ SmBoolean SmEdgeuse::IsEdgeuseSideInSurface
       }
 
       // Drop Point
-      pSurface->DropPoint(sEdgePoint, // in : target point to drop
+      if ( pSurface->DropPoint(sEdgePoint, // in : target point to drop // SolidCraft change: a sample that cannot be evaluated or dropped gives no evidence: TRUE (OK), as for what it cannot classify
                           sUVDomain, // in : target surface domain
                           pUVGuessPoint, // in : When given, uses only local solves
                           bSuccess, // out: TRUE=Point dropped successfully, FALSE=didn't
                           sUVDropPoint, // out: drop result UVPoint
                           dGap, // out: distance of found point to Pt to drop
                           bIsMulti, // in : SM_SO_MINIMIZE = allow nonNormal drops near boundaries
-                          SM_SO_MINIMIZE); //      SM_SO_NORMALIZE= exclude nonNormal drops near boundaries
+                          SM_SO_MINIMIZE) != SM_SUCCESS ) { return TRUE ; } //      SM_SO_NORMALIZE= exclude nonNormal drops near boundaries
                                                           //      SM_SO_INTERSECT= point must be on surface, to Tol
       // Tol  2d mapping of Surface ZoneTol3d
       SmTol2d sTol2dU = SmTol::MapTo2d(sSurfZoneTol3d, sUVDropPoint, sUDir, *pSurface) ; 
@@ -1085,7 +1085,7 @@ static void sm_CalcDistAndDev( const SmPoint3d  &rPt,   // in: Point that was dr
   SmPoint2d sUV( rSol.m_vStart.m_adParameters[0], rSol.m_vStart.m_adParameters[1] );
   SmPoint3d sPt;
   SmVector3d sSu, sSv;
-  pSrf->Evaluate1stDerivatives( sUV, TRUE, TRUE, sPt, sSu, sSv );
+  if ( pSrf->Evaluate1stDerivatives( sUV, TRUE, TRUE, sPt, sSu, sSv ) != SM_SUCCESS ) { return  ; } // SolidCraft change: no distance without the derivatives (rDist stays -1)
 
   SmVector3d sNorm( sSu * sSv );
   double dMag = sNorm.Length();
@@ -1093,7 +1093,7 @@ static void sm_CalcDistAndDev( const SmPoint3d  &rPt,   // in: Point that was dr
     { sNorm /= dMag; }
   else
     {
-      pSrf->EvaluateNormal( sUV, TRUE, TRUE, sNorm );
+      if ( pSrf->EvaluateNormal( sUV, TRUE, TRUE, sNorm ) != SM_SUCCESS ) { return  ; } // SolidCraft change: no distance without the normal (rDist stays -1)
       if ( sNorm.Length() < 0.5 )
         { return; }
     }
@@ -1304,7 +1304,7 @@ SmValidityCheckType eCheckFailed ;
       pUVCurve->GetEnds(sStartPt, sEndPt);
 
       SmExtent3d sUVBBox;
-      pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sUVBBox);
+      SER( pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sUVBBox) );
 
       // Checking here to ensure that if this is a seam, we make sure to pick the correct UV line.
       // If this is not a line, then we're good. Then check to see if we are along an edge of the
@@ -1343,13 +1343,13 @@ SmValidityCheckType eCheckFailed ;
               SmVector3d sXAxis(1.0, 0, 0);
               SmVector3d sYAxis(0, 1.0, 0);
 
-              sTransformAxis.SetCanonical(sOtherPoint - sStartPt, sXAxis, sYAxis);
+              SER( sTransformAxis.SetCanonical(sOtherPoint - sStartPt, sXAxis, sYAxis) );
 
-              pOtherLine->Transform(sTransformAxis);
-              pOtherLine->ConvertTo2D();
+              SER( pOtherLine->Transform(sTransformAxis) );
+              SER( pOtherLine->ConvertTo2D() );
 
               SER(pUVCurve->Copy(*pContext, pCopyUVLine));
-              pCopyUVLine->ConvertTo2D();
+              SER( pCopyUVLine->ConvertTo2D() );
               NER(pCopyUVLine);
 
               // SM_CAST_PTR(SmLine, pCopy2UVLine)->SetCanonical(sOtherPoint, sLineVec, pUVLine->GetLineScale(),
@@ -1400,13 +1400,13 @@ SmValidityCheckType eCheckFailed ;
               SmAxis2Placement sTransformAxis;
               SmVector3d sXAxis(1.0, 0, 0);
               SmVector3d sYAxis(0, 1.0, 0);
-              sTransformAxis.SetCanonical(sOtherPoint - sStartPt, sXAxis, sYAxis);
+              SER( sTransformAxis.SetCanonical(sOtherPoint - sStartPt, sXAxis, sYAxis) );
 
-              pOtherLine->Transform(sTransformAxis);
-              pOtherLine->ConvertTo2D();
+              SER( pOtherLine->Transform(sTransformAxis) );
+              SER( pOtherLine->ConvertTo2D() );
 
               SER(pUVCurve->Copy(*pContext, pCopyUVLine));
-              pCopyUVLine->ConvertTo2D();
+              SER( pCopyUVLine->ConvertTo2D() );
               NER(pCopyUVLine);
 
               // SM_CAST_PTR(SmLine, pCopy2UVLine)->SetCanonical(sOtherPoint, sLineVec, pUVLine->GetLineScale(),
@@ -1437,7 +1437,7 @@ SmValidityCheckType eCheckFailed ;
            {
               SmBSplineCurve* pCopyCurve;
               SER(pUVCurve->Copy(*pContext, pCopyCurve));
-              pCopyCurve->ConvertTo2D();
+              SER( pCopyCurve->ConvertTo2D() );
               NER(pCopyCurve);
 
               // if (GetOrientation() != GetEdge()->GetPrimaryEdgeuse()->GetOrientation())
@@ -1731,11 +1731,11 @@ SmValidityCheckType eCheckFailed ;
               {
                   // create a temp curve copy with reverse parameterizaton
                   SmCurve* pRevCurve = NULL;
-                  pCurve->Copy(*pContext, pRevCurve);
+                  SER( pCurve->Copy(*pContext, pRevCurve) );
                   SmObjDelete sClean1(pRevCurve);
 
                   // Have to trim this, otherwise the reversals mess things up. [081031]
-                  pRevCurve->Trim(sEdgeDomain); // may snap sIvl by tol to existing knots
+                  SER( pRevCurve->Trim(sEdgeDomain) ); // may snap sIvl by tol to existing knots
                   SmExtent1d sNewIvl;
                   SER(pRevCurve->ReverseParameterization(sEdgeDomain, sNewIvl));
 
@@ -1773,20 +1773,20 @@ SmValidityCheckType eCheckFailed ;
                       SmExtent2d sSurfaceUVDomain = pSurface->GetNaturalUVDomain();
 
                       // Curve EndPoints
-                      pCurve->EvaluatePoint(sEdgeDomain.GetMin(), sStartPoint);
-                      pCurve->EvaluatePoint(sEdgeDomain.GetMax(), sEndPoint);
+                      SER( pCurve->EvaluatePoint(sEdgeDomain.GetMin(), sStartPoint) );
+                      SER( pCurve->EvaluatePoint(sEdgeDomain.GetMax(), sEndPoint) );
 
                       // drop curve endpoints onto surface
-                      pSurface->DropPoint(
-                          sStartPoint, sSurfaceUVDomain, NULL, bStartResult, sStartUV, dStartGap, bIsMulti);
+                      SER( pSurface->DropPoint(
+                          sStartPoint, sSurfaceUVDomain, NULL, bStartResult, sStartUV, dStartGap, bIsMulti) );
                       if (bStartResult)
                       {
                           bStartSingularity = pSurface->IsSingularity(sStartUV, eSingularDir);
 
                           if (bStartSingularity)
                           {
-                              pSurface->DropPoint(
-                                  sEndPoint, sSurfaceUVDomain, NULL, bEndResult, sEndUV, dEndGap, bIsMulti);
+                              SER( pSurface->DropPoint(
+                                  sEndPoint, sSurfaceUVDomain, NULL, bEndResult, sEndUV, dEndGap, bIsMulti) );
                               if (bEndResult)
                               {
                                   bEndSingularity = pSurface->IsSingularity(sEndUV, eSingularDir);
@@ -1803,15 +1803,15 @@ SmValidityCheckType eCheckFailed ;
 
                           // create a pair of temp curve copies for each half of the target curve
                           SmCurve *p1stHalfCurve, *p2ndHalfCurve;
-                          pCurve->Copy(*pContext, p1stHalfCurve);
-                          pCurve->Copy(*pContext, p2ndHalfCurve);
+                          SER( pCurve->Copy(*pContext, p1stHalfCurve) );
+                          SER( pCurve->Copy(*pContext, p2ndHalfCurve) );
 
                           SmObjDelete sClean2(p1stHalfCurve);
                           SmObjDelete sClean3(p2ndHalfCurve);
 
                           // trim curves to their half of the original curve
-                          p1stHalfCurve->Trim(s1stHalfDomain); // may snap sIvl by tol to existing knots
-                          p2ndHalfCurve->Trim(s2ndHalfDomain); // may snap sIvl by tol to existing knots
+                          SER( p1stHalfCurve->Trim(s1stHalfDomain) ); // may snap sIvl by tol to existing knots
+                          SER( p2ndHalfCurve->Trim(s2ndHalfDomain) ); // may snap sIvl by tol to existing knots
 
                           // reverse the parameterization of the 1st half
                           SmExtent1d sNewInterval;
@@ -1962,7 +1962,7 @@ SmValidityCheckType eCheckFailed ;
             {
               // Get this edgeuse's Position (3d) near edge's midPoint.
               double dMidParam = ( this->GetOrientation() == SM_OT_SAME ) ? 0.48765 : 1.0 - 0.48765;
-              (SM_CONST_CAST( SmEdgeuse*, this ) )->NormalizedEvaluate( dMidParam, FALSE, sMidPnt );
+              SER( (SM_CONST_CAST( SmEdgeuse*, this ) )->NormalizedEvaluate( dMidParam, FALSE, sMidPnt ) );
 
               // evaluate NearMid 1st UVCurve Point clamped to face domain (for seams: coincident to sMidPoint, for crossing curves: not)
               // Use the uv curve's domain, not the Edge's.  On a seam, it's the same
@@ -2337,8 +2337,8 @@ SmValidityCheckType eCheckFailed ;
           sUVEnd2d   = sUVEnd;
 
           // Get the 3D end points of the Drop Curve
-          pSurface->EvaluatePoint( sUVStart2d, sDropCurveStart3d );
-          pSurface->EvaluatePoint( sUVEnd2d, sDropCurveEnd3d );
+          SER( pSurface->EvaluatePoint( sUVStart2d, sDropCurveStart3d ) );
+          SER( pSurface->EvaluatePoint( sUVEnd2d, sDropCurveEnd3d ) );
 
           // Get the local XSect Tolerances
           SmVertex *pStartVertex, *pEndVertex;
@@ -2384,7 +2384,7 @@ SmValidityCheckType eCheckFailed ;
               if ( sUVIvl.GetMin() < sEdgeDomain.GetMin() )
               {
                   SmExtent1d sNewIvl( sEdgeDomain.GetMin(), sUVIvl.GetMax() );
-                  sUVCurves[0]->Trim( sNewIvl );  // may snap sIvl by tol to existing knots
+                  SER( sUVCurves[0]->Trim( sNewIvl ) );  // may snap sIvl by tol to existing knots
                   pDropCurveFail->m_eCreatePathType = SM_CTC_1PERCENT_UVTRIMCURVETRIM_RECOVERY1;
                   pDropCurveFail->m_pBrep = GetBrep();
               }
@@ -2399,7 +2399,7 @@ SmValidityCheckType eCheckFailed ;
 
                   // Also have to update any other Edgeuses on this Edge.
                   SmTArray< SmEdgeuse* > sEUs;
-                  pEdge->GetEdgeuses( sEUs );
+                  SER( pEdge->GetEdgeuses( sEUs ) );
                   ULONG lNumEUs = sEUs.GetSize();
                   SmEdgeuse *pThisEU;
                   for ( jj = 0; jj < lNumEUs; jj++ )
@@ -2408,7 +2408,7 @@ SmValidityCheckType eCheckFailed ;
                       if ( pThisEU == this ) { continue; }
                       SmCurve *pThisUVCurve = pThisEU->GetUVTrimCurvePointer();
                       if ( pThisUVCurve == NULL ) { continue; }
-                      pThisUVCurve->Trim( sNewIvl ); // may snap sIvl by tol to existing knots
+                      SER( pThisUVCurve->Trim( sNewIvl ) ); // may snap sIvl by tol to existing knots
                   }
               } // end else, trim Edge instead of uv curve
           } // end Edge StartParam differs but by less than 1% of UVTrimCurve StartParam branch
@@ -2419,7 +2419,7 @@ SmValidityCheckType eCheckFailed ;
               if ( sUVIvl.GetMax() > sEdgeDomain.GetMax() )
               {
                   SmExtent1d sNewIvl( sUVIvl.GetMin(), sEdgeDomain.GetMax() );
-                  sUVCurves[0]->Trim( sNewIvl );   // may snap sIvl by tol to existing knots
+                  SER( sUVCurves[0]->Trim( sNewIvl ) );   // may snap sIvl by tol to existing knots
                   pDropCurveFail->m_eCreatePathType = SM_CTC_1PERCENT_UVTRIMCURVETRIM_RECOVERY2;
                   pDropCurveFail->m_pBrep = GetBrep();
               }
@@ -2434,7 +2434,7 @@ SmValidityCheckType eCheckFailed ;
 
                   // Also have to update any other Edgeuses on this Edge.
                   SmTArray< SmEdgeuse* > sEUs;
-                  pEdge->GetEdgeuses( sEUs );
+                  SER( pEdge->GetEdgeuses( sEUs ) );
                   ULONG lNumEUs = sEUs.GetSize();
                   SmEdgeuse *pThisEU;
                   for ( jj = 0; jj < lNumEUs; jj++ )
@@ -2443,7 +2443,7 @@ SmValidityCheckType eCheckFailed ;
                       if ( pThisEU == this ) { continue; }
                       SmCurve *pThisUVCurve = pThisEU->GetUVTrimCurvePointer();
                       if ( pThisUVCurve == NULL ) { continue; }
-                      pThisUVCurve->Trim( sNewIvl );  // may snap sIvl by tol to existing knots
+                      SER( pThisUVCurve->Trim( sNewIvl ) );  // may snap sIvl by tol to existing knots
                   }
               } // end else, trim Edge instead of uv curve
           } // end Edge EndParam differs but by less than 1% of UVTrimCurve EndParam branch
@@ -2540,7 +2540,7 @@ SmValidityCheckType eCheckFailed ;
 
       // Make a temp copy of the surface
       SmSurface *pTmpSurface = NULL;
-      pSurface->Copy(*pContext,pTmpSurface);
+      SER( pSurface->Copy(*pContext,pTmpSurface) );
       SmObjDelete sClean(pTmpSurface);
 
       // locals for GlobalPointSolve
@@ -2663,7 +2663,7 @@ SmValidityCheckType eCheckFailed ;
                                              SM_IT_CHORDLENGTH,
                                              pNewUVCurve));
       NER(pNewUVCurve);
-      pNewUVCurve->ConvertTo2D() ;
+      SER( pNewUVCurve->ConvertTo2D()  );
       rpNewUVCurve = pNewUVCurve;
       rpNewUVCurve->SetOwner((SmEdgeuse *)this) ;
 
@@ -2905,7 +2905,7 @@ SmBoolean bDebugMe = FALSE;
       // so this will never happen.
 
       SmEdgeuse *pNonConstThis = SM_CONST_CAST( SmEdgeuse*, this );
-      pNonConstThis->GetOrCreateUVTrimCurve( pUVTrimCurve );
+      SER( pNonConstThis->GetOrCreateUVTrimCurve( pUVTrimCurve ) );
     }
 
   SmPoint2d sUV;
@@ -2938,12 +2938,12 @@ SmBoolean bDebugMe = FALSE;
           // Allow for the 3d curve point being off the surface.  (It happens.)
           // Check the dist from the 3d curve point to the surface normal.
           SmVector3d sThisSrfPt, sThisSu, sThisSv, sThisNorm;
-          pSurface->Evaluate1stDerivatives( sUV,        // in : target
+          SER( pSurface->Evaluate1stDerivatives( sUV,        // in : target
                                             FALSE,      // in : from ULeft
                                             FALSE,      // in : from URight
                                             sThisSrfPt, // out: 
                                             sThisSu,    // out: 
-                                            sThisSv );  // out: 
+                                            sThisSv ) );  // out: 
 
           // try a cheap eval for surface normal
           sThisNorm = sThisSu * sThisSv;
@@ -2951,7 +2951,7 @@ SmBoolean bDebugMe = FALSE;
           if ( dLen > pSurface->GetNormalLimit() )
             { sThisNorm /= dLen; }
           else // when cheap is degenerate - try expensive normal eval
-            { pSurface->EvaluateNormal( sUV, FALSE, FALSE, sThisNorm ); } // sThisNorm is returned unitized 
+            { SER( pSurface->EvaluateNormal( sUV, FALSE, FALSE, sThisNorm ) ); } // sThisNorm is returned unitized 
 
           // When minDist(surfacePt/surfaceNorm line, EdgePoint) < dTol - use the UV point
           SmVector3d sGap( sCurvePV[0] - sThisSrfPt );
@@ -2966,7 +2966,7 @@ SmBoolean bDebugMe = FALSE;
           if ( !bGotUV )
             {
               SmSolution sSol;
-              pSurface->LocalPointSolve( sDomain, eSolverOp, sCurvePV[0], sUV, bGotUV, sSol );
+              SER( pSurface->LocalPointSolve( sDomain, eSolverOp, sCurvePV[0], sUV, bGotUV, sSol ) );
               if ( bGotUV && sSol.m_vStart.m_dSolutionValue > dTol )
                 { bGotUV = FALSE; }
               if ( bGotUV )
@@ -3191,7 +3191,7 @@ SmBoolean bDebugMe = FALSE;
     }
 
   // normalize the return vector
-  sBinormal.Unitize();
+  (void)sBinormal.Unitize(); // SolidCraft: a zero vector stays zero
   rBinormalPoint = sCurvePV[0];
   rBinormal      = sBinormal;
 
@@ -3199,7 +3199,7 @@ SmBoolean bDebugMe = FALSE;
   if (pOptEdgeuseTangent) { *pOptEdgeuseTangent = sCurvePV[1] ; }
   if (pOptFaceuseNormal)  { *pOptFaceuseNormal  = sNormal; }
   if (pOptUVParameter)    { *pOptUVParameter    = sUV ; }
-  if (pOptUVVector)       {  pSurface->ComputeParamDirection(sUV, sBinormal, *pOptUVVector) ; 
+  if (pOptUVVector)       {  SER( pSurface->ComputeParamDirection(sUV, sBinormal, *pOptUVVector)  ); 
                           }
 
   // all done
@@ -3619,10 +3619,10 @@ SmBoolean SmEdgeuse::IsConvexRadialSector
       SER(EvaluateBinormalStepOff(sIvl.Evaluate(dT),dStepOffDist,sPnt,sBin,NULL,&sNorm));
       SER(pRadial->EvaluateBinormalStepOff(sIvl.Evaluate(dT),dStepOffDist,sPnt2,sBin2,NULL,&sNorm2));
       if ( dTolDeg != 0.0) {
-         sBin.Unitize();
-         sNorm.Unitize();
-         sBin2.Unitize();
-         sNorm2.Unitize();
+         (void)sBin.Unitize(); // SolidCraft: a zero vector stays zero
+         (void)sNorm.Unitize(); // SolidCraft: a zero vector stays zero
+         (void)sBin2.Unitize(); // SolidCraft: a zero vector stays zero
+         (void)sNorm2.Unitize(); // SolidCraft: a zero vector stays zero
       }
 
 #ifdef SM_DEBUG_CODE
@@ -3709,7 +3709,7 @@ SmBoolean bDebugMe = FALSE ;
   // BSpline Control Points
   SM_OBJ_ARRAY(sControlPoints,   SmPoint3d, 64) ;
   SM_OBJ_ARRAY(sControlUVPoints, SmPoint2d, 64) ;
-  pUVTrimCurve->GetPolygon(pUVTrimCurve->GetNaturalInterval(), sControlPoints) ;
+  if ( pUVTrimCurve->GetPolygon(pUVTrimCurve->GetNaturalInterval(), sControlPoints)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without these the edgeuse is not shown to dog-leg
   ULONG lNum = sControlPoints.GetSize() ;
   sControlUVPoints.SetSize(lNum) ;
   for(ii=0;ii<lNum;ii++)
@@ -3810,12 +3810,12 @@ SmBoolean bDebugMe = FALSE ;
                       double     dAngVecRad, dAngLastPoleRad, dAngNextPoleRad ;
 
                       // Angle in Control Polygon at target ControlPoint
-                      sLastVec.AngleBetween(sNextVec, dAngVecRad) ;
+                      if ( sLastVec.AngleBetween(sNextVec, dAngVecRad)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without these the edgeuse is not shown to dog-leg
 
                       // Angles between ControlPolygon Next/Last Vecs and the singularity direction
                       sSingVec.Set(1.0, 0.0, 0.0) ;
-                      sLastVec.AngleBetween(sSingVec, dAngLastPoleRad) ; 
-                      sNextVec.AngleBetween(sSingVec, dAngNextPoleRad) ;
+                      if ( sLastVec.AngleBetween(sSingVec, dAngLastPoleRad)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without these the edgeuse is not shown to dog-leg
+                      if ( sNextVec.AngleBetween(sSingVec, dAngNextPoleRad)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: without these the edgeuse is not shown to dog-leg
 
                       double dAngLastPoleDeg = SM_RAD2DEG(dAngLastPoleRad) ;
                       double dAngNextPoleDeg = SM_RAD2DEG(dAngNextPoleRad) ;
@@ -3957,7 +3957,7 @@ SmStatus SmEdgeuse::NormalizedEvaluate
             {
               SmVector3d sS, sSu, sSv;
               SmVector2d sUVDeriv;
-              pSurf->Evaluate1stDerivatives( sUV, FALSE, FALSE, sS, sSu, sSv );
+              SER( pSurf->Evaluate1stDerivatives( sUV, FALSE, FALSE, sS, sSu, sSv ) );
               eStat = smgu_VecLinCombTwoVectors( sSu, sSv, s3dDeriv, sUVDeriv );
               if ( eStat == SM_SUCCESS )
                 { pOptFirstDeriv->Set( sUVDeriv.x, sUVDeriv.y, 0 ); }
@@ -4087,7 +4087,7 @@ SmStatus SmEdgeuse::NormalizedEvaluateAndDropPt
   // when UVTrimCurve exists - use it to get a DropPt guess
   if(pUVTrimCurve)
     {
-      pUVTrimCurve->EvaluatePoint(dOrientedParam, sGuessPt) ;
+      SER( pUVTrimCurve->EvaluatePoint(dOrientedParam, sGuessPt)  );
       sGuessUV = sGuessPt ; 
       pGuessUV = &sGuessUV ;
     }
@@ -4913,7 +4913,7 @@ SmEdgeFaceGap * SmEdgeuse::GetMaxEdgeFaceGap // rtn: ref to stored max gap betwe
   if( bForceCalc || !m_sMaxEdgeFaceGap3d.IsInit())
     {
       // refresh the Vertex/Edge gap cache
-      CalcMaxEdgeFaceGap(NULL, TRUE) ;
+      (void)CalcMaxEdgeFaceGap(NULL, TRUE) ; // SolidCraft: on failure the cache stays as it was
     }
 
   // all done
@@ -4959,7 +4959,7 @@ SmEdgeEdgeGap * SmEdgeuse::GetEdgeCCWEdgeGap // rtn: stored gap between Edgeuse-
   if( bForceCalc || !m_sEdgeCCWEdgeGap3d.IsInit())
     {
       // refresh the Vertex/Edge gap cache
-      CalcEdgeCCWEdgeGap(NULL, TRUE) ;
+      (void)CalcEdgeCCWEdgeGap(NULL, TRUE) ; // SolidCraft: on failure the cache stays as it was
     }
 
   // all done
@@ -5142,7 +5142,7 @@ SmStatus SmEdgeuse::CalcMaxEdgeFaceTrimCurveGap
 
   // get max gap sample - forces sEdgeFaceTrimCurveGF lazy evaluation
   SmGapSample *pMaxGapSample;
-  sEdgeFaceTrimCurveGF.GetMaxGapSample( pMaxGapSample ); NER( pMaxGapSample );
+  SER( sEdgeFaceTrimCurveGF.GetMaxGapSample( pMaxGapSample ) ); NER( pMaxGapSample );
 
   // Max Gap locals
   // SmEdgeFaceTrimCurveGap   sMaxEdgeFaceTrimCurveGap3d ;
@@ -5257,7 +5257,7 @@ SmStatus SmEdgeuse::CalcMaxEdgeFaceGap
 
   // get max gap sample - forces sEdgeFaceGF lazy evaluation
   SmGapSample *pMaxGapSample = NULL;
-  sEdgeFaceGF.GetMaxGapSample( pMaxGapSample ); NER( pMaxGapSample );
+  SER( sEdgeFaceGF.GetMaxGapSample( pMaxGapSample ) ); NER( pMaxGapSample );
 
   // Max Gap locals
   SmEdgeFaceGap   sEdgeFaceGap3d ;
@@ -5458,7 +5458,7 @@ SmStatus SmEdgeuse::GetConnectedEdgeuses
   for(ULONG ii=0;ii<sEdges.GetSize(); ii++)
     {
       sWireEdgeuses.ReSet() ;
-      sEdges[ii]->GetEdgeuses(sWireEdgeuses) ;
+      SER( sEdges[ii]->GetEdgeuses(sWireEdgeuses)  );
       rEdgeuses.Append(sWireEdgeuses) ;
     }
 
@@ -5584,10 +5584,10 @@ SmDisplayList * SmEdgeuse::Draw
 
   // get interval from start to 80% to end
   if (m_eOrientation == SM_OT_SAME)         { dT = sIvl.Evaluate(0.8);
-      sIvl.SetMinMax(sIvl.GetMin(),dT);
+      (void)sIvl.SetMinMax(sIvl.GetMin(),dT); // SolidCraft: drawing only
     }
   else if(m_eOrientation == SM_OT_OPPOSITE) { dT = sIvl.Evaluate(0.2);
-      sIvl.SetMinMax(dT,sIvl.GetMax());
+      (void)sIvl.SetMinMax(dT,sIvl.GetMax()); // SolidCraft: drawing only
     }
   else                                      { SE(SM_ERR);
       dT = 0.0;
@@ -5770,7 +5770,7 @@ SmDisplayList * SmEdgeuse::DrawMicro
           while(sEdgeIvl.ContainsValue(dS))
             {
               // Curve evaluate EdgePt, DropSurfPt, and DropSurfBiNormDir 
-              EvaluateBinormal(dS,               // in : value within Edge->m_vInterval.
+              (void)EvaluateBinormal(dS,               // in : value within Edge->m_vInterval. // SolidCraft: drawing only
                                TRUE,             // in : TRUE  = when pUVTrimCurve==NULL, proj Edge pts to Surface else use pUVTrimCurve 
                                                  //      FALSE = get/create pUVTrimCurve to calc Surface points
                                sEdgePoint,       // out: 3D pt on edge
@@ -5781,17 +5781,17 @@ SmDisplayList * SmEdgeuse::DrawMicro
                                &sSurfUVBinorm) ; // out: Surface Binormal param direction at edge point, not unitized
  
               // compute step inside parameter distance
-              sSurfUVBinorm.Unitize() ;
+              (void)sSurfUVBinorm.Unitize() ; // SolidCraft: a zero vector stays zero
               SmTol2d sStepUVSizeU = SmTol::MapTo2d(sApproxTol3d, sSurfUVPoint, sU, *pSurface) ; // TRUE = use Consistent Tol Model
               SmTol2d sStepUVSizeV = SmTol::MapTo2d(sApproxTol3d, sSurfUVPoint, sV, *pSurface) ; // TRUE = use Consistent Tol Model
               sSurfUVInsidePoint.Set(sSurfUVPoint.x + sStepUVSizeU * sSurfUVBinorm.x,
                                      sSurfUVPoint.y + sStepUVSizeV * sSurfUVBinorm.y) ; 
 
               // Get Surface points
-              pSurface->EvaluatePoint(sSurfUVPoint,              sSurfPoint) ;
-              pSurface->EvaluateNormal(sSurfUVPoint, TRUE, TRUE, sSurfNormal) ;
-              pSurface->EvaluatePoint(sSurfUVInsidePoint,        sSurfInsidePoint) ;
-              pSurface->EvaluateNormal(sSurfUVInsidePoint, TRUE, TRUE, sSurfInsideNormal) ;
+              (void)pSurface->EvaluatePoint(sSurfUVPoint,              sSurfPoint) ; // SolidCraft: drawing only
+              (void)pSurface->EvaluateNormal(sSurfUVPoint, TRUE, TRUE, sSurfNormal) ; // SolidCraft: drawing only
+              (void)pSurface->EvaluatePoint(sSurfUVInsidePoint,        sSurfInsidePoint) ; // SolidCraft: drawing only
+              (void)pSurface->EvaluateNormal(sSurfUVInsidePoint, TRUE, TRUE, sSurfInsideNormal) ; // SolidCraft: drawing only
               if(bSwapNormal) { sSurfNormal       = -sSurfNormal ;
                                 sSurfInsideNormal = -sSurfInsideNormal ;
                               }
@@ -6175,10 +6175,20 @@ SmBoolean bDebugMe = FALSE ;
   /* 12 */ // check for Bad Loop  Connection,  Edgeuse->GetLoopuse() obj doesn't contain this Edgeuse
   if(IsLoopEdgeuse() && m_pSorLU->IsKindOf(SmLoopuse_TYPE))
     {
-      ULONG lIndx ;
-      SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 32) ;
-      GetLoopuse()->GetEdgeuses(sEdgeuses) ;
-      SmBoolean bHas = sEdgeuses.FindElement((SmEdgeuse *)this, lIndx) ;
+      SmBoolean bHas = FALSE ;
+      if (SmTopologyListWalkScope::IsOpen())
+        {
+          // Within SmBrep::AssertValid each loop's edgeuses are listed once for all of them
+          // (listing the loop for each of its edgeuses was quadratic in its length).
+          bHas = SmTopologyListWalkScope::LoopuseHasEdgeuse(GetLoopuse(), this) ;
+        }
+      else
+        {
+          ULONG lIndx ;
+          SM_PTR_ARRAY(sEdgeuses, SmEdgeuse, 32) ;
+          GetLoopuse()->GetEdgeuses(sEdgeuses) ;
+          bHas = sEdgeuses.FindElement((SmEdgeuse *)this, lIndx) ;
+        }
       bRtn &= SM_ASSERT_BOOLEAN_REPORT(14, SM_LEVEL_0, (bHas == TRUE), _T("") ) ;
     }
 
@@ -6196,7 +6206,7 @@ SmBoolean bDebugMe = FALSE ;
         { 
           SmEdge *pEdge = GetEdge() ;
           SM_PTR_ARRAY(sWireEdges, SmEdge, 32) ;
-          GetShell()->GetWireEdges(sWireEdges) ; 
+          (void)GetShell()->GetWireEdges(sWireEdges) ; // SolidCraft: a validity check reads what it computed
           bHas = sWireEdges.FindElement(pEdge, lIndx) ; 
         }
       else if(GetShell()->IsFaceuseShell())
@@ -6267,8 +6277,8 @@ SmBoolean bDebugMe = FALSE ;
                   SmPoint3d sRadialPnt, sRadialBiVec, sRadialFaceNormal, sRadialTangent ;
     
                   // get BinormalEvaluations
-                  pTargetEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sTargetPnt, sTargetBiVec, &sTargetTangent, &sTargetFaceNormal) ;
-                  pRadialEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sRadialPnt, sRadialBiVec, &sRadialTangent, &sRadialFaceNormal) ;
+                  (void)pTargetEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sTargetPnt, sTargetBiVec, &sTargetTangent, &sTargetFaceNormal) ; // SolidCraft: a validity check reads what it computed
+                  (void)pRadialEdgeuse->EvaluateBinormal(sExtent.Evaluate(.456), TRUE, sRadialPnt, sRadialBiVec, &sRadialTangent, &sRadialFaceNormal) ; // SolidCraft: a validity check reads what it computed
     
                   // check for tangent sector orientation consistency
                   //  Both FaceNormals need to point into the sector
@@ -6510,8 +6520,8 @@ double SmEdgeuse::GetStartPointUVLoopGap() const
   if(bHaveUVTrimCurves)
     {
       // Evaluate Edgeuse End UVPoints
-      pThisUVTrimCurve->EvaluatePoint(dStartParam, sStartUV) ;  
-      pCWUVTrimCurve->EvaluatePoint(dCWEndParam, sCWEndUV) ; 
+      if ( pThisUVTrimCurve->EvaluatePoint(dStartParam, sStartUV)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
+      if ( pCWUVTrimCurve->EvaluatePoint(dCWEndParam, sCWEndUV)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
     }
   else // Drop 3d Points to Surface
     {
@@ -6528,13 +6538,13 @@ double SmEdgeuse::GetStartPointUVLoopGap() const
         return(0.0) ;
 
       // evaluate Edgeuse End 3dPoints
-      GetEdge()->GetCurve()->EvaluatePoint(dStartParam, sStart3d) ;
-      m_pCW->GetEdge()->GetCurve()->EvaluatePoint(dCWEndParam, sCWEnd3d) ;
+      if ( GetEdge()->GetCurve()->EvaluatePoint(dStartParam, sStart3d)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
+      if ( m_pCW->GetEdge()->GetCurve()->EvaluatePoint(dCWEndParam, sCWEnd3d)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
 
 
       // drop point to Surface
-      pSurface->DropPoint(sStart3d, pSurface->GetNaturalUVDomain(), NULL,      bSuccess, sStart2d, dStartDropGap, bIsMulti, SM_SO_MINIMIZE) ;  
-      pSurface->DropPoint(sCWEnd3d, pSurface->GetNaturalUVDomain(), &sStart2d, bSuccess, sCWEnd2d, dCWEndDropGap, bIsMulti, SM_SO_MINIMIZE) ;  
+      if ( pSurface->DropPoint(sStart3d, pSurface->GetNaturalUVDomain(), NULL,      bSuccess, sStart2d, dStartDropGap, bIsMulti, SM_SO_MINIMIZE)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
+      if ( pSurface->DropPoint(sCWEnd3d, pSurface->GetNaturalUVDomain(), &sStart2d, bSuccess, sCWEnd2d, dCWEndDropGap, bIsMulti, SM_SO_MINIMIZE)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
 
       sStartUV = sStart2d ; 
       sCWEndUV = sCWEnd2d ; 
@@ -6575,8 +6585,8 @@ double SmEdgeuse::GetEndPointUVLoopGap() const
   if(bHaveUVTrimCurves)
     {
       // Evaluate Edgeuse End UVPoints
-      pThisUVTrimCurve->EvaluatePoint(dEndParam, sEndUV) ;  
-      pCCWUVTrimCurve->EvaluatePoint(dCCWStartParam, sCCWStartUV) ; 
+      if ( pThisUVTrimCurve->EvaluatePoint(dEndParam, sEndUV)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
+      if ( pCCWUVTrimCurve->EvaluatePoint(dCCWStartParam, sCCWStartUV)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
     }
   else // Drop 3d Points to Surface
     {
@@ -6593,12 +6603,12 @@ double SmEdgeuse::GetEndPointUVLoopGap() const
         return(0.0) ;
 
       // evaluate Edgeuse End 3dPoints
-      GetEdge()->GetCurve()->EvaluatePoint(dEndParam, sEnd3d) ;
-      m_pCCW->GetEdge()->GetCurve()->EvaluatePoint(dCCWStartParam, sCCWStart3d) ; 
+      if ( GetEdge()->GetCurve()->EvaluatePoint(dEndParam, sEnd3d)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
+      if ( m_pCCW->GetEdge()->GetCurve()->EvaluatePoint(dCCWStartParam, sCCWStart3d)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
 
       // drop point to Surface
-      pSurface->DropPoint(sEnd3d, pSurface->GetNaturalUVDomain(), NULL,         bSuccess, sEnd2d, dEndDropGap, bIsMulti, SM_SO_MINIMIZE) ;  
-      pSurface->DropPoint(sCCWStart3d, pSurface->GetNaturalUVDomain(), &sEnd2d, bSuccess, sCCWStart2d, dCCWStartDropGap, bIsMulti, SM_SO_MINIMIZE) ;  
+      if ( pSurface->DropPoint(sEnd3d, pSurface->GetNaturalUVDomain(), NULL,         bSuccess, sEnd2d, dEndDropGap, bIsMulti, SM_SO_MINIMIZE)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
+      if ( pSurface->DropPoint(sCCWStart3d, pSurface->GetNaturalUVDomain(), &sEnd2d, bSuccess, sCCWStart2d, dCCWStartDropGap, bIsMulti, SM_SO_MINIMIZE)  != SM_SUCCESS ) { return SM_BIG_DOUBLE ; } // SolidCraft change: a gap that cannot be measured is no closure
 
       // load EndPt3d vals 
       sEndUV      = sEnd2d ; 

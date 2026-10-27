@@ -494,7 +494,7 @@ SmBoolean bDebugMe = FALSE;
       SmFace *pOFace = (SmFace*)GetOtherMate(pF);
       if (pOFace)
         {
-          RemoveRelationship(pF,pOFace);
+          SER( RemoveRelationship(pF,pOFace) );
         }
 
       // TargetFace->Brep - to edit
@@ -557,7 +557,7 @@ SmBoolean bDebugMe = FALSE;
           if (GetOtherMate(pE) != NULL)
             {
               SmEdge *pOE = (SmEdge*)GetOtherMate(pE);
-              RemoveRelationship(pE,pOE);
+              SER( RemoveRelationship(pE,pOE) );
 #ifdef SM_DEBUG_CODE
               if (bDebugMe)
                 {
@@ -601,7 +601,7 @@ SmBoolean bDebugMe = FALSE;
           if (GetOtherMate(pV) != NULL)
             {
               SmVertex *pOV = (SmVertex*)GetOtherMate(pV);
-              RemoveRelationship(pV,pOV);
+              SER( RemoveRelationship(pV,pOV) );
 #ifdef SM_DEBUG_CODE
               if (bDebugMe)
                 {
@@ -709,22 +709,28 @@ SmBoolean bDebugMe = FALSE;
                     rDeletedEdges.Add( pDeletedBrepEdge );
 
                     SER(m_pOther->CombineCoincidentVertices(pOtherV2,pOtherV1,pDeletedOtherEdge));
-                    RemoveRelationship(pV1,pOtherV1);
-                    if (pDeletedBrepEdge && pDeletedOtherEdge)
+                    SER( RemoveRelationship(pV1,pOtherV1) );
+                    // If these are not alreday a mated pair, then calling
+                    // RemoveRelationship() can leave the maps with different
+                    // sizes, and containing stale pointers.  [B460]
+                    // Either Brep may squeeze an edge while the other doesn't: a deleted edge's
+                    // relationship goes whichever side deleted it, or the maps keep a pointer to
+                    // freed memory that the next marking pass walks.
+                    if (pDeletedBrepEdge && pDeletedOtherEdge && IsMatedPair( pDeletedBrepEdge, pDeletedOtherEdge ) )
+                      { SER( RemoveRelationship(pDeletedBrepEdge,pDeletedOtherEdge) ); }
+                    else
                       {
-                        // If these are not alreday a mated pair, then calling
-                        // RemoveRelationship() can leave the maps with different
-                        // sizes, and containing stale pointers.  [B460]
-                        if ( IsMatedPair( pDeletedBrepEdge, pDeletedOtherEdge ) )
-                          { RemoveRelationship(pDeletedBrepEdge,pDeletedOtherEdge); }
-                        else
+                        if ( pDeletedBrepEdge != NULL )
                           {
                             SmEdge *pMate = (SmEdge*)GetOtherMate( pDeletedBrepEdge );
                             if ( pMate != NULL )
-                              { RemoveRelationship( pDeletedBrepEdge, pMate ); }
-                            pMate  = (SmEdge*)GetBrepMate( pDeletedOtherEdge );
+                              { SER( RemoveRelationship( pDeletedBrepEdge, pMate ) ); }
+                          }
+                        if ( pDeletedOtherEdge != NULL )
+                          {
+                            SmEdge *pMate = (SmEdge*)GetBrepMate( pDeletedOtherEdge );
                             if ( pMate != NULL )
-                              { RemoveRelationship( pMate, pDeletedOtherEdge ); }
+                              { SER( RemoveRelationship( pMate, pDeletedOtherEdge ) ); }
                           }
                       }
                     rbModifiedTopology = TRUE;
@@ -1232,8 +1238,13 @@ if ( iDebugLevel > 0 ) // After ResolveIntersections(): DumpAndDraw Brep(blue), 
   // Imprint Intersections, now we'll modify the Breps.
   eStat = this->ImprintIntersections();
 
-  // If that didn't work, inform the public
-  SE_MSG( eStat, _T("\nSmProtoExecutive: Error returned from ImprintIntersections().\n") );
+  // If that didn't work, the Breps are partly imprinted and no longer consistent: stop here, so
+  // that no caller goes on to relate, classify or measure them.
+  if ( eStat != SM_SUCCESS )
+    {
+      if(m_pProtoTopoMgr) { delete m_pProtoTopoMgr ; m_pProtoTopoMgr = NULL; }
+      SER_MSG( eStat, _T("\nSmProtoExecutive: Error returned from ImprintIntersections().\n") );
+    }
 
 #ifdef SM_DEBUG_CODE
 if ( iDebugLevel > 0 ) // After ImprintIntersections(): DumpAndDraw Brep(blue), Other(green), m_pProtoTopoMgr(cyan)
@@ -1427,9 +1438,9 @@ static SmStatus sm_IntersectShellVertices( SmBrep *pBrep1, // in: Brep whose ver
       SER( sPC2.LoadFromIntersection(SmTol::GetZoneTol3d(pVertex),rSol.m_apObjects[0], rSol.m_vStart, 0, SM_BIG_DOUBLE ));
 
       if ( bSwapOrder )
-        { pProtoTopoMgr->FindOrCreateProtoVertex( sPC2, sPC1, pNewPV ); }
+        { SER( pProtoTopoMgr->FindOrCreateProtoVertex( sPC2, sPC1, pNewPV ) ); }
       else
-        { pProtoTopoMgr->FindOrCreateProtoVertex( sPC1, sPC2, pNewPV ); }
+        { SER( pProtoTopoMgr->FindOrCreateProtoVertex( sPC1, sPC2, pNewPV ) ); }
 
   } // end for each m_Brep Vertex
 
@@ -1539,9 +1550,9 @@ static SmStatus sm_IntersectWireLaminaEdges( SmBrep *pBrep1,       // in: Brep w
       for ( jj=0; jj<sCrvClass2.GetSize(); jj++ )
       {
           if ( bSwapOrder )
-            { pProtoTopoMgr->FindOrCreateProtoEdge( sCrvClass2[jj], sCrvClass1[jj], pNewPE ); }
+            { SER( pProtoTopoMgr->FindOrCreateProtoEdge( sCrvClass2[jj], sCrvClass1[jj], pNewPE ) ); }
           else
-            { pProtoTopoMgr->FindOrCreateProtoEdge( sCrvClass1[jj], sCrvClass2[jj], pNewPE ); }
+            { SER( pProtoTopoMgr->FindOrCreateProtoEdge( sCrvClass1[jj], sCrvClass2[jj], pNewPE ) ); }
       }
 
 #ifdef SM_DEBUG_CODE
@@ -1778,7 +1789,7 @@ TCHAR     sDebugBuff[SM_TBLOCK_SIZE] ;
           SmBoolean bHaveSSI;
           SmTArray< SmTsectCurveType > sCurveTypes;
           SmTArray< double > sDeviations;
-          this->CheckIfHaveExistingSSI(m_crContext,
+          SER( this->CheckIfHaveExistingSSI(m_crContext,
                                        pF1->GetSurface(),
                                        pF2->GetSurface(),
                                        bHaveSSI,           // out: yes or no.
@@ -1786,7 +1797,7 @@ TCHAR     sDebugBuff[SM_TBLOCK_SIZE] ;
                                        sUVCurves1,         // out:
                                        sUVCurves2,         // out:
                                        sCurveTypes,        // out:
-                                       sDeviations) ;      // out:
+                                       sDeviations)  );      // out:
           
           if(bHaveSSI)
             { continue ; }
@@ -1906,8 +1917,8 @@ TCHAR     sDebugBuff[SM_TBLOCK_SIZE] ;
               SM_ASSERT( pCC2->GetSize() == lNumIvls );
 
               // Make sure that all PointClasses can evaluate their positions.
-              pCC1->SetPointClassParameters();
-              pCC2->SetPointClassParameters();
+              SER( pCC1->SetPointClassParameters() );
+              SER( pCC2->SetPointClassParameters() );
 
 #ifdef SM_DEBUG_CODE
               if ( bDebugMe2 ) 
@@ -1991,9 +2002,9 @@ TCHAR     sDebugBuff[SM_TBLOCK_SIZE] ;
               if(sm_CanImprint(sPC1.GetPointClass()) == FALSE ) { continue ; }
               if(sm_CanImprint(sPC2.GetPointClass()) == FALSE ) { continue ; }
 
-              m_pProtoTopoMgr->FindOrCreateProtoVertex(sPC1,  // in : Brep1 PointClassification for face pair XSectPt3d
+              SER( m_pProtoTopoMgr->FindOrCreateProtoVertex(sPC1,  // in : Brep1 PointClassification for face pair XSectPt3d
                                                        sPC2,  // in : Brep2 PointClassification for face pair XSectPt3d
-                                                       pPV) ; // out: SmProtoVertex for face pair XSectPt3d
+                                                       pPV)  ); // out: SmProtoVertex for face pair XSectPt3d
                                                               // out: TRUE = Created output NewPV
                                                               //      FALSE= Found   output NewPV
 #ifdef SM_DEBUG_CODE
@@ -2024,7 +2035,7 @@ TCHAR     sDebugBuff[SM_TBLOCK_SIZE] ;
           if ( bAreCoincident && sCoincPEs.GetSize() > 0 )
             {
               SmProtoFace * pNewPF = NULL;
-              m_pProtoTopoMgr->CreateProtoFace(pF1, pF2, sCoincPEs, pNewPF) ;
+              SER( m_pProtoTopoMgr->CreateProtoFace(pF1, pF2, sCoincPEs, pNewPF)  );
 
               // Relate New ProtoFace to every pNewPF->CoincPE
               for(kk=0;kk<sCoincPEs.GetSize();kk++)
@@ -2133,7 +2144,7 @@ TCHAR     sDebugBuff[SM_TBLOCK_SIZE] ;
           SmProtoEdge *pPE2 = rPEs[jj];
 
           // Split intersecting ProtoEdges at the ProtoEdge/ProtoEdge XSect points
-          m_pProtoTopoMgr->SplitIntersectingProtoEdges( pPE1, pPE2 );
+          SER( m_pProtoTopoMgr->SplitIntersectingProtoEdges( pPE1, pPE2 ) );
           rPEs = m_pProtoTopoMgr->GetProtoEdges();
 
 #ifdef SM_DEBUG_CODE
@@ -2372,11 +2383,45 @@ SmBoolean bDebugMe=FALSE;
                 { eRetStat = eStat; }
 
               // Delete its curves, which would have been consumed if Imprint() had worked.
-              pPE->RemoveEdgeDefinition( pED );
-              pED->Destruct();
+              SER( pPE->RemoveEdgeDefinition( pED ) );
+              SER( pED->Destruct() );
               delete pED; pED = NULL;
               jj--;
             }
+        }
+    }
+
+  // A ProtoVertex that absorbed a degenerate ProtoEdge (SmProtoEdge::Resolve) is one Vertex for
+  // a curve that ran a little way through it, so the Edges ending there end on that curve, not
+  // on the Vertex's point. Fit each such Vertex to its Edges, as CombineCoincidentVertices()
+  // does when it squeezes a short Edge away: their intervals end as near the Vertex as their
+  // curves go, and its tolerance covers what is left. Its two Vertices, one in each Brep, each
+  // lie on their own Brep's topology and will be related as one, so each tolerance also covers
+  // the other's: the other's point and what its own tolerance reaches from there.
+  lNumObjs = rPVs.GetSize();
+  for(ii=0;ii<lNumObjs;ii++)
+    {
+      SmProtoVertex *pPV = rPVs[ii];
+      if(!pPV->AbsorbedProtoEdge())
+        { continue; }
+      SmTArray< SmVertexDefinition* > & rVDs = pPV->GetVertexDefinitions();
+      for(jj=0;jj<rVDs.GetSize();jj++)
+        {
+          SmVertex *apVtx[2] = { rVDs[jj]->GetFinalVertex( 1), rVDs[jj]->GetFinalVertex( 2) };
+          for(int iBrep = 0; iBrep < 2; iBrep++)
+            {
+              if(apVtx[iBrep] == NULL || apVtx[iBrep]->GetBrep() == NULL)
+                { continue; }
+              eStat = apVtx[iBrep]->GetBrep()->UpdateVertexEdgeIntervals( apVtx[iBrep]) ;
+              if(eStat != SM_SUCCESS && eRetStat == SM_SUCCESS) // Record the first problem.
+                { eRetStat = eStat; }
+            }
+          if(apVtx[0] == NULL || apVtx[1] == NULL)
+            { continue; }
+          SM_OLDTOL_LINE double dApart = apVtx[0]->GetPoint().DistanceBetween( apVtx[1]->GetPoint()) ;
+          SM_OLDTOL_LINE double adTol[2] = { apVtx[0]->GetTolerance(), apVtx[1]->GetTolerance() };
+          SM_OLDTOL_LINE apVtx[0]->SetTolerance( adTol[1] + 2.0*dApart) ; // Will set it only if larger.
+          SM_OLDTOL_LINE apVtx[1]->SetTolerance( adTol[0] + 2.0*dApart) ;
         }
     }
 
@@ -2441,7 +2486,7 @@ SmStatus SmTopologyIntersector::SetRelationships()
 //cbi SmTopology *pMate1 = SM_REINTERPRET_CAST( SmTopology*, m_p1To2->GetValueAt( pTopo1 ));
 //cbi SmTopology *pMate2 = SM_REINTERPRET_CAST( SmTopology*, m_p2To1->GetValueAt( pTopo2 ));
 
-      this->Relate( pTopo1, pTopo2 );
+      SER( this->Relate( pTopo1, pTopo2 ) );
   }
 
   SmTArray< SmEdgeDefinition* > sEDs;
@@ -2462,7 +2507,7 @@ SmStatus SmTopologyIntersector::SetRelationships()
           continue;
       }
 
-      this->Relate( pTopo1, pTopo2 );
+      SER( this->Relate( pTopo1, pTopo2 ) );
   }
 
   // Note: the rest of the Boolean algorithm does not want coincident Faces to be related. [Reg_060124_B...]
@@ -2485,7 +2530,7 @@ static constexpr SmBoolean sbRelateFaces = FALSE;
               continue;
           }
 
-          this->Relate( pTopo1, pTopo2 );
+          SER( this->Relate( pTopo1, pTopo2 ) );
 
       } // end for each ProtoFace
   }
@@ -3341,7 +3386,7 @@ static ULONG lDebugCount = 0 ;
       if ( pNewE && pOtherNewE )
         {
           // remove the old mapping
-          RemoveRelationship( pNewE, pOtherNewE );
+          SER( RemoveRelationship( pNewE, pOtherNewE ) );
         }
     } // end iter every NewEdge and NewEdgeOther removing stale relationships
 
@@ -3724,7 +3769,7 @@ static ULONG lDebugCount = 0 ;
                                 {
                                   // remove the unneeded edge
                                   bFixedProblem = TRUE;
-                                  RemoveRelationship(pE1Other,pE2);
+                                  SER( RemoveRelationship(pE1Other,pE2) );
                                   sDeletedEdges.Add(pE1Other);
                                   SER(pBrep->DeleteEdge(pE1Other));
                                   rbTopologyWasDeleted = TRUE;
@@ -3764,7 +3809,7 @@ static ULONG lDebugCount = 0 ;
                               pE2Other->GetFaces(sFaces);
                               if (sFaces.GetSize() > 1 && sFaces[0]->GetSurface() == sFaces[1]->GetSurface()) {
                                   bFixedProblem = TRUE;
-                                  RemoveRelationship(pE1,pE2Other);
+                                  SER( RemoveRelationship(pE1,pE2Other) );
                                   sDeletedEdges.Add(pE2Other);
                                   SER(pBrep->DeleteEdge(pE2Other));
                                   rbTopologyWasDeleted = TRUE;
@@ -5121,7 +5166,7 @@ static ULONG lDebugCount2 = 0 ;
       SM_ASSERT(sFaces.GetSize() == sOFaces.GetSize()) ;
       for( ii=0; ii<sFaces.GetSize(); ii++)
         {
-          Relate( sFaces[ii], sOFaces[ii] );
+          SER( Relate( sFaces[ii], sOFaces[ii] ) );
         }
 
       if(0 == s3DCurves.GetSize())
@@ -6007,43 +6052,46 @@ static ULONG lDebugCount = 0 ;
   double dDropParamO = 0.0, dDistToCurveO = 0.0;
   double dGuessTB = sPointClassB.GetTParam() ;
   double dGuessTO = sPointClassO.GetTParam() ;
-  cpClassificationCurve->DropPoint(sIvl,                                               // in : target curve allowed domain
+  // The drop tolerances, chosen here: a directive may not stand inside SER's argument (MSVC).
+#ifdef SM_USE_NEWTOL
+  SM_NEWTOL_LINE const double dDropTolB = 10.0 * sPointClassB.GetGap3d() ;
+#else // SM_USE_OLDTOL
+  SM_OLDTOL_LINE const double dDropTolB = 10.0 * sPointClassB.GetDeviation() ;
+#endif // SM_USE_OLDTOL
+#ifdef SM_USE_OLDTOL
+  SM_OLDTOL_LINE const double dDropTolO = 10.0 * sPointClassO.GetGap3d() ;
+#else // SM_USE_NEWTOL
+  SM_NEWTOL_LINE const double dDropTolO = 10.0 * sPointClassO.GetDeviation() ;
+#endif // SM_USE_NEWTOL
+  SER( cpClassificationCurve->DropPoint(sIvl,                                               // in : target curve allowed domain
                                    sPointClassB.GetVertexObject()->GetPoint(),         // in : Point to drop to curve
                                    NULL,                                               // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                                                        //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
                                                                                        //      Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-#ifdef SM_USE_NEWTOL
-                                   SM_NEWTOL_LINE 10.0 * sPointClassB.GetGap3d(),      // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-#else // SM_USE_OLDTOL
-                                   SM_OLDTOL_LINE 10.0 * sPointClassB.GetDeviation(),  //      sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-#endif // SM_USE_OLDTOL
+                                   dDropTolB,                                          // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
                                                                                        //      sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
                                                                                        //      sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
                                    &dGuessTB,                                          // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()
                                    bSuccessB,                                          // out: TRUE = found a drop point
                                    dDropParamB,                                        // out: found drop curve param
-                                   dDistToCurveB) ;                                    // out: found drop distance
+                                   dDistToCurveB)  );                                    // out: found drop distance
                                                                                        // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                                                        //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                                                        //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
                                                                                        //      default:[SM_SO_MINIMIZE] to preserve original behavior
   
-  cpClassificationCurve->DropPoint(sIvl,                                               // in : target curve allowed domain
+  SER( cpClassificationCurve->DropPoint(sIvl,                                               // in : target curve allowed domain
                                    sPointClassO.GetVertexObject()->GetPoint(),         // in : Point to drop to curve
                                    NULL,                                               // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
                                                                                        //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
                                                                                        //      Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-#ifdef SM_USE_OLDTOL
-                                   SM_OLDTOL_LINE 10.0 * sPointClassO.GetGap3d(),      // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-#else // SM_USE_NEWTOL
-                                   SM_NEWTOL_LINE 10.0 * sPointClassO.GetDeviation(),  //      sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-#endif // SM_USE_NEWTOL
+                                   dDropTolO,                                          // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
                                                                                        //      sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
                                                                                        //      sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
                                    &dGuessTO,                                          // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve()
                                    bSuccessO,                                          // out: TRUE = found a drop point
                                    dDropParamO,                                        // out: found drop curve param
-                                   dDistToCurveO) ;                                    // out: found drop distance
+                                   dDistToCurveO)  );                                    // out: found drop distance
                                                                                        // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
                                                                                        //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
                                                                                        //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints
@@ -6106,9 +6154,11 @@ PURPOSE: Try to fix a problem with a gap in the intersection loop
 NOTES:
 ***********************************************************************/
 SmStatus SmTopologyIntersector::CloseIntersectionLoop
-  (SmVertex  * pBrepVertex,          // in : target vertex from m_pBrep
-   SmBoolean & rbMadeNewTopology)    // out: TRUE =
-                                     //      FALSE=
+  (SmVertex  * pBrepVertex,                   // in : target vertex from m_pBrep
+   SmBoolean & rbMadeNewTopology,             // out: TRUE =
+                                              //      FALSE=
+   SmTArray< SmVertex* > & rDeletedVertices,  // out: vertices deleted by squeezes (either Brep)
+   SmTArray< SmEdge*   > & rDeletedEdges)     // out: edges deleted by squeezes (either Brep)
 {
   // check input
   NER(pBrepVertex);
@@ -6119,9 +6169,13 @@ SmStatus SmTopologyIntersector::CloseIntersectionLoop
 
   // init output
   rbMadeNewTopology = FALSE;
+  rDeletedVertices.ReSet();
+  rDeletedEdges.ReSet();
 
   // locals
   SM_PTR_ARRAY(sOCommonEdges,SmEdge,32);
+  SmTArray<SmVertex*> sDelVerts;
+  SmTArray<SmEdge*>   sDelEdges;
   ULONG ii, jj;
 
     { // scope to hold all edges connected to target vertex
@@ -6210,7 +6264,7 @@ SmBoolean bDebugMe = FALSE;
                     {
                       // add the edge pair to the list of mated object
                       // thus filling a potential intersection loop gap
-                      Relate(pBE,pOEdge);
+                      SER( Relate(pBE,pOEdge) );
                       rbMadeNewTopology = TRUE;
                       return SM_SUCCESS;
                     }
@@ -6252,7 +6306,11 @@ SmBoolean bDebugMe = FALSE;
                   m_pOther->GetEdges(sOldEdges);
 
                   // intersect, insert, and relate target Edge with m_pOther brep
-                  SER(IIREdgeBrep(pBE,m_pOther,FALSE,TRUE));
+                  sDelVerts.ReSet();
+                  sDelEdges.ReSet();
+                  SER(IIREdgeBrep(pBE,m_pOther,FALSE,TRUE,&sDelEdges,&sDelVerts));
+                  rDeletedVertices.Append(sDelVerts);
+                  rDeletedEdges   .Append(sDelEdges);
 
                   // remember if  new edges were added to m_pOther
                   m_pOther->GetEdges(sNewEdges);
@@ -6334,7 +6392,11 @@ SmBoolean bDebugMe = FALSE;
                   m_pBrep->GetEdges(sOldEdges);
 
                   // intersect, insert, and relate target edge into this  m_pBrep
-                  SER(IIREdgeBrep(pOE,m_pBrep,TRUE,TRUE));
+                  sDelVerts.ReSet();
+                  sDelEdges.ReSet();
+                  SER(IIREdgeBrep(pOE,m_pBrep,TRUE,TRUE,&sDelEdges,&sDelVerts));
+                  rDeletedVertices.Append(sDelVerts);
+                  rDeletedEdges   .Append(sDelEdges);
                   m_pBrep->GetEdges(sNewEdges);
 
                   // remember if new topology was added to m_pBrep
@@ -6724,8 +6786,8 @@ SmBoolean bDebugMe = FALSE;
             SM_ASSERT( FALSE );
             // Maybe because of tolerance.  Check that.
             SmPoint3d sPt1, sPt2;
-            pCurve1->EvaluatePoint( dT1, sPt1 );
-            pCurve2->EvaluatePoint( dT2, sPt2 );
+            SER( pCurve1->EvaluatePoint( dT1, sPt1 ) );
+            SER( pCurve2->EvaluatePoint( dT2, sPt2 ) );
             if ( sPt1.CloserThan( rdMinUnstitched, sPt2 ) )
               { rdMinUnstitched = sPt1.DistanceBetween( sPt2 ); }
 
@@ -6762,7 +6824,7 @@ SmBoolean bDebugMe = FALSE;
         SmPoint3d sMidPt = 0.5 * ( pNewV1->GetPoint() + pNewV2->GetPoint() );
         pNewV1->SetPoint( sMidPt );
 
-        pBrep->GlueVertices( pNewV1, pNewV2 );
+        SER( pBrep->GlueVertices( pNewV1, pNewV2 ) );
 
         pNewV2 = NULL;
         rNewVerts.Add( pNewV1 ); // This one will survive.
@@ -6825,7 +6887,7 @@ SmBoolean bDebugMe = FALSE;
   SmBoolean bIntWithBoundary = FALSE;
   SmPointClassification sPointClass(sSrcZoneTol3d, pFace->GetContext()) ;  
 
-  pFace->PointClassify( sUV, sSrcZoneTol3d, bIntWithBoundary, TRUE, sPointClass );
+  SER( pFace->PointClassify( sUV, sSrcZoneTol3d, bIntWithBoundary, TRUE, sPointClass ) );
 
   if ( sPointClass.GetPointClass() == SM_PC_UNKNOWN )
   {
@@ -7107,7 +7169,7 @@ SmStatus SmTopologyIntersector::VertexFaceIntersect
               SmPoint3d sMidPt = 0.5 * ( pV->GetPoint() + pNewVertex->GetPoint() );
               pV->SetPoint( sMidPt );
 
-              pBrep->GlueVertices( pV, pNewVertex );
+              SER( pBrep->GlueVertices( pV, pNewVertex ) );
               rProcessedVerts.AddUnique( pV );
               rVerts[ii] = pNewVertex = NULL;
 
@@ -7116,8 +7178,8 @@ SmStatus SmTopologyIntersector::VertexFaceIntersect
               // Set max distance.
               rdMaxVertexGap = smos_Max( rdMaxVertexGap, dDistToFace );
 
-              SmTol::UpdateObjectTolerance( pV,    dDistToFace );
-              SmTol::UpdateObjectTolerance( pFace, dDistToFace );
+              SER( SmTol::UpdateObjectTolerance( pV,    dDistToFace ) );
+              SER( SmTol::UpdateObjectTolerance( pFace, dDistToFace ) );
           }
           else
           {
@@ -7205,7 +7267,7 @@ SmStatus SmTopologyIntersector::EdgeEdgeIntersect
 //      { continue; }
 
       SmExtent3d sE1Box;
-      pE1->CalculateBoundingBox( &sE1Box );
+      SER( pE1->CalculateBoundingBox( &sE1Box ) );
       //cbi sVBBox.ExpandAbsolute( pE1->GetTolerance() );  //cbi was tol * 20
       for ( jj = 0; jj < lNumEdges2; jj++ )
       {
@@ -7217,7 +7279,7 @@ SmStatus SmTopologyIntersector::EdgeEdgeIntersect
 //          { continue; }
 
           SmExtent3d sE2Box;
-          pE2->CalculateBoundingBox( &sE2Box );
+          SER( pE2->CalculateBoundingBox( &sE2Box ) );
           //cbi sVBBox.ExpandAbsolute( pE2->GetTolerance() );  //cbi was tol * 20
 
           double dThisTol = smos_3Max( m_dThisApproxTol3d,
@@ -7273,21 +7335,21 @@ SmStatus SmTopologyIntersector::EdgeEdgeIntersect
           lNumEdges2 = sEdges2.GetSize();
 
           // Update tolerances.
-          SmTol::UpdateObjectTolerance( pE1, dDistToEdge );
-          SmTol::UpdateObjectTolerance( pE2, dDistToEdge );
+          SER( SmTol::UpdateObjectTolerance( pE1, dDistToEdge ) );
+          SER( SmTol::UpdateObjectTolerance( pE2, dDistToEdge ) );
 
           SmBoolean bCheckGaps = FALSE;
           if ( dDistToEdge > m_dThisApproxTol3d / 4 )
             { bCheckGaps = TRUE; }
 
           for ( kk = 0; kk < lNumNewV; kk++ )
-            { SmTol::UpdateObjectTolerance( sNewV[kk], dDistToEdge, 0.0, bCheckGaps ); }
+            { SER( SmTol::UpdateObjectTolerance( sNewV[kk], dDistToEdge, 0.0, bCheckGaps ) ); }
           ULONG lCount = sNewE1.GetSize();
           for ( kk = 0; kk < lCount; kk++ )
-            { SmTol::UpdateObjectTolerance( sNewE1[kk], dDistToEdge, pE1->GetTolerance() ); }
+            { SER( SmTol::UpdateObjectTolerance( sNewE1[kk], dDistToEdge, pE1->GetTolerance() ) ); }
           lCount = sNewE2.GetSize();
           for ( kk = 0; kk < lCount; kk++ )
-            { SmTol::UpdateObjectTolerance( sNewE2[kk], dDistToEdge, pE2->GetTolerance() ); }
+            { SER( SmTol::UpdateObjectTolerance( sNewE2[kk], dDistToEdge, pE2->GetTolerance() ) ); }
 
       } // end inner loop on rE2
   } // end outer loop on rE1
@@ -7413,7 +7475,7 @@ SmStatus SmTopologyIntersector::EdgeFaceIntersect
 
       // Find all input faces close to this edge.
       SmExtent3d sEBBox, sFBBox;
-      pEdge->CalculateBoundingBox( & sEBBox );
+      SER( pEdge->CalculateBoundingBox( & sEBBox ) );
       sEBBox.ExpandAbsolute( pEdge->GetTolerance() );  //cbi: was tol * 20.0
       for ( jj = 0; jj < lNumFaces; jj++ )
       {
@@ -7427,7 +7489,7 @@ SmStatus SmTopologyIntersector::EdgeFaceIntersect
             { continue; }
 
           // BBox check.
-          pFace->CalculateBoundingBox( sFBBox );
+          SER( pFace->CalculateBoundingBox( sFBBox ) );
           if ( sEBBox.AreDisjoint( sFBBox, pFace->GetTolerance() ) )
             { continue; }
 
@@ -7445,8 +7507,8 @@ SmStatus SmTopologyIntersector::EdgeFaceIntersect
 
 //cbi maybe subroutine, as in sm_TestAndImprintFace():
 
-          pSurf->GlobalCurveIntersect( sFaceDomain, *pCurve, sEdgeDomain, dThisTol,
-                                       sSolutions );
+          SER( pSurf->GlobalCurveIntersect( sFaceDomain, *pCurve, sEdgeDomain, dThisTol,
+                                       sSolutions ) );
 
           ULONG lNumSols = sSolutions.GetSize();
 
@@ -7484,7 +7546,7 @@ SmStatus SmTopologyIntersector::EdgeFaceIntersect
                   SmBoolean bIntWithBoundary = FALSE;
                   SmPointClassification sPointClass(sFaceZoneTol3d, &GetContext()) ;  // this tol is unlikely to be correct - check it
 
-                  pFace->PointClassify( sUV, sEdgeZoneTol3d, bIntWithBoundary, TRUE, sPointClass );
+                  SER( pFace->PointClassify( sUV, sEdgeZoneTol3d, bIntWithBoundary, TRUE, sPointClass ) );
 
                   if ( sPointClass.GetPointClass() == SM_PC_UNKNOWN )
                   {
@@ -7553,8 +7615,8 @@ if ( bDebugMe2 )
 
       // Find the point -- make sure they're the same. Can err if pEdge was edited by prior loop iteration
       SmPoint3d sEdgePt, sFacePt;
-      pCurve->EvaluatePoint( dParam, sEdgePt );
-      pSurf ->EvaluatePoint( sUV,    sFacePt );
+      SER( pCurve->EvaluatePoint( dParam, sEdgePt ) );
+      SER( pSurf ->EvaluatePoint( sUV,    sFacePt ) );
 
       double dThisTol = smos_Max( (double)pFace->GetTolerance(), m_dThisApproxTol3d );
       dThisTol = smos_Max( (double)pEdge->GetTolerance(), dThisTol );
@@ -7568,7 +7630,7 @@ if ( bDebugMe2 )
           {
               SmEdge *pThisEdge = rNewEdges[jj];
               pCurve = pThisEdge->GetCurve();
-              pCurve->EvaluatePoint( dParam, sEdgePt );
+              SER( pCurve->EvaluatePoint( dParam, sEdgePt ) );
 
               double dNewDeviation = sEdgePt.DistanceBetween( sFacePt );
 
@@ -7610,8 +7672,8 @@ if ( bDebugMe2 )
       SmBoolean bCheckGaps = FALSE;
       if ( dThisDeviation > dThisTol/4.0 )
         { bCheckGaps = TRUE; }
-      SmTol::UpdateObjectTolerance( pNewFaceVtx, dThisDeviation, 0.0, bCheckGaps );
-      SmTol::UpdateObjectTolerance( pFace,       dThisDeviation );
+      SER( SmTol::UpdateObjectTolerance( pNewFaceVtx, dThisDeviation, 0.0, bCheckGaps ) );
+      SER( SmTol::UpdateObjectTolerance( pFace,       dThisDeviation ) );
 
 
       // Check interior of Edge -- all edges in sEdgesSplitFromThis.
@@ -7650,9 +7712,9 @@ if ( bDebugMe2 )
           // Also add it to our working edge list.
           sEdgesSplitFromThis.Add( pNewEdge );
 
-          SmTol::UpdateObjectTolerance( pE1,         dThisDeviation, pThisSplitEdge->GetTolerance() );
-          SmTol::UpdateObjectTolerance( pE2,         dThisDeviation, pThisSplitEdge->GetTolerance() );
-          SmTol::UpdateObjectTolerance( pNewEdgeVtx, dThisDeviation, 0.0, bCheckGaps );
+          SER( SmTol::UpdateObjectTolerance( pE1,         dThisDeviation, pThisSplitEdge->GetTolerance() ) );
+          SER( SmTol::UpdateObjectTolerance( pE2,         dThisDeviation, pThisSplitEdge->GetTolerance() ) );
+          SER( SmTol::UpdateObjectTolerance( pNewEdgeVtx, dThisDeviation, 0.0, bCheckGaps ) );
       }
       else
       {
@@ -7703,12 +7765,12 @@ if ( bDebugMe2 )
           SmPoint3d sMidPt = 0.5 * ( pNewEdgeVtx->GetPoint() + pNewFaceVtx->GetPoint() );
           pNewEdgeVtx->SetPoint( sMidPt );
 
-          pBrep->GlueVertices( pNewEdgeVtx, pNewFaceVtx );
+          SER( pBrep->GlueVertices( pNewEdgeVtx, pNewFaceVtx ) );
 
           // Set max distance.
           rdMaxVertexGap = smos_Max( rdMaxVertexGap, dThisDeviation );
 
-          SmTol::UpdateObjectTolerance( pNewEdgeVtx, dThisDeviation, 0.0, bCheckGaps );
+          SER( SmTol::UpdateObjectTolerance( pNewEdgeVtx, dThisDeviation, 0.0, bCheckGaps ) );
       }
       else
       {
@@ -7834,13 +7896,13 @@ SmStatus SmTopologyIntersector::EdgeFaceCoincidence(
               SmZoneTol3d sEdgeZoneTol3d = SmTol::GetZoneTol3d(pE) ; 
 
 //cbi: maybe do this ahead of time, for all added faces:
-              pF->CalculateUVDomainFromUVTrimCurves( sFaceDom );
+              SER( pF->CalculateUVDomainFromUVTrimCurves( sFaceDom ) );
               SmBoolean bIsCoin, bPartialCoinOk = FALSE;
               SmSolution sSol;
-              pSurf->SimpleCoincidenceChecker(
+              SER( pSurf->SimpleCoincidenceChecker(
                       sFaceDom, *pCurve, sEdgeDom, m_dThisApproxTol3d,
                       bIsCoin, sSol, bPartialCoinOk
-              );
+              ) );
 
               if ( ! bIsCoin || sSol.m_vStart.m_dSolutionValue > m_dThisApproxTol3d )
                 { continue; }
@@ -7852,10 +7914,10 @@ SmStatus SmTopologyIntersector::EdgeFaceCoincidence(
               SmPointClassification sPtClass(sEdgeZoneTol3d, &GetContext()) ; // this tol is unlikely to be correct - check it
               SmPoint3d sCrvPt;
               double dTestT = 0.38;
-              pCurve->EvaluatePoint( sEdgeDom.Evaluate( dTestT ), sCrvPt );
+              SER( pCurve->EvaluatePoint( sEdgeDom.Evaluate( dTestT ), sCrvPt ) );
 
               // Allow any part of the Face: including Edges and Vertices.
-              pF->Point3DClassify( sCrvPt, sEdgeZoneTol3d, FALSE, sPtClass );
+              SER( pF->Point3DClassify( sCrvPt, sEdgeZoneTol3d, FALSE, sPtClass ) );
               if (    sPtClass.GetPointClass() != SM_PC_FACE
                    && sPtClass.GetPointClass() != SM_PC_EDGE
                    && sPtClass.GetPointClass() != SM_PC_VERTEX )
@@ -7869,8 +7931,8 @@ SmStatus SmTopologyIntersector::EdgeFaceCoincidence(
 #endif // SM_USE_OLDTOL
 
               dTestT = 0.71;
-              pCurve->EvaluatePoint( sEdgeDom.Evaluate( dTestT ), sCrvPt );
-              pF->Point3DClassify( sCrvPt, m_dThisApproxTol3d, FALSE, sPtClass );
+              SER( pCurve->EvaluatePoint( sEdgeDom.Evaluate( dTestT ), sCrvPt ) );
+              SER( pF->Point3DClassify( sCrvPt, m_dThisApproxTol3d, FALSE, sPtClass ) );
               if (    sPtClass.GetPointClass() != SM_PC_FACE
                    && sPtClass.GetPointClass() != SM_PC_EDGE
                    && sPtClass.GetPointClass() != SM_PC_VERTEX )
@@ -7889,9 +7951,9 @@ SmStatus SmTopologyIntersector::EdgeFaceCoincidence(
               // Determine the orientation: make it go from pV to pOtherV.
               // The orienatation is whether the curve goes from pV to pOtherV.
               SmPoint3d sPt, sVtxPt = pV->GetPoint();
-              pCurve->EvaluatePoint( sEdgeDom.GetMin(), sPt );
+              SER( pCurve->EvaluatePoint( sEdgeDom.GetMin(), sPt ) );
               double       dDist1  = sVtxPt.DistanceBetween( sPt );
-              pCurve->EvaluatePoint( sEdgeDom.GetMax(), sPt );
+              SER( pCurve->EvaluatePoint( sEdgeDom.GetMax(), sPt ) );
               double       dDist2  = sVtxPt.DistanceBetween( sPt );
               SmOrientType eOrient = ( dDist1 < dDist2 ) ? SM_OT_SAME : SM_OT_OPPOSITE;
 
@@ -7907,12 +7969,12 @@ SmStatus SmTopologyIntersector::EdgeFaceCoincidence(
               // We have to make a copy of the curve: what's passed in
               // gets installed in the new edge.
               SmCurve *pCurveCopy = NULL;
-              pCurve->Copy( *(pBrep->GetContext()), pCurveCopy );
+              SER( pCurve->Copy( *(pBrep->GetContext()), pCurveCopy ) );
 
-              pBrep->MakeEdgeInFace(
+              SER( pBrep->MakeEdgeInFace(
                   pF, pV, pOtherV, pCurveCopy, NULL, sEdgeDom, eOrient, dEdgeTol,
                   pNewEdge, pNewLoop, pNewFace
-              );
+              ) );
 
 //#ifdef SM_DEBUG_CODE
 //              sbChkEdgeCrvOwner( sEdgesOfVtx );
@@ -7929,14 +7991,14 @@ SmStatus SmTopologyIntersector::EdgeFaceCoincidence(
                   rProcessedFaces.Add( pNewFace );
                   rSplitFaces.    Add( pF );
 
-                  SmTol::UpdateObjectTolerance( pNewFace, dDev, pF->GetTolerance() );
+                  SER( SmTol::UpdateObjectTolerance( pNewFace, dDev, pF->GetTolerance() ) );
               }
 
               // A new edge would be glued to the edge it was made from.
               if ( pNewEdge != NULL )
               {
-                  SmTol::UpdateObjectTolerance( pNewEdge, dDev, dEdgeTol );
-                  SmTol::UpdateObjectTolerance( pF,       dDev, dEdgeTol );  // We modified this.
+                  SER( SmTol::UpdateObjectTolerance( pNewEdge, dDev, dEdgeTol ) );
+                  SER( SmTol::UpdateObjectTolerance( pF,       dDev, dEdgeTol ) );  // We modified this.
 
                   // Note: GlueEdgesGeneral() will delete pNewEdge,
                   // along with its curve.  But MakeEdgeInFace() just copied
@@ -8092,7 +8154,7 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
               double dMaxDist = 0.0;
               SmSurface *pSCover = NULL;
 
-              pFace1->GetSurface()->CoincidenceCheck( *pFace2->GetSurface(), m_dThisAngTolRad, bAreCoincident, dMaxDist, FALSE, pSCover );
+              SER( pFace1->GetSurface()->CoincidenceCheck( *pFace2->GetSurface(), m_dThisAngTolRad, bAreCoincident, dMaxDist, FALSE, pSCover ) );
               if ( bAreCoincident )
               { continue; }
           }
@@ -8103,8 +8165,8 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
           SmObjsDelete<SmCurve*> sClean3Ds( &s3DCurves ), sCleanCC3D(&sCC3DCrvs), sCleanUV1( &sCCUVCrvs1), sCleanUV2( &sCCUVCrvs2);
           SmObjsDelete<SmCurveClassification*> sClean0( &siiCC ), sClean1( &sjjCC);
           double dAngTolDeg = 180. / SM_PI * m_dThisAngTolRad;
-          pFace1->FaceIntersect( m_crContext, pFace2, m_dThisApproxTol3d, dAngTolDeg, s3DCurves, NULL, NULL,
-                                 NULL, &siiCC, &sjjCC, &sCC3DCrvs, &sCCUVCrvs1, &sCCUVCrvs2, &bAreCoincident );
+          SER( pFace1->FaceIntersect( m_crContext, pFace2, m_dThisApproxTol3d, dAngTolDeg, s3DCurves, NULL, NULL,
+                                 NULL, &siiCC, &sjjCC, &sCC3DCrvs, &sCCUVCrvs1, &sCCUVCrvs2, &bAreCoincident ) );
 
           // In this loop we imprint each intersection as an edge
           // Within the SmMerge::MergeAddedTopology sequence all faces arrive here with vertices in place,
@@ -8113,8 +8175,8 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
           for ( kk = 0; kk < siiCC.GetSize(); kk++ )
           {
               SmCurveClassification *pCC1 = siiCC[kk], *pCC2 = sjjCC[kk];
-              pCC1->SetPointClassParameters( TRUE );
-              pCC2->SetPointClassParameters( TRUE );
+              SER( pCC1->SetPointClassParameters( TRUE ) );
+              SER( pCC2->SetPointClassParameters( TRUE ) );
 
               // For each interval in the classification
               for ( ll = 0; ll < pCC1->GetSize(); ll++ )
@@ -8133,24 +8195,24 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                       SmPoint3d sPt;
                       SmFace   *pF1 = pCI1->m_vStart.GetFaceObject();
                       SmFace   *pF2 = pCI2->m_vStart.GetFaceObject();
-                      pCI1->m_vStart.FindObjPoint3d( sPt );
+                      SER( pCI1->m_vStart.FindObjPoint3d( sPt ) );
 
                       // This classification may be outdated. Check and update. Will either be face or vertex
                       SmVector2d pCI1_start_uv = pCI1->m_vStart.GetUVParam();
                       SmVector2d pCI2_start_uv = pCI2->m_vStart.GetUVParam(); 
-                      pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vStart, &pCI1_start_uv );
-                      pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vStart, &pCI2_start_uv );
+                      SER( pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vStart, &pCI1_start_uv ) );
+                      SER( pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vStart, &pCI2_start_uv ) );
 
                       // The CC may be unknow when a new face was created prior. m_vMid was updated, so check that face
                       if ( pCI1->m_vStart.GetPointClass() == SM_PC_UNKNOWN )
                       {
                           pF1 = pCI1->m_vMid.GetFaceObject();
-                          pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vStart, &pCI1_start_uv );
+                          SER( pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vStart, &pCI1_start_uv ) );
                       }
                       if ( pCI2->m_vStart.GetPointClass() == SM_PC_UNKNOWN )
                       {
                           pF2 = pCI2->m_vMid.GetFaceObject();
-                          pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vStart, &pCI2_start_uv );
+                          SER( pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vStart, &pCI2_start_uv ) );
                       }
 
                       // We have intersecting 3dcurves. Imprint the point as a vertex on each face.
@@ -8159,18 +8221,18 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                       {
                           SmLoop   *pLoop = NULL;
                           SmVertex *pV1 = NULL, *pV2 = NULL;
-                          m_pBrep->MakeVertexLoop( pF1, sPt, pLoop, pV1 );
+                          SER( m_pBrep->MakeVertexLoop( pF1, sPt, pLoop, pV1 ) );
 
-                          pCI2->m_vStart.FindObjPoint3d( sPt );
-                          m_pBrep->MakeVertexLoop( pF2, sPt, pLoop, pV2 );
+                          SER( pCI2->m_vStart.FindObjPoint3d( sPt ) );
+                          SER( m_pBrep->MakeVertexLoop( pF2, sPt, pLoop, pV2 ) );
 
-                          m_pBrep->GlueVertices( pV1, pV2 );
+                          SER( m_pBrep->GlueVertices( pV1, pV2 ) );
 
                           // Update classifications
                           pCI1_start_uv = pCI1->m_vStart.GetUVParam();
                           pCI2_start_uv = pCI2->m_vStart.GetUVParam();
-                          pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vStart, &pCI1_start_uv );
-                          pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vStart, &pCI2_start_uv );
+                          SER( pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vStart, &pCI1_start_uv ) );
+                          SER( pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vStart, &pCI2_start_uv ) );
                       }
                   }
                   else if ( pCI1->m_vStart.GetPointClass() != SM_PC_VERTEX || pCI2->m_vStart.GetPointClass() != SM_PC_VERTEX )
@@ -8185,24 +8247,24 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                       SmPoint3d sPt;
                       SmFace   *pF1 = pCI1->m_vEnd.GetFaceObject();
                       SmFace   *pF2 = pCI2->m_vEnd.GetFaceObject();
-                      pCI1->m_vEnd.FindObjPoint3d( sPt );
+                      SER( pCI1->m_vEnd.FindObjPoint3d( sPt ) );
 
                       // This classification may be outdated. Check and update. Will either be face or vertex
                       SmVector2d pCI1_end_uv = pCI1->m_vEnd.GetUVParam();
                       SmVector2d pCI2_end_uv = pCI2->m_vEnd.GetUVParam();
-                      pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vEnd, &pCI1_end_uv );
-                      pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vEnd, &pCI2_end_uv );
+                      SER( pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vEnd, &pCI1_end_uv ) );
+                      SER( pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vEnd, &pCI2_end_uv ) );
 
                       // The CC may be unknow when a new face was created prior. m_vMid was updated, so check that face
                       if ( pCI1->m_vEnd.GetPointClass() == SM_PC_UNKNOWN )
                       {
                           pF1 = pCI1->m_vMid.GetFaceObject();
-                          pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vEnd, &pCI1_end_uv );
+                          SER( pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vEnd, &pCI1_end_uv ) );
                       }
                       if ( pCI2->m_vEnd.GetPointClass() == SM_PC_UNKNOWN )
                       {
                           pF2 = pCI2->m_vMid.GetFaceObject();
-                          pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vEnd, &pCI2_end_uv );
+                          SER( pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vEnd, &pCI2_end_uv ) );
                       }
 
                       // We have intersecting 3dcurves. Imprint the point as a vertex on each face.
@@ -8211,18 +8273,18 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                       {
                           SmLoop   *pLoop = NULL;
                           SmVertex *pV1 = NULL, *pV2 = NULL;
-                          m_pBrep->MakeVertexLoop( pF1, sPt, pLoop, pV1 );
+                          SER( m_pBrep->MakeVertexLoop( pF1, sPt, pLoop, pV1 ) );
 
-                          pCI2->m_vEnd.FindObjPoint3d( sPt );
-                          m_pBrep->MakeVertexLoop( pF2, sPt, pLoop, pV2 );
+                          SER( pCI2->m_vEnd.FindObjPoint3d( sPt ) );
+                          SER( m_pBrep->MakeVertexLoop( pF2, sPt, pLoop, pV2 ) );
 
-                          m_pBrep->GlueVertices( pV1, pV2 );
+                          SER( m_pBrep->GlueVertices( pV1, pV2 ) );
 
                           // Update classifications
                           pCI1_end_uv = pCI1->m_vEnd.GetUVParam();
                           pCI2_end_uv = pCI2->m_vEnd.GetUVParam();
-                          pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vEnd, &pCI1_end_uv );
-                          pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vEnd, &pCI2_end_uv );
+                          SER( pF1->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI1->m_vEnd, &pCI1_end_uv ) );
+                          SER( pF2->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI2->m_vEnd, &pCI2_end_uv ) );
                       }
                   }
                   else if ( pCI1->m_vEnd.GetPointClass() != SM_PC_VERTEX || pCI2->m_vEnd.GetPointClass() != SM_PC_VERTEX )
@@ -8237,13 +8299,13 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                       SmVertex *pV2 = pCI1->m_vEnd.GetVertexObject();
                       const SmCurve *p3dCurve = pCC1->GetCurve();
                       SmCurve *pCopyC = NULL;
-                      p3dCurve->Copy( m_crContext, pCopyC );
+                      SER( p3dCurve->Copy( m_crContext, pCopyC ) );
                       SmExtent1d sIvl = pCI1->m_vInterval;
 
                       SmLoop *pNewLoop = NULL;
                       SmFace *pNewFace = NULL, *pOldFace = pCI1->m_vMid.GetFaceObject();
 
-                      m_pBrep->MakeEdgeInFace( pOldFace, pV1, pV2, pCopyC, NULL, sIvl, SM_OT_SAME, m_dThisApproxTol3d, pNewEdge1, pNewLoop, pNewFace );
+                      SER( m_pBrep->MakeEdgeInFace( pOldFace, pV1, pV2, pCopyC, NULL, sIvl, SM_OT_SAME, m_dThisApproxTol3d, pNewEdge1, pNewLoop, pNewFace ) );
 
                       // If the face was split, update classifications and add new face to intersection list
                       if ( pNewFace )
@@ -8258,17 +8320,17 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                                   SmCurveInterval *pCI = &( *pCC )[nn];
                                   SmPoint3d sPt;
                                   SmFace *pThisFace = pCI->m_vMid.GetFaceObject();
-                                  pThisCurve->EvaluatePoint( pCI->m_vInterval.GetMid(), sPt );
+                                  SER( pThisCurve->EvaluatePoint( pCI->m_vInterval.GetMid(), sPt ) );
 
                                   if ( pThisFace )
                                   {
                                       SmVector2d pCI_mid_uv = pCI->m_vMid.GetUVParam();
-                                      pThisFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv );
+                                      SER( pThisFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv ) );
                                   }
                                   if ( pCI->m_vMid.GetPointClass() != SM_PC_FACE && pThisFace )
                                   {
                                       SmVector2d pCI_mid_uv = pCI->m_vMid.GetUVParam();
-                                      pNewFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv );
+                                      SER( pNewFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv ) );
                                   }
                               }
                           } // end updating classifications
@@ -8285,13 +8347,13 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                       SmVertex *pV2 = pCI2->m_vEnd.GetVertexObject();
                       const SmCurve *p3dCurve = pCC2->GetCurve();
                       SmCurve *pCopyC = NULL;
-                      p3dCurve->Copy( m_crContext, pCopyC );
+                      SER( p3dCurve->Copy( m_crContext, pCopyC ) );
                       SmExtent1d sIvl = pCI2->m_vInterval;
 
                       SmLoop *pNewLoop = NULL;
                       SmFace *pNewFace = NULL, *pOldFace = pCI2->m_vMid.GetFaceObject();
 
-                      m_pBrep->MakeEdgeInFace( pOldFace, pV1, pV2, pCopyC, NULL, sIvl, SM_OT_SAME, m_dThisApproxTol3d, pNewEdge2, pNewLoop, pNewFace );
+                      SER( m_pBrep->MakeEdgeInFace( pOldFace, pV1, pV2, pCopyC, NULL, sIvl, SM_OT_SAME, m_dThisApproxTol3d, pNewEdge2, pNewLoop, pNewFace ) );
 
                       // If the face was split, update classifications and add new face to intersection list
                       if ( pNewFace )
@@ -8306,17 +8368,17 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                                   SmCurveInterval *pCI = &( *pCC )[nn];
                                   SmPoint3d sPt;
                                   SmFace *pThisFace = pCI->m_vMid.GetFaceObject();
-                                  pThisCurve->EvaluatePoint( pCI->m_vInterval.GetMid(), sPt );
+                                  SER( pThisCurve->EvaluatePoint( pCI->m_vInterval.GetMid(), sPt ) );
 
                                   if ( pThisFace )
                                   {
                                       SmVector2d pCI_mid_uv = pCI->m_vMid.GetUVParam();
-                                      pThisFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv );
+                                      SER( pThisFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv ) );
                                   }
                                   if ( pCI->m_vMid.GetPointClass() != SM_PC_FACE && pThisFace )
                                   {
                                       SmVector2d pCI_mid_uv = pCI->m_vMid.GetUVParam();
-                                      pNewFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv );
+                                      SER( pNewFace->Point3DClassify( sPt, m_dThisApproxTol3d, FALSE, pCI->m_vMid, &pCI_mid_uv ) );
                                   }
                               }
                           } // end updating classifications
@@ -8335,7 +8397,7 @@ SmStatus SmTopologyIntersector::FaceFaceIntersect
                   rProcessedFaces.AddUnique( pFace2 );
 
                   // We want only one edge shared between the faces
-                  m_pBrep->GlueEdgesGeneral( pNewEdge1, SM_OT_SAME, 0.0, bDoRegionNesting, pNewEdge2 );
+                  SER( m_pBrep->GlueEdgesGeneral( pNewEdge1, SM_OT_SAME, 0.0, bDoRegionNesting, pNewEdge2 ) );
                   rNewEdges.Add( pNewEdge1 );
 
               } // end for each SmCurveInterval
@@ -8464,8 +8526,8 @@ SmStatus SmTopologyIntersector::FaceFaceCoincidence
 
                   SmBoolean bOk;
                   SmBoolean bIsMulti;
-                  pSurf1->EvaluatePoint( sGuessUV1, sPt3d1 );
-                  pSurf2->DropPoint( sPt3d1, sDomain2, &sGuessUV2, bOk, sUV, dGap, bIsMulti );
+                  SER( pSurf1->EvaluatePoint( sGuessUV1, sPt3d1 ) );
+                  SER( pSurf2->DropPoint( sPt3d1, sDomain2, &sGuessUV2, bOk, sUV, dGap, bIsMulti ) );
                   if ( bOk && dGap <= m_dThisApproxTol3d )
                   {
                       bCoinFaces = TRUE;
@@ -8496,7 +8558,7 @@ SmStatus SmTopologyIntersector::FaceFaceCoincidence
                       else                   { SER( SM_ERR ); }
                   }
                   double dOldTol = pDelFace->GetTolerance();
-                  pBrep->DeleteFace( pDelFace );
+                  SER( pBrep->DeleteFace( pDelFace ) );
 
                   // Add to the output lists.
                   // In the case of three or more faces all coincident (or
@@ -8508,7 +8570,7 @@ SmStatus SmTopologyIntersector::FaceFaceCoincidence
                   rProcessedFaces.Add( pSavFace );
                   rDeletedFaces  .Add( pDelFace );
 
-                  SmTol::UpdateObjectTolerance( pSavFace, dGap, dOldTol );
+                  SER( SmTol::UpdateObjectTolerance( pSavFace, dGap, dOldTol ) );
 
                   if ( pDelFace == pFace1 )
                     {
@@ -9133,7 +9195,7 @@ void SmTopologyIntersector::DrawDetails
                                      SmExtent1d sInterval = pEdge->GetInterval();
                                      SmCrvCrvGapFunction sCrvCrvGap( (SmXSectTol3d)sZoneTol3d, pEdge->GetCurve(), sInterval, pOEdge->GetCurve() ) ;
                                      SmGapSample *pMaxGapSample;  
-                                     sCrvCrvGap.GetMaxGapSample( pMaxGapSample );
+                                     (void)sCrvCrvGap.GetMaxGapSample( pMaxGapSample ); // SolidCraft: drawing only
                                      if ( !pMaxGapSample )
                                      { continue; }
                                      
@@ -9221,7 +9283,7 @@ void SmTopologyIntersector::DrawDetails
                                      SmExtent2d sDomain = pFace->GetUVDomain();
                                      SmSrfSrfGapFunction sSrfSrfGap( (SmXSectTol3d)sZoneTol3d, pFace->GetSurface(), sDomain, pOFace->GetSurface() ) ;
                                      SmGapSample *pMaxGapSample;  
-                                     sSrfSrfGap.GetMaxGapSample(pMaxGapSample);
+                                     (void)sSrfSrfGap.GetMaxGapSample(pMaxGapSample); // SolidCraft: drawing only
                                      if (!pMaxGapSample)
                                      { continue; }
                                      
@@ -9269,7 +9331,7 @@ void SmTopologyIntersector::DrawDetails
                     SmExtent1d sInterval = pCurve->GetNaturalInterval();
                     SmCrvCrvGapFunction sCrvCrvGap( (SmXSectTol3d)sZoneTol3d, pCurve, sInterval, pOCurve ) ;
                     SmGapSample *pMaxGapSample;  
-                    sCrvCrvGap.GetMaxGapSample( pMaxGapSample );
+                    (void)sCrvCrvGap.GetMaxGapSample( pMaxGapSample ); // SolidCraft: drawing only
                     if (!pMaxGapSample )
                     { continue; }
                     
@@ -9313,7 +9375,7 @@ void SmTopologyIntersector::DrawDetails
                     SmExtent2d sDomain = pSurface->GetNaturalUVDomain();
                     SmSrfSrfGapFunction sSrfSrfGap( (SmXSectTol3d)sZoneTol3d, pSurface, sDomain, pOSurface ) ;
                     SmGapSample *pMaxGapSample;  
-                    sSrfSrfGap.GetMaxGapSample(pMaxGapSample);
+                    (void)sSrfSrfGap.GetMaxGapSample(pMaxGapSample); // SolidCraft: drawing only
                     if (!pMaxGapSample)
                     { continue; }
                     

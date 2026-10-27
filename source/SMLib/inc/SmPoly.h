@@ -1257,9 +1257,18 @@ public:
                                                           ///<      : NULL    = Find closest point to any PolyLoopEdge                <br>
     SmPolyEdge *& rpLoopEdge,                             ///< [out]: PolyLoopEdge closest to NeighborLoopEdge                        <br>
     SmPolyEdge *& rpOtherLoopEdge,                        ///< [out]: NeighborLoop->PolyEdge with start-pt closest to PolyLoopEdge    <br>
-    SmTArray<SmPolyEdge*> * pOptNonDegenPolyEdges = NULL  ///< [in] : Optional array of nondegenerate PolyEdges from this face.       <br>
+    SmTArray<SmPolyEdge*> * pOptNonDegenPolyEdges = NULL, ///< [in] : Optional array of nondegenerate PolyEdges from this face.       <br>
+                                                          ///<      : NULL to ignore. Default is NULL.                                <br>
+    const SmTArray<SmExtent3d> * pOptNonDegenEdgeBoxes = NULL ///< [in] : Optional 3D extent of each pOptNonDegenPolyEdges edge.   <br>
                                                           ///<      : NULL to ignore. Default is NULL.                                <br>
   ) const; 
+
+  // last step of FindClosestPointToLoop: pick the PolyEdges at the closest vertex pair whose sectors contain the connection
+  SmStatus  FindLoopConnectionSectors
+  (
+    SmPolyEdge *& rpLoopEdge,                             ///< [i/o]: PolyEdge starting at the loop vertex                          <br>
+    SmPolyEdge *& rpOtherLoopEdge                         ///< [i/o]: PolyEdge starting at the other vertex                         <br>
+  ) const;
 
   // get PolyFace vertices in Tri[P0,P1,P2]
   SmStatus FindVerticesInTriangle
@@ -1326,7 +1335,10 @@ public:
     SmTArray<SmPoint3d>   & rIntersections,           ///< [out]: array of all intersection points                   <br>
     SmTArray<SmPolyEdge*> & rIntersectionEdges,       ///< [out]: associated edge for each intersection              <br>
     SmTree                * pOptEdgeTree = NULL,      ///< [in] : optional edge tree to cull intersection candidates <br>
-    SmTArray<SmPolyEdge*> * pOptEdgesToCheck = NULL   ///< [in] : optional array to specify intersection candidates. <br>
+    SmTArray<SmPolyEdge*> * pOptEdgesToCheck = NULL,  ///< [in] : optional array to specify intersection candidates. <br>
+                                                      ///<      : NULL to ignore. Default is NULL                    <br>
+    const SmTArray<SmExtent3d> * pOptEdgeBoxes = NULL ///< [in] : optional 3D extent of each pOptEdgesToCheck edge,   <br>
+                                                      ///<        used to skip far edges quickly.                    <br>
                                                       ///<      : NULL to ignore. Default is NULL                    <br>
   ) const;
 
@@ -3113,7 +3125,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyFace::GetPolyLoops(SmTArray<SmPolyLoop*> & rPolyLoops) const
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyLoops)); 
+  (void)GetAll(rPolyLoops); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyLoop inlines
@@ -3146,7 +3158,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyLoop::GetPolyEdges(SmTArray<SmPolyEdge*> & rPolyEdges) const
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyEdges)); 
+  (void)GetAll(rPolyEdges); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyShell inlines
@@ -3177,7 +3189,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyShell::GetPolyFaces(SmTArray<SmPolyFace*> & rPolyFaces) const
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rPolyFaces)); 
+  (void)GetAll(rPolyFaces); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyRegion inlines
@@ -3197,7 +3209,7 @@ inline SmPolyRegion::SmPolyRegion(SmPolyBrep *pPolyBrep)
   // m_pLast      = NULL ;   = LastRegion or this when only one region in pPolyBrep ;
 
   if(pPolyBrep)
-    { pPolyBrep->PostInsert(this); }
+    { (void)pPolyBrep->PostInsert(this); } // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 
 } // end SmPolyRegion::SmPolyRegion constructor
 
@@ -3208,7 +3220,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyRegion::GetPolyShells( SmTArray<SmPolyShell*> & rPolyShells ) const
 {
-  GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyShells ) );
+  (void)GetAll(rPolyShells); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 // SmPolyBrep inlines
@@ -3220,7 +3232,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyBrep::GetPolyRegions( SmTArray<SmPolyRegion*> & rPolyRegions ) const
 {
-  GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyRegions ) );
+  (void)GetAll(rPolyRegions); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 /*******************************************************************//**
@@ -3230,7 +3242,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyBrep::GetPolyVertices( SmTArray<SmPolyVertex*> & rPolyVertices ) const
 {
-  m_pPolyVertexListHead->GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rPolyVertices ) );
+  (void)m_pPolyVertexListHead->GetAll(rPolyVertices); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 /*******************************************************************//**
@@ -3256,7 +3268,7 @@ NOTES:
 ***********************************************************************/
 inline void SmPolyBrep::GetCPolyFaces( SmTArray<SmCPolyFace*> & rCPolyFaces ) const
 {
-  m_pCPolyFaceListHead->GetAll( SM_REINTERPRET_CAST( SmTArray<class SmTopology*>&, rCPolyFaces ) );
+  (void)m_pCPolyFaceListHead->GetAll(rCPolyFaces); // SolidCraft: a list getter or void adder of the poly topology (not on our paths)
 }
 
 

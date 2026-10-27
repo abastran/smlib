@@ -25,6 +25,10 @@
 #include <SmAttribute.h>
 #endif
 
+#ifndef __SMTOBJARRAY_H__
+#include <SmTObjArray.h>
+#endif
+
 class SmFaceuse;
 class SmEdgeuse;
 
@@ -240,11 +244,11 @@ public:
 PURPOSE: Serialized equivalent to SmTopology
 
 NOTES:
- static class object - don't add virtual methods to SmTopologyData.  
- Virtual methods conflict with the methods in SmTArray<SmTopologyData>
- that use memset() to clear memory - with SmTopologyData virtual methods the
- virtual pointer tables get corrupted by SmTArray<SmTopologyData>::ReSet() 
- calls and the like. 
+ Its SmTArray<ULONG> attribute index array (from SmAttributeData) has a virtual
+ destructor, so SmTopologyData and its derived classes must be constructed and
+ destroyed: store them in an SmTObjArray, never in an SmTArray, which
+ calloc()s, memset()s and memcpy()s its elements without running constructors
+ or destructors.
 ***********************************************************************/
 class SM_EXPORT SmTopologyData : public SmAttributeData
 {
@@ -811,24 +815,25 @@ public:
   SmBoolean                     m_bIsGeomBorrowed = FALSE ;            // TRUE  = curves & surfaces in {m_vUVCurves, m_v3DCurves, m_vSurfaces} arrays are borrowed, FALSE = aren't  
   ULONG                         m_lHealerVersion  = 0 ;                // Healer version at the time the file was written. (when m_lHealerVersion < SM_HEALER_VERSION) Brep Healing will run when reading this file.)
                                                    
-  // topology objects                                                                      
-  SmTArray<SmRegionData>      & m_vRegions;       // regions array,  tgts of SmBrepData   ::{m_lStartRegion,  m_lNumRegions}  index block
-  SmTArray<SmShellData>       & m_vShells;        // shells array,   tgts of SmRegionData ::{m_lStartShell,   m_lNumShells}   index blocks
+  // topology objects: SmTObjArray, not SmTArray, since each element holds SmTArray<ULONG> attribute
+  // index arrays that must be constructed, copied and destroyed with it.
+  SmTObjArray<SmRegionData>   & m_vRegions;       // regions array,  tgts of SmBrepData   ::{m_lStartRegion,  m_lNumRegions}  index block
+  SmTObjArray<SmShellData>    & m_vShells;        // shells array,   tgts of SmRegionData ::{m_lStartShell,   m_lNumShells}   index blocks
   SmTArray<ULONG>             & m_vCFaces;        // scratch array - old CFaces now translate to Face sets on input
                                                       
-  SmTArray<SmFaceuseData>     & m_vFaceuses;      // faceuses array, tgts of SmShellData  ::{m_lFaceuseStart, m_lNumFaceuses} index blocks
-  SmTArray<SmFaceData>        & m_vFaces;         // faces array,    tgts of SmFaceuseData::{m_lFace} indices
-  SmTArray<SmLoopData>        & m_vLoops;         // loops array,    tgts of SmFaceData   ::{m_lStartLoop,    m_lNumLoops}    index blocks
+  SmTObjArray<SmFaceuseData>  & m_vFaceuses;      // faceuses array, tgts of SmShellData  ::{m_lFaceuseStart, m_lNumFaceuses} index blocks
+  SmTObjArray<SmFaceData>     & m_vFaces;         // faces array,    tgts of SmFaceuseData::{m_lFace} indices
+  SmTObjArray<SmLoopData>     & m_vLoops;         // loops array,    tgts of SmFaceData   ::{m_lStartLoop,    m_lNumLoops}    index blocks
                                                       
   SmTArray<ULONG>             & m_vCEdges;        // scratch array - old CEdges now translate as Edge sets on input
-  SmTArray<SmEUData>          & m_vEdgeuses;      // edgeuses array, tgts of SmLoopData   ::{m_lStartEU, m_lNumEUs}           index blocks
+  SmTObjArray<SmEUData>       & m_vEdgeuses;      // edgeuses array, tgts of SmLoopData   ::{m_lStartEU, m_lNumEUs}           index blocks
                                                   //                  contains: 1 SmEUData for each pair of mated edgeuses              
                                                   //                          : No SmEUData for each WireEdge                            
                                                   //                          : No SmEUData for LoopVertex edgeuses                     
                                                   //                          : No SmEUData for ShellVertices                           
-  SmTArray<SmEdgeData>        & m_vEdges;         // edges array,    tgts of SmEUData     ::{m_lEdge}                         indices
+  SmTObjArray<SmEdgeData>     & m_vEdges;         // edges array,    tgts of SmEUData     ::{m_lEdge}                         indices
                                                   //                         SmShellData  ::{m_lStartEdge, m_lNumEdges}       index blocks
-  SmTArray<SmVertexData>      & m_vVertices;      // vertices array, tgts of SmEdgeData   ::{m_lStartVertex, m_lEndVertex}    indices
+  SmTObjArray<SmVertexData>   & m_vVertices;      // vertices array, tgts of SmEdgeData   ::{m_lStartVertex, m_lEndVertex}    indices
                                                   //                         SmShellData  ::{m_lVertex}                       indices
                                                   //                         SmLoopData   ::{m_lVertex}                       indices
                                                       

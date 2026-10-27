@@ -139,7 +139,7 @@ public:
   virtual SmStatus AdjustTangentCorner  (){return SM_SUCCESS;} // 6th : Similar to AdjustTopology - uses more geometry checks
                                                                // 7th : SmFilletSolver::TestRollOver() XSect RailCurves with OrigFace->Bndry
                                                                //         to find if railCurve "RolledOver" other faces. If so, adjust fillets.
-  SmStatus         CalcCornerEdgeGeom   () ;                   // 8th : if needed, Recompute FilletEdges of AdjustedCorners because of RollOver.
+  virtual SmStatus CalcCornerEdgeGeom   () ;                   // 8th : if needed, Recompute FilletEdges of AdjustedCorners because of RollOver.
   SmStatus         CalcCornerGeom       () ;                   // 9th : if needed, call CalcCornerPatch() or CreateEndPatch()
                                                                //       gwc: removed CalcCornerGeom() virtual attribute - didn't see any derived class implementations
   virtual SmStatus   CreateCornerPatch  () ;                   //     : calc corner SurfaceFill patch and store in m_vSurfaces, call MakeFaceBrep()
@@ -183,6 +183,9 @@ public:
   SmFilletExecutive * GetFilletExecutive()                             { return m_pExecutive; }
   void                GetFilletEdges(SmTArray<SmFilletEdge*> & rEdges) { rEdges.Append(m_vEdges); }
   void                GetFilletVertices(SmTArray<SmFilletVertex*> & rVerts) { rVerts.Append(m_vVertices); }
+  // SolidCraft change: the faces made on the surfaces this corner made (its patch's, or its end
+  // caps'), while they are still in the executive's m_pFilletBrep, before the merge.
+  SmStatus            GetPatchFaces(SmTArray<SmFace*> & rFaces) const;
   const SmVertex    * GetFilletedVertex()                              { return m_cpVertex; }
   double              GetSetBackDist()                                 { return m_dSetBackDist; }
   SmFilStatus         GetStatus()                                      { return m_eStatus; }
@@ -344,6 +347,8 @@ public:
                                         SmEdgeuse * pFilEdgeuse);
 
     virtual SmStatus CreateCornerPatch();
+
+    virtual SmStatus CalcCornerEdgeGeom();
 
     virtual SmFilletCornerType GetCornerType() const { return SM_FCR_N_x_1; }
 

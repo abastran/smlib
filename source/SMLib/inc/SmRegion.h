@@ -161,7 +161,7 @@ inline void SmRegion::GetShells
                                          ///<      : NULL to ignore, default:[NULL]                               <br>
 ) const 
 { 
-  GetAll(SM_REINTERPRET_CAST(SmTArray<class SmTopology*>&,rShells), pOptAttributeId); 
+  (void)GetAll(rShells, pOptAttributeId); // SolidCraft: a list getter; filling a list fails only out of memory
 }
 
 /*******************************************************************//**

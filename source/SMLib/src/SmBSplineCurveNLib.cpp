@@ -4622,8 +4622,16 @@ TCHAR            sBuff[SM_TBLOCK_SIZE] ;
       NL_INDEX lMaxIndx = pCur1->knt->m ;
 
       // watch out for new degenerate segments - makes NLib calls directly
-      if(   ((pKnots[lDegree+1] - pKnots[0])                  < sZoneTol1dMin && sKnots.GetSize() > 2)
-         || ((pKnots[lMaxIndx]  - pKnots[lMaxIndx-lDegree-1]) < sZoneTol1dMax && sKnots.GetSize() > 2))
+      // SolidCraft: only for a curve in model space. The test and N_CrvRemoveDegenSegs measure
+      // the end spans against the 3D zone tolerance in the curve's own units, and a UV trim
+      // curve's units are its surface's parameters: on a plane whose UV span is 38 times smaller
+      // than its 3D size, a span 5.5e-5 mm long came out 1.4e-6 in UV, was removed as
+      // degenerate, and the rest of the arc stretched over it, its pcurve off its edge by
+      // 2.5e-5 mm against an edge tolerance of 1e-5 (SolidCraft rig booleans/2928). A short
+      // span of a UV curve is no degeneracy: it is kept, so the trim is exact.
+      if(   GetDim() == 3
+         && (   ((pKnots[lDegree+1] - pKnots[0])                  < sZoneTol1dMin && sKnots.GetSize() > 2)
+             || ((pKnots[lMaxIndx]  - pKnots[lMaxIndx-lDegree-1]) < sZoneTol1dMax && sKnots.GetSize() > 2)))
         {
           gw_CURVE           sCur2 ;
           NL_INDEX              nr ;

@@ -42,6 +42,8 @@ class SmFace;
 class SmEdge;
 class SmVertex;
 class SmBSplineCurve;
+class SmCurve;
+class SmEdgeuse;
 
 /*******************************************************************//**
 PURPOSE: Abstract base class for removing a Face from a Brep, and patching the hole.
@@ -123,6 +125,11 @@ public:
   SmBSplineCurve *m_pNewSideEdgeExtEndFaceUV;
   SmBSplineCurve *m_pNewSideEdgeExtTanFaceUV;
 
+  // SolidCraft change (exact only): the side edge's line run on to the new vertex, or NULL.
+  SmBSplineCurve *m_pNewSideCurve;
+  SmBoolean       m_bSideCurveReplaced; // DoRemoval() put m_pNewSideCurve on the side edge
+  SmBoolean       m_bRebuildSideUVs;    // (exact only) DoRemoval() makes the side edge's UV trims anew
+
   SmEdge   *m_pSideEdge;
   SmBoolean m_bHighEndOfSideEdge;
   double    m_dNewSideEdgeParam; // param of srf/srf/srf int pt on side edge curve.
@@ -183,6 +190,9 @@ protected:
   // Methods:
 
 
+  SmBoolean       m_bExactOnly;    // SolidCraft change: see SetExactOnly()
+  SmBoolean       m_bNotExact;     // SolidCraft change: see NotExact()
+
 public:
   // Constructor:
   SmFilletRemoval( SmFace *pFaceToDelete, double d3dTolerance );
@@ -192,6 +202,16 @@ public:
 
   virtual SmStatus RemoveFace();
 
+  // SolidCraft change: remove only what SMLib makes exactly: a side edge runs on to the new
+  // corner only along its line (not on a fitted intersection), a face grows only within its
+  // surface's domain or on a plane, and every corner has a side edge. Otherwise RemoveFace()
+  // fails before changing the Brep, NotExact() TRUE where a continuation was the reason.
+  void      SetExactOnly( SmBoolean bExactOnly ) { m_bExactOnly = bExactOnly; }
+  SmBoolean NotExact() const { return m_bNotExact; }
+
+  // SolidCraft change: the edge the fillet became (after a successful RemoveFace()).
+  SmEdge  * GetSharpEdge() const { return m_aTanEdges[0]; }
+
 protected:
   SmStatus CollectFilletTopology();
   SmStatus CalcNewCornerVertices(  ULONG lWhichEnd );
@@ -200,6 +220,79 @@ protected:
   SmStatus DoRemoval();
 
 }; // end derived class SmFilletRemoval
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change: removing a ring fillet from a Brep (a round
+   all the way round a boss's foot or rim) and closing the hole with the
+   sharp edge where its two tangent faces meet.
+
+NOTES:
+  A ring fillet has no ends: its two rails are closed edges, each with one
+  vertex, and its surface's seam (if it has one) is an edge from one rail's
+  vertex to the other's. SmFilletRemoval takes a four-sided fillet only.
+
+  Assumptions about the input Face (IsRing() tells):
+  - its edges are two closed tangent manifold edges (the rails) and at most
+    one seam edge (an edge whose only face is the fillet), joining the
+    rails' vertices;
+  - each rail's other face (a tangent face) has a surface derived from
+    SmBSplineSurface, and the two tangent faces differ;
+  - at each rail's vertex the only other edges are the fillet's seam and at
+    most one seam of the tangent face (a cylinder's seam line).
+
+  The sharp edge is the surface/surface intersection of the two tangent
+  faces' surfaces within their natural domains, the closed curve nearest to
+  the rails. Nothing is continued past a surface's domain, and an edge past
+  its curve only along a line: when the sharp edge lies outside a tangent
+  surface's domain, or a tangent face's seam that is no line would have to
+  run past the end of its curve to reach it, RemoveFace() fails with
+  NotExact() TRUE.
+
+  As for SmFilletRemoval, everything is computed before the Brep is changed:
+  a failure before DoRemoval() leaves it as it was.
+***********************************************************************/
+class SM_EXPORT SmRingFilletRemoval: public SmFaceRemoval
+{
+protected:
+  SmEdge   * m_aRails[2];      // the closed tangent edges
+  SmFace   * m_aTanFaces[2];   // the face across each rail
+  SmVertex * m_aVertices[2];   // each rail's vertex
+  SmEdge   * m_pSeam;          // the fillet's seam, or NULL
+  SmEdge   * m_aSideEdges[2];  // the tangent face's seam at each rail's vertex, or NULL
+  SmBoolean  m_aSideAtHigh[2]; // TRUE = the side edge's high end is at the rail's vertex
+  double     m_aSideParams[2]; // where each side edge reaches the new vertex, on its curve
+  SmBSplineCurve * m_aSideCurves[2];      // a side edge's line continued to the new vertex, or NULL (its curve reaches it)
+
+  SmBSplineCurve * m_aSideUVs[2][2];      // [side][k]: the side edge's UV trims (a seam has two) run on to the new vertex
+  SmEdgeuse      * m_aSideUVOwners[2][2]; //   and the edgeuses that own them
+
+  SmPoint3d  m_sNewVertex;     // the sharp edge's vertex
+  SmCurve  * m_pNewEdgeCurve;  // the sharp edge, starting and ending at m_sNewVertex, running as m_aRails[0]
+  SmBoolean  m_bNotExact;
+
+public:
+  SmRingFilletRemoval( SmFace *pFaceToDelete, double d3dTolerance );
+  virtual ~SmRingFilletRemoval();
+
+  // TRUE when pFace is bounded as a ring fillet: two closed tangent edges and at most one seam.
+  static SmBoolean IsRing( const SmFace *pFace, double dTangencyTolDeg );
+
+  virtual SmStatus RemoveFace();
+
+  // TRUE when RemoveFace() failed because the sharp edge would need a surface or an edge
+  // continued past its domain (which SMLib does not do exactly).
+  SmBoolean NotExact() const { return m_bNotExact; }
+
+  // The edge the fillet became (after a successful RemoveFace()).
+  SmEdge * GetSharpEdge() const { return m_aRails[0]; }
+
+protected:
+  SmStatus CollectRingTopology();
+  SmStatus IntersectTangentSurfaces();
+  SmStatus FindSideEdgeExtension( ULONG lWhichSide );
+  SmStatus DoRemoval();
+
+}; // end derived class SmRingFilletRemoval
 
 #endif // !__SMFILLETREMOVAL_H__
 

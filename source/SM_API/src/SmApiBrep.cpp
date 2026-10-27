@@ -715,7 +715,7 @@ SmApiStatus SmApiTessellate
   if(dMaxEdgeLength < 0.0)
   {
     SmExtent3d brepBBox;
-    pBrep->CalculateBoundingBox( brepBBox );
+    SER( pBrep->CalculateBoundingBox( brepBBox ) );
     double size = brepBBox.GetSize().Length();
     if(size >= 1.0e15 || size <= 0.0) size = 1.0;
     dMaxEdgeLength = -0.025 * size * dMaxEdgeLength;
@@ -798,18 +798,18 @@ SmApiStatus SmApiProjectBrepOntoPlane
     return( SM_ERR_INVALID_INPUT );
 
   SmExtent3d BBox;
-  pBrep->CalculateBoundingBox( BBox );
+  SER( pBrep->CalculateBoundingBox( BBox ) );
 
   SmVector3d diagonal = BBox.GetSize();
   double length = diagonal.Length();
 
   SmVector3d x, y, z;
-  sPlaneNormal.MakeUnitOrthoVectors( 0, x, y, z );
+  SER( sPlaneNormal.MakeUnitOrthoVectors( 0, x, y, z ) );
 
   SmPoint3d planeOrigin = BBox.GetMid() - sPlaneNormal * length;
 
   SmAxis2Placement plane;
-  plane.SetCanonical( planeOrigin, y, z );
+  SER( plane.SetCanonical( planeOrigin, y, z ) );
 
   SmAxis2Placement sInvertPlane;
   plane.Invert( sInvertPlane );
@@ -1009,7 +1009,7 @@ SmApiStatus SmApiCreateSilhouetteCurves
     return( SM_ERR_INVALID_INPUT );
 
   SmExtent3d BBox;
-  pBrep->CalculateBoundingBox( BBox );
+  SER( pBrep->CalculateBoundingBox( BBox ) );
 
   SmVector3d diagonal = BBox.GetSize();
   double length = diagonal.Length();
@@ -1141,7 +1141,7 @@ SmApiStatus SmApiStitch
   }
 #endif // SM_DEBUG_CODE
 
-  pBrep->StitchAndOrient();
+  SER( pBrep->StitchAndOrient() );
 
   // Check manifold?
 
@@ -1482,7 +1482,8 @@ SmApiStatus SmApiCreateCurveSweep
     SmBrep*& rpResult,
     SmTArray<SmFace*>* pOptStartFaces,
     SmTArray<SmFace*>* pOptSideFaces,
-    SmTArray<SmFace*>* pOptEndFaces
+    SmTArray<SmFace*>* pOptEndFaces,
+    SmAxis2Placement* pOptPlacements
 )
 {
     rpResult = NULL;
@@ -1500,7 +1501,7 @@ SmApiStatus SmApiCreateCurveSweep
 
     SmPrimitiveCreation sPC( rpResult->GetInfiniteRegion() );
     const SmStatus eSweepStat = sPC.CreateCurveSweep( rProfileCurves, pPathCurve, pScaleReference, pScaleCurve,
-                               SM_ZONE_TOL_3D, pOptions, sStartFaces, sSideFaces, sEndFaces );
+                               SM_ZONE_TOL_3D, pOptions, sStartFaces, sSideFaces, sEndFaces, TRUE, pOptPlacements );
     if( eSweepStat != SM_SUCCESS )
     {
         // Do not hand back a half-built Brep. The kernel works on copies of
@@ -1643,11 +1644,14 @@ SmApiStatus SmApiCreateTaperExtrude
     double dHeight,
     double dDraftAngleDeg,
     int iEndCaps,
-    SmBoolean bFilletCorner,
-    SmBrep*& rpResult
+    SmOffsetCornerType eCorner,
+    SmBrep*& rpResult,
+    SmTaperCornerRefusal* pOptRefusal,
+    SmPoint3d* pOptRefusedCorner
 )
 {
     rpResult = NULL;
+    if( pOptRefusal ) *pOptRefusal = SM_TCR_NONE;
     if( rCurves.GetSize() < 1 )
         return SM_ERR_INVALID_INPUT;
 
@@ -1661,10 +1665,9 @@ SmApiStatus SmApiCreateTaperExtrude
     SmObjDelete sBrepCleanup( pBrep );
 
     SmVector3d sNormal(0,0,0);
-    SmOffsetCornerType eCorner = bFilletCorner ? SM_OC_FILLET_CORNER : SM_OC_LINEAR_EXTENSION;
 
     SmPrimitiveCreation sPC( pBrep->GetInfiniteRegion() );
-    SER( sPC.CreateTaperExtrude( sCurveCopies, dHeight, dDraftAngleDeg, iEndCaps, sNormal, eCorner ) );
+    SER( sPC.CreateTaperExtrude( sCurveCopies, dHeight, dDraftAngleDeg, iEndCaps, sNormal, eCorner, pOptRefusal, pOptRefusedCorner ) );
 
     sBrepCleanup.Clear();
     rpResult = pBrep;
@@ -2059,6 +2062,9 @@ SmApiStatus SmApiFilletEdges
     if( !pBrep || rEdges.GetSize() < 1 )
         return SM_ERR_INVALID_INPUT;
 
+    if( !SmFilletExecutive::IsRadiusSupported( dRadius, pBrep->GetTolerance() ) )
+        return SM_ERR_INVALID_INPUT;
+
     const SmContext* pContext = SmApiGetOrCreateContext();
 
     SmFilletSurfaceGeneratorType eFSGType = SM_FSG_CIRCULAR;
@@ -2076,7 +2082,7 @@ SmApiStatus SmApiFilletEdges
 
     SER( sFilExec.DoFillet() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -2107,6 +2113,10 @@ SmApiStatus SmApiFilletEdgesPerEdge
     if( rRadii.GetSize() != rEdges.GetSize() || rXSectTypes.GetSize() != rEdges.GetSize() )
         return SM_ERR_INVALID_INPUT;
 
+    for( ULONG i = 0; i < rRadii.GetSize(); i++ )
+        if( !SmFilletExecutive::IsRadiusSupported( rRadii[i], pBrep->GetTolerance() ) )
+            return SM_ERR_INVALID_INPUT;
+
     const SmContext* pContext = SmApiGetOrCreateContext();
 
     SmTArray<SmFilletSolverType> sRadiusTypes;
@@ -2124,7 +2134,7 @@ SmApiStatus SmApiFilletEdgesPerEdge
 
     SER( sFilExec.DoFillet() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -2152,6 +2162,10 @@ SmApiStatus SmApiVariableRadiusFillet
     if( !pBrep || rEdges.GetSize() < 1 )
         return SM_ERR_INVALID_INPUT;
 
+    if(    !SmFilletExecutive::IsRadiusSupported( dStartRadius, pBrep->GetTolerance() )
+        || !SmFilletExecutive::IsRadiusSupported( dEndRadius,   pBrep->GetTolerance() ) )
+        return SM_ERR_INVALID_INPUT;
+
     const SmContext* pContext = SmApiGetOrCreateContext();
 
     SmFilletSurfaceGeneratorType eFSGType = SM_FSG_CIRCULAR;
@@ -2171,7 +2185,7 @@ SmApiStatus SmApiVariableRadiusFillet
 
     SER( sFilExec.DoFillet() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );
@@ -2313,6 +2327,9 @@ SmApiStatus SmApiSetBevelCorners
     if( !pBrep || rEdges.GetSize() < 1 )
         return SM_ERR_INVALID_INPUT;
 
+    if( !SmFilletExecutive::IsRadiusSupported( dRadius, pBrep->GetTolerance() ) )
+        return SM_ERR_INVALID_INPUT;
+
     const SmContext* pContext = SmApiGetOrCreateContext();
 
     SmFilletExecutive sFilExec( *pContext, pBrep );
@@ -2332,7 +2349,7 @@ SmApiStatus SmApiSetBevelCorners
 
     SER( sFilExec.DoFilleting() );
 
-    pBrep->StitchAndOrient();
+    SER( pBrep->StitchAndOrient() );
 
 #ifdef SM_ASSERT_VALID
     SM_ASSERT_VALID( pBrep );

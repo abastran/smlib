@@ -66,7 +66,7 @@ SmSphere::SmSphere
       const SmContext* pContext  = GetContext();
       SmCircle * pNewCircle = NULL ;
       SmExtent1d sVint = crAnalUVDomain.GetVInterval();
-      SmCircle::CreateCanonical(*pContext,
+      (void)SmCircle::CreateCanonical(*pContext, // SolidCraft: a constructor cannot report
                                 SmAxis2Placement(crOrigin, crXAxis,crXAxis * crYAxis),
                                 dRadius,
                                 pNewCircle,
@@ -244,6 +244,25 @@ SmStatus SmSphere::GetCanonical
 } // end SmSphere::GetCanonical
 
 /*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when the offset by dSignedOffsetDistance
+    shrinks the sphere onto its centre or past it: the offset's radius below
+    dTol (SmSurface::OffsetCollapses).
+***********************************************************************/
+SmBoolean SmSphere::OffsetCollapses
+(
+  double dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double dTol                    // in : the radius below which the offset is the centre
+) const
+{
+  // When UVs are swapped - reverse orientation of offset
+  // When InsideOut       - reverse orientation of offset
+  double dOffsetSign =   1.0
+                       * (m_bSwapUV    ? -1.0 : 1.0)
+                       * (m_bInsideOut ? -1.0 : 1.0) ;
+  return m_dRadius + dOffsetSign * dSignedOffsetDistance < dTol;
+} // end SmSphere::OffsetCollapses
+
+/*******************************************************************//**
 PURPOSE: Create an offset sphere for the sphere.
 
 NOTES:
@@ -318,7 +337,8 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // skip building degenerate or negative radius surfaces
-  if(dNewRadius < dThisApproxTol3d)
+  // (SolidCraft: the offset collapses onto the centre, OffsetCollapses)
+  if ( OffsetCollapses(dSignedOffsetDistance, dThisApproxTol3d) )
     { return SM_SUCCESS; }
 
   // copy the current sphere
@@ -338,7 +358,7 @@ SmBoolean bDebugMe = FALSE ;
       SmVector3d       sScale(dScale, dScale, dScale) ;
       SmAxis2Placement sMove ;
       sMove.Translate(sMoveVec) ;
-      pOffSphere->m_pGenCurve->Transform(sMove, &sScale) ;
+      SER( pOffSphere->m_pGenCurve->Transform(sMove, &sScale)  );
     }
 
   // rebuild the underlying Nurb Surface
@@ -454,14 +474,14 @@ SmStatus SmSphere::CreateIsoParametricCurve
 
   // get the BSplineCurve
   SmBSplineCurve *pIsoCurve ;
-  SmBSplineSurface::CreateIsoParametricCurve(crContext,
+  SER( SmBSplineSurface::CreateIsoParametricCurve(crContext,
                                              eSurfParam,
                                              dIsoParameter,
                                              0.0,
                                              pIsoCurve,
                                              pOptDomain,
                                              pOptMaxGap3d,      // out: opt achieved max gap, NULL to ignore, default:[NULL]
-                                             pOptUVIsoCurve) ;  // out: opt 2d UVTrimCurve Line (diff parameterization), NULL to ignore, default:[NULL]
+                                             pOptUVIsoCurve)  );  // out: opt 2d UVTrimCurve Line (diff parameterization), NULL to ignore, default:[NULL]
 
   // low work - when curve is degenerate don't bother making a circle
   if(pIsoCurve->IsDegenerate()) { rpNewIsoCurve = pIsoCurve ;
@@ -486,8 +506,8 @@ SmStatus SmSphere::CreateIsoParametricCurve
   // Get IsoCurve Nurb endPoints
   SmPoint3d sNurbMinPoint, sNurbMaxPoint ;
   SmExtent1d sNurbIvl = pIsoCurve->GetNaturalInterval() ;
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sNurbMinPoint) ;
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sNurbMaxPoint) ;
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sNurbMinPoint)  );
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sNurbMaxPoint)  );
   SmVector3d sNurbMinVec = sNurbMinPoint - rSphereOrigin ;
   SmVector3d sNurbMaxVec = sNurbMaxPoint - rSphereOrigin ;
 
@@ -500,13 +520,13 @@ SmStatus SmSphere::CreateIsoParametricCurve
   if(eSTEPParam == SM_SP_U) // return Pole_to_Pole isoCurve circle
     {
       SmPoint3d sNurbMidPoint ;
-      pIsoCurve->EvaluatePoint(sNurbIvl.Evaluate(.5), sNurbMidPoint) ;
+      SER( pIsoCurve->EvaluatePoint(sNurbIvl.Evaluate(.5), sNurbMidPoint)  );
       SmVector3d sNurbMidVec = sNurbMidPoint - rSphereOrigin ;
 
       sCircleCenter = m_vPosition.GetOriginRef() ;
       sXAxis        = sSphereZAxis * (sNurbMidVec * sSphereZAxis) ;
       SM_ASSERT(sXAxis.Length() > SM_EFF_ZERO_SQRT) ;
-      sXAxis.Unitize() ;
+      (void)sXAxis.Unitize() ; // SolidCraft: a zero vector stays zero
       sYAxis        = sSphereZAxis ;
       dRadius       = m_dRadius ;
       bInsideOut    = m_bInsideOut ;
@@ -536,8 +556,8 @@ SmStatus SmSphere::CreateIsoParametricCurve
       SmVector3d sCircleZAxis = sXAxis * sYAxis ;
       double dMinAngRad, dMaxAngRad ;
       double dMinAngDeg, dMaxAngDeg ;
-      sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMinVec, dMinAngRad) ;
-      sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMaxVec, dMaxAngRad) ;
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMinVec, dMinAngRad)  );
+      SER( sCircleZAxis.CCWAngleBetween(sXAxis, sNurbMaxVec, dMaxAngRad)  );
       sAnalDomain.ContainsPeriodicValue(dMinAngRad * 180.0 / SM_PI, 360.0, &dMinAngDeg) ;
       sAnalDomain.ContainsPeriodicValue(dMaxAngRad * 180.0 / SM_PI, 360.0, &dMaxAngDeg) ;
 
@@ -556,8 +576,8 @@ SmStatus SmSphere::CreateIsoParametricCurve
       else
         {
           // set isoCurve analytic domain accounting for m_binside reversals
-          sCircleAnalDomain.SetMinMax(smos_Min(dMinAngDeg, dMaxAngDeg),
-                                      smos_Max(dMinAngDeg, dMaxAngDeg))  ;
+          SER( sCircleAnalDomain.SetMinMax(smos_Min(dMinAngDeg, dMaxAngDeg),
+                                      smos_Max(dMinAngDeg, dMaxAngDeg))   );
         }
     } // end need to compute interval from angles branch
 
@@ -1102,7 +1122,11 @@ SmStatus SmSphere::GlobalPointSolveSTEP
   // Get Sphere NearUVPoint in Spherical Coordinates (degrees)
   SmLocationType eLoc ;
   SmPoint2d sNearUVPoint ;
-  STEPInversion(m_vAnalUVDomain, crTestPoint, dDistanceTolerance, sNearUVPoint, eLoc) ;
+  // SolidCraft change: for a test point off the sphere (the usual case here) the inversion answers
+  // SM_ERR_NOT_WITHIN_TOLERANCE with the parameters of the point dropped to the sphere, which
+  // is what is used below; any other status is a failure
+  SmStatus eInv = STEPInversion(m_vAnalUVDomain, crTestPoint, dDistanceTolerance, sNearUVPoint, eLoc);
+  if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
   double dU = sNearUVPoint.x ;
   double dV = sNearUVPoint.y ;
@@ -1171,7 +1195,7 @@ SmStatus SmSphere::GlobalPointSolveSTEP
 
       // get the domain intersections
       SmTArray<SmExtent2d> sDomains ;
-      m_vAnalUVDomain.IntersectPeriodic(crAnalUVDomain, 360.0, 0.0, sDomains) ;
+      SER( m_vAnalUVDomain.IntersectPeriodic(crAnalUVDomain, 360.0, 0.0, sDomains)  );
 
       // for every intersection domain
       for(ii=0;ii<sDomains.GetSize();ii++)
@@ -1219,11 +1243,11 @@ SmStatus SmSphere::GlobalPointSolveSTEP
               if (eSolverOperation == SM_SO_MAXIMIZE)
                 bMinFlag = FALSE;
 
-              smgu_ArcSegmentPointDistance(sCenter, sX, sY, dRadius,
+              SER( smgu_ArcSegmentPointDistance(sCenter, sX, sY, dRadius,
                                            dStartAngDeg, dEndAngDeg,
                                            crTestPoint,
                                            bMinFlag,
-                                           dThisDistance, dThisAngleDeg) ;
+                                           dThisDistance, dThisAngleDeg)  );
 
               // save best answers
               if(   (eSolverOperation == SM_SO_MAXIMIZE && dThisDistance > dDistance)
@@ -1250,7 +1274,7 @@ SmStatus SmSphere::GlobalPointSolveSTEP
     {
       SmSolution sSol;
       SmPoint3d sSolPnt ;
-      EvaluateSTEPPoint(*apPoints[ii], sSolPnt) ;
+      SER( EvaluateSTEPPoint(*apPoints[ii], sSolPnt)  );
       SmVector3d sVec                = sSolPnt - crTestPoint ;
       double dDist                   = sVec.Length() ;
       sSol.m_lNumVariables           = 2 ;
@@ -1498,7 +1522,12 @@ SmStatus SmSphere::IntersectWithPlane
     } // end Plane is bounded check
 
   // See if we are intersecting at a singularity point
-  if (dDistToPlane > m_dRadius - dTol)
+  // SolidCraft change: the circle collapses to a point only when its radius
+  // sqrt(R^2 - d^2) is within dTol. Comparing the gap R - d against dTol
+  // turned loops of radius up to sqrt(2*R*dTol) (1e-3 for R = 1, dTol = 1e-6)
+  // into a single touching point.
+  double dGap = m_dRadius - dDistToPlane;
+  if (dGap <= 0.0 || dGap * (m_dRadius + dDistToPlane) <= dTol * dTol)
     {
       // build degenerate curve
       SmBSplineCurve *pBSC = NULL ;
@@ -1527,7 +1556,7 @@ SmStatus SmSphere::IntersectWithPlane
   const SmVector3d &rXAxis = crPlane.GetPosition().GetXAxisRef();
   const SmVector3d &rYAxis = crPlane.GetPosition().GetYAxisRef();
   SmAxis2Placement sRefFrame;
-  sRefFrame.SetCanonical(sProjectedPoint,rXAxis,rYAxis);
+  SER( sRefFrame.SetCanonical(sProjectedPoint,rXAxis,rYAxis) );
 
   // build circle arcs trimmed to Sphere boundary
   SmTArray<SmCurve *> s3dSphereCurves ;
@@ -1572,7 +1601,7 @@ SmBoolean bDebugMe = FALSE ;
           // trim curves to plane domain
           SmTArray<SmCurve *> s3dCurves ;
           SmObjsDelete<SmCurve *> sCleanArray(&s3dCurves) ;
-          crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCurve, dTol, s3dCurves) ;
+          SER( crPlane.TrimCurveToPlaneDomain(crOtherUVDomain, *pCurve, dTol, s3dCurves)  );
 
           // add trim curves to output
           if (pOpt3DCurves) { sCleanArray.Clear();
@@ -1714,12 +1743,21 @@ SmBoolean bDebugMe = FALSE ;
     } // end coincident CenterPoint check
 
   // Take care of touching situations
-  if (   (dDist + dTol > dRadius + dOtherRadius)             // tangent outside
-      || (dDist - dTol < smos_Fabs(dRadius-dOtherRadius)))   // tangent inside
+  // SolidCraft change: the circle collapses to a touching point only when its
+  // radius is within dTol. Comparing the center gap against dTol turned loops
+  // of radius up to ~sqrt(2*R*dTol) into a single point. The circle radius h
+  // satisfies (2*d*h)^2 = (d+r1+r2)(r1+r2-d)(d-r1+r2)(d+r1-r2); each factor
+  // is formed directly, so a near-tangent factor keeps its relative accuracy.
+  double dOutGap = dRadius + dOtherRadius - dDist;              // > 0 unless apart
+  double dInGap  = dDist - smos_Fabs(dRadius - dOtherRadius);   // > 0 unless nested
+  double dHeight4 = (dDist + dRadius + dOtherRadius) * dOutGap
+                  * (dDist - dRadius + dOtherRadius) * (dDist + dRadius - dOtherRadius);
+  if (   dOutGap <= 0.0 || dInGap <= 0.0
+      || dHeight4 <= 4.0 * dTol * dTol * dDist * dDist)
     {
       double dSign = 1.0;
       // when touching inside
-      if (dDist - dTol < smos_Fabs(dRadius-dOtherRadius))
+      if (dInGap < dOutGap)
         {
           // when OtherSphere is larger than thisSphere
           if (dRadius < dOtherRadius)
@@ -1845,14 +1883,18 @@ SmBoolean bDebugMe = FALSE ;
           SmPoint3d     sTestPoint ;
           SmPoint2d      sPointUV ;
           SmLocationType eLoc ;
-          pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMin(), sTestPoint) ;
+          SER( pCurve->EvaluatePoint(pCurve->GetNaturalInterval().GetMin(), sTestPoint)  );
           if(crSphere.IsClosedU() && crSphere.IsClosedV())
                { eLoc = SM_LT_INTERIOR ; }  // Every point is interior.
-          else { crSphere.STEPInversion(crSphere.m_vAnalUVDomain,
-                                        sTestPoint,
-                                        SM_EFF_ZERO,
-                                        sPointUV,
-                                        eLoc) ;
+          else {
+                 // SolidCraft change: an off-surface answer sets the location read below;
+                 // any other status is a failure
+                 SmStatus eInv = crSphere.STEPInversion(crSphere.m_vAnalUVDomain,
+                                                        sTestPoint,
+                                                        SM_EFF_ZERO,
+                                                        sPointUV,
+                                                        eLoc);
+                 if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
                }
 
           // when degenerateCurvePoint is inside of other surface
@@ -1982,11 +2024,15 @@ SmBoolean bDebugMe = FALSE ;
       SmBoolean bIsContained ;
       if (bSphereClosedU && bSphereClosedV)
            { bIsContained = TRUE ; }
-      else { STEPInversion(m_vAnalUVDomain,
-                           sTestPoint,
-                           SM_EFF_ZERO,
-                           sUVPoint,
-                           eLocation) ;
+      else {
+             // SolidCraft change: an off-surface answer sets the location read below;
+             // any other status is a failure
+             SmStatus eInv = STEPInversion(m_vAnalUVDomain,
+                                           sTestPoint,
+                                           SM_EFF_ZERO,
+                                           sUVPoint,
+                                           eLocation);
+             if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
               bIsContained =   (eLocation != SM_LT_EXTERIOR)
                              ? TRUE
                              : FALSE ;
@@ -2071,7 +2117,7 @@ SmBoolean bDebugMe = FALSE ;
       // get SphereCircle/SphereCircle intersections
       ULONG lIntersectCount ;
       SmPoint3d aPoints[2] ;
-      smgu_SphereCircleSphereCircleIntersect(rSphereOrigin,
+      SER( smgu_SphereCircleSphereCircleIntersect(rSphereOrigin,
                                              m_dRadius,
                                              crCircleCenter,  // circ1 - circle being trimmed
                                              sCircleNorm,     // circ1
@@ -2079,7 +2125,7 @@ SmBoolean bDebugMe = FALSE ;
                                              sX * sY,         // circ2
                                              dTol3d,
                                              lIntersectCount,
-                                             aPoints) ;
+                                             aPoints)  );
 
       // No need to add angles for coincident cases
       // trim limits will be found with other boundary/circle intersections
@@ -2177,11 +2223,14 @@ SmBoolean bDebugMe = FALSE ;
             }
 
           // Test the point. Tol loosened [B661]
-          STEPInversion(m_vAnalUVDomain,
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain,
                            sTestPoint,
                            SM_EFF_ZERO_PARAM,
                            sUVPoint,
-                           eLocation) ;
+                           eLocation);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
           bIsContained =   (eLocation != SM_LT_EXTERIOR)
                          ? TRUE
                          : FALSE ;
@@ -2269,7 +2318,10 @@ SmBoolean bDebugMe = FALSE ;
           // project the point into Spherical position Coordinates
           SmPoint2d sUVPoint ;
           SmLocationType eLoc ;
-          STEPInversion(m_vAnalUVDomain, sMidArcPoint, dTol3d, sUVPoint, eLoc) ;
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain, sMidArcPoint, dTol3d, sUVPoint, eLoc);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // when test point is on Surface and within domain boundaries
           if(eLoc != SM_LT_EXTERIOR)
@@ -2326,7 +2378,10 @@ SmBoolean bDebugMe = FALSE ;
           // get spherical coordinates for ArcPoint
           SmPoint2d sUVPoint;
           SmLocationType eLoc;
-          STEPInversion(m_vAnalUVDomain, sArcPoint, dTol3d,sUVPoint, eLoc );
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain, sArcPoint, dTol3d,sUVPoint, eLoc );
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // skip points not within sphere boundaries
           if(eLoc == SM_LT_EXTERIOR)
@@ -2492,10 +2547,10 @@ SmBoolean bDebugMe = FALSE ;
   // We will intersect that with the sphere.
   SmPoint2d sUV( crOtherUVDomain.Evaluate( 0, 0 ) ); // Lower-left corner of domain.
   SmPoint3d sLineStart, sLineEnd;
-  crCone.EvaluatePoint( sUV, sLineStart );
+  SER( crCone.EvaluatePoint( sUV, sLineStart ) );
   // Upper-left corner of analytical domain:
   sUV = ( crCone.GetSwapUV() ) ? crOtherUVDomain.Evaluate( 1, 0 ) : crOtherUVDomain.Evaluate( 0, 1 );
-  crCone.EvaluatePoint( sUV, sLineEnd );
+  SER( crCone.EvaluatePoint( sUV, sLineEnd ) );
   SmVector3d sLineVec( sLineEnd - sLineStart );
 
 #ifdef SM_DEBUG_CODE
@@ -2627,13 +2682,16 @@ SmBoolean bDebugMe = FALSE ;
           SM_ASSERT(pIsoCrv->IsDegenerate()) ;
           SM_ASSERT(pIsoCrv->GetNaturalInterval().GetMin() == 0.0) ;
           SmPoint3d sPoint ;
-          pIsoCrv->EvaluatePoint(0.0, sPoint) ;
+          SER( pIsoCrv->EvaluatePoint(0.0, sPoint)  );
           double dScaledZero = SM_EFF_ZERO * (1.0 + sPoint.GetMaxDimension()) ;
 
           // get UV point for Sphere
           SmPoint2d sUVPoint ;
           SmLocationType eLoc ;
-          STEPInversion(m_vAnalUVDomain, sPoint, dScaledZero, sUVPoint, eLoc) ;
+          // SolidCraft change: an off-surface answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = STEPInversion(m_vAnalUVDomain, sPoint, dScaledZero, sUVPoint, eLoc);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // add degenerate curve to output
           if(   eLoc != SM_LT_EXTERIOR
@@ -2710,8 +2768,8 @@ static ULONG lDebugCount = 0 ;
   // evaluate min/max domain points
   SmExtent2d sNurbUVDomain = pTestSurface->GetNaturalUVDomain();
   SmPoint3d sMinPnt, sMaxPnt;
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(),sMinPnt);
-  pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(),sMaxPnt);
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMin(),sMinPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
+  if ( pTestSurface->EvaluatePoint(sNurbUVDomain.GetMax(),sMaxPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface whose points cannot be evaluated is not recognized
 
   // scale zero value
   double dScaledZero =   dToleranceScale
@@ -2995,8 +3053,8 @@ SmStatus SmSphere::RebuildSTEPFromNURBParameters()
   // evaluate min/max domain points
   SmExtent2d sNurbUVDomain = GetNaturalUVDomain();
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  SER( EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) );
+  SER( EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) );
 
   // scaled zero value
   double dToleranceScale = 1000.0 ;  // loose because surf is already labeled analytic
@@ -3149,13 +3207,13 @@ SmStatus SmSphere::RebuildSTEPFromNURBParameters()
   m_dRadius          = dRad ;
   m_bInsideOut       = bInsideOut ;
   m_bPlanarGenerator = TRUE ;
-  m_vPosition.SetCanonical(crSphereOrigin, crSphereXAxis, crSphereYAxis) ;
+  SER( m_vPosition.SetCanonical(crSphereOrigin, crSphereXAxis, crSphereYAxis)  );
   m_bSwapUV          = bSwapUV ;
   m_vAnalUVDomain    = sAnalUVDomain ;
 
   // Set PolarConverter from Nurb midPoint rotation isoParamCurve
   // pRotationIsoCrv will be an SmCircle because isoParam is coming from SmSphere
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
   //      m_vPolarConverter.SetPolarConversionPossible(FALSE) ;
   //      SmBSplineCurve *pRotationIsoCrv = NULL ;
@@ -3440,10 +3498,14 @@ NOTES:
   except for a point coincident with the sphere's origin.
 
 RETURNS ---
-  SM_SUCCESS when the point is on the sphere and within both the sphere's
-              and the give AnalUVDomain limits.
+  SM_SUCCESS when the point is on the sphere (within d3DTolerance).
   Points which can be mapped outside the surface's
   trim domain are mapped and reLocation is set to SM_LT_EXTERIOR
+  SolidCraft change: SM_ERR_NOT_WITHIN_TOLERANCE for a point off the sphere,
+  with the parameters and reLocation of the point dropped to it; for the
+  centre, which is equally far from every point of the sphere, (0, 0) and
+  SM_LT_EXTERIOR. SM_ERR only for the centre of a sphere no larger than
+  d3DTolerance, which is on it but has no parameters.
 
   If the result is on the seam of a closed surface, and a guess was
   given, the output will be set to whichever side of the seam is closer
@@ -3488,9 +3550,9 @@ SmStatus SmSphere::STEPInversion
   SmVector3d sVec = crPointOnSurf - rOrigin ;
   double  dLength = sVec.Length() ;
 
-  // Origin Points are errors
+  // the centre: off the sphere by its radius, and no point of the sphere is nearer than another
   if(dLength < dScaledZero)
-    { return(SM_ERR) ; }
+    { return (m_dRadius > d3DTolerance) ? SM_ERR_NOT_WITHIN_TOLERANCE : SM_ERR ; }
 
   // drop point to Sphere - Remember when Point was not initially on Surface
   sVec       = sVec * (m_dRadius / dLength) ;
@@ -3535,7 +3597,7 @@ SmStatus SmSphere::STEPInversion
     }
 
   // all done
-  return(bOnSurf ? SM_SUCCESS : SM_ERR) ;
+  return(bOnSurf ? SM_SUCCESS : SM_ERR_NOT_WITHIN_TOLERANCE) ;
 
 } // end SmSphere::STEPInversion
 
@@ -3579,7 +3641,7 @@ SmStatus SmSphere::Transform
   m_dRadius *= dScale;
 
   // finish the call in the parent function
-  SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale) ;
+  SER( SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale)  );
 
   // all done
   return SM_SUCCESS;
@@ -3678,7 +3740,7 @@ SmBoolean SmSphere::AssertValid
   // check temporary genCurve against parameterization of NurbSurface
   const SmContext &crContext = *GetContext() ;
   SmBSplineCurve  *pGenCurve = NULL ;
-  CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ;
+  (void)CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ; // SolidCraft: a validity check reads what it computed
   SmObjDelete sClean(pGenCurve) ;
 
   /*  1 */ // GenCurve AnalInterval   must equal Surface->AnalUVDomain->GetVInterval,

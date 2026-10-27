@@ -447,7 +447,7 @@ SmStatus  SmTopologyTraverser::CollectCurveLoop
     if (!pEdge) return(SM_ERR);
     
     SmTArray < SmEdgeuse *> sEdgeuses;
-    pEdge->GetEdgeuses(sEdgeuses);
+    SER( pEdge->GetEdgeuses(sEdgeuses) );
     if (sEdgeuses.GetSize() < 1) return (SM_ERR);
     
     //which Edgeuse do I select?
@@ -504,7 +504,7 @@ SmStatus  SmTopologyTraverser::CollectRegions
   SmTArray< SmShell * > sShells;
   SmRegion *pThisReg;
   ULONG lIdx; 
-  pStartRegion->GetAdjacentRegions( sRegionMates );
+  SER( pStartRegion->GetAdjacentRegions( sRegionMates ) );
 
   // Init stack to adjacent Regions of pStartRegion.
   sRegionStack = sRegionMates;
@@ -528,7 +528,7 @@ SmStatus  SmTopologyTraverser::CollectRegions
 
           rAllRegions.Add( pRegMate );
 
-          pRegMate->GetAdjacentRegions( sRegionMates );
+          SER( pRegMate->GetAdjacentRegions( sRegionMates ) );
           ULONG jj, lNumMates = sRegionMates.GetSize();
           for ( jj = 0; jj < lNumMates; jj++ )
             {
@@ -952,8 +952,8 @@ SmStatus SmTopologyTraverser::FaceuseShellReplacement
       SmShell   *pOldShell = pFU->GetShell();
       if ( pNewShell != pOldShell )
         {
-          pOldShell->Remove(pFU);
-          pNewShell->PostInsert(pFU);
+          SER( pOldShell->Remove(pFU) );
+          SER( pNewShell->PostInsert(pFU) );
         }
     } // end iter every faceuse
 
@@ -1456,16 +1456,16 @@ static SmBoolean EdgeCrease
     SmPoint3d sNorm0, sNorm1;
     double TValues[5] = { 0.5123, 0.2487, 0.76, 0.043, 0.982 };
     SmTArray < SmEdgeuse*>pEdgeuses;
-    pE->GetEdgeuses(pEdgeuses);
+    if ( pE->GetEdgeuses(pEdgeuses) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
     if (pEdgeuses.GetSize() != 4) return TRUE;  // only manifold non-lamina case
     SmEdgeuse *pEU0 = pEdgeuses[0];
     SmEdgeuse *pEU1 = pEdgeuses[2];
     
     SmBSplineCurve* bs0 = NULL;
-    pEU0->GetOrCreateUVTrimCurve( bs0 );
+    if ( pEU0->GetOrCreateUVTrimCurve( bs0 ) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
 
     SmBSplineCurve* bs1 = NULL;
-    pEU1->GetOrCreateUVTrimCurve( bs1 );
+    if ( pEU1->GetOrCreateUVTrimCurve( bs1 ) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
 
     if( bs0 == NULL || bs1 == NULL )
         return( TRUE );
@@ -1475,22 +1475,22 @@ static SmBoolean EdgeCrease
     for (int nt = 0; nt < 5; nt ++)  // 5 sample points
     {
         double t0 = sUVIv0.Evaluate(TValues[nt]);
-        bs0->EvaluatePoint(t0, s3UV);
+        if ( bs0->EvaluatePoint(t0, s3UV) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
         SmSurface *pSrf0 = pEU0->GetFace()->GetSurface();
         s2UV.x = s3UV.x;  s2UV.y = s3UV.y;
         //SmPoint3d sPnt0;
         //pSrf0->EvaluatePoint(s2UV,sPnt0);
-        pSrf0->EvaluateNormal(s2UV, TRUE, TRUE, sNorm0);
+        if ( pSrf0->EvaluateNormal(s2UV, TRUE, TRUE, sNorm0) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
         
         double t1 = sUVIv1.Evaluate(TValues[nt]);
-        bs1->EvaluatePoint(t1, s3UV);
+        if ( bs1->EvaluatePoint(t1, s3UV) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
         SmSurface *pSrf1 = pEU1->GetFace()->GetSurface();
         s2UV.x = s3UV.x;  s2UV.y = s3UV.y;
         //SmPoint3d sPnt1;
         //pSrf1->EvaluatePoint(s2UV,sPnt1);
-        pSrf1->EvaluateNormal(s2UV, TRUE, TRUE, sNorm1);        
+        if ( pSrf1->EvaluateNormal(s2UV, TRUE, TRUE, sNorm1) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
         double dAngleBetween = 0.0;
-        sNorm0.AngleBetween(sNorm1, dAngleBetween);
+        if ( sNorm0.AngleBetween(sNorm1, dAngleBetween) != SM_SUCCESS ) { return TRUE ; } // SolidCraft change: an edge it cannot sample is a crease, as its other "cannot tell" exits answer
         double dAngleDeg = dAngleBetween * 180.0 / SM_PI;
         if (dAngleDeg > dAngle)
             return (TRUE);
@@ -1913,7 +1913,7 @@ SmStatus SmTopologyTraverser::GetSubTopology
             }
 
           // wire edges
-          pShell->GetWireEdges( sShellEdges ) ;
+          SER( pShell->GetWireEdges( sShellEdges )  );
           for(jj=0;jj<sShellEdges.GetSize();jj++)
             { if(   sShellEdges[jj]
                  && !sShellEdges[jj]->IsMarked(eWorkMarkType))

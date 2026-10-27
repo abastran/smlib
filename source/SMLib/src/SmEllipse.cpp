@@ -54,7 +54,7 @@ SmPolarConversion::SmPolarConversion
 
   // copy the source curve pointer
   if(crSource.m_cpCurve) { SmCurve *pCrvCopy = NULL ;
-                           crSource.m_cpCurve->Copy(crContext, pCrvCopy) ;
+                           (void)crSource.m_cpCurve->Copy(crContext, pCrvCopy) ; // SolidCraft: a constructor cannot report
                            m_cpCurve     = (SmEllipse *)pCrvCopy ;
                            m_bIsBorrowed = FALSE ;
                          }
@@ -152,7 +152,7 @@ void SmPolarConversion::CopyFrom
 
   // copy the source curve pointer
   if(crSource.m_cpCurve) { SmCurve *pCrvCopy = NULL ;
-                           crSource.m_cpCurve->Copy(*crSource.m_cpCurve->GetContext(), pCrvCopy) ;
+                           (void)crSource.m_cpCurve->Copy(*crSource.m_cpCurve->GetContext(), pCrvCopy) ; // SolidCraft: a copy in a void copier cannot report; a failed copy leaves no curve
                            m_cpCurve      = (SmEllipse *)pCrvCopy ;
                            m_bIsBorrowed = FALSE ;
                          }
@@ -205,7 +205,7 @@ SmStatus SmPolarConversion::SetUpPolarConversion
   
   // get curve knots
   SmTArray<ULONG> sMultiplicities;
-  cpQuadCircle->GetKnots( m_vNaturalKnots, &sMultiplicities );
+  SER( cpQuadCircle->GetKnots( m_vNaturalKnots, &sMultiplicities ) );
 
   ULONG j, lCnt = m_vNaturalKnots.GetSize();
 
@@ -259,10 +259,10 @@ SmStatus SmPolarConversion::SetUpPolarConversion
 
       // Get Polar angle about ZAxis from XAxis in degrees.
       SER( cpQuadCircle->EvaluatePoint( dLowestAngleParam, sPnt1 ));
-      cpQuadCircle->STEPInversion( sPnt1, dLowestDeg );
+      SER( cpQuadCircle->STEPInversion( sPnt1, dLowestDeg ) );
 
       SER( cpQuadCircle->EvaluatePoint( dHighestAngleParam, sPnt2 ));
-      cpQuadCircle->STEPInversion( sPnt2, dHighestDeg );
+      SER( cpQuadCircle->STEPInversion( sPnt2, dHighestDeg ) );
 
       // STEPInversion will snap dHighestDeg to Min param according to tolerance
       // Only account for noise here. [B630]
@@ -305,7 +305,7 @@ SmStatus SmPolarConversion::SetUpPolarConversion
          && dHighChangeDeg > -SM_EFF_ZERO * 1000.0)
       dHighestDeg = sAnalIvl.GetMax() ;
 
-      sAnalIvl.SetMinMax( dLowestDeg, dHighestDeg );
+      SER( sAnalIvl.SetMinMax( dLowestDeg, dHighestDeg ) );
       cpQuadCircle->SetSTEPInterval( sAnalIvl );
 
   } // end if original interval not 360.
@@ -365,7 +365,7 @@ SmStatus SmPolarConversion::SetUpPolarConversion
     {
       // get Polar angle about ZAxis from XAxis in degrees watching out for periodicity
       SER(cpQuadCircle->EvaluatePoint(m_vNaturalKnots[ii], sPnt2));
-      cpQuadCircle->STEPInversion(sPnt2, dAngleDeg) ;
+      SER( cpQuadCircle->STEPInversion(sPnt2, dAngleDeg)  );
 
       // warning - angles on closed seams are always returned as the min boundary value - 
       //           but sometimes they need to be the max boundary
@@ -693,15 +693,17 @@ SmBoolean bDebugMe = FALSE ;
       case SM_EP_OUTSIDE : if(ePointType == SM_EP_OUTSIDE) WARN(_T("ConvertToPolarParameter: input dNurbsParameter classifies outside of NurbIvl"));
       case SM_EP_UNKNOWN : if(ePointType == SM_EP_UNKNOWN) WARN(_T("ConvertToPolarParameter: input dNurbsParameter classifies to UNKNONW - a bug"));
       case SM_EP_INSIDE  : // use a conversion based arcTan2
-                           m_cpCurve->EvaluatePoint(dNurbsParameter, sPoint) ;
-                           m_cpCurve->STEPInversion(sPoint, rdPolarParameterDeg) ;
+                           SER( m_cpCurve->EvaluatePoint(dNurbsParameter, sPoint)  );
+                           SER( m_cpCurve->STEPInversion(sPoint, rdPolarParameterDeg)  );
                            break ;
     } // end switch on dNurbsParameter NurbIvl classification type
 
   rbExactConversion = TRUE ;
 
-  // make sure to return the proper end value for closed curve seam conversions
-  if(m_cpCurve->IsClosed(m_cpCurve->GetNaturalInterval()))
+  // make sure to return the proper end value for closed curve seam conversions.
+  // The seam adjustments only apply at the ends of the knot/angle tables, so test those
+  // cheap conditions first and evaluate IsClosed() (three curve evaluations) only there.
+  if(m_vNaturalKnots.GetSize() > 0 && m_vAngles.GetSize() > 0)
     {
       SmBoolean bInsideOut = m_cpCurve->GetInsideOut() ;
       double dScaledZero   =  (m_vNaturalKnots.GetLast() - m_vNaturalKnots[0])
@@ -709,23 +711,23 @@ SmBoolean bDebugMe = FALSE ;
                              * SM_EFF_ZERO_DEG ;
 
       // when values are at opposing ends - move the end angle
-      if     (   ( bInsideOut && (   SM_ARE_SAME_TO_TOL(dNurbsParameter,     m_vNaturalKnots.GetLast(),dScaledZero)
+      const SmBoolean bMoveToMin =
+                 ( bInsideOut && (   SM_ARE_SAME_TO_TOL(dNurbsParameter,     m_vNaturalKnots.GetLast(),dScaledZero)
                                   && SM_ARE_SAME_TO_TOL(rdPolarParameterDeg, m_vAngles[0],             SM_EFF_ZERO_DEG)))
               || (!bInsideOut && (   SM_ARE_SAME_TO_TOL(dNurbsParameter,     m_vNaturalKnots[0], dScaledZero)
-                                  && SM_ARE_SAME_TO_TOL(rdPolarParameterDeg, m_vAngles.GetLast(),SM_EFF_ZERO_DEG))))
-        { 
-          // increment, rather than PolarParam = minAngle, to preserve tolerances 
-          rdPolarParameterDeg -= 360.0 ; 
-        }
-      else if(   ( bInsideOut && (   SM_ARE_SAME_TO_TOL(dNurbsParameter,     m_vNaturalKnots[0], dScaledZero)
+                                  && SM_ARE_SAME_TO_TOL(rdPolarParameterDeg, m_vAngles.GetLast(),SM_EFF_ZERO_DEG)));
+      const SmBoolean bMoveToMax = !bMoveToMin && (
+                 ( bInsideOut && (   SM_ARE_SAME_TO_TOL(dNurbsParameter,     m_vNaturalKnots[0], dScaledZero)
                                   && SM_ARE_SAME_TO_TOL(rdPolarParameterDeg, m_vAngles.GetLast(),SM_EFF_ZERO_DEG)))
               || (!bInsideOut && (   SM_ARE_SAME_TO_TOL(dNurbsParameter,     m_vNaturalKnots.GetLast(),dScaledZero)
-                                  && SM_ARE_SAME_TO_TOL(rdPolarParameterDeg, m_vAngles[0],             SM_EFF_ZERO_DEG))))
-        { 
-          // increment, rather than PolarParam = maxAngle, to preserve tolerances 
-          rdPolarParameterDeg += 360.0 ; 
-        }
+                                  && SM_ARE_SAME_TO_TOL(rdPolarParameterDeg, m_vAngles[0],             SM_EFF_ZERO_DEG))));
 
+      if((bMoveToMin || bMoveToMax) && m_cpCurve->IsClosed(m_cpCurve->GetNaturalInterval()))
+        {
+          // increment, rather than PolarParam = min/maxAngle, to preserve tolerances
+          if(bMoveToMin) { rdPolarParameterDeg -= 360.0 ; }
+          else           { rdPolarParameterDeg += 360.0 ; }
+        }
     } // end closed curve check
 
 #ifdef SM_DEBUG_CODE
@@ -886,7 +888,7 @@ SmBoolean SmPolarConversion::IsCurrent
   SmTArray<double> sAngles;
 
   // get curve knots
-  m_cpCurve->GetKnots(sNaturalKnots,&sMultiplicities);
+  if ( m_cpCurve->GetKnots(sNaturalKnots,&sMultiplicities) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a converter it cannot check is not shown current
   ULONG lCnt = sNaturalKnots.GetSize() ;
 
   // for each knot - check stored knot value
@@ -901,7 +903,7 @@ SmBoolean SmPolarConversion::IsCurrent
   double dAngleTol = SM_EFF_ZERO_DEG ;
   if( bRtn && m_cpCurve->IsKindOf(SmEllipse_TYPE))
     {
-      ((SmEllipse *)m_cpCurve)->GetCanonical(sPlacement, dRad1, dRad2) ;
+      if ( ((SmEllipse *)m_cpCurve)->GetCanonical(sPlacement, dRad1, dRad2)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a converter it cannot check is not shown current
       //const SmVector3d &rOrigin = sPlacement.GetOriginRef() ;
       //const SmVector3d &rXAxis  = sPlacement.GetXAxisRef() ;
       SmVector3d        sZAxis  = sPlacement.GetZAxis() ;
@@ -914,11 +916,11 @@ SmBoolean SmPolarConversion::IsCurrent
         {
           // Get CCW angle to vec = (thisKnotPoint - Origin)
           SmPoint3d sPoint ;
-          m_cpCurve->EvaluatePoint(sNaturalKnots[ii], sPoint) ;
+          if ( m_cpCurve->EvaluatePoint(sNaturalKnots[ii], sPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a converter it cannot check is not shown current
 
           // convert point to polar param (deg)
           double dAngleDeg ;
-          m_cpCurve->STEPInversion(sPoint, dAngleDeg) ;
+          if ( m_cpCurve->STEPInversion(sPoint, dAngleDeg)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a converter it cannot check is not shown current
 
           //      SmVector3d sVec = sPoint - rOrigin ;
           //      double dAngRad ;
@@ -1158,7 +1160,7 @@ SmEllipse::SmEllipse
 {
   // stop infinite recursion
   // don't copy underlying PolarConverter - reSet it
-  m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition) ;
+  (void)m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition) ; // SolidCraft: a constructor cannot report
 
 } // end SmEllipse::SmEllipse copy constructor
 
@@ -1579,10 +1581,10 @@ SmStatus SmPolarConversion::ReadFromDB
                   
       // read curve type
       if (eType == SM_ASCII)  { rDB.GoToNextLine() ; }
-      rDB.ReadType(lContainedType, &lContainedDim) ;
+      SER( rDB.ReadType(lContainedType, &lContainedDim)  );
 
       // pass the call along to appropriate derived type
-      SmCurve::ReadFromDB(lContainedType, rDB, lContainedDim, crContext, pNewCurve, lDBVersionNumber) ;
+      SER( SmCurve::ReadFromDB(lContainedType, rDB, lContainedDim, crContext, pNewCurve, lDBVersionNumber)  );
 
       // save the read curve
       SM_ASSERT(pNewCurve->IsKindOf(SmEllipse_TYPE)) ; 
@@ -1675,7 +1677,7 @@ SmStatus SmEllipse::ConvertTo2D
   ()
 {
   // modify the NURB
-  SmBSplineCurve::ConvertTo2D() ;
+  SER( SmBSplineCurve::ConvertTo2D()  );
 
   // Get current position
   SmVector3d sOrigin = m_vPosition.GetOriginRef() ;
@@ -1729,7 +1731,7 @@ SmStatus SmEllipse::ConvertTo2D
       adCoefs[1] =  m_dRadiusAtYAxis * m_dRadiusAtYAxis * dYDotY
                    -m_dRadiusAtXAxis * m_dRadiusAtXAxis * dXDotX ;
       adCoefs[2] =  m_dRadiusAtYAxis * m_dRadiusAtXAxis * dXDotY ;
-      SmPolynomial::SolveQuadraticEqn(adCoefs, dScaledZero, lNumSols, adSols) ;
+      SER( SmPolynomial::SolveQuadraticEqn(adCoefs, dScaledZero, lNumSols, adSols)  );
       SM_ASSERT(lNumSols == 2) ;
       double dThetaXRad = smos_ArcTangent( adSols[0] )  ;
       double dThetaYRad = smos_ArcTangent( adSols[1] )  ;
@@ -1773,10 +1775,10 @@ SmStatus SmEllipse::ConvertTo2D
     { sNewY.Set( -sNewX.y,  sNewX.x, 0.0 ); } // = Z x X, sNewX is unit.
 
   // modify the Position
-  m_vPosition.SetCanonical(sOrigin, sNewX, sNewY) ;
+  SER( m_vPosition.SetCanonical(sOrigin, sNewX, sNewY)  );
 
   // recompute the polar conversion
-  m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition) ;
+  SER( m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition)  );
     
   // all done
   return SM_SUCCESS;
@@ -1795,7 +1797,7 @@ SmStatus SmEllipse::ConvertTo3D
   m_lDim = 3;
 
   // convert the underlying Nurb
-  SmBSplineCurve::ConvertTo3D() ;
+  SER( SmBSplineCurve::ConvertTo3D()  );
 
   // all done
   return SM_SUCCESS;
@@ -1918,8 +1920,38 @@ SmStatus SmEllipse::AdjustSTEPInterval
   double dStepT1 = crNewSTEPInterval.GetMax();
 
   // After these calls, the conversion may not be reciprocal. Need to reparameterize
-  SER( m_vPolarConverter.ConvertToNURBSParameter(dStepT0, dNurbsT0, bExactConversion) );
-  SER( m_vPolarConverter.ConvertToNURBSParameter(dStepT1, dNurbsT1, bExactConversion) );
+  // SolidCraft fork: the polar converter only knows the current arc, and clamps an angle
+  // outside it to the arc's ends. A new interval past the current one (a full circle moved
+  // to [360, 540]) then had both ends clamped to one NURBS parameter, a curve of zero
+  // parametric length, and every later reparameterization of it divided by zero (NaN knots in
+  // the surfaces of revolution built on it). An angle outside the current arc is taken whole
+  // turns back into it when the arc is a full turn (the NURBS parameter moves by the full
+  // circle's NURBS length per turn, the other way round for an inside-out curve), and
+  // otherwise continues the arc's NURBS interval in proportion to the angle.
+  const SmExtent1d sOldSTEPIvl  = m_vAnalDomain ;
+  const SmExtent1d sOldNurbsIvl = GetNaturalInterval() ;
+  auto ConvertAngle = [&](double dStepT, double & rdNurbsT) -> SmStatus
+    {
+      const double dSpan = sOldSTEPIvl.GetLength() ;
+      if(   sOldSTEPIvl.ContainsValue(dStepT, SM_EFF_ZERO_DEG)
+         || !(dSpan > SM_EFF_ZERO_DEG) )
+        { return m_vPolarConverter.ConvertToNURBSParameter(dStepT, rdNurbsT, bExactConversion) ; }
+      const double dSign = m_bInsideOut ? -1.0 : 1.0 ;
+      if(smos_Fabs(dSpan - 360.0) < SM_EFF_ZERO_DEG)
+        {
+          double dTurns  = std::floor((dStepT - sOldSTEPIvl.GetMin()) / 360.0) ;
+          double dInside = sOldSTEPIvl.ClampValue(dStepT - dTurns * 360.0) ;
+          SER( m_vPolarConverter.ConvertToNURBSParameter(dInside, rdNurbsT, bExactConversion) );
+          rdNurbsT += dSign * dTurns * sOldNurbsIvl.GetLength() ;
+          return SM_SUCCESS ;
+        }
+      double dFraction = (dStepT - sOldSTEPIvl.GetMin()) / dSpan ;
+      rdNurbsT = m_bInsideOut ? sOldNurbsIvl.GetMax() - dFraction * sOldNurbsIvl.GetLength()
+                              : sOldNurbsIvl.GetMin() + dFraction * sOldNurbsIvl.GetLength() ;
+      return SM_SUCCESS ;
+    } ;
+  SER( ConvertAngle(dStepT0, dNurbsT0) );
+  SER( ConvertAngle(dStepT1, dNurbsT1) );
   SmExtent1d sNewNurbsIvl( dNurbsT0, dNurbsT1 );
 
   // save the input
@@ -1930,7 +1962,7 @@ SmStatus SmEllipse::AdjustSTEPInterval
   SER(MakeNurb());
 
   // MakeNurb() creates m_pNurb parameterized 0 -> 1   [B284]
-  SmBSplineCurve::EditParameterization( sNewNurbsIvl );
+  SER( SmBSplineCurve::EditParameterization( sNewNurbsIvl ) );
 
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
 
@@ -2067,7 +2099,7 @@ SmStatus SmEllipse::STEPInversion
         {
           // check distance between Point and curve
           SmPoint3d sEllipsePoint ;
-          EvaluateSTEPPoint(rdAngularParameter, sEllipsePoint) ;
+          SER( EvaluateSTEPPoint(rdAngularParameter, sEllipsePoint)  );
           double dDist = sEllipsePoint.DistanceBetween(crPointOnCurve) ;
           double dScaledZero = SM_EFF_ZERO * (1.0 + sEllipsePoint.GetMaxDimension()) ;
           if(dDist > dScaledZero) { *pOptLoc = SM_CL_EXTERIOR ; }
@@ -2099,7 +2131,7 @@ SmStatus SmEllipse::Copy
 {
   SM_DUMP_AND_ASSERT2_VALID(this) ;
   SmEllipse *pCopy = new (crContext) SmEllipse(*this); NER(pCopy) ;
-  pCopy->SetFromGwNurb(GetDim(),m_pNurb);
+  SER( pCopy->SetFromGwNurb(GetDim(),m_pNurb) );
   rpNewCurve    = pCopy ;
   SM_DUMP_AND_ASSERT2_VALID(rpNewCurve) ;
 
@@ -2179,7 +2211,7 @@ SmStatus SmEllipse::GetCanonical
   rdRadius1 = m_dRadiusAtXAxis;
   rdRadius2 = m_dRadiusAtYAxis;
   if(pOptAnalDomain) 
-    { pOptAnalDomain->SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMax()) ; }
+    { SER( pOptAnalDomain->SetMinMax(m_vAnalDomain.GetMin(), m_vAnalDomain.GetMax())  ); }
   if(pOptInsideOut) { *pOptInsideOut = m_bInsideOut ; }
 
   // all done
@@ -2209,12 +2241,12 @@ SmExtent1d SmEllipse::GetMaxAnalyticDomain()
   if ( sIvl.GetLength() > 360-SM_EFF_ZERO )
     { return sIvl; }
 
-  if ( sIvl.GetMin() > 0-SM_EFF_ZERO ) { sIvl.SetMinMax(  0, 360 ); return sIvl; }
+  if ( sIvl.GetMin() > 0-SM_EFF_ZERO ) { (void)sIvl.SetMinMax(  0, 360 ); return sIvl; } // SolidCraft: 0 < 360, it cannot fail
 
-  if ( sIvl.GetMax() < 0+SM_EFF_ZERO ) { sIvl.SetMinMax( -360, 0 ); return sIvl; }
+  if ( sIvl.GetMax() < 0+SM_EFF_ZERO ) { (void)sIvl.SetMinMax( -360, 0 ); return sIvl; } // SolidCraft: -360 < 0, it cannot fail
 
   double dMin = sIvl.GetMin();
-  sIvl.SetMinMax( dMin, dMin+360 );
+  (void)sIvl.SetMinMax( dMin, dMin+360 ); // SolidCraft: dMin < dMin + 360, it cannot fail
 
   return sIvl;
 
@@ -3388,8 +3420,8 @@ SmBoolean bDebugMe=FALSE;
   double dRad1This = 0.0, dRad1That = 0.0;
   double dRad2This = 0.0, dRad2That = 0.0;
 
-  this->GetCanonical( sPlacementThis, dRad1This, dRad2This );
-  pOtherEll->GetCanonical( sPlacementThat, dRad1That, dRad2That );
+  SER( this->GetCanonical( sPlacementThis, dRad1This, dRad2This ) );
+  SER( pOtherEll->GetCanonical( sPlacementThat, dRad1That, dRad2That ) );
 
   // Get a tolerance to use.
   double dTol = ( pGapTolerance != NULL )
@@ -3484,7 +3516,7 @@ SmBoolean bDebugMe=FALSE;
     { m_vAnalDomain.AddValue( m_vAnalDomain.GetMin() + 360.0 ); }
 
   double dNewEllipseAngle;
-  this->STEPInversion( sOtherEndPt, dNewEllipseAngle );
+  SER( this->STEPInversion( sOtherEndPt, dNewEllipseAngle ) );
 
   // If it's within the original domain, then we want to end up with
   // the whole 360 degrees -- which we already set m_vAnalDomain to be.
@@ -3497,7 +3529,7 @@ SmBoolean bDebugMe=FALSE;
 
   // And update the Nurbs.
   Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_OWNER(this), NULL);
-  this->MakeNurb();
+  SER( this->MakeNurb() );
   Notify(SM_NO_POST_EDIT, this, SM_NO_GET_OWNER(this), NULL);
 
   return SM_SUCCESS;
@@ -3564,7 +3596,7 @@ SmStatus SmEllipse::MakeNurb
       
       double dMidP = ( dStartAngDeg + dEndAngDeg ) / 2.0;
       SmVector3d aPointAndDer[2];
-      EvaluateSTEP( dMidP, 1, FALSE, aPointAndDer );
+      SER( EvaluateSTEP( dMidP, 1, FALSE, aPointAndDer ) );
 
       dAngleTol = dApproxTol3d / aPointAndDer[1].Length();
   }
@@ -3606,8 +3638,8 @@ SmStatus SmEllipse::MakeNurb
 
       // convert endPoints to ellipse angles
       double dAnalStart, dAnalEnd ;
-      STEPInversion(sStartPt, dAnalStart) ;
-      STEPInversion(sEndPt,   dAnalEnd) ;
+      SER( STEPInversion(sStartPt, dAnalStart)  );
+      SER( STEPInversion(sEndPt,   dAnalEnd)  );
 
       // Reset these to our analytic values.  (They were set for creating the Nurbs.)
       dStartAngDeg = ( m_bInsideOut ) ? GetEndAngleDeg()   : GetStartAngleDeg();
@@ -3640,12 +3672,12 @@ SmStatus SmEllipse::MakeNurb
     } // end need to tweak analdomain check
   
   // set the m_pNurb pointer and use Notify to rebuild polarConverter 
-  SetFromGwNurb(0, &Cur);
+  SER( SetFromGwNurb(0, &Cur) );
 
   // Set ControlPoint Z values for 2d curves
   if( m_lDim == 2)
     {
-      this->ConvertTo2D() ;
+      SER( this->ConvertTo2D()  );
     }
 
   // When this is a SmSurfOfExtrusion or SmSurfOfRevolution GenCurve,
@@ -3658,7 +3690,7 @@ SmStatus SmEllipse::MakeNurb
       if ( pOwner && pOwner->GetGwNurbPointer() != NULL )
         {
           SmExtent1d sNURBIvl = pOwner->GetGenDirParamExtent() ;
-          this->EditParameterization(sNURBIvl, FALSE) ; // FALSE = No Need for Notify
+          SER( this->EditParameterization(sNURBIvl, FALSE)  ); // FALSE = No Need for Notify
         }
     }
 
@@ -3668,7 +3700,7 @@ SmStatus SmEllipse::MakeNurb
       if ( pOwner && pOwner->GetGwNurbPointer() != NULL )
         {
           SmExtent1d sNURBIvl = pOwner->GetGenDirParamExtent() ;
-          this->EditParameterization(sNURBIvl, FALSE) ; // FALSE = No Need for Notify
+          SER( this->EditParameterization(sNURBIvl, FALSE)  ); // FALSE = No Need for Notify
         }
     }
 
@@ -3758,7 +3790,7 @@ SmBoolean bDebugMe = FALSE ;
     {
       case SM_NO_POST_EDIT:
           // recompute the polar converter
-          m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition) ;
+          (void)m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition) ; // SolidCraft: Notify is a void callback and cannot report a failed set-up
           break ;
 
       case SM_NO_ADD_TO_BREP           : break ;
@@ -3817,10 +3849,10 @@ SmStatus SmEllipse::ReverseParameterization
       {
         SER(MakeNurb());
       }
-    m_vPosition.SetCanonical( m_vPosition.GetOriginRef(),
+    SER( m_vPosition.SetCanonical( m_vPosition.GetOriginRef(),
                               m_vPosition.GetXAxisRef(),
-                             -m_vPosition.GetYAxisRef());
-    m_vAnalDomain.SetMinMax(360.0-m_vAnalDomain.GetMax(),360.0-m_vAnalDomain.GetMin());
+                             -m_vPosition.GetYAxisRef()) );
+    SER( m_vAnalDomain.SetMinMax(360.0-m_vAnalDomain.GetMax(),360.0-m_vAnalDomain.GetMin()) );
     SER(SmBSplineCurve::ReverseParameterization(crOldInterval,rNewInterval));
 
     return SM_SUCCESS;
@@ -3872,8 +3904,8 @@ static ULONG lDebugCount = 0 ;
 
   // Convert Nurb Parameters into STEP parameters
   double dMinSTEPParam, dMaxSTEPParam ;
-  ConvertTFromNURBSToSTEP(crTrimInterval.GetMin(), dMinSTEPParam) ;
-  ConvertTFromNURBSToSTEP(crTrimInterval.GetMax(), dMaxSTEPParam) ;
+  SER( ConvertTFromNURBSToSTEP(crTrimInterval.GetMin(), dMinSTEPParam)  );
+  SER( ConvertTFromNURBSToSTEP(crTrimInterval.GetMax(), dMaxSTEPParam)  );
   SM_ASSERT(   (!m_bInsideOut && dMinSTEPParam < dMaxSTEPParam)
             || ( m_bInsideOut && dMinSTEPParam > dMaxSTEPParam)) ;
 
@@ -3890,11 +3922,11 @@ static ULONG lDebugCount = 0 ;
 #endif // SM_DEBUG_CODE
 
   // store the angular interval paying attention to m_bInsideOut
-  if(!m_bInsideOut) { m_vAnalDomain.SetMinMax(dMinSTEPParam, dMaxSTEPParam); }
-  else              { m_vAnalDomain.SetMinMax(dMaxSTEPParam, dMinSTEPParam); }
+  if(!m_bInsideOut) { SER( m_vAnalDomain.SetMinMax(dMinSTEPParam, dMaxSTEPParam) ); }
+  else              { SER( m_vAnalDomain.SetMinMax(dMaxSTEPParam, dMinSTEPParam) ); }
 
   // rebuild the polar converter
-  m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition) ;
+  SER( m_vPolarConverter.SetUpPolarConversion(this, TRUE, m_vAnalDomain, m_vPosition)  );
 
 #ifdef SM_DEBUG_CODE
 #ifdef SM_USE_CONSTRUCTOR_ASSERT_VALID
@@ -4123,12 +4155,12 @@ SmBoolean SmEllipse::AssertValid
     {
       // get equivalent Nurb and STEP params
       double dNurbT, dSTEPT = m_vAnalDomain.Evaluate((double)ii/(double)(lSmpCount-1)) ;
-      ConvertTFromSTEPToNURBS(dSTEPT, dNurbT) ;
+      (void)ConvertTFromSTEPToNURBS(dSTEPT, dNurbT) ; // SolidCraft: a validity check reads what it computed
 
       // Evaluate the points
       SmPoint3d sNurbPoint, sSTEPPoint, sCheckPoint ;
-      EvaluatePoint    (dNurbT, sNurbPoint) ;
-      EvaluateSTEPPoint(dSTEPT, sSTEPPoint) ;
+      (void)EvaluatePoint    (dNurbT, sNurbPoint) ; // SolidCraft: a validity check reads what it computed
+      (void)EvaluateSTEPPoint(dSTEPT, sSTEPPoint) ; // SolidCraft: a validity check reads what it computed
       double dScaledZero = SM_EFF_ZERO * 100.0 * (1.0 + sNurbPoint.GetMaxDimension()) ;
 
       // Points are equal - others vary by a small amount
@@ -4137,8 +4169,8 @@ SmBoolean SmEllipse::AssertValid
 
       // every Nurb Point must lie on the Ellipse
       double dSTEPParam ;
-      STEPInversion(sNurbPoint, dSTEPParam) ;
-      EvaluateSTEPPoint(dSTEPParam, sCheckPoint) ;
+      (void)STEPInversion(sNurbPoint, dSTEPParam) ; // SolidCraft: a validity check reads what it computed
+      (void)EvaluateSTEPPoint(dSTEPParam, sCheckPoint) ; // SolidCraft: a validity check reads what it computed
       double dCheckDist = (sCheckPoint-sNurbPoint).Length() ;
       bRtn &= SM_ASSERT_VALUE_REPORT(2, SM_LEVEL_0, dCheckDist < dScaledZero, dScaledZero, dCheckDist, _T("")) ;
 
@@ -4249,7 +4281,7 @@ SmStatus SmEllipse::WriteToDB
   SER(m_vPolarConverter.WriteToDB(rDB, lDBVersionNumber)) ; 
 
   // Write the base object
-  SmBSplineCurve::WriteToDB(rDB, lDBVersionNumber) ;
+  SER( SmBSplineCurve::WriteToDB(rDB, lDBVersionNumber)  );
 
   // all done
   return SM_SUCCESS ;
@@ -4331,8 +4363,8 @@ SmStatus SmEllipse::ReadFromDB
   SER(SmPolarConversion::ReadFromDB(rDB, crContext, pEllipse, pPolarConverter, lDBVersionNumber)) ;
 
   // load the obj
-  pEllipse->m_vPosition.SetCanonical(sOrig, sX, sY) ;   
-  pEllipse->m_vAnalDomain.SetMinMax(dAnalMin, dAnalMax) ; 
+  SER( pEllipse->m_vPosition.SetCanonical(sOrig, sX, sY)  );   
+  SER( pEllipse->m_vAnalDomain.SetMinMax(dAnalMin, dAnalMax)  ); 
   pEllipse->m_dRadiusAtXAxis = dRadiusAtXAxis ;
   pEllipse->m_dRadiusAtYAxis = dRadiusAtYAxis ;
   pEllipse->m_bInsideOut     = bInsideOut ;    
@@ -4341,7 +4373,7 @@ SmStatus SmEllipse::ReadFromDB
   rpNewCurve = pEllipse ;
 
   // read the base type
-  SmBSplineCurve::ReadFromDB(SmBSplineCurve_TYPE, rDB, lDim, crContext, rpNewCurve, lDBVersionNumber) ; 
+  SER( SmBSplineCurve::ReadFromDB(SmBSplineCurve_TYPE, rDB, lDim, crContext, rpNewCurve, lDBVersionNumber)  ); 
 
   // all done
   return SM_SUCCESS;
@@ -4393,10 +4425,10 @@ void SmEllipse::Dump()
       SmPoint3d sNurbEndPoint, sNurbStartPoint ;
       SmPoint3d sStepEndPoint, sStepStartPoint ;
       SmExtent1d sNurbIvl = GetNaturalInterval();
-      EvaluatePoint(sNurbIvl.GetMin(),sNurbStartPoint) ;
-      EvaluatePoint(sNurbIvl.GetMax(),sNurbEndPoint) ;
-      EvaluateSTEPPoint(m_vAnalDomain.GetMin(),sStepStartPoint) ;
-      EvaluateSTEPPoint(m_vAnalDomain.GetMax(),sStepEndPoint) ;
+      (void)EvaluatePoint(sNurbIvl.GetMin(),sNurbStartPoint) ; // SolidCraft: dump only
+      (void)EvaluatePoint(sNurbIvl.GetMax(),sNurbEndPoint) ; // SolidCraft: dump only
+      (void)EvaluateSTEPPoint(m_vAnalDomain.GetMin(),sStepStartPoint) ; // SolidCraft: dump only
+      (void)EvaluateSTEPPoint(m_vAnalDomain.GetMax(),sStepEndPoint) ; // SolidCraft: dump only
 
       smos_WriteBuffer(_T(",   bInsideOut = TRUE ")) ;  
       smos_WriteBuffer(_T("\n      Line STEP Start Point = "));     sStepStartPoint.Dump();

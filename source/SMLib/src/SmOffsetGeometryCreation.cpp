@@ -38,11 +38,13 @@ SmStatus SmLocalOperationGeometryCreation::FaceuseOffset
   SmBoolean               bSkipSelfIntersection, // NotUsed: in : TRUE =  
                                                  //      FALSE=  
   SmSurface*            & rNewSurface,           // out: New Surface 
-  SmSSIData             & rSelfIntersections)    // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmSSIData             & rSelfIntersections,    // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmBoolean             & rbCollapses)           // out: always FALSE: the surfaces are given
  const
 {
   SM_REF1(bSkipSelfIntersection) ;
   // init output
+  rbCollapses = FALSE;
   rSelfIntersections.m_v3DCurves.ReSet();
   rSelfIntersections.m_vUVCurves1.ReSet();
   rSelfIntersections.m_vUVCurves2.ReSet();
@@ -81,7 +83,7 @@ static ULONG lDebugCount = 0 ;
   {
       SmSurface* pS = rNewSurface;
       SmExtent2d sOldDomain = pSur->GetNaturalUVDomain();
-      pS->Reparameterize(sOldDomain);
+      SER( pS->Reparameterize(sOldDomain) );
       SmObjDelete sClean(pS);
       SmSurface* pAnalyticS = NULL;
 
@@ -121,8 +123,9 @@ SmStatus SmOffsetGeometryCreation::FaceuseOffset
   const SmFaceuse       * pOriginalFaceuse,      // in : Faceuse->Surface to copy and offset  
   SmBoolean               bSkipSelfIntersection, // in : TRUE =  
                                                  //      FALSE=  
-  SmSurface *           & rNewSurface,           // out: New Surface  
-  SmSSIData             & rSelfIntersections     // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmSurface *           & rNewSurface,           // out: New Surface; NULL when, and only when, rbCollapses
+  SmSSIData             & rSelfIntersections,    // out: List of SelfXSect curves (when bSkipSelfIntersection == FALSE)
+  SmBoolean             & rbCollapses            // out: TRUE = the offset shrinks the surface onto its spine or past it
 ) const
 {
   // init output
@@ -132,6 +135,7 @@ SmStatus SmOffsetGeometryCreation::FaceuseOffset
   rSelfIntersections.m_vCurveTypes.ReSet();
   rSelfIntersections.m_vDeviations.ReSet();
   rNewSurface = NULL;
+  rbCollapses = FALSE;
 
   // locals
   double     dSign =   (pOriginalFaceuse->GetOrientation() == SM_OT_OPPOSITE)
@@ -157,6 +161,15 @@ static ULONG lDebugCount  = 0;
     }
 #endif // SM_DEBUG_CODE
 
+  // SolidCraft change: an offset that shrinks the surface onto its spine or past it (a convex
+  // round no thicker than the distance) is no surface, as the surface says; every other offset is
+  // one, and an offset construction that gives none has failed.
+  if ( pSur->OffsetCollapses(dSign*m_dOffsetDistance, m_dThisApproxTol3d/10.0) )
+    {
+      rbCollapses = TRUE;
+      return SM_SUCCESS;
+    }
+
   // construct an offset surface from this surface - 
   SER_DELETE(pSur->CreateOffsetSurface(crContext,               // in : context for new obj construction 
                                 dSign*m_dOffsetDistance, // in : offset dist, (neg val = Offset dir opposite surface normal) 
@@ -165,7 +178,7 @@ static ULONG lDebugCount  = 0;
                                 rNewSurface); // JLMCC hunting memory leaks
 
   if ( rNewSurface == NULL )
-    { return SM_SUCCESS; }
+    { SER(SM_ERR); }
 
   // when working with analytics - 
   // replace all current appropriate BSplineSurface
@@ -387,7 +400,7 @@ static ULONG lDebugCount = 0 ;
                   SER(SmBSplineCurve::CreateArcFromPoints(crContext,3,sCenter,sPoint1,sPoint2,
                       SM_CO_QUADRATIC,pArc));
                 }
-              sPlacement.SetCanonical(sPlacement.GetOriginRef(),sRefFrame.GetZAxis(),sRefFrame.GetXAxisRef());
+              SER( sPlacement.SetCanonical(sPlacement.GetOriginRef(),sRefFrame.GetZAxis(),sRefFrame.GetXAxisRef()) );
             }
         } // end 1 bounding edge check
 
@@ -539,7 +552,7 @@ static ULONG lDebugCount = 0 ;
                       double dRadius, dStartAng, dEndAng;
                       pArc->IsArc(10,dTol,sFrame,dRadius,dStartAng,dEndAng);
                       SmPoint3d sMid;
-                      pArc->EvaluatePoint(pArc->GetNaturalInterval().Evaluate(0.5),sMid);
+                      SER( pArc->EvaluatePoint(pArc->GetNaturalInterval().Evaluate(0.5),sMid) );
 
                       SmPoint3d sClosestPt1;
                         { // Find the closest point to the plane kk
@@ -770,8 +783,8 @@ SmStatus SmOffsetGeometryCreation::ReplaceEdgeCurves
         { 
           // Opposite orienation - reverse 3DCurve and UVCurve
           SmExtent1d sIvl;
-          rp3DCurve->ReverseParameterization(rp3DCurve->GetNaturalInterval(),sIvl);
-          rpUVCurve->ReverseParameterization(rpUVCurve->GetNaturalInterval(),sIvl);
+          SER( rp3DCurve->ReverseParameterization(rp3DCurve->GetNaturalInterval(),sIvl) );
+          SER( rpUVCurve->ReverseParameterization(rpUVCurve->GetNaturalInterval(),sIvl) );
         
         } // end Edge and Input curve running in opposite directions check
       
@@ -870,7 +883,9 @@ NOTES:
   to the BaseEdgeuse vertices.
   
       1) Use existing vertex of adjacent object if exists.
-      2) Intersect curve with Extended surface of adjacent face (convex, concave edge)
+      2) Intersect curve with Extended surface of adjacent face (convex, concave edge);
+         where the adjacent face collapsed in an inset (a round thinner than the wall),
+         with that of the face beyond it (SmOffsetExecutive::GetEdgeuseAcrossCollapsedFace)
       3) Intersection of edges extended in parameter space (tangent edge case)
       4) Take a wild guess??
 
@@ -958,7 +973,13 @@ static ULONG lDebugCount = 0 ;
             {
               // When next edgeuse is either a tangentSector or lamina
               // set up to try trimming 3Dcurve to BCWEdgeuse/ExtendedUVCurve intersection point
-              if (   pBCW->GetEdge()->IsLamina()
+              // across a collapsed face: trim to the extended surface of the face beyond it
+              if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pBCW->GetRadial(), pBaseVertex))
+                {
+                  SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                  if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                }
+              else if (   pBCW->GetEdge()->IsLamina()
                   || pBCW->IsTangentSector(dTanTolDeg)) 
                 {
                   // save it and this baseEdgeuse in the Tan lists
@@ -986,7 +1007,12 @@ static ULONG lDebugCount = 0 ;
               if (pOBCCW != pOtherBaseEdgeuse) 
                 {
                   // When next edgeuse is either a tengentSector or lamina
-                  if (   pOBCCW->GetEdge()->IsLamina()
+                  if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pOBCCW->GetRadial(), pBaseVertex))
+                    {
+                      SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                      if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                    }
+                  else if (   pOBCCW->GetEdge()->IsLamina()
                       || pOBCCW->IsTangentSector(dTanTolDeg)) 
                     {
                       // save it and this baseEdgeuse in the Tan lists
@@ -1029,7 +1055,12 @@ static ULONG lDebugCount = 0 ;
           // correct surface to be used during intersection.
           if (pBCCW != pBaseEdgeuse) 
             {
-              if (   pBCCW->GetEdge()->IsLamina()
+              if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pBCCW->GetRadial(), pBaseVertex))
+                {
+                  SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                  if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                }
+              else if (   pBCCW->GetEdge()->IsLamina()
                   || pBCCW->IsTangentSector(dTanTolDeg)) 
                 {
                   // When next edgeuse is either a tengentSector or lamina
@@ -1056,7 +1087,12 @@ static ULONG lDebugCount = 0 ;
               if (pOBCW != pOtherBaseEdgeuse) 
                 {
                   // When next edgeuse is either a tengentSector or lamina
-                  if (   pOBCW->GetEdge()->IsLamina()
+                  if (SmEdgeuse *pAcross = cpOffsetExecutive->GetEdgeuseAcrossCollapsedFace(pOBCW->GetRadial(), pBaseVertex))
+                    {
+                      SmEdgeuse *pOffAcross = cpOffsetExecutive->GetOffsetEdgeuse(pAcross);
+                      if (pOffAcross) { sOffAdjEUs.Add(pOffAcross); }
+                    }
+                  else if (   pOBCW->GetEdge()->IsLamina()
                       || pOBCW->IsTangentSector(dTanTolDeg)) 
                     {
                       // save it and this baseEdgeuse in the Tan lists
@@ -1106,7 +1142,7 @@ static ULONG lDebugCount = 0 ;
               && pTanEU->GetMate()->IsMarked(eMarkType)) 
             {
               SM_PTR_ARRAY(sALLEUS,SmEdgeuse,32);
-              pTanEU->GetEdge()->GetEdgeuses(sALLEUS);
+              SER( pTanEU->GetEdge()->GetEdgeuses(sALLEUS) );
               for (ULONG ieu=0; ieu<sALLEUS.GetSize(); ieu++) 
                 {
                   // skip
@@ -1283,11 +1319,11 @@ SmBoolean bDebugMe2 = FALSE;
             {
               SmSolution & rSol = sSolutions2[kk];
               SmPoint3d sPV[2];
-              p3DCurve->Evaluate(rSol.m_vStart[0],1,TRUE,sPV);
+              SER( p3DCurve->Evaluate(rSol.m_vStart[0],1,TRUE,sPV) );
               SmPoint2d sUV(rSol.m_vStart[1],rSol.m_vStart[2]);
               SmVector3d sNormal;
-              pExtSurface->EvaluateNormal(sUV,TRUE,TRUE,sNormal);
-              sPV[1].Unitize();
+              SER( pExtSurface->EvaluateNormal(sUV,TRUE,TRUE,sNormal) );
+              (void)sPV[1].Unitize(); // SolidCraft: a zero vector stays zero
               double dAngleRad = 0.0;
               SER(sPV[1].AngleBetween(sNormal,dAngleRad));
               double dAngleDeg = dAngleRad * 180.0/SM_PI;
@@ -1361,6 +1397,40 @@ SmBoolean bDebugMe2 = FALSE;
     
     } // end iter twice
   
+  // On a closed 3DCurve the two trim points bound two arcs, and the interval between them is
+  // only one of them: the edge takes the arc that runs where the base edge does. When a trim
+  // point lies on the curve's seam it may be either end of the curve's interval, so the other
+  // arc is an interval too.
+  SmExtent1d sNatIvl = p3DCurve->GetNaturalInterval();
+  double     dSeamTol = SM_EFF_ZERO * (1.0 + sNatIvl.GetMaxDimension()) ;
+  if (   sTrimIvl.GetLength() > dSeamTol
+      && p3DCurve->IsClosed(sNatIvl, m_dThisApproxTol3d))
+    {
+      SmPoint3d sBaseMid, sInMid, sOutMid;
+      SER(((SmEdgeuse *)pBaseEdgeuse)->NormalizedEvaluate(0.5,FALSE,sBaseMid));  // TRUE = UV Eval, FALSE = 3d Eval
+      SER(p3DCurve->EvaluatePoint(sTrimIvl.Evaluate(0.5),sInMid));
+      double dOutMid = sTrimIvl.GetMax() + 0.5*(sNatIvl.GetLength() - sTrimIvl.GetLength());
+      if (dOutMid > sNatIvl.GetMax()) { dOutMid -= sNatIvl.GetLength(); }
+      SER(p3DCurve->EvaluatePoint(dOutMid,sOutMid));
+      if (sOutMid.DistanceBetween(sBaseMid) < sInMid.DistanceBetween(sBaseMid))
+        {
+          SmPoint3d sSeam, sLo, sHi;
+          SER(p3DCurve->EvaluatePoint(sNatIvl.GetMin(),sSeam));
+          SER(p3DCurve->EvaluatePoint(sTrimIvl.GetMin(),sLo));
+          SER(p3DCurve->EvaluatePoint(sTrimIvl.GetMax(),sHi));
+          if (sLo.DistanceBetween(sSeam) <= m_dThisApproxTol3d)
+            { sTrimIvl = SmExtent1d(sTrimIvl.GetMax(), sNatIvl.GetMax()); }
+          else if (sHi.DistanceBetween(sSeam) <= m_dThisApproxTol3d)
+            { sTrimIvl = SmExtent1d(sNatIvl.GetMin(), sTrimIvl.GetMin()); }
+          else
+            {
+              // The arc runs across the seam: no interval of this curve gives it.
+              bGoodEdge = FALSE;
+              return SM_SUCCESS;
+            }
+        }
+    }
+
   // cull zero length curves
   double dScaledZero = SM_EFF_ZERO * (1.0 + sTrimIvl.GetMaxDimension()) ;
   if(sTrimIvl.GetLength() > dScaledZero)
@@ -1591,6 +1661,15 @@ SmBoolean bDebugMe2 = FALSE;
 //        SmBSplineCurve *pUVCurve2Found = NULL;
       ULONG lClosestIdx = 0;
 
+      // The edge is lifted onto one face's new surface and dropped onto the other's. Faces
+      // offset alike stay tangent, so the drop lands on the edge; when only one of them got a
+      // new surface (a local operation moving a face beside a blend, or one piece of a split
+      // face), the drop crosses the gap between them and the faces no longer meet there.
+      double dMeetTol = 10.0 * smos_Max( (double)pOffsetEdgeuse->GetEdge()->GetTolerance(), m_dThisApproxTol3d );
+      if (   cpOffsetExecutive->GetOffsetOperation() == SM_OO_LOCAL_OPERATION
+          && dDistToOtherSurf > dMeetTol )
+        { SER( SM_ERR ); }
+
       // When Lifted Curve dropped to OtherExtSurf
       if (sUVCurves.GetSize() != 0) 
         {
@@ -1652,7 +1731,7 @@ SmBoolean bDebugMe4 = FALSE;
           // Temp workaround to appease Linux gcc compiler
           // Original code with typecast has warning: dereferencing type-punned pointer will break strict-aliasing rules [-Wstrict-aliasing]
           // pOtherUVCurve->Copy(crContext,(SmCurve*&)pOtherUVCurve);
-          pOtherUVCurve->Copy(crContext, pOtherUVCurve);
+          SER( pOtherUVCurve->Copy(crContext, pOtherUVCurve) );
           sCleanOtherUV.SetObj(pOtherUVCurve);
           
           // When using the RadialEdgeuse - swap the extended UVTrimCurves
@@ -1709,7 +1788,7 @@ SmBoolean bDebugMe4 = FALSE;
 
       SmCurve *pLiftedRef  = pLiftedCurve ; 
       SmCurve *pLiftedCopy = NULL ;
-      pLiftedCurve->Copy(crContext, pLiftedCopy);
+      SER( pLiftedCurve->Copy(crContext, pLiftedCopy) );
       SmObjDelete sCleanLiftedCopy( pLiftedCopy );
 
       SmBoolean bDelete3DCurve = FALSE;
@@ -1793,6 +1872,142 @@ SmBoolean bDebugMe4 = FALSE;
   return SM_SUCCESS;
 
 } // end SmOffsetGeometryCreation::ExtendTrimEdges
+
+/*******************************************************************//**
+PURPOSE: SolidCraft: a plane, cylinder, cone, sphere or torus copied
+    and extended as itself where the offset's extended surfaces
+    (SmOffsetExecutive::GetCreateExtendedSurface, tangent (G1R) B-spline
+    extensions) still are that surface: a plane all round, a cylinder or
+    cone along its rulings (a cone up to its apex), each side by dDist (3D)
+    unless it is a singularity. Not round a turn, where the tangent
+    extension leaves the surface. Returns rpExtended NULL for any other
+    surface.
+
+NOTES: The extended surfaces are B-splines (their parameters must extend
+    the faces' own); their intersection is marched and approximated.
+    MateEdges intersects these analytic copies exactly and takes each
+    exact piece that lies on both B-splines.
+***********************************************************************/
+static SmStatus sm_CreateAnalyticExtension
+ (const SmContext & crContext,   // in : context for new object construction
+  const SmSurface & crSurface,   // in : surface to extend
+  double            dDist,       // in : 3D distance to extend each side by
+  SmSurface      *& rpExtended)  // out: the extended copy, NULL when crSurface is not one of the above
+{
+  rpExtended = NULL;
+  const SM_TYPE eType = crSurface.GetType();
+  const SmBoolean bPlane = (eType == SmPlane_TYPE);
+  if (   !bPlane && eType != SmCylinder_TYPE && eType != SmCone_TYPE
+      && eType != SmSphere_TYPE && eType != SmTorus_TYPE)
+    { return SM_SUCCESS; }
+
+  const SmExtent2d sDomain = crSurface.GetSTEPUVDomain();
+  const SmExtent2d sMax    = bPlane ? sDomain : crSurface.GetMaxAnalyticDomain();
+  SmPoint2d sNewMin = sDomain.GetMin(), sNewMax = sDomain.GetMax();
+  for (int iDir = 0; iDir < 2; iDir++) // 0 = u, 1 = v
+    {
+      if (!bPlane && (iDir == 0 || eType == SmSphere_TYPE || eType == SmTorus_TYPE))
+        { continue; } // a turn: the faces' extensions are not the surface there
+      const double dLo  = (iDir == 0) ? sDomain.GetMin().x : sDomain.GetMin().y;
+      const double dHi  = (iDir == 0) ? sDomain.GetMax().x : sDomain.GetMax().y;
+      const double dMid = (iDir == 0) ? 0.5 * (sDomain.GetMin().y + sDomain.GetMax().y)
+                                      : 0.5 * (sDomain.GetMin().x + sDomain.GetMax().x);
+      double dGrow[2] = { 0.0, 0.0 };
+      for (int iSide = 0; iSide < 2; iSide++)
+        {
+          const double dAt = (iSide == 0) ? dLo : dHi;
+          const SmPoint2d sUV = (iDir == 0) ? SmPoint2d(dAt, dMid) : SmPoint2d(dMid, dAt);
+          SmVector3d sDers[4]; // [D, Dv, Du, Duv]
+          SER(crSurface.EvaluateSTEP(sUV, 1, 1, iSide == 0, iSide == 0, FALSE, sDers));
+          const double dSpeed = (iDir == 0) ? sDers[2].Length() : sDers[1].Length();
+          if (dSpeed > SM_EFF_ZERO) // no extension through a singularity
+            { dGrow[iSide] = dDist / dSpeed; }
+        }
+      double dNewLo = dLo - dGrow[0], dNewHi = dHi + dGrow[1];
+      if (!bPlane) // a cylinder's or cone's rulings, as far as the cone reaches (its apex)
+        {
+          const double dMaxLo = sMax.GetMin().y, dMaxHi = sMax.GetMax().y;
+          dNewLo = smos_Max(dNewLo, smos_Min(dLo, dMaxLo));
+          dNewHi = smos_Min(dNewHi, smos_Max(dHi, dMaxHi));
+        }
+      if (iDir == 0) { sNewMin.x = dNewLo; sNewMax.x = dNewHi; }
+      else           { sNewMin.y = dNewLo; sNewMax.y = dNewHi; }
+    }
+
+  SmSurface * pCopy = NULL;
+  SER(crSurface.Copy(crContext, pCopy)); NER(pCopy);
+  SmObjDelete sCleanCopy(pCopy);
+  SER(pCopy->AdjustSTEPUVDomain(SmExtent2d(sNewMin, sNewMax)));
+  sCleanCopy.Clear();
+  rpExtended = pCopy;
+  return SM_SUCCESS;
+
+} // end sm_CreateAnalyticExtension
+
+/*******************************************************************//**
+PURPOSE: SolidCraft: the exact line or conic of crExact that crMarched
+    (a marched intersection piece) approximates, as a copy over the same
+    span: from crMarched's start point to its end point, the way round
+    through its middle (all of a closed conic for a closed piece).
+    rpPiece is NULL when no line or conic of crExact runs through all
+    three points within dTol.
+***********************************************************************/
+static SmStatus sm_ExactPiece
+ (const SmContext          & crContext,  // in : context for new object construction
+  const SmCurve            & crMarched,  // in : marched intersection piece
+  const SmTArray<SmCurve*> & crExact,    // in : exact intersection curves of the same surfaces
+  double                     dTol,       // in : 3D distance within which a point is on a curve
+  SmCurve                 *& rpPiece)    // out: the exact piece, NULL when none
+{
+  rpPiece = NULL;
+  const SmExtent1d sIvl = crMarched.GetNaturalInterval();
+  SmPoint3d sP[3]; // start, middle, end
+  SER(crMarched.EvaluatePoint(sIvl.GetMin(),        sP[0]));
+  SER(crMarched.EvaluatePoint(sIvl.Evaluate(0.5),   sP[1]));
+  SER(crMarched.EvaluatePoint(sIvl.GetMax(),        sP[2]));
+  for (ULONG ii = 0; ii < crExact.GetSize(); ii++)
+    {
+      const SmCurve * pExact = crExact[ii];
+      const SmBoolean bLine  = pExact->IsKindOf(SmLine_TYPE);
+      if (!bLine && !pExact->IsKindOf(SmEllipse_TYPE))
+        { continue; }
+      double dT[3];
+      SmBoolean bOn = TRUE;
+      for (int k = 0; k < 3 && bOn; k++)
+        {
+          SmPoint3d sOn;
+          SER(pExact->STEPInversion(sP[k], dT[k]));
+          SER(pExact->EvaluateSTEPPoint(dT[k], sOn));
+          bOn = (sOn.DistanceBetween(sP[k]) <= dTol);
+        }
+      if (!bOn)
+        { continue; }
+      SmExtent1d sSpan;
+      if (bLine)
+        { sSpan = SmExtent1d(smos_Min(dT[0], dT[2]), smos_Max(dT[0], dT[2])); }
+      else // a conic: its STEP parameter is its angle in degrees
+        {
+          const double dTurn = 360.0;
+          auto sAfter = [dTurn](double dAngle, double dFrom) // dAngle moved into (dFrom, dFrom + dTurn]
+            { while (dAngle <= dFrom) { dAngle += dTurn; } while (dAngle > dFrom + dTurn) { dAngle -= dTurn; } return dAngle; };
+          if (sP[0].DistanceBetween(sP[2]) <= dTol)
+            { sSpan = SmExtent1d(dT[0], dT[0] + dTurn); }
+          else if (sAfter(dT[1], dT[0]) < sAfter(dT[2], dT[0]))
+            { sSpan = SmExtent1d(dT[0], sAfter(dT[2], dT[0])); }
+          else
+            { sSpan = SmExtent1d(dT[2], sAfter(dT[0], dT[2])); }
+        }
+      SmCurve * pCopy = NULL;
+      SER(pExact->Copy(crContext, pCopy)); NER(pCopy);
+      SmObjDelete sCleanCopy(pCopy);
+      SER(pCopy->AdjustSTEPInterval(sSpan));
+      sCleanCopy.Clear();
+      rpPiece = pCopy;
+      return SM_SUCCESS;
+    }
+  return SM_SUCCESS;
+
+} // end sm_ExactPiece
 
 /*******************************************************************//**
 PURPOSE:  Mate a couple of edges by extension and intersection.
@@ -1884,7 +2099,68 @@ SmBoolean bDebugMe = FALSE;
                                                       &sSurface2UVCurves, 
                                                       NULL, NULL));
 #endif // no SM_VALIDATE_INTERSECTORS
-  
+
+  // SolidCraft: two analytic surfaces meet on lines and conics. The marched intersection of their
+  // B-spline extensions gives the pieces (bounded by the extended domains and seams) and their UV
+  // curves; each piece that lies on both extended surfaces as the exact curve between the same
+  // ends (within the analytic surfaces, not on a tangent extension) is replaced by that curve, its
+  // UV curves dropped from it.
+  const double dExtDist = smos_Fabs(GetOffsetDistance()) * 5.0;
+  SmSurface * pAnalytic1 = NULL, * pAnalytic2 = NULL;
+  SER(sm_CreateAnalyticExtension(crContext, *pOffsetEdgeuse->GetFace()->GetSurface(),      dExtDist, pAnalytic1));
+  SmObjDelete sCleanAnalytic1(pAnalytic1);
+  SER(sm_CreateAnalyticExtension(crContext, *pOtherOffsetEdgeuse->GetFace()->GetSurface(), dExtDist, pAnalytic2));
+  SmObjDelete sCleanAnalytic2(pAnalytic2);
+  if (pAnalytic1 != NULL && pAnalytic2 != NULL && s3DCurves.GetSize() > 0)
+    {
+      SmTArray<SmCurve*> sExact, sExactUV1, sExactUV2;
+      SmObjsDelete<SmCurve*> sCleanE(&sExact), sCleanEU1(&sExactUV1), sCleanEU2(&sExactUV2);
+      SER(pAnalytic1->GlobalSurfaceIntersect(crContext,
+                                             pAnalytic1->GetNaturalUVDomain(),
+                                             *pAnalytic2, pAnalytic2->GetNaturalUVDomain(),
+                                             bUseSurfaceEdges, &sSSITol, &d20DegRad,
+                                             &sExact, &sExactUV1, &sExactUV2, NULL, NULL));
+      const double dTol = pEdgeuse->GetEdge()->GetBrep()->GetTolerance();
+      for(ii=0;ii<s3DCurves.GetSize();ii++)
+        {
+          if (s3DCurves[ii]->IsDegenerate())
+            { continue; }
+          SmCurve * pPiece = NULL;
+          SER(sm_ExactPiece(crContext, *s3DCurves[ii], sExact, dTol, pPiece));
+          if (pPiece == NULL)
+            { continue; }
+          SmObjDelete sCleanPiece(pPiece);
+          SmCurve * pUV[2] = { NULL, NULL };
+          for(int iSurf=0;iSurf<2;iSurf++)
+            {
+              const SmSurface  * pExtSurface = (iSurf == 0) ? pExtSurface1 : pExtSurface2;
+              const SmExtent2d & rDomain     = (iSurf == 0) ? sDomain1     : sDomain2;
+              double dMaxDrop = 0.0, dMaxDev = 0.0;
+              SmTArray<SmBSplineCurve*> sDropped;
+              SmObjsDelete<SmBSplineCurve*> sCleanDropped(&sDropped);
+              SER(pExtSurface->DropCurve(crContext, rDomain, *pPiece, pPiece->GetNaturalInterval(),
+                                         sSSITol, dMaxDrop, dMaxDev, sDropped));
+              if (sDropped.GetSize() == 1 && dMaxDrop <= dTol)
+                {
+                  pUV[iSurf] = sDropped[0];
+                  sDropped.RemoveAt(0,1);
+                }
+            }
+          if (pUV[0] == NULL || pUV[1] == NULL)
+            {
+              // The piece leaves an extended surface where it is a tangent (G1R) extension, not
+              // the analytic surface: there the marched piece is these surfaces' intersection.
+              delete pUV[0];
+              delete pUV[1];
+              continue;
+            }
+          sCleanPiece.Clear();
+          delete s3DCurves[ii];        s3DCurves[ii]        = pPiece;
+          delete sSurface1UVCurves[ii]; sSurface1UVCurves[ii] = pUV[0];
+          delete sSurface2UVCurves[ii]; sSurface2UVCurves[ii] = pUV[1];
+        }
+    }
+
   // Now see if we have an intersection curve that has proper trimming
 
   // locals for
@@ -2068,7 +2344,7 @@ SmBoolean bDebugMe4 = FALSE;
   
   // Replace Curve of edge and set its new domain.
   SmCurve *p3DCopy;
-  p3DCurveFound->Copy(crContext,p3DCopy);
+  SER( p3DCurveFound->Copy(crContext,p3DCopy) );
 
   SmBoolean bDelete3DCurve = FALSE;
   SmBoolean bDeleteUVCurve = FALSE;
@@ -2184,10 +2460,12 @@ SmBoolean SmOffsetGeometryCreation::HaveTangentGaps
       {
         double dParam = (i*1.0) / (lNumSamples*1.0);
         SmPoint3d sPnt;
-        cpOtherOffsetEdgeuse->NormalizedEvaluate(dParam,FALSE,sPnt);  // TRUE = UV Eval, FALSE = 3d Eval
+        // SolidCraft change: a sample that cannot be evaluated shows no gap
+        if (cpOtherOffsetEdgeuse->NormalizedEvaluate(dParam,FALSE,sPnt) != SM_SUCCESS)  // TRUE = UV Eval, FALSE = 3d Eval
+          { continue; }
         SmBoolean bSuccess;
         double dParameter, dDistance;
-        pEdge->ClosestPoint(sPnt,bSuccess,dParameter,dDistance);
+        (void)pEdge->ClosestPoint(sPnt,bSuccess,dParameter,dDistance); // SolidCraft: bSuccess says whether a closest point was found
         if (bSuccess && dDistance > dTol) 
           {
             return TRUE;
@@ -2196,6 +2474,138 @@ SmBoolean SmOffsetGeometryCreation::HaveTangentGaps
     return FALSE;
 
 } // end SmOffsetGeometryCreation::HaveTangentGaps
+
+/*******************************************************************//**
+PURPOSE: Whether the faces of two offset edgeuses of one tangent edge stayed
+   parallel across it but apart.
+
+NOTES: When a local operation moves only one of two tangent faces along its
+   normal (one piece of a split face, a wall beside its base round), the two
+   faces stay tangent-parallel at the edge, one step apart: everywhere along
+   the edge the gap between the two offset edges runs along both faces'
+   normals. No extension of either face meets the other there; a wall between
+   the two edges closes the body. Samples the first edgeuse along its length,
+   finds the nearest point of the other's edge, and requires the gap to be
+   wider than the edges meet within and to run along both normals within that
+   distance. A face that turned instead (a draft about a hinge) leaves a gap
+   off its normal and is no step.
+***********************************************************************/
+SmStatus SmOffsetGeometryCreation::IsStepAcrossEdge
+  (SmEdgeuse * pOffsetEdgeuse,       // in : offset edgeuse on one face
+   SmEdgeuse * pOtherOffsetEdgeuse,  // in : offset edgeuse of the same original edge on the other face
+   SmBoolean & rbStep)               // out: TRUE = the faces lie apart along their normals everywhere
+  const
+{
+  rbStep = FALSE;
+  NER(pOffsetEdgeuse);
+  NER(pOtherOffsetEdgeuse);
+  SmEdge *pEdge      = pOffsetEdgeuse->GetEdge();      NER(pEdge);
+  SmEdge *pOtherEdge = pOtherOffsetEdgeuse->GetEdge(); NER(pOtherEdge);
+  SmFace *pFace      = pOffsetEdgeuse->GetFace();      NER(pFace);
+  SmFace *pOtherFace = pOtherOffsetEdgeuse->GetFace(); NER(pOtherFace);
+  SmSurface *pSurf      = pFace->GetSurface();      NER(pSurf);
+  SmSurface *pOtherSurf = pOtherFace->GetSurface(); NER(pOtherSurf);
+  if (pEdge == pOtherEdge)
+    { return SM_SUCCESS; }
+
+  // The distance the two edges meet within (as ExtendTrimEdges judges a drop).
+  double dMeetTol = 10.0 * smos_Max( smos_Max( (double)pEdge->GetTolerance(), (double)pOtherEdge->GetTolerance() ), m_dThisApproxTol3d );
+  SmExtent1d sOtherIvl = pOtherEdge->GetInterval();
+  if (!(sOtherIvl.GetLength() > 0.0))
+    { return SM_SUCCESS; }
+
+  const ULONG lNumSamples = 10;
+  for (ULONG ii=0; ii<=lNumSamples; ii++)
+    {
+      double dT = (double)ii / (double)lNumSamples;
+      SmPoint3d sPnt, sUV;
+      SER(pOffsetEdgeuse->NormalizedEvaluate(dT, FALSE, sPnt));
+      SER(pOffsetEdgeuse->NormalizedEvaluate(dT, TRUE,  sUV));
+
+      SmBoolean bFound = FALSE;
+      double dParam = 0.0, dDist = 0.0;
+      SER(pOtherEdge->ClosestPoint(sPnt, bFound, dParam, dDist));
+      if (!bFound || !(dDist > dMeetTol))
+        { return SM_SUCCESS; }
+      double dOtherT = (dParam - sOtherIvl.GetMin()) / sOtherIvl.GetLength();
+      if (pOtherOffsetEdgeuse->GetOrientation() == SM_OT_OPPOSITE)
+        { dOtherT = 1.0 - dOtherT; }
+      dOtherT = smos_Min(1.0, smos_Max(0.0, dOtherT));
+      SmPoint3d sOtherPnt, sOtherUV;
+      SER(pOtherOffsetEdgeuse->NormalizedEvaluate(dOtherT, FALSE, sOtherPnt));
+      SER(pOtherOffsetEdgeuse->NormalizedEvaluate(dOtherT, TRUE,  sOtherUV));
+
+      SmVector3d sNormal, sOtherNormal;
+      SER(pSurf->EvaluateNormal(SmPoint2d(sUV.x, sUV.y), FALSE, FALSE, sNormal));
+      SER(pOtherSurf->EvaluateNormal(SmPoint2d(sOtherUV.x, sOtherUV.y), FALSE, FALSE, sOtherNormal));
+
+      // The gap runs along both unit normals: what lies across each is within the meet distance.
+      SmVector3d sGap = sOtherPnt - sPnt;
+      if (   !(sGap.ProjectToPlane(sNormal).Length()      <= dMeetTol)
+          || !(sGap.ProjectToPlane(sOtherNormal).Length() <= dMeetTol))
+        { return SM_SUCCESS; }
+    } // end iter every sample along the edge
+
+  rbStep = TRUE;
+  return SM_SUCCESS;
+
+} // end SmOffsetGeometryCreation::IsStepAcrossEdge
+
+/*******************************************************************//**
+PURPOSE: The ruled wall between two offset edgeuses of one edge whose
+   faces lie apart (IsStepAcrossEdge).
+
+NOTES: The rails are the two edges' curves; the second runs the way the
+   first does (its edgeuse runs the other way round its face), judged at
+   interior points so that closed rails are judged too.
+***********************************************************************/
+SmStatus SmOffsetGeometryCreation::CreateStepWall
+  (const SmContext & crContext,            // in : context for new object construction
+   SmEdgeuse       * pOffsetEdgeuse,       // in : offset edgeuse on one face
+   SmEdgeuse       * pOtherOffsetEdgeuse,  // in : offset edgeuse of the same original edge on the other face
+   SmSurface      *& rpWall)               // out: the ruled wall
+  const
+{
+  rpWall = NULL;
+  NER(pOffsetEdgeuse);
+  NER(pOtherOffsetEdgeuse);
+  SmBSplineCurve *pRail1 = pOffsetEdgeuse->GetEdge()->CreateTrimmedNURBSCurve(crContext);
+  SmObjDelete sClean1(pRail1);
+  SmBSplineCurve *pRail2 = pOtherOffsetEdgeuse->GetEdge()->CreateTrimmedNURBSCurve(crContext);
+  SmObjDelete sClean2(pRail2);
+  NER(pRail1);
+  NER(pRail2);
+
+  // The second rail runs the way the first does when its points at a quarter, half and three
+  // quarters of the way along lie nearer the first's than the reversed ones do. Interior points,
+  // not ends: a closed rail (a step round a whole circle) starts where it ends, so its ends say
+  // nothing about its direction, and a comparison of equal sums would turn on rounding.
+  SmExtent1d sIvl1 = pRail1->GetNaturalInterval();
+  SmExtent1d sIvl2 = pRail2->GetNaturalInterval();
+  double dSame = 0.0, dReversed = 0.0;
+  for (int kk = 1; kk <= 3; kk++)
+    {
+      const double dT = 0.25 * kk;
+      SmPoint3d sP1, sP2, sP2Reversed;
+      SER(pRail1->EvaluatePoint(sIvl1.Evaluate(dT), sP1));
+      SER(pRail2->EvaluatePoint(sIvl2.Evaluate(dT), sP2));
+      SER(pRail2->EvaluatePoint(sIvl2.Evaluate(1.0 - dT), sP2Reversed));
+      dSame     += sP1.DistanceBetween(sP2);
+      dReversed += sP1.DistanceBetween(sP2Reversed);
+    }
+  if (dReversed < dSame)
+    {
+      SmExtent1d sNewIvl;
+      SER(pRail2->ReverseParameterization(sIvl2, sNewIvl));
+    }
+
+  SmBSplineSurface *pWall = NULL;
+  SER(SmBSplineSurface::CreateRuledSurface(crContext, *pRail1, *pRail2, SM_SP_U, pWall));
+  NER(pWall);
+  rpWall = pWall;
+  return SM_SUCCESS;
+
+} // end SmOffsetGeometryCreation::CreateStepWall
 
 /*******************************************************************//**
 PURPOSE: Create the offset surface corresponding to an edgeuse.
@@ -2214,10 +2624,12 @@ SmStatus SmOffsetGeometryCreation::EdgeuseOffset
    SmTArray<SmOrientType>  & rTrimOrientations,       // out: 
    SmSSIData               & rSelfIntersections,      // out: currently not used - in future to be used
                                                       //      to find self intersections in rpNewSurface
-   SmMarkType                eMarkType)               // in : uses without increment eMarkType Value
+   SmMarkType                eMarkType,               // in : uses without increment eMarkType Value
+   SmBoolean               * pbOptClosingWall)        // out: TRUE = rpNewSurface is a step wall, NULL to ignore
 {
   // init output
   rpNewSurface = NULL;
+  if (pbOptClosingWall) { *pbOptClosingWall = FALSE; }
   rSelfIntersections.m_v3DCurves.ReSet();
   rSelfIntersections.m_vUVCurves1.ReSet();
   rSelfIntersections.m_vUVCurves2.ReSet();
@@ -2257,8 +2669,18 @@ static ULONG lDebugCount = 0 ;
     }
 #endif // SM_DEBUG_CODE
 
+  // A tangent edge between an offset face and a shell face can't be closed by extension: bridge it below.
+  SmTArray<SmFace*> sShellFaces;
+  cpOffsetExecutive->GetShellFaces(sShellFaces);
+  ULONG lFound;
+  SmBoolean bShellTangentGap =
+         cpOtherOriginalEdgeuse != NULL && cpOffsetEdgeuse != NULL && cpOtherOffsetEdgeuse != NULL
+      && sShellFaces.FindElement(cpOriginalEdgeuse->GetFace(),lFound) != sShellFaces.FindElement(cpOtherOriginalEdgeuse->GetFace(),lFound)
+      && cpOriginalEdgeuse->IsTangentSector(cpOffsetExecutive->GetTangencyTolDegrees())
+      && HaveTangentGaps(10,cpOffsetEdgeuse,cpOtherOffsetEdgeuse);
+
   // If we are extending convex edges, extend both offset surfaces to hit each other.
-  if (cpOffsetExecutive->GetExtendConvexEdges()) 
+  if (cpOffsetExecutive->GetExtendConvexEdges() && !bShellTangentGap) 
     {
       SmBoolean bLamina = cpOriginalEdgeuse->GetEdge()->IsLamina();
 
@@ -2268,6 +2690,24 @@ static ULONG lDebugCount = 0 ;
 
       double    dTanTolDeg = cpOffsetExecutive->GetTangencyTolDegrees();
       SmBoolean bTanSec    = cpOriginalEdgeuse->IsTangentSector(dTanTolDeg);
+
+      // A local operation that moved only one of two tangent faces along its normal leaves
+      // them parallel, one step apart: a wall between their edges closes the body.
+      if (   bTanSec
+          && !bLamina
+          && cpOffsetExecutive->GetOffsetOperation() == SM_OO_LOCAL_OPERATION
+          && cpOffsetEdgeuse      != NULL
+          && cpOtherOffsetEdgeuse != NULL )
+        {
+          SmBoolean bStep = FALSE;
+          SER(IsStepAcrossEdge(cpOffsetEdgeuse, cpOtherOffsetEdgeuse, bStep));
+          if (bStep)
+            {
+              SER(CreateStepWall(crContext, cpOffsetEdgeuse, cpOtherOffsetEdgeuse, rpNewSurface));
+              if (pbOptClosingWall) { *pbOptClosingWall = TRUE; }
+              return SM_SUCCESS;
+            }
+        }
 
       if ( bTanSec  ||  bLamina )
         {
@@ -2281,6 +2721,9 @@ static ULONG lDebugCount = 0 ;
                                            eMarkType);  // in : uses without incrementing eMarkType value
           if ( eStat != SM_SUCCESS )
             {
+              // A local operation has no later step that would close the gap: it fails.
+              if ( cpOffsetExecutive->GetOffsetOperation() == SM_OO_LOCAL_OPERATION )
+                { SER( eStat ); }
               MSG(_T("Problem Extending Lamina/Tangent Edge - Will be Fixed Later"));
             }
 
@@ -2302,7 +2745,8 @@ static ULONG lDebugCount = 0 ;
     } // end when extending convex edges
 
   // Make sure sector being offset is convex otherwise just skip it
-  if(   cpOriginalEdgeuse->GetRadial() == cpOtherOriginalEdgeuse 
+  if(   !bShellTangentGap
+     && cpOriginalEdgeuse->GetRadial() == cpOtherOriginalEdgeuse 
      && !cpOriginalEdgeuse->IsConvexRadialSector(10)) 
     {
       if(   cpOriginalEdgeuse->IsTangentSector(3) 
@@ -2324,13 +2768,11 @@ static ULONG lDebugCount = 0 ;
 
   SmFace *pOrigFace = cpOriginalEdgeuse->GetFace();
   SmFace *pOtherOrigFace = cpOtherOriginalEdgeuse->GetFace();
-  SmTArray<SmFace*> sShellFaces;
-  cpOffsetExecutive->GetShellFaces(sShellFaces);
 
   // when Orig or OtherOrig face is a ShellFace (not offset - just copied)
   // and  we are insetting
-  ULONG lFound;
-  if(   (   sShellFaces.FindElement(pOrigFace,lFound) 
+  if(   !bShellTangentGap
+     && (   sShellFaces.FindElement(pOrigFace,lFound) 
          || sShellFaces.FindElement(pOtherOrigFace,lFound)) 
      && cpOffsetExecutive->GetInset() == TRUE) 
     {
@@ -2552,8 +2994,8 @@ static ULONG lDebugCount = 0 ;
       if (bSuccess) 
         {
           // Trim CenterLine to Start dropPoint
-          sCenterIvl.SetMinMax(dParam,sCenterIvl.GetMax());
-          pCenterLine->Trim(sCenterIvl);   // may snap sIvl by tol to existing knots
+          SER( sCenterIvl.SetMinMax(dParam,sCenterIvl.GetMax()) );
+          SER( pCenterLine->Trim(sCenterIvl) );   // may snap sIvl by tol to existing knots
         }
     } // end Rail1/CenterLine StartPoint gapSize check
 
@@ -2596,8 +3038,8 @@ static ULONG lDebugCount = 0 ;
       if (bSuccess) 
         {
           // Trim CenterLine to End dropPoint
-          sCenterIvl.SetMinMax(sCenterIvl.GetMin(),dParam);
-          pCenterLine->Trim(sCenterIvl);  // may snap sIvl by tol to existing knots
+          SER( sCenterIvl.SetMinMax(sCenterIvl.GetMin(),dParam) );
+          SER( pCenterLine->Trim(sCenterIvl) );  // may snap sIvl by tol to existing knots
         }
     } // end Rail1/CenterLine EndPoint gapSize check
 
@@ -2698,7 +3140,7 @@ static ULONG lDebugCount = 0 ;
                       double dT = sSolutions[0].m_vStart[0];
                       if ( smos_Fabs( dT - sArcIvl.GetMin() ) > SM_EFF_ZERO_SQRT )
                         {
-                          sArcIvl.SetMinMax( sArcIvl.GetMin(),dT );
+                          SER( sArcIvl.SetMinMax( sArcIvl.GetMin(),dT ) );
                           SER(pArc->Trim( sArcIvl ));
                         }
                     }

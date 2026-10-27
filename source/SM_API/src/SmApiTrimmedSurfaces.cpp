@@ -160,14 +160,14 @@ SmBoolean bDebugMe = FALSE ;
             pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
             SmSurface* pSrf = (SmSurface*)pObject;
             SmFace* pFace = NULL;
+            SmObject* pOwner = pSrf->GetOwner();
             SmStatus faceStat = pBrep->CreateFaceFromSurface( pSrf, pSrf->GetNaturalUVDomain(), pFace );
             if( faceStat != SM_SUCCESS )
             {
-                // Free the temporary Brep only while it cannot own the caller's
-                // surface; once the surface is attached, deleting the Brep would
-                // delete it too.
-                if( pSrf->GetOwner() == NULL )
-                    delete pBrep;
+                // A face made before the failure owns the caller's surface: give
+                // it back, so that freeing the temporary Brep leaves it to the caller.
+                pSrf->SetOwner( pOwner );
+                delete pBrep;
                 return faceStat;
             }
     }
@@ -226,6 +226,8 @@ SmBoolean bDebugMe = FALSE ;
     SmBrep* pBrep = new (*SmApiGetOrCreateContext()) SmBrep();
     SmRegion* pRegion = pBrep->GetInfiniteRegion();
 
+    // Not used: CreatePlanarFacesWith3DCurves ignores this argument and uses
+    // pBrep->GetTolerance() instead.
     double dTol = 0.01;
 
     SmTArray<SmFace*> sNewfaces;

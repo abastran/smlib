@@ -282,6 +282,8 @@ protected:
   SmTList<SmTsectPnt> m_vCurvePoints;                // xsect curve sample points - contains TsectPnts allocaed by m_vTSPntMgr
   SmTList<SmTsectPnt> m_vStartPoints;                // list of start points to start/stop curve traces
   SmTList<SmTsectPnt> m_vThroughPoints;              // list of points to include in curve trace
+  SmTArray<SmPoint2d>  m_vTangentSeeds;              // SolidCraft change: uv pairs (surf1, surf2) where interior search found parallel normals
+  SmTArray<SmPoint2d>  m_vTangentNodes;              // SolidCraft change: uv pairs of contact points where crossing branches meet
     
 public:
   // constructor
@@ -512,6 +514,26 @@ public:
                                                             ///<      : NOTE: the deviation between through points may be larger than this value.                        <br>
   );
 
+  // SolidCraft change: trace tangential intersection curves (see SmTangentCurveTracer.cpp)
+  SmStatus FindTangentCurves
+  (
+    SmTArray<SmCurve*>         & r3DCurves,                  ///< [i/o]: 3d intersection curve array                            <br>
+    SmTArray<SmCurve*>         & rSurface1UVCurves,          ///< [i/o]: associated UVTrimCurves on Surface 1                   <br>
+    SmTArray<SmCurve*>         & rSurface2UVCurves,          ///< [i/o]: associated UVTrimCurves on Surface 2                   <br>
+    SmTArray<SmTsectCurveType> & rCurveTypes,                ///< [i/o]: associated CurveType                                   <br>
+    SmTArray<double>           & rDeviations                 ///< [i/o]: associated max distance between 3DCurve and surfaces   <br>
+  );
+
+  // SolidCraft change: output the nodes FindTangentCurves() found as touching points
+  SmStatus AddTangentNodes
+  (
+    SmTArray<SmCurve*>         & r3DCurves,
+    SmTArray<SmCurve*>         & rSurface1UVCurves,
+    SmTArray<SmCurve*>         & rSurface2UVCurves,
+    SmTArray<SmTsectCurveType> & rCurveTypes,
+    SmTArray<double>           & rDeviations
+  );
+
   virtual SmStatus FindInteriorCurves
   (
     SmTArray<SmCurve*>         & r3DCurves,                  ///< [out]: 3d intersection curve array                            <br>
@@ -584,6 +606,7 @@ public:
   SmStatus AddPointToCurve(SmTsectPnt & rNextTSP);
 
   SmStatus AddStartPoint(SmTsectPnt & rStartTSP);
+  SmBoolean IsSameTangentCluster(SmTsectPnt & rA, SmTsectPnt & rB, SmBoolean bAnyTypeA) const; // SolidCraft change
 
   SmStatus AddThroughPoint(SmTsectPnt & rStartTSP);
 

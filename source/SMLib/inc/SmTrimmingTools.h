@@ -373,6 +373,12 @@ public:
                                                                                                            //    : ex: rsOuterLoopCounts[i] = 3 => 2 innerLoops inside OuterLoop[i]                 
                                                                                                                   
                                                                                                                   
+  static SmStatus JoinTouchingLoops                ( SmTArray<SmCurve*>       & rsCurves,          // i/o: FindOuterLoops' curves: each outer loop's CrvSet, then its inner loops'
+                                                      SmTArray<ULONG   >      & rsLoopCounts,      // i/o: Num of Crvs in each Loop, sized:[NumLoops]
+                                                      SmTArray<SmOrientType>  & rsOrients,         // i/o: assoc orientation of each Crv in its Loop, sized:[NumCrvs]
+                                                      SmTArray<ULONG>         & rsOuterLoopCounts, // i/o: Num of Loops in each outerLoop, sized:[NumOuterLoops]
+                                                      double                    d3DTol) ;          // in : max dist between points taken as one vertex
+
   static SmStatus CheckLoopForMiniHourglass         ( SmLoop const     * pLoop,                   // in :                                                                                   
                                                       SmAssertArray    * pAList = NULL,           // i/o: Accumulating list of failed Asserts, NULL to ignore                            
                                                       SmAssertTestLevel  eTestLevel = SM_LEVEL_0, // in : SM_LEVEL_0=fewest tests, SM_LEVEL_1, SM_LEVEL_2=all tests,                        

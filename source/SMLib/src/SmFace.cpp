@@ -10,11 +10,14 @@
 #include "StdAfx.h"
 
 #include <nurbs.h>
+#include <SmBoxSearch.h>
+#include <unordered_map>
 #include <SmFace.h>
 #include <SmVertex.h>
 #include <SmSurface.h>
 #include <SmEdge.h>
 #include <SmBSplineSurface.h>
+#include <algorithm>
 #include <SmTArray.h>
 #include <SmTrimSrfCache.h>
 #include <SmGeomUtility.h>
@@ -277,7 +280,7 @@ SmBoolean bDebugMe = FALSE ;
       if(pBaseSurface->IsKindOf(SmBSplineSurface_TYPE))
         {
           SmBSplineSurface *pBSplineSurface = (SmBSplineSurface*)pBaseSurface ;
-          pBSplineSurface->ApproximateOffsetSurface(*cpContext, dOffsetDist, dApproxTol3d, pNewBSplineSurface) ;
+          SER( pBSplineSurface->ApproximateOffsetSurface(*cpContext, dOffsetDist, dApproxTol3d, pNewBSplineSurface)  );
                                                                           
          } // end BAseSurface is a BSpline check
      } // end OffsetSurface check
@@ -523,7 +526,7 @@ double dThisGap, dPreMaxGap = 0.0, dPostMaxGap = 0.0 ;
     {
       // swap the face's surface - delete appropriate objects (old surface and UVTrimCurves)
       SmBrep* pBrep = GetBrep();
-      pBrep->ReplaceSurface( this, pNewBSplineSurface, FALSE, NULL, FALSE );
+      SER( pBrep->ReplaceSurface( this, pNewBSplineSurface, FALSE, NULL, FALSE ) );
     }
   else // ApproximateConstrainedSurface failed
     {
@@ -643,7 +646,7 @@ SmAxis2Placement * pOptProjectionPlane = NULL ;
 
           for(jj=0;jj<=lSmpCnt_Crv;jj++)
             {
-              pCurve->EvaluatePoint(sIvl.Evaluate( (double)jj/(double)lSmpCnt_Crv ), sCrvPt) ;
+              SER( pCurve->EvaluatePoint(sIvl.Evaluate( (double)jj/(double)lSmpCnt_Crv ), sCrvPt)  );
               SmStatus sRtn = pSurface->DropPoint(sCrvPt,
                                                   sUVDomain,
                                                   sUVLast.IsInitialized()? &sUVLast : NULL,
@@ -664,11 +667,11 @@ SmAxis2Placement * pOptProjectionPlane = NULL ;
                 { continue ; }
 
               // Get the Surface sample Normal
-              pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv) ;
+              SER( pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv)  );
 
               // simple norm
               SmVector3d sNorm = sDu * sDv ;
-              sDu.AngleBetween(sDv, dAngRad) ;
+              SER( sDu.AngleBetween(sDv, dAngRad)  );
 
               // skip dependent samples (sDu is zero, sDV is zero, or sNorm is Zero)
               if(   sNorm.LengthSquared() <= SmTol::GetScaledZeroSq(sNorm)
@@ -693,11 +696,11 @@ SmAxis2Placement * pOptProjectionPlane = NULL ;
           sUV.Set(dU, sUVDomain.EvaluateV( (double)jj / (double)(lSmpCnt_V) )) ;
 
           // Surface 1st derivatives
-          pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv) ;
+          SER( pSurface->Evaluate1stDerivatives(sUV, TRUE, TRUE, sPt, sDu, sDv)  );
 
           // simple norm
           SmVector3d sNorm = sDu * sDv ;
-          sDu.AngleBetween(sDv, dAngRad) ;
+          SER( sDu.AngleBetween(sDv, dAngRad)  );
 
           // skip dependent samples (sDu is zero, sDV is zero, or sNorm is Zero)
           if(   sNorm.LengthSquared() <= SmTol::GetScaledZeroSq(sNorm)
@@ -709,7 +712,7 @@ SmAxis2Placement * pOptProjectionPlane = NULL ;
 
           // gwc note: this may have to change for composite Faces.  We want to keep all sample points within
           //         any of a CFace->Children faces.
-          PointClassify(sUV, sZoneTol3d, FALSE, TRUE, sPointClassification) ;
+          SER( PointClassify(sUV, sZoneTol3d, FALSE, TRUE, sPointClassification)  );
           if(sPointClassification.GetPointClass() != SM_PC_FACE) // not using pts that classify to edges or vertices
             { continue ; }
 
@@ -750,7 +753,7 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // Build a new surface
-  SmBSplineSurface::ApproximateRandomPointsNormals(*cpContext,           // in : new object context
+  SER( SmBSplineSurface::ApproximateRandomPointsNormals(*cpContext,           // in : new object context
                                                     sPoints,             // in : sample points
                                                     sNormals,            // in : associated surface normals
                                                     lMaxUCtrlPnts,       // in : output control point count U
@@ -760,7 +763,7 @@ SmBoolean bDebugMe = FALSE ;
                                                     pNewSurf,            // out: approximating surface
                                                     pOptProjectionPlane, // in : Opt projection plane, NULL to ignore
                                                                          //      default:[NULL]
-                                                    sApproxTol3d) ;      // in : Max distance allowed between approx and points,
+                                                    sApproxTol3d)  );      // in : Max distance allowed between approx and points,
                                                                          //      0.0 to ignore, default:[0.0]
   // Check the Surface quality
   SmBoolean bRtn = pNewSurf ? pNewSurf->AssertValid() : FALSE ;
@@ -777,13 +780,13 @@ SmBoolean bDebugMe = FALSE ;
           SmBrep *pBrep = GetBrep() ;
 
           // branch on the existence of pBrep
-          if(pBrep) { pBrep->ReplaceSurface(this,     // in : Target Face to get new Surface
+          if(pBrep) { SER( pBrep->ReplaceSurface(this,     // in : Target Face to get new Surface
                                             pNewSurf, // in : Target Surface to replace current pFace->Surface
                                             FALSE,    // in : TRUE = add OldSurf to this->m_pDeletedSurfaces list
                                                       //      FALSE= delete OldSurf here
                                                       //      UNSURE= don't delete OldSurf, don't add OldSurf to m_pDeletedSurfaces
                                             NULL,     // out: optional list of modified faces, default:[NULL]
-                                            FALSE );  // in : TRUE = recreate Trim Curves, default:[TRUE]
+                                            FALSE ) );  // in : TRUE = recreate Trim Curves, default:[TRUE]
                     }
           else      { SetSurface( pNewSurf, TRUE ) ;
                     }
@@ -1050,18 +1053,18 @@ SmBoolean bDebugMe=FALSE;
       if ( idx == 2 ) sDirVec.Set( 0, 0, 1 );  // +/- z
 
       // Positive direction:
-      pSurface->GlobalPointSolve(m_vUVDomain,
+      SER( pSurface->GlobalPointSolve(m_vUVDomain,
                                  SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE,
                                  sDirVec,
                                  SM_EFF_ZERO_SQRT,
                                  NULL,
                                  SM_SR_ALL,
-                                 sSolutions) ;
+                                 sSolutions)  );
 
       for ( j = 0; j < sSolutions.GetSize(); j++ )
         {
-          sEval.SetUV( sSolutions[j].m_vStart[0], sSolutions[j].m_vStart[1] );
-          PointClassify( sEval.GetUV(), sFaceZoneTol3d, FALSE, TRUE, sPtClass );
+          SER( sEval.SetUV( sSolutions[j].m_vStart[0], sSolutions[j].m_vStart[1] ) );
+          SER( PointClassify( sEval.GetUV(), sFaceZoneTol3d, FALSE, TRUE, sPtClass ) );
           if ( sPtClass.GetPointClass() != SM_PC_UNKNOWN )
             { sSurfBBox.AddPoint3d( sEval.Pos() ); }
         }
@@ -1069,18 +1072,18 @@ SmBoolean bDebugMe=FALSE;
       // Negative direction:
       sDirVec = -sDirVec;
 
-      pSurface->GlobalPointSolve(m_vUVDomain, 
+      SER( pSurface->GlobalPointSolve(m_vUVDomain, 
                                  SM_SO_3D_SIGNED_DIRECTED_MAXIMIZE,
                                  sDirVec,
                                  SM_EFF_ZERO_SQRT,
                                  NULL,
                                  SM_SR_ALL,
-                                 sSolutions);
+                                 sSolutions) );
 
       for ( j = 0; j < sSolutions.GetSize(); j++ )
         {
-          sEval.SetUV( sSolutions[j].m_vStart[0], sSolutions[j].m_vStart[1] );
-          PointClassify( sEval.GetUV(), sFaceZoneTol3d, FALSE, TRUE, sPtClass );
+          SER( sEval.SetUV( sSolutions[j].m_vStart[0], sSolutions[j].m_vStart[1] ) );
+          SER( PointClassify( sEval.GetUV(), sFaceZoneTol3d, FALSE, TRUE, sPtClass ) );
           if ( sPtClass.GetPointClass() != SM_PC_UNKNOWN )
             { sSurfBBox.AddPoint3d( sEval.Pos() ); }
         }
@@ -1120,7 +1123,7 @@ static SmStatus sm_FaceClassifyUVLine
   SmPoint3d sEnd  (sUVEnd.x,   sUVEnd.y,   0.0) ;
   SmLine *pNewUVLine = NULL ;
 
-  SmLine::CreateLineSegment(*pFace->GetContext(), 2, sStart, sEnd, pNewUVLine) ;
+  SER( SmLine::CreateLineSegment(*pFace->GetContext(), 2, sStart, sEnd, pNewUVLine)  );
   NER( pNewUVLine );
 
 #ifdef SM_DEBUG_CODE
@@ -1218,7 +1221,7 @@ SmStatus SmFace::CalculateAnInternalPoint( SmPoint3d &rPointInFace ) const
             }
 
           // classify the target UVLine
-          sm_FaceClassifyUVLine(this, sStart, sEnd, sSrcZoneTol3d, sCurveClassification);
+          SER( sm_FaceClassifyUVLine(this, sStart, sEnd, sSrcZoneTol3d, sCurveClassification) );
 
           // when intervals were found in the face
           for ( kk=0; kk<sCurveClassification.GetSize(); kk++ )
@@ -1302,7 +1305,9 @@ SmStatus SmFace::CalculateUVDomainFromUVTrimCurves
   SmPoint2d        sLastEndUV, sThisEndUV ;
 
   // limit ThisDomain to XSect(Face->UVDomain, Face->Surface->UVDomain) (a fix for a common problem)
-  sThisDomain.Intersect( sSurfDomain, rNewFaceDomain );
+  // SolidCraft: the intersection is only the fallback output below; a face domain off its
+  // surface's (SM_ERR, result uninitialised) is an error only when that fallback is returned.
+  SmStatus eDomainStat = sThisDomain.Intersect( sSurfDomain, rNewFaceDomain );
 
   // place a UVTrimCurve on each Face->Edgeuse
   SmStatus eStat = CreateUVTrimCurves(
@@ -1313,7 +1318,10 @@ SmStatus SmFace::CalculateUVDomainFromUVTrimCurves
                        dTmp,dTmp,dTmp);
 
   if ( eStat != SM_SUCCESS )
-    { return SM_SUCCESS; }  // Return the default from above.
+    {
+      SER( eDomainStat );
+      return SM_SUCCESS;   // Return the default from above.
+    }
 
   // old place a UVTrimCurve on each Face->Edgeuse
   // // guarantee every face->Edgeuse has a UVTrimCurve
@@ -1530,8 +1538,13 @@ static SmBoolean sm_AreConnected
   SmVertexuse *pVU2 = pEU2->GetVertexuse() ;
 
   SmPoint2d sUV1, sUV2 ;
-  pVU1->ComputeUVPoint( sUV1, FALSE ) ; // TRUE  = Use LocalSolve with guesses from UVTrimCurve
-  pVU2->ComputeUVPoint( sUV2, FALSE ) ; // FALSE = don't make UVTrimCurve, if missing use GlobalSolve
+  // TRUE  = Use LocalSolve with guesses from UVTrimCurve
+  // FALSE = don't make UVTrimCurve, if missing use GlobalSolve
+  // SolidCraft change: ends whose UV points cannot be computed are not shown connected (they
+  // were compared unset)
+  if(   pVU1->ComputeUVPoint( sUV1, FALSE ) != SM_SUCCESS
+     || pVU2->ComputeUVPoint( sUV2, FALSE ) != SM_SUCCESS )
+    { return FALSE ; }
   double dGapU = smos_Fabs(sUV2.x - sUV1.x) ;
   double dGapV = smos_Fabs(sUV2.y - sUV1.y) ;
 
@@ -1622,6 +1635,149 @@ static SmBoolean sm_AreConnected
 
 }  // end static sm_AreConnected
 
+namespace
+{
+// The raw drop stays in the surface domain; the shifted UV follows the loop
+// continuously across periodic boundaries.
+struct SmLoopOrientationSample
+{
+  double     m_dParam;
+  SmPoint2d  m_sRawUV, m_sUV;
+  SmVector2d m_sShift;
+};
+
+static constexpr ULONG sm_lLoopOrientationSampleLimit = 65536;
+
+// State shared by the named sampling and refinement helpers. The sample budget
+// spans all angular passes; area, error and bounds are reset for each pass.
+struct SmLoopOrientationSampler
+{
+  const SmFace & m_crFace;
+  SmSurface    & m_rSurface;
+  SmExtent2d     m_sFaceDomain, m_sSurfDomain;
+  double         m_dWidth, m_dHeight;
+  SmBoolean      m_bClosedU, m_bClosedV;
+  ULONG          m_lSamples;
+  SmStatus       m_eSampleStatus;
+  double         m_dAngle, m_dArea, m_dError;
+  SmPoint2d      m_sBase;
+  SmExtent2d     m_sBounds;
+
+  SmLoopOrientationSampler
+    (const SmFace &crFace,   // in : face whose loop is sampled
+     SmSurface    &rSurface) // in : temporary surface used for point drops
+    : m_crFace(crFace),
+      m_rSurface(rSurface),
+      m_sFaceDomain(crFace.GetUVDomain()),
+      m_sSurfDomain(rSurface.GetNaturalUVDomain()),
+      m_dWidth(m_sFaceDomain.XLength()),
+      m_dHeight(m_sFaceDomain.YLength()),
+      m_bClosedU(rSurface.IsClosed(m_sSurfDomain, SM_SP_U)),
+      m_bClosedV(rSurface.IsClosed(m_sSurfDomain, SM_SP_V)),
+      m_lSamples(0),
+      m_eSampleStatus(SM_SUCCESS),
+      m_dAngle(0.0),
+      m_dArea(0.0),
+      m_dError(0.0)
+  {}
+
+  double SignedArea
+    (const SmLoopOrientationSample &crStart, // in : first sample
+     const SmLoopOrientationSample &crEnd)  // in : second sample
+    const
+  {
+    return ((crStart.m_sUV.x-m_sBase.x)/m_dWidth) * ((crEnd.m_sUV.y-m_sBase.y)/m_dHeight)
+         - ((crStart.m_sUV.y-m_sBase.y)/m_dHeight) * ((crEnd.m_sUV.x-m_sBase.x)/m_dWidth);
+  }
+
+  SmBoolean Sample
+    (SmCurve                       &rCurve,    // in : defining 3D edge curve
+     double                         dParam,    // in : curve parameter
+     const SmLoopOrientationSample *pPrevious, // in : previous sample, NULL for the first drop
+     SmLoopOrientationSample       &rSample)   // out: raw and continuous UV sample
+  {
+    if(++m_lSamples > sm_lLoopOrientationSampleLimit) { return FALSE; }
+    SmPoint3d sPoint;
+    m_eSampleStatus = rCurve.EvaluatePoint(dParam, sPoint);
+    if(m_eSampleStatus != SM_SUCCESS) { return FALSE; }
+    SmBoolean bSuccess, bMulti;
+    double    dGap;
+    m_eSampleStatus = m_rSurface.DropPoint
+      (sPoint,                                  // in : defining 3D point
+       m_sFaceDomain,                           // in : face UV domain
+       pPrevious ? &pPrevious->m_sRawUV : NULL, // in : previous raw UV guess
+       bSuccess,                                // out: whether the drop succeeded
+       rSample.m_sRawUV,                        // out: dropped UV point
+       dGap,                                    // out: point-to-surface gap
+       bMulti);                                 // out: multiple solutions flag
+    if(m_eSampleStatus != SM_SUCCESS || !bSuccess) { return FALSE; }
+    rSample.m_dParam = dParam;
+    rSample.m_sShift.Set(0.0, 0.0);
+    if(pPrevious)
+      {
+        SmPoint2d sPrevRaw = pPrevious->m_sRawUV;
+        rSample.m_sShift = pPrevious->m_sShift;
+        sm_CheckSeamCrossing
+          (sPrevRaw,          // i/o: previous UV point
+           rSample.m_sRawUV,  // in : current UV point
+           &m_rSurface,       // in : surface being walked
+           m_sSurfDomain,     // in : natural surface domain
+           m_bClosedU,        // in : surface is closed in U
+           m_bClosedV,        // in : surface is closed in V
+           rSample.m_sShift); // i/o: accumulated period shift
+      }
+    rSample.m_sUV = rSample.m_sRawUV + rSample.m_sShift;
+    m_sBounds.AddPoint2d(rSample.m_sUV);
+    return TRUE;
+  }
+
+  // Include quarter points: a midpoint alone can miss an S-shaped excursion.
+  SmBoolean Refine
+    (SmCurve                       &rCurve,  // in : defining 3D edge curve
+     const SmLoopOrientationSample &crStart, // in : interval start sample
+     const SmLoopOrientationSample &crEnd,   // in : interval end sample
+     ULONG                          lDepth)  // in : current refinement depth
+  {
+    SmLoopOrientationSample sQuarter, sMid, sThreeQuarter;
+    if(   !Sample (rCurve, crStart.m_dParam+(crEnd.m_dParam-crStart.m_dParam)*0.25, &crStart,  sQuarter)
+       || !Sample (rCurve, crStart.m_dParam+(crEnd.m_dParam-crStart.m_dParam)*0.5,  &sQuarter, sMid)
+       || !Sample (rCurve, crStart.m_dParam+(crEnd.m_dParam-crStart.m_dParam)*0.75, &sMid,     sThreeQuarter))
+      { return FALSE; }
+    SmVector2d                    sChord((crEnd.m_sUV.x-crStart.m_sUV.x)/m_dWidth,
+                                        (crEnd.m_sUV.y-crStart.m_sUV.y)/m_dHeight);
+    double                        dLengthSq = sChord.LengthSquared(), dDeviation = 0.0;
+    const SmLoopOrientationSample *pTests[3] = {&sQuarter, &sMid, &sThreeQuarter};
+    for(ULONG lTest=0; lTest<3; ++lTest)
+      {
+        SmVector2d sOffset((pTests[lTest]->m_sUV.x-crStart.m_sUV.x)/m_dWidth,
+                           (pTests[lTest]->m_sUV.y-crStart.m_sUV.y)/m_dHeight);
+        double dFraction = dLengthSq > 0.0
+          ? smos_Max(0.0, smos_Min(1.0, (sChord.x*sOffset.x+sChord.y*sOffset.y)/dLengthSq)) : 0.0;
+        double dDistance = (sOffset-sChord*dFraction).Length();
+        dDeviation = smos_Max(dDeviation, dDistance);
+      }
+    SmTol2d sUVTol = SmTol::MapTo2d(m_crFace.GetTolerance(), crStart.m_sRawUV, m_rSurface);
+    double  dFlatness = smos_Max(sUVTol.val/smos_Min(m_dWidth, m_dHeight),
+                               smos_Sqrt(dLengthSq)*m_dAngle/360.0);
+    if(dDeviation > dFlatness)
+      {
+        if(lDepth >= 20) { return FALSE; }
+        return    Refine (rCurve, crStart,        sQuarter,      lDepth+1)
+               && Refine (rCurve, sQuarter,       sMid,          lDepth+1)
+               && Refine (rCurve, sMid,           sThreeQuarter, lDepth+1)
+               && Refine (rCurve, sThreeQuarter,  crEnd,         lDepth+1);
+      }
+    // Sum local magnitudes so opposite bends cannot cancel the estimate.
+    m_dError += smos_Fabs(SignedArea(crStart, sQuarter)+SignedArea(sQuarter, sMid)-SignedArea(crStart, sMid))
+              + smos_Fabs(SignedArea(crStart, sMid)+SignedArea(sMid, crEnd)-SignedArea(crStart, crEnd))
+              + smos_Fabs(SignedArea(sMid, sThreeQuarter)+SignedArea(sThreeQuarter, crEnd)-SignedArea(sMid, crEnd));
+    m_dArea += SignedArea(crStart, sQuarter)+SignedArea(sQuarter, sMid)
+             + SignedArea(sMid, sThreeQuarter)+SignedArea(sThreeQuarter, crEnd);
+    return TRUE;
+  }
+};
+} // anonymous namespace
+
 /*******************************************************************//**
 PURPOSE: Compute the orientation of a loop within a face.
 
@@ -1631,26 +1787,11 @@ NOTES: SM_OT_SAME     = CCW Outer Loop
    If the given loop has zero area, this will return SM_SUCCESS,
    with reLoopOrient set to SM_OT_UNKNOWN.
 
-   Note: this is true for uv-space computation only:
-   if bDo3DLoopComputation = False:
-     If the loop contains any seam edges, 
-     or indeed any edges that touch a surface boundary,
-     then it is presumed to be an outer loop,
-     and this will return SM_OT_SAME.
-     (Every inner loop must be strictly contained inside an outer loop,
-     and no loop can extend outside of the surface's boundaries, so an
-     inner loop cannot touch a surface boundary.)
-   if bDo3DLoopComputation = True:
-     In a well-formed model, any part of a Loop that touches a seam or
-     any Face boundary would indicate an outer loop, but that might not be
-     the case in the 3d branch.  That is invoked when the uv trim curves
-     might not be reliable, e.g., during read-in from a non-SMLib file.
-     At any rate, this routine is intended to calculate orientation,
-     not to decide inner/outer, so don't do this in the 3d case.  [B522]
-
-   If the loop is a vertex loop, or is not closed,
-   then it is presumed to be an inner loop,
-   and this will return SM_OT_OPPOSITE.
+   Vertex loops return SM_OT_OPPOSITE without measuring an area. Edge loops
+   with unresolved area or unsuccessful point drops return SM_OT_UNKNOWN.
+   The 3D computation also returns UNKNOWN when the continuous UV walk ends
+   on another periodic copy of its starting point; its signed area cannot
+   determine a loop orientation.
 
    bDo3DLoopComputation: Pass this as True to prevent the use of UVTrimCurves
    on Edgeuses.  This will be the case during read-in, for example, when the
@@ -1660,31 +1801,18 @@ NOTES: SM_OT_SAME     = CCW Outer Loop
    UVTrimCurves exist.
 
 METHOD:
-   In the 3d branch, this formerly integrated turning angles at sample points
-   around the Loop.  There are two ways that that method can fail.  One can be
-   illustrated on a torus.  Moving around the 'top' of the torus, the direction
-   will turn, but around the outside or inside, it will not (when measured
-   in the tangent plane).  A loop that runs all the way around the outside,
-   then 90 degrees up the seam to the top, and all the way back and down the
-   seam, the net angle change will be zero.  (360 degrees from the 'top' edge,
-   plus four 90-degree corners.)
-
-   Another counterexample is a Loop with a slight overlap: picture a cusp that
-   actually overlaps itself just a tiny bit.  At that vertex, the turning angle
-   will be close to 360 degrees, in the wrong direction.
-
-   Using the area-integration algorithm avoids all that.  [B522]
+   With bDo3DLoopComputation FALSE, use existing or generated UV trim curves
+   when they form a connected loop. Otherwise sample the defining 3D curves,
+   retaining every knot and tessellating each span separately. Drop samples to
+   the surface and adaptively refine their signed UV area. Unresolved area is
+   UNKNOWN, not an inner/outer classification based on the stored loop label.
 ***********************************************************************/
 SmStatus SmFace::ComputeLoopOrientation
 (
-  const SmLoop * pLoop,                 // in : target loop
-  SmOrientType & reLoopOrient,          // out: SM_OT_SAME     = outerLoop
-                                        //      SM_OT_OPPOSITE = InnerLoop
-  SmExtent2d   * pUVBounds,             // out: UVBoundingBox of all loop->Edges
-                                        //      NULL to ignore. default:[NULL]
-  SmBoolean      bDo3DLoopComputation   // in : TRUE  = Walk candidate outerLoops in 3D to classify
-                                        //      FALSE = Walk candidate outerLoops in 2D to classify
-                                        //      default:[FALSE]
+  const SmLoop *pLoop,              // in : target loop
+  SmOrientType &reLoopOrient,       // out: SM_OT_SAME = CCW; SM_OT_OPPOSITE = CW
+  SmExtent2d   *pUVBounds,          // out: UV bounds of all loop edges; NULL to ignore
+  SmBoolean    bDo3DLoopComputation // in : TRUE uses defining 3D curves; FALSE tries UV trims first
 )  const
 {
   // check input
@@ -1728,7 +1856,7 @@ SmBoolean bDebugMe = FALSE ;
   // Work from the Edgeuses of pLU1.
 
   // locals
-  ULONG ii, jj;
+  ULONG lEdgeuse, lSample;
   SmEdgeuse *pEUData[256];
   SmTArray<SmEdgeuse*> sEdgeuses(256,pEUData);
   pLU1->GetEdgeuses(sEdgeuses);
@@ -1751,9 +1879,9 @@ SmBoolean bDebugMe = FALSE ;
 //  SmBoolean bMustBeInner = TRUE;
 //  SmBoolean bIsOnSeam    = FALSE;
 //
-//  for (ii=0; ii<sEdgeuses.GetSize(); ii++)
+//  for (lEdgeuse=0; lEdgeuse<sEdgeuses.GetSize(); lEdgeuse++)
 //    {
-//      SmEdgeuse *pEU = sEdgeuses[ii];
+//      SmEdgeuse *pEU = sEdgeuses[lEdgeuse];
 //      SmEdge    *pE  = pEU->GetEdge();
 //
 //      // Do this only if we're using uv trim curves.
@@ -1797,30 +1925,24 @@ SmBoolean bDebugMe = FALSE ;
 
   // Integrate UVArea within the loop by walking the UVTrimCurves to determine its orientation.
 
-  // First, try it in uv space, using uv trim curves from the Edgeuses.
-  // If all uv trim curves are available, uv space is easier.  [B513 556 557]
-  // If any uv trim curve does not already exist, then either try creating them
-  // (if bDo3DLoopComputation is False) or skip to the 3d algorithm (otherwise).
+  // The normal path can use or create derived trims. An explicit 3D request
+  // skips this path even when cached trims are present.
 
   SmTArray< SmCurve* > sUVCurves;
   SmTArray< SmEdgeuse* > sEUs;
   SmTArray< SmBoolean > sSenses;
   SmCurve   *pUVCurve;
   SmStatus   eStat = SM_SUCCESS;
-  SmBoolean  bUVCurvesOk = TRUE;
+  SmBoolean  bUVCurvesOk = !bDo3DLoopComputation;
 
   pLU1->GetEdgeuses( sEUs );
 
   // for every Loop->Edgeuse
-  for(ii=0;ii<sEUs.GetSize();ii++)
+  for(lEdgeuse=0;bUVCurvesOk && lEdgeuse<sEUs.GetSize();lEdgeuse++)
     {
-      SmEdgeuse* pEU = sEUs[ii];
+      SmEdgeuse* pEU = sEUs[lEdgeuse];
 
-      // Don't create a UVTrimCurve if asked not to.  [B586 B592]
-      if ( bDo3DLoopComputation )
-        { pUVCurve = pEU->GetUVTrimCurve(); }
-      else // create missing UVTrimCurves
-        { eStat    = pEU->GetOrCreateUVTrimCurve( pUVCurve ); }
+      eStat = pEU->GetOrCreateUVTrimCurve(pUVCurve);
 
       // no work - UVTrimCurve is missing - go try the 3d algorithm
       if ( pUVCurve == NULL || eStat != SM_SUCCESS )
@@ -1834,10 +1956,10 @@ SmBoolean bDebugMe = FALSE ;
       sSenses  .Add( pEU->GetOrientation() == SM_OT_SAME );
 
       // Check if UVTrimCurves are connected in UV space (not always near singularities).  
-      if(ii > 0)
+      if(lEdgeuse > 0)
         {
           // If not, then don't use uv curves - try 2d algorithm
-          if ( !sm_AreConnected( sEUs[ii-1], pEU ) )
+          if ( !sm_AreConnected( sEUs[lEdgeuse-1], pEU ) )
             {
               bUVCurvesOk = FALSE;
               break;
@@ -1870,186 +1992,113 @@ SmBoolean bDebugMe = FALSE ;
 
     } // end UVTrimCurves are good to use for computation check
 
-  // arrive here when UVTrimCurves are not good for computation. Try 3d algorithm.
-  bDo3DLoopComputation = TRUE;
-
-  // When asked, or when the uv-space compuatation didn't work, work in 3d.
-  // This is somewhat more expensive and should be used only when
-  // we don't want to use uv trim curves.
-
-// GWC:FEWER_SURFACE_COPIES_CHANGE - TODO see if surface copy can be replaced
-//                                 with temporary change of m_pOwner = NULL
-
-  // get temporary face->Surface copy
+  // Work from defining geometry. In particular, TRUE must not trust cached trims.
   SmSurface *pSurf = GetSurface();
-  SmSurface *pSurfCopy;
+  SmSurface *pSurfCopy = NULL;
   SER(pSurf->Copy(*GetContext(),pSurfCopy));
   NER(pSurfCopy);
   SmObjDelete sCleanCopy(pSurfCopy);
+  SmExtent2d sFaceDomain = GetUVDomain();
+  const double dWidth = sFaceDomain.XLength(), dHeight = sFaceDomain.YLength();
+  if(dWidth <= 0.0 || dHeight <= 0.0 || sEdgeuses.GetSize() == 0)
+    { return SM_SUCCESS; }
+  SmLoopOrientationSampler sSampler(*this, *pSurfCopy);
 
-  SmExtent2d sFaceDomain = this->GetUVDomain();
-  SmExtent2d sSurfDomain = pSurf->GetNaturalUVDomain();
-
-  // Get last edgeuse endPosition (3d).
-  SmSolutionArray sSolutions;
-  SmPoint3d sPoint;
-  SmVector3d sLastTangent, sTangent;
-  SER(sEdgeuses.GetLast()->NormalizedEvaluate
-                            (1.0,              // in : 0 to 1 target param value (accounts for orientation)
-                             FALSE,            // in : TRUE = Eval UVTrimCurve for a Surface UV Value
-                                               //      FALSE= Eval Curve for an XYZ evaluation
-                             sPoint,           // out: UV or XYZ value along Edgeuse for param
-                             &sLastTangent));  // out: 1st UV or XYZ deriv along Edgeuse at param point,
-                                               //      NULL to ignore, default:[NULL]
-
-  // DropPoint to Surface (why not use UVTrimCurve GuessPoint)
-  SER(pSurfCopy->GlobalPointSolve( sFaceDomain, SM_SO_MINIMIZE, sPoint,
-                                   GetTolerance(), NULL, SM_SR_SINGLE,
-                                   sSolutions));
-
-  SmPoint2d sUV1, sUV2;
-  SmPoint2d *pUVGuess = & sUV1;
-
-  // No, don't do this, see note in header comments.
-  //if ( sSolutions.GetSize() > 1 )  // Seam check
-  //{
-  //    sUV1.Set( sSolutions[0].m_vStart[0], sSolutions[0].m_vStart[1] );
-  //    if ( sSurfDomain.IsPoint2dOnBoundary( sUV1 ) )
-  //      {
-  //      reLoopOrient = SM_OT_SAME;
-  //      return SM_SUCCESS;
-  //      }
-  //}
-
-  if ( sSolutions.GetSize() == 1 )
+  // Use dimensionless UV area, translated near the loop to avoid cancellation.
+  // Error estimates below are refinement differences, not certified bounds.
+  const double dAreaFloor = 1e-8;
+  for(double dAngle = 10.0; dAngle >= 0.1; dAngle /= 10.0)
     {
-      sUV1.Set( sSolutions[0].m_vStart[0], sSolutions[0].m_vStart[1] );
-    }
-  else
-    {
-      sUV1.Set( 0, 0 ); // This will add zero to the sum.
-      pUVGuess = NULL;  // Don't use this as a guess.
-    }
-
-#ifdef SM_DEBUG_CODE
-  if(bDebugMe) 
-    {
-      smgfx_SetLook(4, 4, 1, 0, 0); sPoint.Draw(); sm_GraphicsLoop();
-      sm_GraphicsLoop();
-    }
-#endif // SM_DEBUG_CODE
-
-  SmBoolean bSuccess;
-  double dTotalArea = 0.0;
-  double dThisTriArea, dGap;
-  SmBoolean bIsMulti;
-  SmPoint2d sVeryFirstUV;
-  SmBoolean bFirstUVSet=FALSE;
-
-  SmVector2d sParamShift( 0, 0 );
-
-  SmBoolean bClosedU = pSurfCopy->IsClosed( sSurfDomain, SM_SP_U );
-  SmBoolean bClosedV = pSurfCopy->IsClosed( sSurfDomain, SM_SP_V );
-
-  // for every edgeuse
-  for(ii=0; ii<sEdgeuses.GetSize(); ii++)
-    {
-      SmEdgeuse *pEU = sEdgeuses[ii];
-
-#ifdef SM_DEBUG_CODE
-      if (bDebugMe) 
+      sSampler.m_dAngle = dAngle;
+      sSampler.m_dArea = 0.0;
+      sSampler.m_dError = 0.0;
+      SmLoopOrientationSample sFirst, sPrevious;
+      SmBoolean bHavePoint = FALSE;
+      sSampler.m_sBounds.Init();
+      for(lEdgeuse=0; lEdgeuse<sEdgeuses.GetSize(); ++lEdgeuse)
         {
-          if ( FALSE )
-            { smgfx_Erase(); }
-          smgfx_SetLook( 2,3, 1,0,0 ); pEU->Draw(); sm_GraphicsLoop();
-          sm_GraphicsLoop();
-        }
-#endif // SM_DEBUG_CODE
+          SmEdgeuse *pEU = sEdgeuses[lEdgeuse];
+          SmEdge *pEdge = pEU->GetEdge();
+          SmCurve *pCurve = pEdge->GetCurve();
+          NER(pCurve);
+          const SmExtent1d sInterval = pEdge->GetInterval();
+          if(sInterval.GetLength() <= 0.0) { return SM_SUCCESS; }
 
-      static constexpr ULONG lNumSamples = 20;
-      // For 21 sample points along the curve - integrate signed area in uv space.
-      for(jj=0; jj<=lNumSamples; jj++)
-        {
-          // get the Curve Position and Tangent
-          double dParam = jj / (double)lNumSamples;
-          SER(pEU->NormalizedEvaluate(dParam,        // in : 0 to 1 target param value (accounts for orientation)
-                                      FALSE,         // in : TRUE = Eval UVTrimCurve for a Surface UV Value
-                                                     //      FALSE= Eval Curve for an XYZ evaluation
-                                      sPoint,        // out: UV or XYZ value along Edgeuse for param
-                                      &sTangent)) ;  // out: 1st UV or XYZ deriv along Edgeuse at param point,
-                                                     //      NULL to ignore, default:[NULL]
-
-          // DropPoint to Surface to get uv.
-          // Note, DropPoint() will step across seams.  sm_CheckSeamCrossing() assumes that.
-          SER( pSurfCopy->DropPoint( sPoint, sFaceDomain, pUVGuess, bSuccess, sUV2, dGap, bIsMulti ));
-
-#ifdef SM_DEBUG_CODE
-          if (bDebugMe) 
+          // Never step over an entire knot span, even when its parameter width
+          // is tiny. Tessellate independently within each span and retain knots.
+          SmTArray<double> sKnots, sBreaks, sParams;
+          SER(pCurve->GetKnots(sKnots, NULL, &sInterval));
+          sBreaks.Add(sInterval.GetMin());
+          for(lSample=0; lSample<sKnots.GetSize(); ++lSample)
+            if(sKnots[lSample] > sBreaks.GetLast() && sKnots[lSample] < sInterval.GetMax())
+              { sBreaks.Add(sKnots[lSample]); }
+          sBreaks.Add(sInterval.GetMax());
+          sParams.Add(sInterval.GetMin());
+          for(lSample=1; lSample<sBreaks.GetSize(); ++lSample)
             {
-              smgfx_SetLook( 4,4, 1,0,0 ); sPoint.Draw(); sm_GraphicsLoop();
-              smgfx_SetLook( 3,3, 0,0,1 ); sUV2.Draw(); sm_GraphicsLoop();
-              sm_GraphicsLoop();
+              SmExtent1d sSpan(sBreaks[lSample-1], sBreaks[lSample]);
+              SmTArray<double> sSpanParams;
+              SER(pCurve->Tessellate
+                (sSpan,        // in : one knot span
+                 0.0,          // in : chord-height tolerance
+                 dAngle,       // in : angle tolerance in degrees
+                 3,            // in : minimum number of segments
+                 &sSpanParams)); // out: sample parameters
+              for(ULONG lParam=0; lParam<sSpanParams.GetSize(); ++lParam)
+                if(sSpanParams[lParam] > sParams.GetLast() && sSpanParams[lParam] < sSpan.GetMax())
+                  { sParams.Add(sSpanParams[lParam]); }
+              sParams.Add(sSpan.GetMax());
+              if(sParams.GetSize() > sm_lLoopOrientationSampleLimit) { return SM_SUCCESS; }
             }
-#endif // SM_DEBUG_CODE
 
-          // when there is a solution
-          if ( bSuccess )
+          SmLoopOrientationSample sStart;
+          ULONG lFirst = pEU->GetOrientation() == SM_OT_SAME ? 0 : sParams.GetSize()-1;
+          if(!sSampler.Sample
+               (*pCurve,                        // in : defining 3D edge curve
+                sParams[lFirst],                // in : curve parameter
+                bHavePoint ? &sPrevious : NULL,  // in : previous sample
+                sStart))                        // out: start sample
+            { return sSampler.m_eSampleStatus; }
+          if(!bHavePoint)
+            { sFirst = sStart; sSampler.m_sBase = sStart.m_sUV; bHavePoint = TRUE; }
+          else
+            { sSampler.m_dArea += sSampler.SignedArea(sPrevious, sStart); }
+          for(lSample=1; lSample<sParams.GetSize(); ++lSample)
             {
-              if ( bFirstUVSet == FALSE && pUVGuess != NULL )
-                {
-                  sVeryFirstUV = sUV1;
-                  bFirstUVSet  = TRUE;
-                }
-              sm_CheckSeamCrossing( sUV1, sUV2, pSurfCopy, sSurfDomain, bClosedU, bClosedV, sParamShift );
-
-              // Apply the correction to put the uv points into the same period as they started.
-              sUV1 += sParamShift;
-              sUV2 += sParamShift;
-
-              // 'Area': cross product of vectors from origin to sUV1 and to sUV2
-              // is (twice) the signed area of the triangle  [ origin - sUV1 - sUV2 ].
-              dThisTriArea = sUV1.x * sUV2.y  -  sUV1.y * sUV2.x;
-
-              dTotalArea += dThisTriArea;
-
-              // Shift back into the surface period, for dropping.
-              sUV2 -= sParamShift;  // (Don't have to do sUV1 because of the next statement...)
-
-              // Set up for next iter.
-              sUV1 = sUV2;
-              pUVGuess = &sUV1;
-
-            } // end if good drop
-            else
-              { pUVGuess = NULL; } // Use Global solve for next point.
-
-        } // end iter every sample point
-    } // end iter every edgeuse
-
-  // Catch the final-point-to-first-point span.  The final point will usually
-  // be the same as the first point, but could span a pole.
-  sUV2 += sParamShift;
-  dThisTriArea = sUV2.x * sVeryFirstUV.y  -  sUV2.y * sVeryFirstUV.x;
-  dTotalArea += dThisTriArea;
-
-  // Positive area means CCW, Negative is CW.
-  // When intergration scheme wasn't good enough - return UNKNOWN
-
-  double dDomainArea = sFaceDomain.XLength() * sFaceDomain.YLength();
-  double dAreaRatio  = 1e+8;  // Pretty arbitrary: 1/10,000 of the domain in each dimension.
-                              // Note 1e+4 is too small.  [my_offset_demo iter:14]
-
-  if  (dTotalArea > dDomainArea / dAreaRatio )
-    { reLoopOrient = SM_OT_SAME; }
-
-  else if(dTotalArea < -dDomainArea / dAreaRatio )
-    { reLoopOrient = SM_OT_OPPOSITE; }
-
-  else
-    { reLoopOrient = SM_OT_UNKNOWN; }
-
+              ULONG lParam = pEU->GetOrientation() == SM_OT_SAME ? lSample : sParams.GetSize()-1-lSample;
+              SmLoopOrientationSample sEnd;
+              if(!sSampler.Sample
+                   (*pCurve,        // in : defining 3D edge curve
+                    sParams[lParam], // in : curve parameter
+                    &sStart,        // in : previous sample
+                    sEnd)           // out: end sample
+                 || !sSampler.Refine
+                   (*pCurve,        // in : defining 3D edge curve
+                    sStart,         // in : interval start sample
+                    sEnd,           // in : interval end sample
+                    0))             // in : current refinement depth
+                { return sSampler.m_eSampleStatus; }
+              sStart = sEnd;
+            }
+          sPrevious = sStart;
+        }
+      if(pUVBounds) { *pUVBounds = sSampler.m_sBounds; }
+      // A closed 3D loop can wind around a periodic direction without closing
+      // in continuous UV. Do not assign an orientation from that open path.
+      // Compare endpoints, not just m_sShift: a walk from the low boundary to
+      // the high boundary can span a period without any raw seam jump.
+      if(   (sSampler.m_bClosedU && smos_Fabs(sPrevious.m_sUV.x-sFirst.m_sUV.x) > 0.5*sSampler.m_sSurfDomain.XLength())
+         || (sSampler.m_bClosedV && smos_Fabs(sPrevious.m_sUV.y-sFirst.m_sUV.y) > 0.5*sSampler.m_sSurfDomain.YLength()))
+        { return SM_SUCCESS; }
+      sSampler.m_dArea += sSampler.SignedArea(sPrevious, sFirst);
+      if(smos_Fabs(sSampler.m_dArea) > 8.0*sSampler.m_dError+dAreaFloor)
+        {
+          reLoopOrient = sSampler.m_dArea > 0.0 ? SM_OT_SAME : SM_OT_OPPOSITE;
+          return SM_SUCCESS;
+        }
+    }
+  // Unresolved area, failed projection, or exhausted refinement stays UNKNOWN.
   return SM_SUCCESS;
-
 
   // Note, the rest of this method should be obsolete.  [B556]
   // It's also unreachable now.  [B586]
@@ -2531,11 +2580,11 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
                SM_ERR_INVALID_INPUT, _T("SmFace::ClassifyLoops->sms_FindAndClassifyLoopBisector: TargetEdgeuse->Edge->Ivl is not contained in TargetEdgeuse->Edge->Curve->Ivl")) ; 
 
       // Edge midpoint
-      pCurve->Evaluate(sEdgeIvl.GetMid(), 1, TRUE, sPN) ;
+      SER( pCurve->Evaluate(sEdgeIvl.GetMid(), 1, TRUE, sPN)  );
       
       // Get Edge length - save longest edge in case we have to use it later
-      pCurve->EvaluatePoint(sEdgeIvl.GetMin(), sEdgeEnds[0]) ; 
-      pCurve->EvaluatePoint(sEdgeIvl.GetMax(), sEdgeEnds[1]) ; 
+      SER( pCurve->EvaluatePoint(sEdgeIvl.GetMin(), sEdgeEnds[0])  ); 
+      SER( pCurve->EvaluatePoint(sEdgeIvl.GetMax(), sEdgeEnds[1])  ); 
       double    dEdgeHalfLength0 = sEdgeEnds[0].DistanceBetween(sPN[0]) ; 
       double    dEdgeHalfLength1 = sEdgeEnds[1].DistanceBetween(sPN[0]) ;
       double    dThisLength      = smos_Max(dEdgeHalfLength0, dEdgeHalfLength1) ;
@@ -2552,7 +2601,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
 
       // skip strut, crack, and seam edges - count the edgeuses on this Edge in this loop, if even - its a crack, strut, or seam edge
       SmTArray<SmEdgeuse*> sEdgeusesInLoop ; 
-      pEdge->GetEdgeuses(sEdgeusesInLoop, NULL, pTgtLoopuse) ;
+      SER( pEdge->GetEdgeuses(sEdgeusesInLoop, NULL, pTgtLoopuse)  );
       if(smos_IsEven(sEdgeusesInLoop.GetSize()))
         {
           // when more edges remain to be tested - skip this strut, crack, or seam edge
@@ -2625,7 +2674,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
       SmPoint3d   sUVGuess3d ; 
       SmPoint2d   sUVGuess, * pUVGuess = NULL ; 
       SmCurve  * pUVTrimCurve = pEdgeuse->GetUVTrimCurve() ; 
-      if(pUVTrimCurve != NULL) { pUVTrimCurve->EvaluatePoint(sEdgeIvl.GetMid(), sUVGuess3d) ;
+      if(pUVTrimCurve != NULL) { SER( pUVTrimCurve->EvaluatePoint(sEdgeIvl.GetMid(), sUVGuess3d)  );
                                  sUVGuess = sUVGuess3d ; 
                                  pUVGuess = &sUVGuess ;
                                }
@@ -2650,10 +2699,10 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
         }
 
       // Drop EdgeTan to Surface
-      pSurface->DropVectors(sUV[0], TRUE, TRUE, 1, &(sPN[1]), &(sUV[1])) ;
+      SER( pSurface->DropVectors(sUV[0], TRUE, TRUE, 1, &(sPN[1]), &(sUV[1]))  );
       
       // Surface normal at Drop Point
-      pSurface->EvaluateNormal(sUV[0], TRUE, TRUE, sSurfNormal) ; 
+      SER( pSurface->EvaluateNormal(sUV[0], TRUE, TRUE, sSurfNormal)  ); 
 
       // arrive here when: bSuccess == TRUE when sUV[UVPoint, UVVec] and sSurfNormal are set
       //                 bSuccess == FALSE when something went wrong and no dropp UVPoints were found - quit
@@ -2677,7 +2726,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
       //   (we skip the uninit case where m_eMisingSeam == SM_SP_UNKNOWN)
       if(bDoublyPeriodic == TRUE)  // doubly periodic surface -> ClassifyCrv must run SeamToSeam and be Closed3d
         {
-          sAngRangeDeg.SetMinMax(0,90) ; 
+          SER( sAngRangeDeg.SetMinMax(0,90)  ); 
           iSampleCnt = 2 ;
           rbClassifyCrv_StartOnSeam = TRUE ; // TRUE = ClassifyCrv Starts on Seam Boundary
           rbClassifyCrv_StopOnSeam  = TRUE ; // TRUE = ClassifyCrv Stops on Seam Boundary
@@ -2741,7 +2790,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
                                                          dMin = smos_Max(dCornerAngDeg[1], dCornerAngDeg[3]) ;
                                                          dMax = smos_Min(dCornerAngDeg[0], dCornerAngDeg[2]) ;
                                                        }
-          sAngRangeDeg.SetMinMax(dMin, dMax) ;         
+          SER( sAngRangeDeg.SetMinMax(dMin, dMax)  );         
 
          // shorten the rotation angle to back off the corners (avoids vertex intersections
          sAngRangeDeg.ExpandRelative(-.05) ; 
@@ -2771,7 +2820,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
           sUVDir.Set(smos_CosDeg(dAngleDeg), smos_SinDeg(dAngleDeg)) ;
 
           // build UVLine to use as the UVClassificationCurve
-          sSurfUVDomain.IntersectWithInfiniteLine(sUV[0], sUVDir, bFoundInterval, sTrimInterval) ;
+          SER( sSurfUVDomain.IntersectWithInfiniteLine(sUV[0], sUVDir, bFoundInterval, sTrimInterval)  );
           sStartUV = sSurfUVDomain.ClampPoint2d( sUV[0] + sTrimInterval.GetMin() * sUVDir ); // shouldn't need clamp but included to take care of numerical roundoff
           sEndUV   = sSurfUVDomain.ClampPoint2d( sUV[0] + sTrimInterval.GetMax() * sUVDir ); // shouldn't need clamp but included to take care of numerical roundoff
 
@@ -2881,7 +2930,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
 #endif // SM_DEBUG_CODE
 
           // Classify the sCrvOnSurf against this Loop and all unmarked loops only
-          pFace->CurveOnClassify(TRUE,               // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys 
+          SER( pFace->CurveOnClassify(TRUE,               // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys 
                                                      //    : FALSE=classify such points as unknown. (good when Curve is known to be InFace) 
                                 *pCrvClassification, // i/o: contains m_cpCurve to classify, accumulates ivls as they are found. 
                                  TRUE,               // in : TRUE = m_cpCurve and Face->Edges connect to Face where Edge/Face gaps are suspected to exceed XSectTol3d. 
@@ -2902,7 +2951,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
                                                      //    : NULL to ignore, default:[NULL] 
                                   bUVSpaceOkay       // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases) 
                                                      //    : FALSE= don't use UVSpace because UVTrimCurves are not known to be valid, default:[TRUE] 
-                                 ) ;
+                                 )  );
 
           // get the classification curve vertex intersections
           SmTArray<SmVertex *> sVertices ;
@@ -2967,8 +3016,8 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
     // other output - rebCLassifyCrv_Closed3d
     SmExtent1d sIvl = pCrvOnSurf->GetNaturalInterval() ; 
     SmPoint3d sStartPt, sEndPt ;
-    pCrvOnSurf->EvaluatePoint(sIvl.GetMin(), sStartPt) ;
-    pCrvOnSurf->EvaluatePoint(sIvl.GetMax(), sEndPt) ;
+    SER( pCrvOnSurf->EvaluatePoint(sIvl.GetMin(), sStartPt)  );
+    SER( pCrvOnSurf->EvaluatePoint(sIvl.GetMax(), sEndPt)  );
 
     // ClassifyCrv is closed when EndPt_Gap is degenerate
     rebCLassifyCrv_Closed3d = SmTol::IsDegenerate(sEndPt-sStartPt) ; 
@@ -2997,7 +3046,12 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
   sCleanCrvOnSurf.Clear() ;                      // stop deletion of pCrvOnSurf on Exit
   sCleanUVTrimLine.Clear() ;                     // stop deletion of pUVTrimLine on Exit
 
-  // set remiaining output
+  // Classify the actual endpoints, including circumferential samples on a
+  // singly periodic surface. Surface periodicity alone does not identify them.
+  rbClassifyCrv_StartOnSeam = pSurface->IsOnSeam(sStartUV);
+  rbClassifyCrv_StopOnSeam = pSurface->IsOnSeam(sEndUV);
+
+  // set remaining output
   rpCrvOnSurf  = pCrvOnSurf  ; 
   rpUVTrimLine = pUVTrimLine ;
 
@@ -3069,19 +3123,19 @@ SmStatus sms_ReviewTangentCrvClassifies
           SmBoolean   bSuccess;
           SmPoint3d   sPtHi, sPtLo;
 
-          pCurve->EvaluatePoint( dParamHi, sPtHi );
-          pCurve->EvaluatePoint( dParamLo, sPtLo );
+          SER( pCurve->EvaluatePoint( dParamHi, sPtHi ) );
+          SER( pCurve->EvaluatePoint( dParamLo, sPtLo ) );
 
           // If the PC is near a seam, this sets the guess on the correct side -> result is on the right side
           if ( dParamHi != dParamTmp )
             {
-              pSurface->DropPoint(sPtLo, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUVLo, dGap, bIsMulti);
-                pSurface->DropPoint(sPtHi, pSurface->GetNaturalUVDomain(), &sUVLo, bSuccess, sUVHi, dGap, bIsMulti);
+              SER( pSurface->DropPoint(sPtLo, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUVLo, dGap, bIsMulti) );
+                SER( pSurface->DropPoint(sPtHi, pSurface->GetNaturalUVDomain(), &sUVLo, bSuccess, sUVHi, dGap, bIsMulti) );
             }
           else
             {
-              pSurface->DropPoint(sPtHi, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUVHi, dGap, bIsMulti);
-                pSurface->DropPoint(sPtLo, pSurface->GetNaturalUVDomain(), &sUVHi, bSuccess, sUVLo, dGap, bIsMulti);
+              SER( pSurface->DropPoint(sPtHi, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUVHi, dGap, bIsMulti) );
+                SER( pSurface->DropPoint(sPtLo, pSurface->GetNaturalUVDomain(), &sUVHi, bSuccess, sUVLo, dGap, bIsMulti) );
             }
 
         } // end classifyObj == Edge branch
@@ -3137,11 +3191,11 @@ SmStatus sms_ReviewTangentCrvClassifies
               double dParam2 = (pEdgeuse2->GetOrientation() == SM_OT_SAME) ? sIvl2.GetMin() + 0.01 * sIvl2.GetLength()
                                                                            : sIvl2.GetMax() - 0.01 * sIvl2.GetLength() ;
 
-              pEdge0->GetCurve()->EvaluatePoint(dParam0, sPt0) ;
-              pEdge2->GetCurve()->EvaluatePoint(dParam2, sPt2) ;
+              SER( pEdge0->GetCurve()->EvaluatePoint(dParam0, sPt0)  );
+              SER( pEdge2->GetCurve()->EvaluatePoint(dParam2, sPt2)  );
 
-              pSurface->DropPoint(sPt0, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUVHi, dGap, bIsMulti);
-              pSurface->DropPoint(sPt2, pSurface->GetNaturalUVDomain(), &sUVHi, bSuccess, sUVLo, dGap, bIsMulti);
+              SER( pSurface->DropPoint(sPt0, pSurface->GetNaturalUVDomain(), NULL, bSuccess, sUVHi, dGap, bIsMulti) );
+              SER( pSurface->DropPoint(sPt2, pSurface->GetNaturalUVDomain(), &sUVHi, bSuccess, sUVLo, dGap, bIsMulti) );
 
               break; // assumes vertex is connected to only one loop - that's okay a vertex can only be connected to 1 Loop on 1 Face
             } // end for each loop
@@ -3158,7 +3212,7 @@ SmStatus sms_ReviewTangentCrvClassifies
       if(bPtHiAbove == bPtLoAbove)
         {
           // remove this nonCrossing PtClass from the CurveClassification
-          rCrvClassification.RemovePointClass(ii, SM_IP_START) ;
+          SER( rCrvClassification.RemovePointClass(ii, SM_IP_START)  );
 
           // adjust iterator values
           ii-- ;
@@ -4153,7 +4207,9 @@ METHOD:
   edges. At the same time XSect counting is sensitive to Vertex XSects, 
   TangentEdge XSects, Strut Crossings, and CoincidentEdge XSects.  Turning the
   SmCurveClassification's intersection list into a "Touch list" is done in
-  SmCurveClassification::GetLoopCrossings().
+  SmCurveClassification::GetLoopTouches(). This consumer interprets complete
+  seam encounters for UV containment; GetLoopCrossings derives the periodic
+  counts used during missing-seam analysis.
 
   So, a search algorithm is used to find an appropriate ClassifyCrv 
   that satisfies the requirements of XSectCounting while having none of these kinds of XSects 
@@ -4199,9 +4255,9 @@ SmStatus SmFace::ClassifyLoops
                                                     //                         //       SM_CMT_TOPLOOP,         // NoArea_Loop (invalid) contains lowerdomain UVPoints - AddMisingSeam heals to OuterLoop
                                                     //                         //       SM_CMT_WIRELOOP,        // A set of connected Edgeuses without a closed portion.
   SmCrvDirOnFaceType    & reClassifyCrv_StartType,  // out: ClassifyCrv StartPt classification pointing out from start of ClassifyCrv (not always a touch) 
-                                                    //      oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
+                                                    //      oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_SEAM_NO_EDGEUSE SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
   SmCrvDirOnFaceType    & reClassifyCrv_StopType,   // out: ClassifyCrv StopPt classification pointing out from End of ClassifyCrv (not always a touch)
-                                                    //      oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
+                                                    //      oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_SEAM_NO_EDGEUSE SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
   SmTArray<ULONG>       & rOrderedNoAreaIndices,    // out: NoArea_loop indices in rLoops/rClassifyLoopIOs ordered from lowest domain to highest domain.
   SmLooptreeItem       *& rpLooptreeRoot,           // out: LoopContainmentTree based solely on geometry relations, NULL on Input
   SmCurveClassification & rCrvClassification,       // in : scratch CurveClassification memory to save time  - contains last ClassifyCrv used - only good for debugging
@@ -4228,7 +4284,7 @@ SmStatus SmFace::ClassifyLoops
   
   // init input - make sure we have FaceProps after Fix_TolSizes()
   if(rFaceProps.m_ePropStage < SM_PROPSTAGE_2)
-    { rFaceProps.SetProps_Stage2(this, rFaceProps.m_lFaceIndx == SM_UNDEF_ULONG ? 0 : rFaceProps.m_lFaceIndx, SM_HO_ALL) ; }  // SM_HO_ALL assumes all healable probs can be ignored now
+    { SER( rFaceProps.SetProps_Stage2(this, rFaceProps.m_lFaceIndx == SM_UNDEF_ULONG ? 0 : rFaceProps.m_lFaceIndx, SM_HO_ALL)  ); }  // SM_HO_ALL assumes all healable probs can be ignored now
   rCrvClassification.ReSet() ; 
 
   // locals
@@ -4237,6 +4293,10 @@ SmStatus SmFace::ClassifyLoops
   SmContext         sLocalContext ; 
   SmFace          * pFace    = rLoops[0]->GetFace() ;
   SmSurface       * pSurface = GetSurface() ;
+
+  // Keep incomplete trees local until every loop has been classified.
+  SmLooptreeItem               *pLooptreeRoot = NULL;
+  SmTypedDelete<SmLooptreeItem*> sLooptreeCleanup;
 
   // check state - valid pFace and pSurface values
   AERN_MSG(pFace!=NULL && pFace==this, 
@@ -4262,12 +4322,16 @@ SmStatus SmFace::ClassifyLoops
   // locals
   SmCurveClassification * pCrvClassification = NULL ;
   SmTArray<SmTouchData>   sRawTouchDirList;
-#ifdef SM_DEBUG_CODE
   SmTArray<SmTouchData> *pRawTouchDirList = NULL;
-#endif
 
   SmTArray<SmTouchData>   sDoneTouchDirList, * pDoneTouchDirList=NULL ;
   SmBoolean               bClassifyCrv_StartOnSeam = FALSE, bClassifyCrv_StopOnSeam = FALSE ;
+
+  // Complete seams allow a bounded UV containment walk. Each endpoint's
+  // classification identifies whether that UV side has a boundary edgeuse.
+  const SmBoolean bCompleteSeams = (rFaceProps.m_bClosedU || rFaceProps.m_bClosedV)
+                               && rFaceProps.m_eBadMissingSeam == SM_SP_NEITHER
+                               && rFaceProps.m_eBadCrossedSeam == SM_SP_NEITHER;
 
 #ifdef SM_DEBUG_CODE
   // check state - rFaceProps.m_sLoopProps has 1 LoopsProps per FaceLoop and all values are set except
@@ -4302,6 +4366,8 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
        // skip loops already classified
       if(rLoops[ii]->IsMarked(eMarkType))
         { continue ; }
+
+      const SmBoolean bUVContainment = bCompleteSeams;
 
       if (rLoops[ii]->GetLoopuse()->IsVertexLoopuse())
         {
@@ -4374,25 +4440,19 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
               && rFaceProps.m_sLoopProps[ii].m_lSeamWindingCntV > 1)
              {
                pCrvClassification  =  rFaceProps.m_pCrvClassU ;
-#ifdef SM_DEBUG_CODE
                pRawTouchDirList = &rFaceProps.m_sRawTouchListU;
-#endif
                pDoneTouchDirList   = &rFaceProps.m_sDoneTouchListU ;
              }
            else if(rFaceProps.m_sLoopProps[ii].m_lSeamWindingCntU == 1)
              {
                pCrvClassification  =  rFaceProps.m_pCrvClassU ;
-#ifdef SM_DEBUG_CODE
                pRawTouchDirList    = &rFaceProps.m_sRawTouchListU ;
-#endif
                pDoneTouchDirList   = &rFaceProps.m_sDoneTouchListU ;
              }
            else
              {
                pCrvClassification  =  rFaceProps.m_pCrvClassV  ;
-#ifdef SM_DEBUG_CODE
                pRawTouchDirList    = &rFaceProps.m_sRawTouchListV ;
-#endif
                pDoneTouchDirList   = &rFaceProps.m_sDoneTouchListV ;
              }
 
@@ -4407,9 +4467,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
               && rFaceProps.m_sLoopProps[ii].m_lSeamCrossingCntU > 0) 
         {
           pCrvClassification       =  rFaceProps.m_pCrvClassU ;
-#ifdef SM_DEBUG_CODE
           pRawTouchDirList         = &rFaceProps.m_sRawTouchListU ;
-#endif
           pDoneTouchDirList        = &rFaceProps.m_sDoneTouchListU ;
           ebClassifyCrvClosed3d    = rFaceProps.m_bClosedV ; 
           bClassifyCrv_StartOnSeam = bDoublyPeriodic ; ;
@@ -4422,9 +4480,7 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
               && rFaceProps.m_sLoopProps[ii].m_lSeamCrossingCntV > 0) 
         {
           pCrvClassification       =  rFaceProps.m_pCrvClassV ;
-#ifdef SM_DEBUG_CODE
           pRawTouchDirList         = &rFaceProps.m_sRawTouchListV ;
-#endif
           pDoneTouchDirList        = &rFaceProps.m_sDoneTouchListV ;
           ebClassifyCrvClosed3d    = rFaceProps.m_bClosedU ; 
           bClassifyCrv_StartOnSeam = bDoublyPeriodic ; ;
@@ -4464,21 +4520,54 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
           if ( rCrvClassification.GetSize() == 0 )
           { continue; }
 
-          // UVTrimLine Vertex and Edge TgtLoop_Crossings - finds all ClassifyCrv crossings or all loops in rLoops
-          SmTArray<ULONG> sCrossingCounts ; 
-          sRtn = rCrvClassification.GetLoopCrossings(rLoops,               // in : TgtLoops
-                                                     &rFaceProps,          // in : opt FaceProps
-                                                     &sCrossingCounts,     // out: one crossing count for each TgtLoop
-                                                     &sRawTouchDirList,    // out: Arrive/Depart eLoopDir vals oneof:[SM_CD_ IN ON OUT POLE SEAM LAMINA], SEAM entries may be duplicated
-                                                     &sDoneTouchDirList) ; // out: Arrive/Depart eLoopDir vals oneof:[SM_CD_ IN ON OUT], Single SEAM entry - cyclic
-
-          pCrvClassification  = & rCrvClassification ;
-#ifdef SM_DEBUG_CODE
-          pRawTouchDirList    = &sRawTouchDirList ;
-#endif // SM_DEBUG_CODE
-          pDoneTouchDirList   = &sDoneTouchDirList ; 
-          
+          pCrvClassification = &rCrvClassification;
         } // end loop does not cross an existing rFaceProps::SeamClassifyCrv branch
+
+      // Reuse complete encounters from Stage 2. Periodic counts remain in their
+      // own cache; containment interprets a local copy of the UV boundary hits.
+      if(bUVContainment && pCrvClassification == &rCrvClassification)
+        {
+          SER(pCrvClassification->GetLoopTouches(rLoops,&rFaceProps,sRawTouchDirList));
+          pRawTouchDirList = &sRawTouchDirList;
+        }
+      if(bUVContainment)
+        {
+          sDoneTouchDirList.ReSet();
+          sDoneTouchDirList.Append(*pRawTouchDirList);
+          ULONG lTouchCount = sDoneTouchDirList.GetSize();
+          if(lTouchCount > 0)
+            {
+              for(ULONG lEnd=0; lEnd<2; ++lEnd)
+                {
+                  ULONG lOutside = lEnd == 0 ? 0 : lTouchCount-1;
+                  ULONG lInside  = lEnd == 0 ? 1 : lTouchCount-2;
+                  if(sDoneTouchDirList[lOutside].m_eLoopDir != SM_CD_SEAM) { continue; }
+                  SmCrvDirOnFaceType eInside = sDoneTouchDirList[lInside].m_eLoopDir;
+                  // Coincidence does not establish an outside starting state.
+                  if(eInside != SM_CD_IN && eInside != SM_CD_OUT)
+                    {
+                      reClassifiable = SM_HNF_NO_CLASSIFY_ZERO_CROSSCNT;
+                      rCrvClassification.ReSet();
+                      return SM_SUCCESS;
+                    }
+                  sDoneTouchDirList[lOutside].m_eLoopDir = eInside == SM_CD_IN ? SM_CD_OUT : SM_CD_IN;
+                }
+            }
+          SER(SmTouchData::RemoveNonCrossings(sDoneTouchDirList));
+          pDoneTouchDirList = &sDoneTouchDirList;
+        }
+      else if(pCrvClassification == &rCrvClassification)
+        {
+          SmTArray<ULONG> sCrossingCounts;
+          SER(pCrvClassification->GetLoopCrossings
+            (rLoops,              // in : target loops
+             &rFaceProps,         // i/o: cached Stage 2 properties
+             &sCrossingCounts,    // out: periodic crossing counts
+             &sRawTouchDirList,   // out: complete encounters
+             &sDoneTouchDirList)); // out: derived periodic crossings
+          pRawTouchDirList = &sRawTouchDirList;
+          pDoneTouchDirList = &sDoneTouchDirList;
+        }
 
 #ifdef SM_DEBUG_CODE 
 // macro to simplify upcoming debug blocks: PrettyPrint rLoops crossingCounts - highlight lCurrIterVal entry
@@ -4513,7 +4602,10 @@ static ULONG lDbgCount = 1 ; lDbgCount++ ;
                       && bClassifyCrv_StartOnSeam == TRUE   // TRUE=ClassifyCrv starts on Surf Seam Boundary
                       && bClassifyCrv_StopOnSeam  == TRUE)) // TRUE=ClassifyCrv stopss on Surf Seam Boundary
                 { continue ; }
-              bConsistent &= pDoneTouchDirList->GetAt(di1).m_eLoopDir == pDoneTouchDirList->GetAt(di2).m_eLoopDir ;
+              // Different loops may have incorrect relative winding; that is
+              // a classification result, not a failed containment algorithm.
+              if(!bCompleteSeams || pDoneTouchDirList->GetAt(di1).m_lLoopIndx == pDoneTouchDirList->GetAt(di2).m_lLoopIndx)
+                { bConsistent &= pDoneTouchDirList->GetAt(di1).m_eLoopDir == pDoneTouchDirList->GetAt(di2).m_eLoopDir ; }
             }
           SM_ASSERT_MSG(bConsistent == TRUE,_T("SmFace::ClassifyLoops: Found a DoneTouchDirList with inconsistent ins and outs - review case - alg may need restructuring")) ;
           if(bDebugMe)
@@ -4646,6 +4738,8 @@ SmBoolean bDebugMe1 = FALSE ;
                       reClassifiable               = SM_HNF_NO_CLASSIFY_ZERO_CROSSCNT ; 
                       rFaceProps.m_eNotYetFaceType = SM_HNF_NO_CLASSIFY_ZERO_CROSSCNT ;
                   
+                      rCrvClassification.ReSet();
+
                       // return - SUCCESS = valid return for a problem face - not a failure in a supporting call.
                       //      - caller has to check the reClassifiable value
                       return(SM_SUCCESS) ;  
@@ -4670,6 +4764,8 @@ SmBoolean bDebugMe1 = FALSE ;
                       rFaceProps.m_eNotYetFaceType = SM_HNF_NO_CLASSIFY_ODD_CROSSCNT ; 
                       SM_DBG_WARN(_T("SmFace::ClassifyLoops - found an unsupported case 2: - needs study - set break point here.")) ; 
                   
+                      rCrvClassification.ReSet();
+
                       // return - SUCCESS = valid return for a problem face - not a failure in a supporting call.
                       //      - caller has to check the reClassifiable value
                       return(SM_SUCCESS) ;  
@@ -4781,9 +4877,20 @@ SmBoolean bDebugMe1 = FALSE ;
         {
           ULONG lIvlCnt = pCrvClassification->GetSize() ;
 
+          SmCrvDirOnFaceType eStartSeamType = SM_CD_SEAM_NO_EDGEUSE;
+          SmCrvDirOnFaceType eStopSeamType  = SM_CD_SEAM_NO_EDGEUSE;
+          ULONG              lRawCount     = pRawTouchDirList->GetSize();
+          if(lRawCount > 0)
+            {
+              if((*pRawTouchDirList)[0].m_eLoopDir == SM_CD_SEAM)
+                { eStartSeamType = SM_CD_SEAM; }
+              if((*pRawTouchDirList)[lRawCount-1].m_eLoopDir == SM_CD_SEAM)
+                { eStopSeamType = SM_CD_SEAM; }
+            }
+
           // remember if the CrvClassification starts/stops on a SingVertexLoop (assuming UVTrimLine runs from Domain_Min_to_Max)
           //  assumes CrvClassification.Ivl[0].m_vStart is on Surf Min NaturalBndry and CrvClassification.Ivl[lIvlCnt-1].m_vEnd is on Surf Max Bndry
-          reClassifyCrv_StartType = (  bClassifyCrv_StartOnSeam == TRUE ? SM_CD_SEAM                                    // When ClassifyCrv starts on a Seam
+          reClassifyCrv_StartType = (  bClassifyCrv_StartOnSeam == TRUE ? eStartSeamType                                    // When ClassifyCrv starts on a Seam
                                   : (  rFaceProps.m_lPoles & (SM_SS_UMIN | SM_SS_VMIN)                                  // if(min Surf Singularity)
                                      ? (  (pCrvClassification->GetAt(0).m_vStart.GetPointClass() == SM_PC_VERTEX)       //      { if(marked by Vertex)
                                         ? (  (pCrvClassification->GetAt(0).m_vStart.GetVertexObject()->IsLoopVertex())  //           { if(Vertex is LoopVertex)
@@ -4792,7 +4899,7 @@ SmBoolean bDebugMe1 = FALSE ;
                                         : SM_CD_POLE_NO_VERTEX)                                                         //      else { PoleType = OnPoleNoVertex ; } } 
                                      : SM_CD_NONE)) ;                                                                   // else { PoleType = NoPole ; }
                                      
-          reClassifyCrv_StopType = (  bClassifyCrv_StopOnSeam == TRUE ? SM_CD_SEAM                                          // When ClassifyCrv starts on a Seam
+          reClassifyCrv_StopType = (  bClassifyCrv_StopOnSeam == TRUE ? eStopSeamType                                          // When ClassifyCrv starts on a Seam
                                  : (  rFaceProps.m_lPoles & (SM_SS_UMAX | SM_SS_VMAX)                                       // if(min Surf Singularity)
                                     ? (  (pCrvClassification->GetAt(lIvlCnt-1).m_vEnd.GetPointClass() == SM_PC_VERTEX)      //      { if(marked by Vertex)
                                        ? (  (pCrvClassification->GetAt(lIvlCnt-1).m_vEnd.GetVertexObject()->IsLoopVertex()) //           { if(Vertex is LoopVertex)
@@ -4950,13 +5057,13 @@ SmBoolean bDebugMe1 = FALSE ;
       //  reClassifyCrv_StartType _+-> oneof : SM_CD_POLE // SM_CD_POLE_LOOP_VERTEX  (ClassifyCrv starts/stops on Pole LoopVertex) 
       //  reClassifyCrv_StopType  _|         : SM_CD_POLE // SM_CD_POLE_EDGE_VERTEX  (ClassifyCrv starts/stops on Pole EdgeVertex)  
       //                                   : SM_CD_POLE_NO_VERTEX    (ClassifyCrv starts/stops on Pole NoVertex)    
-      //                                   : SM_CD_NONE, SM_CD_SEAM, SM_CD_LAMINA  (ClassifyCrv starts/stops on Seams with/without a touch)
+      //                                   : SM_CD_NONE, SM_CD_SEAM, SM_CD_SEAM_NO_EDGEUSE, SM_CD_LAMINA  (ClassifyCrv starts/stops on Seams with/without a touch)
       //  where the following is expected: 
       //    SM_CD_POLE /* SM_CD_POLE_LOOP_VERTEX */ = Vertex part of face, rOrderedNoAreaIndices.GetSize() is odd 
       //    SM_CD_POLE /* SM_CD_POLE_EDGE_VERTEX */ = Vertex part of face, rOrderedNoAreaIndices.GetSize() is even
       //    SM_CD_POLE_NO_VERTEX                    = Pole part of Face to be marked by Vertex when rOrderedNoAreaIndices.GetSize() is odd,
       //                                            Not part of Face when rOrderedNoAreaIndices.GetSize() is even
-      //    SM_CD_NONE, SM_CD_SEAM, SM_CD_LAMINA    = rOrderedNoAreaIndices.GetSize() is even.
+      //    SM_CD_NONE, SM_CD_SEAM, SM_CD_SEAM_NO_EDGEUSE, SM_CD_LAMINA    = rOrderedNoAreaIndices.GetSize() is even.
       // Next: 
       //       Build LoopContainTree for all XSectedLoops
       //       Setting: pClassifyLoop:[m_eOrient m_eContainmentType]
@@ -5015,14 +5122,21 @@ SmBoolean bDebugMe1 = FALSE ;
       SmBoolean bEndWithNoVertexPole   = (   reClassifyCrv_StopType == SM_CD_POLE_NO_VERTEX
                                           && smos_IsOdd(rOrderedNoAreaIndices.GetSize())) ;
 
+      // Complete seams bound the UV walk even when its 3D curve is closed.
+      // Otherwise seam endpoints require a cyclic walk with a selected IN entry.
+      const SmBoolean bCyclicWalk = !bUVContainment
+                                 && (   reClassifyCrv_StartType == SM_CD_SEAM
+                                     || reClassifyCrv_StartType == SM_CD_SEAM_NO_EDGEUSE
+                                     || reClassifyCrv_StopType  == SM_CD_SEAM
+                                     || reClassifyCrv_StopType  == SM_CD_SEAM_NO_EDGEUSE);
       ULONG lIncIndx = SM_UNDEF_ULONG ;
         { // begin scope - set lIncIndx value to find the start point on a closed-periodic classify curve on a closed face->surface
         
-          // When ClassifyCrv is NOT periodic
-          //   - start upcoming iter for loop containment at 1st DoneTouchDirList Entry
-          if(reClassifyCrv_StartType != SM_CD_SEAM && reClassifyCrv_StopType != SM_CD_SEAM)
+          // A bounded walk starts at the 1st DoneTouchDirList entry, either on
+          // a nonperiodic surface or in the UV domain enclosed by complete seams.
+          if(!bCyclicWalk)
             {
-              SM_ASSERT_MSG( !(rFaceProps.m_bClosedU && rFaceProps.m_bClosedV),
+              SM_ASSERT_MSG( bUVContainment || !(rFaceProps.m_bClosedU && rFaceProps.m_bClosedV),
                             _T("SmFace::ClassifyLoops: Found a NonPeriodic ClassifyCrv on a torus - review case")) ;
               lIncIndx = 0 ;
             } // end ClassifyCrv is not Periodic check
@@ -5054,8 +5168,8 @@ SmBoolean bDebugMe1 = FALSE ;
             {
               // Assert ClassifyCrv is Closed3d and running from Seam to Seam (ClassifyStart/Stop type will only be Seam when Loop is on the Seam)
               SM_ASSERT_MSG(   ebClassifyCrvClosed3d == TRUE
-                            && reClassifyCrv_StartType == SM_CD_SEAM
-                            && reClassifyCrv_StopType  == SM_CD_SEAM,
+                            && (reClassifyCrv_StartType == SM_CD_SEAM || reClassifyCrv_StartType == SM_CD_SEAM_NO_EDGEUSE)
+                            && (reClassifyCrv_StopType == SM_CD_SEAM || reClassifyCrv_StopType == SM_CD_SEAM_NO_EDGEUSE),
                             _T("SmFace::ClassifyLoop: an Open ClassifyCrv on a Tori or Sphere, expected ClassifyCrv to be Closed3d and running from Seam to Seam")) ;
 
               // next assert became Obsolete when bStartWithNoVertexPole and bStartOnSeam were wrapped into eClassifyStartType
@@ -5105,8 +5219,9 @@ SmBoolean bDebugMe1 = FALSE ;
           
       // iteration init
       sStack.ReSet() ;
-      sItemStack.ReSet() ;  // rpLooptreeRoot == NULL at this time.
-      if(rpLooptreeRoot) { delete rpLooptreeRoot ; rpLooptreeRoot = NULL ; }
+      sItemStack.ReSet() ;
+      sLooptreeCleanup.ReplaceObj(NULL);
+      pLooptreeRoot = NULL;
 
       // when a NoVertex_Pole is to be paired with a NoArea_Loop - init stack with 999 = NoVertex_Pole
       //  note: Vertex_Poles are just another loop already on the loop list.
@@ -5136,7 +5251,7 @@ SmBoolean bDebugMe1 = FALSE ;
                            
           // arrive here:  
           // bStartWithNoVertexPole, bEndWithNoVertexPole    : TRUE = ClassifyCrv starts/stops on NoVertex_Pole to be paired with a NoArea_Loop
-          // reClassifyCrv_StartType, reClassifyCrv_StoptType: SM_CD_SEAM = ClassifyCrv starts/stops on Seam with/without a touch
+          // reClassifyCrv_StartType, reClassifyCrv_StoptType: SM_CD_SEAM / SM_CD_SEAM_NO_EDGEUSE = ClassifyCrv starts/stops on a seam with/without a bounding edgeuse
 #ifdef SM_DEBUG_CODE
           if(bDebugMe)
             { ULONG di ;
@@ -5169,17 +5284,20 @@ SmBoolean bDebugMe1 = FALSE ;
               bExiting  = FALSE ;
               bPairing  = FALSE ; 
               bEntering = TRUE ;  
-              SM_ASSERT_MSG(   pDoneTouchDirList->GetAt(j1).m_eLoopDir   == SM_CD_OUT
-                            && pDoneTouchDirList->GetAt(j1+1).m_eLoopDir == SM_CD_IN,
-                            _T("SmFace::ClassifyLoops - Assumption that 1st Touch departs inside its loop is FALSE - revise algorithm")) ;
-
-               // The 1st touch departs inside assumption above not true for a single loop on a cone that needs to be paired with an unmarked vertex
-               //   - should not be here because the stack is preloaded with '999' when ClassifyCrv starts on NoVertex_Pole to be paired with a NoArea_Loop
-               SM_ASSERT_MSG(   (   pDoneTouchDirList->GetAt(j1).m_eLoopDir   == SM_CD_OUT    // either the touch ArrivesOut/DepartsIn
-                                 && pDoneTouchDirList->GetAt(j1+1).m_eLoopDir == SM_CD_IN)
-                             || (   rClassifyLoopIOs[lLoopIndx].m_bArea_Loop == FALSE  // or the touch is exiting a NoAreaLoop to be paired with a NoVertexPole
-                                 && bStartWithNoVertexPole),
-                             _T("SmFace::ClassifyLoops - Exiting an unmatched NoAreaLoop pair without a NoVertexPole to be matched with - check this case")) ; 
+              // A bounded walk starts geometrically outside, even when the
+              // outer loop has reversed winding. Preserve that orientation error.
+              // Cyclic walks still require their independently selected IN entry.
+              if(bCyclicWalk
+                 && !(pDoneTouchDirList->GetAt(j1).m_eLoopDir == SM_CD_OUT
+                      && pDoneTouchDirList->GetAt(j1+1).m_eLoopDir == SM_CD_IN)
+                 && !(rClassifyLoopIOs[lLoopIndx].m_bArea_Loop == FALSE && bStartWithNoVertexPole))
+                {
+                  // Without an outside starting state, depth zero cannot
+                  // establish containment. Leave this face unclassified.
+                  reClassifiable = SM_HNF_NO_LOOP_TREE_ROOT;
+                  rCrvClassification.ReSet();
+                  return SM_SUCCESS;
+                }
 
             } // end end empty stack branch
           else // stack has entries
@@ -5436,16 +5554,17 @@ SmBoolean bDebugMe1 = FALSE ;
               // build the Looptree
 
               // when Looptree is NULL - Make this loop the Looptree root
-              if(rpLooptreeRoot == NULL) 
+              if(pLooptreeRoot == NULL)
                 { 
-                  rpLooptreeRoot = new SmLooptreeItem(pLoop, NULL, pClassifyLoopIO) ;
-                  sItemStack.Push(rpLooptreeRoot) ;
+                  pLooptreeRoot = new SmLooptreeItem(pLoop, NULL, pClassifyLoopIO) ;
+                  sLooptreeCleanup.SetObj(pLooptreeRoot);
+                  sItemStack.Push(pLooptreeRoot) ;
                 } // end LooptreeRoot does not Exist branch
 
               else // LooptreeRoot exists branch
                 {  
                   // Is Loop already in Tree
-                  SmLooptreeItem * pInTree = rpLooptreeRoot->FindItem(pLoop, pParent) ;
+                  SmLooptreeItem * pInTree = pLooptreeRoot->FindItem(pLoop, pParent) ;
 
                   // if   Loop is not in Tree - create and add a LooptreeItem to the growing Looptree
                   // else Loop is already in Tree - No Tree Building needed
@@ -5459,7 +5578,7 @@ SmBoolean bDebugMe1 = FALSE ;
                       
                       // when the Stack is empty - Add Loop as sibling of 1st OuterLoop (a problem that needs fixing)
                       // when Stack is not empty - Add Loop as child to current TopOfStack.
-                      if(bEmptyItemStack)  { rpLooptreeRoot->AddSibling(pInTree) ; }
+                      if(bEmptyItemStack)  { pLooptreeRoot->AddSibling(pInTree) ; }
                       else                 { pTopOfStack->AddChild(pInTree) ; }
                     } // end else Loop is not yet in Looptree branch
                  sItemStack.Push(pInTree) ;
@@ -5568,12 +5687,21 @@ static ULONG lDebugCount = 0;
 
         } // end iter jj, every j1=Tgt DoneTouchDirList entry - compute and save CrossedLoop Containment types
 
+      // An unmatched entry leaves only a partial nesting tree. Do not expose
+      // it as a containment result for a face that could not be classified.
+      if(bUVContainment && sStack.GetSize() != 0)
+        {
+          reClassifiable = SM_HNF_NO_LOOP_TREE_ROOT;
+          rCrvClassification.ReSet();
+          return SM_SUCCESS;
+        }
+
     } // end iter every loop ii - making sure every Loop gets classified
 
-  // check state - Should have built a LoopTree stored under rpLoopTreeRoot
-  if ( rpLooptreeRoot == NULL )
+  // check state - Should have built a LoopTree stored under pLooptreeRoot
+  if ( pLooptreeRoot == NULL )
     {
-      SM_ASSERT_MSG( rpLooptreeRoot != NULL,
+      SM_ASSERT_MSG( pLooptreeRoot != NULL,
                      _T( "SmFace::ClassifyLoops - Failed to build Looptree - needs debug - prob an error setting bEntering/bExiting/bPairing" )) ;
       reClassifiable = SM_HNF_NO_LOOP_TREE_ROOT;
     }
@@ -5598,7 +5726,9 @@ static ULONG lDebugCount = 0;
 #undef SM_DUMP_CROSSCNTS
 #endif // SM_DEBUG_CODE
 
-  // set remaining output
+  // Transfer the completed tree to the caller.
+  sLooptreeCleanup.Clear();
+  rpLooptreeRoot = pLooptreeRoot;
 
   // all done
   return(SM_SUCCESS) ;
@@ -5918,6 +6048,128 @@ SmBoolean bDebugMe = FALSE;
 } // end SmODEIsoCurveLengthIFEO::Evaluate
 
 /*******************************************************************//**
+PURPOSE: The knots of a B-spline surface along eParam strictly inside
+         (dLo, dHi), ascending. An analytic surface is smooth everywhere:
+         none.
+***********************************************************************/
+static SmStatus sm_SurfaceKnotsInside
+(
+  const SmSurface  & crSurface,   // in :
+  SmSurfParamType    eParam,      // in : SM_SP_U or SM_SP_V
+  double             dLo,         // in :
+  double             dHi,         // in :
+  SmTArray<double> & rKnots       // out:
+)
+{
+    rKnots.ReSet();
+    if (!crSurface.IsKindOf(SmBSplineSurface_TYPE)) { return SM_SUCCESS; }
+    SmTArray<double> sAll;
+    SER(crSurface.GetKnots(eParam, sAll));
+    for (ULONG i = 0; i < sAll.GetSize(); i++)
+    {
+        if (sAll[i] > dLo && sAll[i] < dHi) { rKnots.Add(sAll[i]); }
+    }
+    return SM_SUCCESS;
+}
+
+/*******************************************************************//**
+PURPOSE: Where the precise-property integrand is not smooth along a UV trim
+         curve: its own knots, and the parameters where it crosses a knot
+         line u = k of a B-spline surface (across one, the inner integral's
+         derivatives in u jump). Ascending, the curve's ends included.
+
+NOTES: Within a knot span u(t) is a polynomial (or rational) of the curve's
+  degree; each crossing is found by a sign change of u(t) - k between
+  4 (degree + 1) evenly spaced points of the span, then bisection.
+***********************************************************************/
+static SmStatus sm_TrimCurveBreaks
+(
+  const SmBSplineCurve & crUVCurve,  // in :
+  const SmSurface      & crSurface,  // in :
+  SmTArray<double>     & rBreaks     // out:
+)
+{
+    rBreaks.ReSet();
+    SmTArray<double> sKnots;
+    SmExtent1d sIvl = crUVCurve.GetNaturalInterval();
+    SER(crUVCurve.GetKnots(sKnots, NULL, &sIvl));
+    if (sKnots.GetSize() < 2) { SER(SM_ERR); }
+
+    SmExtent3d sBox;
+    SER(crUVCurve.CalculateBoundingBox(crUVCurve.GetNaturalInterval(), &sBox));
+    SmTArray<double> sULines;
+    SER(sm_SurfaceKnotsInside(crSurface, SM_SP_U, sBox.GetMin().x, sBox.GetMax().x, sULines));
+
+    const ULONG lSamples = 4 * (crUVCurve.GetDegree() + 1);
+    auto u = [&](double dT, double & rdU) -> SmStatus
+    {
+        SmPoint3d sP;
+        SER(crUVCurve.EvaluatePoint(dT, sP));
+        rdU = sP.x;
+        return SM_SUCCESS;
+    };
+    for (ULONG iK = 0; iK + 1 < sKnots.GetSize(); iK++)
+    {
+        const double dA = sKnots[iK], dB = sKnots[iK+1];
+        rBreaks.Add(dA);
+        for (ULONG iL = 0; iL < sULines.GetSize(); iL++)
+        {
+            const double dK = sULines[iL];
+            double dT0 = dA, dU0 = 0.0;
+            SER(u(dT0, dU0));
+            for (ULONG iS = 1; iS <= lSamples; iS++)
+            {
+                double dT1 = dA + (dB - dA) * iS / lSamples, dU1 = 0.0;
+                SER(u(dT1, dU1));
+                if ((dU0 - dK) * (dU1 - dK) < 0.0)
+                {
+                    double dLo = dT0, dHi = dT1, dULo = dU0;
+                    for (int iBis = 0; iBis < 64 && dHi - dLo > SM_EFF_ZERO * (1.0 + smos_Fabs(dHi)); iBis++)
+                    {
+                        double dMid = 0.5 * (dLo + dHi), dUMid = 0.0;
+                        SER(u(dMid, dUMid));
+                        if ((dULo - dK) * (dUMid - dK) <= 0.0) { dHi = dMid; }
+                        else { dLo = dMid; dULo = dUMid; }
+                    }
+                    rBreaks.Add(0.5 * (dLo + dHi));
+                }
+                else if (dU1 == dK && iS < lSamples)
+                {
+                    rBreaks.Add(dT1);
+                }
+                dT0 = dT1; dU0 = dU1;
+            }
+        }
+    }
+    rBreaks.Add(sKnots[sKnots.GetSize()-1]);
+    std::sort(&rBreaks[0], &rBreaks[0] + rBreaks.GetSize());
+
+    // A crossing found next to a knot (a corner of the trim curve on a knot line) is the knot:
+    // breaks the integrator cannot step between are one, the curve's own knots and ends kept.
+    // RungeKuttaODEIntegrate takes no step when its ends are SM_ARE_SAME or its first step is
+    // SM_ARE_SAME as SM_EFF_ZERO, and ComputePreciseProperties' first step is half the span:
+    // a span of a few SM_EFF_ZERO (a crossing 2.7e-12 from a knot) is one it refuses.
+    auto unsteppable = [](double dA, double dB)
+    {
+        return SM_ARE_SAME(dA, dB) || SM_ARE_SAME(0.5 * (dB - dA), SM_EFF_ZERO) || 0.5 * (dB - dA) < SM_EFF_ZERO;
+    };
+    SmTArray<double> sDistinct;
+    for (ULONG iB = 0; iB < rBreaks.GetSize(); iB++)
+    {
+        const double dB = rBreaks[iB];
+        const ULONG lLast = sDistinct.GetSize();
+        if (lLast > 0 && unsteppable(sDistinct[lLast-1], dB))
+        {
+            if (sKnots.IsIn(dB)) { sDistinct[lLast-1] = dB; }
+            continue;
+        }
+        sDistinct.Add(dB);
+    }
+    rBreaks = sDistinct;
+    return SM_SUCCESS;
+}
+
+/*******************************************************************//**
 PURPOSE:
 
 NOTES:
@@ -5953,14 +6205,28 @@ SmBoolean bDebugMe = FALSE;
     if (smos_Fabs(sPV[1].x) > SM_EFF_ZERO) {
         const ULONG lNumComponents = m_pYScale->GetSize();
         SmTArray<double> dY(lNumComponents,NULL,lNumComponents);
-        double dStep = sPV[0].y - m_dMinV;
+        SmTArray<double> dPieceY(lNumComponents,NULL,lNumComponents);
+
+        // Along the iso-u line the integrand is smooth only within each knot
+        // span of the surface: integrated span by span, as the trim curve is.
+        SmTArray<double> sBreaks;
+        SER(sm_SurfaceKnotsInside(m_crSurface, SM_SP_V, m_dMinV, sPV[0].y, sBreaks));
+        sBreaks.InsertAt(0, m_dMinV);
+        sBreaks.Add(sPV[0].y);
 
         ULONG lNumOK, lNumBad;
-        // A failed inner integration is not a zero-area contribution; return
-        // the failure so callers cannot accept plausible partial properties.
-        SER(sIntegrator.RungeKuttaODEIntegrate(dY,m_dMinV,
-            sPV[0].y, m_dIsoCurveAccuracy, dStep/2.0, 0.0, lNumOK, lNumBad,
-            m_pYScale));
+        dY.SetAll(0.0);
+        for (ULONG iP = 0; iP + 1 < sBreaks.GetSize(); iP++)
+        {
+            const double dA = sBreaks[iP], dB = sBreaks[iP+1];
+            dPieceY.SetAll(0.0);
+            // A failed inner integration is not a zero-area contribution; return
+            // the failure so callers cannot accept plausible partial properties.
+            SER(sIntegrator.RungeKuttaODEIntegrate(dPieceY, dA, dB,
+                m_dIsoCurveAccuracy, (dB - dA)/2.0, 0.0, lNumOK, lNumBad,
+                m_pYScale));
+            for (ULONG iC = 0; iC < lNumComponents; iC++) { dY[iC] += dPieceY[iC]; }
+        }
         rDyDxValues.ReSet();
         rDyDxValues.Add(0.0);
         rDyDxValues.Append(dY);
@@ -6065,6 +6331,9 @@ SmStatus SmFace::ComputePreciseProperties
     const ULONG lNumComponents = sLayout.m_lNumComponents;
     SmTArray<double> yscale(lNumComponents,NULL,lNumComponents);
     for (ULONG iii=0; iii<yscale.GetSize(); iii++) { yscale[iii] = SM_BIG_DOUBLE; }
+    SmExtent3d sFaceBox;
+    SER(CalculateBoundingBox(sFaceBox));
+    const double dOriginDistance = sFaceBox.MinimumDistance(SmExtent3d(crOriginOfComputation));
 
     double dSign = 1.0; // Note, if Thickness, don't return negative volumes.
     if ( eOrientation == SM_OT_SAME && dFaceThickness < SM_EFF_ZERO ) {
@@ -6089,36 +6358,67 @@ SmBoolean bDebugMe = FALSE;
               }
 #endif // SM_DEBUG_CODE
             yscale[0] = dEstimatedArea/10.0;
+            // Scale volume and moment errors by a length per extra dimension. sqrt(area) is
+            // a tenth of the body size, so the length is ten times it: each component is then
+            // held to the same fraction of its own size as the area (yscale[0] is a thousandth
+            // of size^2, the volume's a thousandth of size^3, ...). Grow it once the origin is
+            // farther than the body. (SolidCraft change: with a tenth of the body size, each
+            // extra power of length held a component ten times tighter, so a sphere's second
+            // moments were asked, at a relative accuracy of 1e-8, for about 1e-14 of their size,
+            // below roundoff, and the integration could not converge.)
+            const double dLength = smos_Max(10.0 * smos_Sqrt(dEstimatedArea), dOriginDistance);
+            const ULONG aPowers[8] = { 1, 2, 2, 2, 2, 3, 3, 3 };
+            if (sLayout.m_lVolume) yscale[sLayout.m_lVolume-1] = yscale[0] * dLength;
+            for (ULONG kk=0; kk<8; ++kk) {
+                if (!sLayout.m_aMoments[kk]) continue;
+                const double dScale = yscale[0] * smos_Pow(dLength, (double)aPowers[kk]);
+                for (ULONG cc=0; cc<3; ++cc) yscale[sLayout.m_aMoments[kk]-1+cc] = dScale;
+            }
 
             SmODEAreaIFEO sAreaEval(*this->GetSurface(),*pBSC,GetUVDomain().GetMin().y,
                 dDesiredAccuracy/10.0,&yscale,crOriginOfComputation,dFaceThickness,sLayout);
             SmODEIntegrator sODE(sAreaEval);
-            SmTArray<double> dY(lNumComponents,NULL,lNumComponents);
             SmExtent1d sIvl = pBSC->GetNaturalInterval();
-            double dSpan = sIvl.GetMax() - sIvl.GetMin();
             ULONG lNumOK, lNumBad;
+
+            // Integrate piece by piece between the trim curve's knots and its crossings of the
+            // surface's knot lines u = k: the RK error estimate assumes a smooth integrand, and
+            // the integrand's derivatives jump at both (a rational circle's double knots), so a
+            // step across one can hide a large error. (SolidCraft change: split at the
+            // surface's u knots too, and each iso-u integral at its v knots, SmODEAreaIFEO;
+            // tangency-labs/solidcore#384.)
+            SmTArray<double> sKnots;
+            SER(sm_TrimCurveBreaks(*pBSC, *this->GetSurface(), sKnots));
 
             // A coarse first Runge-Kutta step can trip the integrator's abort
             // guard for one traversal direction, so a reversed cap loop fails
-            // where its twin succeeds. Try the historical span/2 step first
-            // (already-converged integrations stay unchanged), then fall back
+            // where its twin succeeds. Try a span/2 first step, then fall back
             // to finer steps; adaptive control converges to the same value.
             static constexpr double kInitStepDivs[] = { 2.0, 8.0, 64.0, 512.0, 4096.0 };
-            SmStatus rkStat = SM_ERR;
-            for (ULONG iDiv = 0; iDiv < sizeof(kInitStepDivs)/sizeof(kInitStepDivs[0]); iDiv++)
+            static constexpr ULONG kNumInitStepDivs = sizeof(kInitStepDivs)/sizeof(kInitStepDivs[0]);
+            SmTArray<double> dY(lNumComponents,NULL,lNumComponents);
+            SmTArray<double> dSpanY(lNumComponents,NULL,lNumComponents);
+            dY.SetAll(0.0);
+            for (ULONG iSpan = 0; iSpan + 1 < sKnots.GetSize(); iSpan++)
             {
-                // Zero the accumulator each try; a failed integrate leaves
-                // partial sums in dY that would double-count on the next retry.
-                dY.SetAll(0.0);
-                rkStat = sODE.RungeKuttaODEIntegrate(dY,sIvl.GetMin(), sIvl.GetMax(),
-                    dDesiredAccuracy/10.0, dSpan/kInitStepDivs[iDiv], 0.0, lNumOK, lNumBad,
-                    &yscale);
-                if (rkStat == SM_SUCCESS) { break; }
+                const double dA = sKnots[iSpan];
+                const double dB = sKnots[iSpan+1];
+                if (!(dB > dA)) { continue; } // a crossing at a knot
+                SmStatus rkStat = SM_ERR;
+                for (ULONG iDiv = 0; iDiv < kNumInitStepDivs && rkStat != SM_SUCCESS; iDiv++)
+                {
+                    lNumOK = lNumBad = 0;
+                    rkStat = sODE.RungeKuttaODEIntegrate(dSpanY, dA, dB, dDesiredAccuracy/10.0,
+                        (dB - dA)/kInitStepDivs[iDiv], 0.0, lNumOK, lNumBad, &yscale);
+                    // Success with no steps means the integrator skipped the span.
+                    if (lNumOK + lNumBad == 0) { rkStat = SM_ERR; }
+                }
+                // Propagate failure instead of dropping the boundary: a silent skip
+                // would return SM_SUCCESS with zero/partial properties, hiding a
+                // numerical failure as a valid zero.
+                SER(rkStat);
+                for (ULONG q = 0; q < lNumComponents; q++) { dY[q] += dSpanY[q]; }
             }
-            // Propagate failure instead of dropping the boundary: a silent skip
-            // would return SM_SUCCESS with zero/partial properties, hiding a
-            // numerical failure as a valid zero.
-            SER(rkStat);
 
             // ODE evaluator indices are one-based; the result array is zero-based.
             if (sLayout.m_lArea) dTotalArea += dY[sLayout.m_lArea-1];
@@ -7110,7 +7410,7 @@ SmStatus SmFace::CreateCurvesFromFace
                 {
                   // GWC:CHANGED_GETUVTRIMCURVE - place copy of UVCurve in output
                   SmBSplineCurve *pUVCurve = NULL ;
-                  pEU->GetOrCreateUVTrimCurve(pUVCurve);
+                  SER( pEU->GetOrCreateUVTrimCurve(pUVCurve) );
                   SmCurve *pNewUV;
                   SER(pUVCurve->Copy(crContext,pNewUV)); NER(pNewUV);
                   pUVCurve = SM_CAST_PTR(SmBSplineCurve,pNewUV);
@@ -7319,7 +7619,7 @@ SmBoolean bDebugMe3 = FALSE;
               if (bCreateParameterSpaceCurves)
                 {
                   SmBSplineCurve *pOrig = NULL ;
-                  pEU->GetOrCreateUVTrimCurve(pOrig);
+                  SER( pEU->GetOrCreateUVTrimCurve(pOrig) );
                   NER(pOrig);
                   SmCurve *pBSC;
                   SER(pOrig->Copy(crContext,pBSC));
@@ -7538,24 +7838,20 @@ SmStatus sm_FixUVTrimCurves
   if ( pVertexFaceGap )
   { sUVVertex = pVertexFaceGap->GetFaceUV(); }
   else
-  { pVertexuse->ComputeUVPoint( sUVVertex, TRUE ); }
+  { SER( pVertexuse->ComputeUVPoint( sUVVertex, TRUE ) ); }
 
   SmPoint3d sUVVertex3d(sUVVertex.x, sUVVertex.y, 0.0) ;
 
   // project Vertex drop point to 3d through surface
   SmPoint3d  sSurfVertex, sSurfVertexNormal ;
-  pSurface->EvaluatePoint(sUVVertex, sSurfVertex) ;
-  pSurface->EvaluateNormal(sUVVertex, TRUE, TRUE, sSurfVertexNormal) ; 
-
-  // UVGap sizes
-  double dUVCurrEdgeGap = sUVVertex3d.DistanceBetween(sUVCurr) ;
-  double dUVPrevEdgeGap = sUVVertex3d.DistanceBetween(sUVPrev) ;
+  SER( pSurface->EvaluatePoint(sUVVertex, sSurfVertex)  );
+  SER( pSurface->EvaluateNormal(sUVVertex, TRUE, TRUE, sSurfVertexNormal)  ); 
 
   // edge end points
   SmPoint3d  sCurrEdgePoint ;    // sCurrEdgePoint = CurrEdgeuse->Edge->EndPoint,
   SmPoint3d  sPrevEdgePoint ;    // sPrevEdgePoint = PrevEdgeuse->Edge->EndPoint,
-  pCurrEdge->GetCurve()->EvaluatePoint(dTCurr, sCurrEdgePoint) ;
-  pPrevEdge->GetCurve()->EvaluatePoint(dTPrev, sPrevEdgePoint) ;
+  SER( pCurrEdge->GetCurve()->EvaluatePoint(dTCurr, sCurrEdgePoint)  );
+  SER( pPrevEdge->GetCurve()->EvaluatePoint(dTPrev, sPrevEdgePoint)  );
 
   // Vertex/SurfVertex and EdgeEnd/SurfVertex gaps
   double dVertexGap     = sSurfVertex.DistanceBetween(sVertexPoint) ;
@@ -7604,88 +7900,10 @@ SmBoolean bDebugMe = FALSE;
 
   // arrive here after the corner geometry has been checked
   // next move UVTrimCurve endpoints to sUVVertex location.
-  //    To prevent introducing hooks and dog legs, drop the point to the curve and trim appropriatly
-
-  // drop sUVVertex to each UVTrimCurve
-  SmBoolean bCurrSuccess, bPrevSuccess ;
-  double dTCurrNew, dTPrevNew ;
-  double dCurrUVDistToCurve, dPrevUVDistToCurve ;
-  pCurrUVCurve->DropPoint
-    (sCurrIvl,                               // in : target curve allowed domain 
-     sUVVertex3d,                            // in : Point to drop to curve 
-     NULL,                                   // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
-                                             //      when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
-                                             //      Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-     1.1 * (SM_EFF_ZERO + dUVCurrEdgeGap),   // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-                                             //      sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-                                             //      sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
-                                             //      sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
-    &dTCurr,                                 // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve() 
-     bCurrSuccess,                           // out: TRUE = found a drop point 
-     dTCurrNew,                              // out: found drop curve param 
-     dCurrUVDistToCurve,                     // out: found drop distance 
-     SM_SO_INTERSECT) ;                      // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
-                                             //      SM_SO_INTERSECT= like Minimize but point must be within dDistTol
-                                             //      SM_SO_NORMALIZE= exclude nonNormal drops near endPoints 
-                                             //      default:[SM_SO_MINIMIZE] to preserve original behavior 
-                                              
-  pPrevUVCurve->DropPoint
-    (sPrevIvl,                               // in : target curve allowed domain 
-     sUVVertex3d,                            // in : Point to drop to curve 
-     NULL,                                   // in : For Snapping, NULL=NoSnap, Vec pointing to CrvInside from desired EndPt for snapping.
-                                             //    when DropPt is within dDistTol in cpVecToCrvInside dir of EndPt, Snap to Ivl EndPt.
-                                             //    Vec handles ambiguities and makes sure that curves are not just touching at the ends.
-     1.1 * (SM_EFF_ZERO + dUVPrevEdgeGap),   // in : Used for SnapDist, and SM_SO_INTERSECT sXSectTol3d distance.
-                                             //    sXSectTol3d = dDistTol ;      SM_SO_INTERSECT 
-                                             //    sXSectTol3d = SM_BIG_DOUBLE ; SM_SO_MINIMIZE, SM_SO_NORMALIZE
-                                             //    sSnapTol3d  = dDistTol ;      SM_SO_MINIMIZE, SM_SO_NORMALIZE, SM_SO_INTERSECT    
-    &dTPrev,                                 // in : If given, call cheap LocalPointSolve() else call expensive GlobalPointSolve() 
-     bPrevSuccess,                           // out: TRUE = found a drop point 
-     dTPrevNew,                              // out: found drop curve param 
-     dPrevUVDistToCurve,                     // out: found drop distance 
-     SM_SO_INTERSECT) ;                      // in : SM_SO_MINIMIZE = allow nonNormal drops near endPoints
-                                             //    SM_SO_INTERSECT= like Minimize but point must be within dDistTol
-                                             //    SM_SO_NORMALIZE= exclude nonNormal drops near endPoints 
-                                             //    default:[SM_SO_MINIMIZE] to preserve original behavior                                              
-  // Trim pCurrUVCurve when needed
-  if ( bCurrSuccess == FALSE)
-    {
-      dTCurrNew = dTCurr ;
-    }
-  else if(!SM_ARE_SAME(dTCurr,dTCurrNew) )
-    {
-      // set the desired trim interval
-      SmExtent1d sTrimIvl;
-      if (pEUCurrent->GetOrientation() == SM_OT_SAME) { sTrimIvl.SetMinMax(dTCurrNew,sCurrIvl.GetMax()); }
-      else                                            { sTrimIvl.SetMinMax(sCurrIvl.GetMin(),dTCurrNew); }
-
-      // for nonDegenerate intervals - trim the curve and restore the original parameter range
-      if (!SM_ARE_SAME(sTrimIvl.GetMin(),sTrimIvl.GetMax()))
-        {
-          SER(pCurrUVCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
-          SER(pCurrUVCurve->EditParameterization(sCurrIvl));
-        }
-    } // end need to trim ThisCurve check
-
-  // Trim pPrevUVCurve when needed
-  if ( bPrevSuccess == FALSE)
-    {
-      dTPrevNew = dTPrev ;
-    }
-  else if(!SM_ARE_SAME(dTPrev,dTPrevNew) )
-    {
-      // set the desired trim interval
-      SmExtent1d sTrimIvl;
-      if (pEUPrevious->GetOrientation() == SM_OT_SAME) { sTrimIvl.SetMinMax(sPrevIvl.GetMin(),dTPrevNew); }
-      else                                             { sTrimIvl.SetMinMax(dTPrevNew,sPrevIvl.GetMax()); }
-
-      // for nonDegenerate intervals - trim the curve and restore the original parameter range
-      if (!SM_ARE_SAME(sTrimIvl.GetMin(),sTrimIvl.GetMax()))
-        {
-          SER(pPrevUVCurve->Trim(sTrimIvl));  // may snap sIvl by tol to existing knots
-          SER(pPrevUVCurve->EditParameterization(sPrevIvl));
-        }
-    } // end need to trim ThisCurve check
+  //    SolidCraft: the curves are not trimmed at the vertex's drop point and stretched back over
+  //    the edge interval (Trim + EditParameterization): that moves every interior parameter of
+  //    the UVTrimCurve off its edge's by the trimmed length, so the curve no longer follows its
+  //    edge at the same parameter. Only the end control points move (below), by the UV gap.
 
   // get current edgeuse->EndWeights
   SmPoint3d sStart, sEnd;
@@ -8339,7 +8557,7 @@ SmBoolean bDebugMe = FALSE;
 
                   // fix the trim curves so that UVEndPoints have no Gap
                   // this may be done by moving UVTrimCurve EndControlPoints.
-                  sm_FixUVTrimCurves(pEU, pCW, *pV, dTol3d, dUVGapSize, sUVDomain, bFixedIt);
+                  SER( sm_FixUVTrimCurves(pEU, pCW, *pV, dTol3d, dUVGapSize, sUVDomain, bFixedIt) );
 
                   // when UVTrimCurves were 'fixed' recompute the loopuse->edgeuse corner UVGap
                   if ( bFixedIt )
@@ -8814,6 +9032,9 @@ static ULONG lDebugCount2= 0 ;
           && rCrvIvl.m_vEnd.GetPointClass()   == SM_PC_UNKNOWN)
         { continue ; }
 
+      // an interval running along a boundary edge between two points on it is on that edge
+      SER( rCurveClassification.ClassifyEdgeInterval( ii ));
+
       // classify the interval - avoiding point classification if possible
       if ( rCrvIvl.m_vMid.GetPointClass() == SM_PC_UNKNOWN )
         {
@@ -8966,7 +9187,7 @@ SmStatus SmFace::DeleteInnerLoop ( SmLoop * pLoopToDelete )
 
     // Finally, remove the Loop.
     // Removes the Loop and its Loopuses from the Face but deletes nothing.
-    this->RemoveLoop( pLoopToDelete );
+    SER( this->RemoveLoop( pLoopToDelete ) );
 
     delete pLU1;          pLU1 = NULL;
     delete pLU2;          pLU2 = NULL;
@@ -9027,7 +9248,7 @@ SmStatus SmFace::EdgeCurveOnClassify
   ULONG ii ;
   SM_PTR_ARRAY( sEdgeuses, SmEdgeuse, 20) ;
 
-  cpEdge->GetEdgeuses(sEdgeuses);
+  SER( cpEdge->GetEdgeuses(sEdgeuses) );
   SmFaceuse * pUpwardFU = GetUpwardFaceuse();
 
   // work in 3d: when crCurve's domain_dim == 2, use it as an SmCrvOnSurf object to make a 3D curve
@@ -9159,8 +9380,8 @@ SmBoolean bDebugMe = FALSE;
             SmEdgeuse *pEU = (SmEdgeuse*)sEdgeuses[j];
             SmEdgeuse *pCW = pEU->GetCWEdgeuse();
             SmPoint3d s3dPnt, sLast3dPnt;
-            pEU->NormalizedEvaluate(0.0,FALSE,s3dPnt);      // TRUE = UV Eval, FALSE = 3d Eval
-            pCW->NormalizedEvaluate(1.0,FALSE,sLast3dPnt);  // TRUE = UV Eval, FALSE = 3d Eval
+            SER( pEU->NormalizedEvaluate(0.0,FALSE,s3dPnt) );      // TRUE = UV Eval, FALSE = 3d Eval
+            SER( pCW->NormalizedEvaluate(1.0,FALSE,sLast3dPnt) );  // TRUE = UV Eval, FALSE = 3d Eval
             SmVertex *pV = pEU->GetVertexuse()->GetVertex();
             double dTol = pV->GetTolerance();
             if (s3dPnt.DistanceBetween(sLast3dPnt) < dTol) {
@@ -9225,12 +9446,12 @@ SmBoolean bDebugMe = FALSE;
 
             if (pNewEdge->GetOtherVertex(pNewVertex) == pV)
               {
-                pNewEdge->Replace3DCurve(p3DCrv); // note: works for Edge and CEdge, deletes Edge->Curve and UVTrimCurves
+                SER( pNewEdge->Replace3DCurve(p3DCrv) ); // note: works for Edge and CEdge, deletes Edge->Curve and UVTrimCurves
                 pNewEdge->GetPrimaryEdgeuse()->SetUVTrimCurve(pUVCurve,dMaxDist,TRUE) ; // TRUE = delete existing UVTrimCurve
               }
             else
               {
-                pNewEdge2->Replace3DCurve(p3DCrv); // note: works for Edge and CEdge, deletes Edge->Curve and UVTrimCurves
+                SER( pNewEdge2->Replace3DCurve(p3DCrv) ); // note: works for Edge and CEdge, deletes Edge->Curve and UVTrimCurves
                 pNewEdge2->GetPrimaryEdgeuse()->SetUVTrimCurve(pUVCurve,dMaxDist,TRUE) ; // TRUE = delete existing UVTrimCurve
               }
 
@@ -9376,8 +9597,8 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_DEBUG_CODE
 
   // set output
-  rUVDomain.SetMinMax(sNatDomain.ClampPoint2d(sMin),
-                      sNatDomain.ClampPoint2d(sMax));
+  SER( rUVDomain.SetMinMax(sNatDomain.ClampPoint2d(sMin),
+                      sNatDomain.ClampPoint2d(sMax)) );
   rbRectangularTrim = TRUE ;
   rbNaturalTrim     = rUVDomain.GetMaxBoundaryDist2d(sNatDomain) < SM_EFF_ZERO_PARAM ;
 
@@ -9495,9 +9716,9 @@ SmBoolean bDebugMe = FALSE;
   SmExtent1d sIvl = cr3DCurve.GetNaturalInterval() ;
 
   if (eCurveOrientation == SM_OT_SAME)
-       { sIvl.SetMinMax(dCurveParameterAtVertex, smos_Min(dCurveParameterIvlEnd, sIvl.GetMax()));
+       { SER( sIvl.SetMinMax(dCurveParameterAtVertex, smos_Min(dCurveParameterIvlEnd, sIvl.GetMax())) );
        }
-  else { sIvl.SetMinMax(smos_Max(dCurveParameterIvlEnd, sIvl.GetMin()), dCurveParameterAtVertex);
+  else { SER( sIvl.SetMinMax(smos_Max(dCurveParameterIvlEnd, sIvl.GetMin()), dCurveParameterAtVertex) );
        }
 
   // get upward faceuse and face domain
@@ -9777,8 +9998,8 @@ SmBoolean bDebugMe = FALSE;
               bClosedU = GetSurface()->IsClosed(sUVDomain, SM_SP_U) ; 
               bClosedV = GetSurface()->IsClosed(sUVDomain, SM_SP_V) ; 
               
-              GetSurface()->CreateSeamCurve(*cpContext, SM_SP_U, pSeamU, bClosedU) ;
-              GetSurface()->CreateSeamCurve(*cpContext, SM_SP_V, pSeamV, bClosedV) ;
+              SER( GetSurface()->CreateSeamCurve(*cpContext, SM_SP_U, pSeamU, bClosedU)  );
+              SER( GetSurface()->CreateSeamCurve(*cpContext, SM_SP_V, pSeamV, bClosedV)  );
 
               sCleanU.SetObj( pSeamU );
               sCleanV.SetObj( pSeamV );
@@ -9815,8 +10036,8 @@ SmBoolean bDebugMe = FALSE;
           double dU, dV ;
           double dDistU = 0.0, dDistV = 0.0;  
           SmXSectTol3d sXSectTol3d = SmTol::GetXSectTol3d( sZoneTol3d, SmTol::GetZoneTol3d(cpVertex)) ;
-          if(bClosedU) pSeamU->DropPoint( pSeamU->GetNaturalInterval(), sVertexPoint, NULL, sXSectTol3d, NULL, bSuccess, dU, dDistU, SM_SO_MINIMIZE) ;   
-          if(bClosedV) pSeamV->DropPoint( pSeamV->GetNaturalInterval(), sVertexPoint, NULL, sXSectTol3d, NULL, bSuccess, dV, dDistV, SM_SO_MINIMIZE) ;   
+          if(bClosedU) SER( pSeamU->DropPoint( pSeamU->GetNaturalInterval(), sVertexPoint, NULL, sXSectTol3d, NULL, bSuccess, dU, dDistU, SM_SO_MINIMIZE)  );   
+          if(bClosedV) SER( pSeamV->DropPoint( pSeamV->GetNaturalInterval(), sVertexPoint, NULL, sXSectTol3d, NULL, bSuccess, dV, dDistV, SM_SO_MINIMIZE)  );   
           bIsOnSeam =    (bClosedU && dDistU < sXSectTol3d)
                       || (bClosedV && dDistV < sXSectTol3d) ;
 
@@ -9829,11 +10050,11 @@ SmBoolean bDebugMe = FALSE;
       SmEdgeuse * pEUCW  = pEU1->GetCWEdgeuse();
       SmEdge    * pECW   = pEUCW->GetEdge();
       if(pEUCW->GetOrientation() == SM_OT_SAME) { dEUCWParam = pECW->GetInterval().GetMax() ; 
-                                                  pEUCW->NormalizedEvaluate(1.0, TRUE, sPnt, NULL, bUVSpaceOkay);  // TRUE = Eval UV Pnt not 3d; NULL = no 1st derivative
+                                                  SER( pEUCW->NormalizedEvaluate(1.0, TRUE, sPnt, NULL, bUVSpaceOkay) );  // TRUE = Eval UV Pnt not 3d; NULL = no 1st derivative
                                                   sEUCW_UV.Set(sPnt.x, sPnt.y) ;
                                                 }
       else                                      { dEUCWParam = pECW->GetInterval().GetMin() ;
-                                                  pEUCW->NormalizedEvaluate(0.0, TRUE, sPnt, NULL, bUVSpaceOkay);  // TRUE = Eval UV Pnt not 3d; NULL = no 1st derivative
+                                                  SER( pEUCW->NormalizedEvaluate(0.0, TRUE, sPnt, NULL, bUVSpaceOkay) );  // TRUE = Eval UV Pnt not 3d; NULL = no 1st derivative
                                                   sEUCW_UV.Set(sPnt.x, sPnt.y) ;
                                                 }
 
@@ -9916,8 +10137,8 @@ SmBoolean bDebugMe = FALSE;
                   bClosedU = GetSurface()->IsClosed(sUVDomain, SM_SP_U) ;
                   bClosedV = GetSurface()->IsClosed(sUVDomain, SM_SP_V) ;
               
-                  GetSurface()->CreateSeamCurve(*cpContext, SM_SP_U, pSeamU, bClosedU) ;
-                  GetSurface()->CreateSeamCurve(*cpContext, SM_SP_V, pSeamV, bClosedV) ;
+                  SER( GetSurface()->CreateSeamCurve(*cpContext, SM_SP_U, pSeamU, bClosedU)  );
+                  SER( GetSurface()->CreateSeamCurve(*cpContext, SM_SP_V, pSeamV, bClosedV)  );
 
                   sCleanU.SetObj( pSeamU );
                   sCleanV.SetObj( pSeamV );
@@ -9940,7 +10161,7 @@ SmBoolean bDebugMe = FALSE;
                                             &sTangent));
 
                   // get the curve tangent at the vertex parameter
-                  pCurve->Evaluate(dCurveParameterAtVertex, 1, TRUE, sCurvePV, TRUE) ;
+                  SER( pCurve->Evaluate(dCurveParameterAtVertex, 1, TRUE, sCurvePV, TRUE)  );
 
                   // check the angle between the edgeuse/face plane and the curve tangent
                   SmVector3d sNormal = sTangent * sBinormal ;
@@ -10203,18 +10424,18 @@ void SmFace::GetLoops
   // locals
   ULONG ii ;
 
-  // memory hack - use rLoops first as SmTArray<SmLoopuse*> then as SmTArray<SmLoop*>
+  // Loopuses for this one Faceuse (SolidCraft: in an array of their own; an
+  // SmTArray<SmLoop*> is not an SmTArray<SmLoopuse*>)
+  SmTArray<SmLoopuse*> sLoopuses ;
+  if(m_pFU) m_pFU->GetLoopuses(sLoopuses, bTgtLoopsOnly, pOptTgtLoops) ;
 
-  // Loopuses for this one Faceuse
-  if(m_pFU) m_pFU->GetLoopuses(SM_REINTERPRET_CAST(SmTArray<SmLoopuse*>&,rLoops), bTgtLoopsOnly, pOptTgtLoops) ;
-
-  ULONG lCnt = rLoops.GetSize() ; 
+  ULONG lCnt = sLoopuses.GetSize() ; 
   rLoops.SetSize(lCnt) ;
 
   // for every Loopuse - get assoc Loop
   for(ii=0; ii<lCnt; ii++)
     {
-      SmLoopuse *pLU = (SmLoopuse*)rLoops[ii] ; SM_ASSERT(pLU!=NULL) ;
+      SmLoopuse *pLU = sLoopuses[ii] ; SM_ASSERT(pLU!=NULL) ;
       rLoops[ii] = pLU->m_pL;
     }
 } // end SmFace::GetLoops
@@ -10793,7 +11014,7 @@ SmStatus SmFace::IdentifyFillet
       else
         {
           SmVector2d sSizes;
-          this->GetSurface()->ApproximateSize( sSizes );
+          SER( this->GetSurface()->ApproximateSize( sSizes ) );
           eWhichDir = ( sSizes.x > sSizes.y ) ? SM_SP_U : SM_SP_V;
         }
 
@@ -10929,7 +11150,7 @@ SmBoolean bDebugMe = FALSE;
 
   // Also, the rails must be distinct: a fillet cannot be closed in the rib direction.
   SmPoint3d sRailPt;
-  pMinRail->EvaluatePoint( dParamGuessMin, sRailPt );
+  SER( pMinRail->EvaluatePoint( dParamGuessMin, sRailPt ) );
   SmBoolean bSuccess;
   double dParam, dDist;
   SmStatus eStat = pMaxRail->DropPoint(sMinRailDomain,  // in : target curve allowed domain
@@ -11409,7 +11630,7 @@ SmStatus SmFace::FaceIntersect
   
           // Trim CopyCrv to Edge interval
           SmExtent1d sInterval = pEdge->GetInterval();
-          pNewCrv->Trim( sInterval, TRUE );  // may snap sIvl by tol to existing knots
+          SER( pNewCrv->Trim( sInterval, TRUE ) );  // may snap sIvl by tol to existing knots
   
           // place the Edge->BndryCrve into the XSect output s3DCurves and sCurveTypes arrays - no UVTrimCurves
           s3DCurves.Add(pNewCrv) ;
@@ -11444,7 +11665,7 @@ SmStatus SmFace::FaceIntersect
   
               // trim CopyCrv to edge ivl
               SmExtent1d sInterval = pEdge->GetInterval();
-              pNewCrv->Trim( sInterval, TRUE );  // may snap sIvl by tol to existing knots
+              SER( pNewCrv->Trim( sInterval, TRUE ) );  // may snap sIvl by tol to existing knots
   
               // add CopyCrv to s3DCurves output
               s3DCurves.Add(pNewCrv) ;
@@ -11558,11 +11779,11 @@ SmBoolean bDebugMe = FALSE;
           SmPointClassificationType sPCT2 ;
   
           // 3D pnt loc for XSect
-          s3DCurves[ii]->EvaluatePoint( 0.5, sPoint );
+          SER( s3DCurves[ii]->EvaluatePoint( 0.5, sPoint ) );
   
           // Classify point against both faces
-          this->      Point3DClassify(sPoint, m_sZoneTol3d,    TRUE, sPC1) ;
-          pOtherFace->Point3DClassify(sPoint, sOtherZoneTol3d, TRUE, sPC2) ;
+          SER( this->      Point3DClassify(sPoint, m_sZoneTol3d,    TRUE, sPC1)  );
+          SER( pOtherFace->Point3DClassify(sPoint, sOtherZoneTol3d, TRUE, sPC2)  );
           sPCT1 = sPC1.GetPointClass();
           sPCT2 = sPC2.GetPointClass();
   
@@ -11739,7 +11960,7 @@ SmStatus SmFace::GlobalLineIntersect
           SmPoint2d sUV( rSol.m_vStart[1], rSol.m_vStart[2] );
 
           SmPointClassification sClassification(sSrcZoneTol3d, GetContext());
-          this->PointClassify( sUV, sSrcZoneTol3d, true, true, sClassification );
+          SER( this->PointClassify( sUV, sSrcZoneTol3d, true, true, sClassification ) );
           if( sClassification.GetPointClass() == SM_PC_UNKNOWN ) 
             {
               sRemovalIndices.Add( ii );
@@ -12470,47 +12691,99 @@ SmBoolean bDebugMe = FALSE;
   SmVector3d sDerivU, sDerivV;
 
   // Eval Surface at TargetPoint
-  GetSurface()->Evaluate1stDerivatives(crUVPointToClassify,
+  SER( GetSurface()->Evaluate1stDerivatives(crUVPointToClassify,
                                        FALSE, FALSE,
                                        sSurfPt,
-                                       sDerivU, sDerivV) ;
+                                       sDerivU, sDerivV)  );
 
     { // begin Scope for TargetPoint/Vertex intersection
 
-      // Get Vertices
-      SmTArray< SmVertex* > apVerts;
-      this->GetVertices( apVerts, NULL, bTgtLoopsOnly, pOptTgtLoops ) ;
-
-      // see if the target point is on a vertex location
-      for(ii=0;ii<apVerts.GetSize();ii++)
+      // The vertex tolerance of the test below: at least the face's and pVert's own.
+      auto VertexTol = [&](const SmVertex * pVert) -> double
         {
-          SmVertex *pVert = apVerts[ii];
-
           double dVertTol = smos_Max( this->GetTolerance(), pVert->GetTolerance() );
-
     #ifdef SM_USE_NEWTOL
           SM_NEWTOL_LINE dVertTol = smos_Max( dVertTol, rPointClassification.GetGap3d() );
     #else // SM_USE_OLDTOL
           SM_OLDTOL_LINE dVertTol = smos_Max( dVertTol, (double)rPointClassification.GetTolerance() );
     #endif // SM_USE_OLDTOL
+          return dVertTol ;
+        } ;
+      // When the point is at pVert, classify it there.
+      auto AtVertex = [&](SmVertex * pVert) -> SmBoolean
+        {
+          double dVertTol = VertexTol( pVert ) ;
+          if(!pVert->GetPoint().CloserThan(dVertTol, sSurfPt))
+            { return FALSE ; }
 
-          if(pVert->GetPoint().CloserThan(dVertTol, sSurfPt))
-            {
-              rPointClassification.SetClassObject(SM_PC_VERTEX, pVert) ;
+          rPointClassification.SetClassObject(SM_PC_VERTEX, pVert) ;
 
-              // Need to calculate the deviation.
+          // Need to calculate the deviation.
     #ifdef SM_USE_NEWTOL
-              SM_NEWTOL_LINE rPointClassification.SetGap3d       (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
-              SM_NEWTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
+          SM_NEWTOL_LINE rPointClassification.SetGap3d       (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
+          SM_NEWTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
     #else // SM_USE_OLDTOL
-              SM_OLDTOL_LINE rPointClassification.SetDeviation   (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
-              SM_OLDTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
+          SM_OLDTOL_LINE rPointClassification.SetDeviation   (pVert->GetPoint().DistanceBetween(sSurfPt)) ;
+          SM_OLDTOL_LINE rPointClassification.SetSrcZoneTol3d(dVertTol) ;
     #endif // SM_USE_OLDTOL
 
-              rPointClassification.SetPreSnapParam(SM_BIG_DOUBLE) ;
-              return SM_SUCCESS ;
+          rPointClassification.SetPreSnapParam(SM_BIG_DOUBLE) ;
+          return TRUE ;
+        } ;
+
+      // The point is at the first face vertex, in GetVertices' order, within that vertex's
+      // tolerance of it. Within a SmTopologyListWalkScope (SmBrep::AssertValid, which
+      // classifies every vertex of every face) the face's vertices are gathered once, with a
+      // box search over their points: the first of the vertices it finds near the point that
+      // passes the test is that first vertex.
+      const SmFaceVertexIndex * pIndex = bTgtLoopsOnly ? NULL : SmTopologyListWalkScope::FaceVertices( this ) ;
+      SmBoolean bSearched = FALSE ;
+      if (pIndex && pIndex->m_bOK)
+        {
+          const double dFaceTol = this->GetTolerance() ;
+    #ifdef SM_USE_NEWTOL
+          const double dPointTol = rPointClassification.GetGap3d() ;
+    #else // SM_USE_OLDTOL
+          const double dPointTol = (double)rPointClassification.GetTolerance() ;
+    #endif // SM_USE_OLDTOL
+          // A directive may not stand inside a macro's argument (MSVC): the tolerance is chosen above.
+          const double dPad = smos_Max( smos_Max( dFaceTol, pIndex->m_dMaxVertexTol ), dPointTol ) ;
+          std::vector<ULONG> sNear ;
+          if (std::isfinite(dPad) && pIndex->m_sSearch.Query( SmExtent3d( sSurfPt ), dPad, sNear ))
+            {
+              bSearched = TRUE ;
+              for (ULONG kv = 0; kv < sNear.size(); kv++)
+                {
+                  if (AtVertex( pIndex->m_vVertices[sNear[kv]] ))
+                    { return SM_SUCCESS ; }
+                }
             }
-        } // end iter every face vertex
+        }
+
+      // Otherwise walk the face's vertices loop by loop, in GetVertices' order, up to the first
+      // one at the point. GetVertices lists each loop's vertices once; walking the vertexuses
+      // instead meets a repeated vertex again only after its first test failed, so the first
+      // match is the same, without building and de-duplicating the face's whole list on every
+      // call.
+      if (!bSearched)
+      {
+      SmFaceuse * pVertFU = GetUpwardFaceuse() ;
+      SmTArray< SmLoopuse* > apVertLUs ;
+      SmTArray< SmVertexuse* > apVUs ;
+      if (pVertFU)
+        { pVertFU->GetLoopuses( apVertLUs, bTgtLoopsOnly, pOptTgtLoops ) ; }
+
+      // see if the target point is on a vertex location
+      for(ULONG iLU=0; iLU<apVertLUs.GetSize(); iLU++)
+      {
+      apVertLUs[iLU]->GetVertexuses( apVUs ) ;
+      for(ii=0;ii<apVUs.GetSize();ii++)
+        {
+          if (AtVertex( apVUs[ii]->GetVertex() ))
+            { return SM_SUCCESS ; }
+        } // end iter every loop vertex
+      } // end iter every loop
+      }
     } // end Scope for TargetPoint/Vertex intersection
 
   // arrive here when TargetPoint is not on a vertex, 
@@ -12582,7 +12855,7 @@ SmBoolean bDebugMe = FALSE;
                   rPointClassification.SetTParam     (dEdgeParam) ;
 
                   // Need to calculate the deviation.
-                  pOnEdge->GetCurve()->EvaluatePoint (dEdgeParam, sEdgePt) ;
+                  SER( pOnEdge->GetCurve()->EvaluatePoint (dEdgeParam, sEdgePt)  );
 
             #ifdef SM_USE_NEWTOL
                   SM_NEWTOL_LINE rPointClassification.SetGap3d(sEdgePt.DistanceBetween(sSurfPt)) ;
@@ -12638,7 +12911,7 @@ SmBoolean bDebugMe = FALSE;
                   rPointClassification.SetTParam     (dEdgeParam) ;
 
                   // Need to calculate the deviation.
-                  pOnEdge->GetCurve()->EvaluatePoint (dEdgeParam, sEdgePt) ;
+                  SER( pOnEdge->GetCurve()->EvaluatePoint (dEdgeParam, sEdgePt)  );
 
     #ifdef SM_USE_NEWTOL
                   SM_NEWTOL_LINE rPointClassification.SetGap3d       (sEdgePt.DistanceBetween(sSurfPt)) ;
@@ -13137,7 +13410,9 @@ SmStatus SmFace::SectorClassifyCurveOn
       SmExtent1d sIvlEU1 = cpEU1->GetEdge()->GetInterval();
       SmExtent1d sIvlEU2 = cpEU2->GetEdge()->GetInterval();
 
-      pEU1Curve->EuclidianStepOff(sIvlEU1,                       // in : range of curve to investigate
+      // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+      // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+      (void)pEU1Curve->EuclidianStepOff(sIvlEU1,                       // in : range of curve to investigate
                                   dEU1Param,                     // in : initial point
                                   eEU1CurveOrient,               // in : SM_OT_SAME    =search increasing param values
                                                                  //      SM_OT_OPPOSITE=search decreasing param values
@@ -13146,7 +13421,9 @@ SmStatus SmFace::SectorClassifyCurveOn
                                   bClamped,                      // out: TRUE= stopped because search steped out of interval before converging.
                                   dNewEU1Param);                 // out: found point on curve dStepOffDistance from initial point
 
-      pEU2Curve->EuclidianStepOff(sIvlEU2,                       // in : range of curve to investigate
+      // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+      // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+      (void)pEU2Curve->EuclidianStepOff(sIvlEU2,                       // in : range of curve to investigate
                                   dEU2Param,                     // in : initial point
                                   eEU2CurveOrient,               // in : SM_OT_SAME    =search increasing param values
                                                                  //       SM_OT_OPPOSITE=search decreasing param values
@@ -13155,7 +13432,9 @@ SmStatus SmFace::SectorClassifyCurveOn
                                   bClamped,                      // out: TRUE= stopped because search steped out of interval before converging.
                                   dNewEU2Param);                 // out: found point on curve dStepOffDistance from initial point
 
-      cpCurve->EuclidianStepOff(crCurveInterval,                 // in : range of curve to investigate
+      // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+      // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+      (void)cpCurve->EuclidianStepOff(crCurveInterval,                 // in : range of curve to investigate
                                 dCurveParam,                     // in : initial point
                                 eCurveOrientation,               // in : SM_OT_SAME    =search increasing param values
                                                                  //       SM_OT_OPPOSITE=search decreasing param values
@@ -13528,7 +13807,9 @@ SmBoolean bDebugThisFaceIndx = FALSE ; // if(    (bDebugThisFaceIndx || bDebugAl
              // already defined: SmCurve *pEU1Curve = cpEU1->GetEdge()->GetCurve();
           SmExtent1d sIvlEU1 = cpEU1->GetEdge()->GetInterval();
           SmBoolean bClamped;
-          pEU1Curve->EuclidianStepOff(sIvlEU1,dEU1Param,eEU1CurveOrient,
+          // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+          // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+          (void)pEU1Curve->EuclidianStepOff(sIvlEU1,dEU1Param,eEU1CurveOrient,
                                       dStepoffDistance,
                                       sEdgeCurve_XSectTol3d/1000.0,
                                       bClamped,dNewEU1Param);
@@ -13546,7 +13827,9 @@ SmBoolean bDebugThisFaceIndx = FALSE ; // if(    (bDebugThisFaceIndx || bDebugAl
 
           // compute dNewEU2Param for point StepOffDistance from EU2 end
           SmExtent1d sIvlEU2 = cpEU2->GetEdge()->GetInterval();
-          pEU2Curve->EuclidianStepOff(sIvlEU2,dEU2Param,eEU2CurveOrient,
+          // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+          // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+          (void)pEU2Curve->EuclidianStepOff(sIvlEU2,dEU2Param,eEU2CurveOrient,
                                       dStepoffDistance,
                                       sEdgeCurve_XSectTol3d/1000.0,
                                       bClamped,dNewEU2Param);
@@ -13563,7 +13846,9 @@ SmBoolean bDebugThisFaceIndx = FALSE ; // if(    (bDebugThisFaceIndx || bDebugAl
             }
 
           // compute dNewCurveParam for point StepOffDistance from Curve end
-          cpCurve->EuclidianStepOff(crCurveInterval,dCurveParam,eCurveOrientation,
+          // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+          // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+          (void)cpCurve->EuclidianStepOff(crCurveInterval,dCurveParam,eCurveOrientation,
                                     dStepoffDistance,
                                     sEdgeCurve_XSectTol3d/1000.0,
                                     bClamped,dNewCurveParam);
@@ -13762,7 +14047,9 @@ SmBoolean bDebugMe = FALSE;
         }
       else  // in case curve is singular at end.
         {
-          cpCurve->EuclidianStepOff( crCurveInterval, dCurveParam,
+          // SolidCraft: (void). SM_ERR here means the step stopped at the interval's end (bClamped)
+          // or did not converge in 30 steps; rdEndParam is set either way, and is what is read.
+          (void)cpCurve->EuclidianStepOff( crCurveInterval, dCurveParam,
                                      eCurveOrientation, dStepoffDist, 
                                      sEdgeCurve_XSectTol3d/1000.0,
                                      bClamped, dCurveStepoffParam );
@@ -13771,7 +14058,7 @@ SmBoolean bDebugMe = FALSE;
             { bDone = TRUE; }
         }
 
-      cpCurve->EvaluatePoint( dCurveStepoffParam, sCrvPt );
+      SER( cpCurve->EvaluatePoint( dCurveStepoffParam, sCrvPt ) );
 
 
       // Get surface uv for the stepped-off curve point.
@@ -13849,40 +14136,27 @@ SmStatus SmFace::SwapUV()
   SmAxis2Placement     sMirror;
   SmVector3d           sXAxis(1,1,0);
   SER(sXAxis.Unitize());
-  sMirror.SetCanonical(SmPoint3d(0,0,0),sXAxis,SmVector3d(0,0,1)); // x:[1 1 0] y:[0 0 1] z=cross(x,y):[1 -1 0]
+  SER( sMirror.SetCanonical(SmPoint3d(0,0,0),sXAxis,SmVector3d(0,0,1)) ); // x:[1 1 0] y:[0 0 1] z=cross(x,y):[1 -1 0]
 
 
 
-  // Transpose the Face->UVDomain. We are going delay swapping UV on the surface until we check the UV trim curves.
-  // When 3d edge curves are CrvOnSurf, we get a UV trim curve for free, but only if the surface for the face and the
-  // underlying surface for the CrvOnSurf agree. 
-
-  SmExtent2d sUVDomain = GetUVDomain();
-  SmExtent2d sTranspose(SmPoint2d(sUVDomain.GetMin().y,sUVDomain.GetMin().x),
-                        SmPoint2d(sUVDomain.GetMax().y,sUVDomain.GetMax().x) );
-  SetUVDomain(sTranspose);
+  // Mirror the UV trims and swap the surface (the steps that can fail) before changing the face,
+  // so that a failure leaves the face unchanged.
 
   // Get Face->Upward Loopuses
   GetUpwardLoopuses(sUpwardLUs);
-
-  // prepare to Edit
-  Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_BREP(this), NULL);
 
   // Need to wait to set new UV trims until surface gets swapped, to allow surface to agree for CrvOnSurf.
   // Will hold the edgeuses and UV trims until afterwards, and then set them.
   SmTArray<SmEdgeuse*> sEdgeusesToSet;
   SmTArray<SmBSplineCurve*> sNewUVTrims;
+  SmObjsDelete<SmBSplineCurve*> sCleanNewUVTrims(&sNewUVTrims);
 
   // for every Upward Loopuse -> EdgeuseMated Pair - Transpose the UVTrimCurve (as a mirror operation)
   for (ULONG i=0; i<sUpwardLUs.GetSize(); i++)
     {
-      // Swap primary and secondary loopuses  
-      SmLoopuse *pLU     = sUpwardLUs[i];
-      SmLoop    *pLoop   = pLU->GetLoop();
-      SmLoopuse *pLUMate = pLU->GetOtherLoopuse();
-      pLoop->m_pLU       = pLUMate;
-
-      // next: Mirror UV curves
+      // Mirror UV curves
+      SmLoopuse *pLU = sUpwardLUs[i];
       pLU->GetEdgeuses(sEdgeuses);
 
       // for every Edgeuse mated pair - mirror the UVTrimCurve
@@ -13925,14 +14199,31 @@ SmBoolean bDebugMe = FALSE;
         } // end iter every edgeuse mated pair
     } // end iter every upward Loopuse->Edgeuse MatedPair transposing UVTrimCurves
 
+  // prepare to Edit
+  Notify(SM_NO_PRE_EDIT, this, SM_NO_GET_BREP(this), NULL);
+
   // swap theSurface UV orientation
   SER(pSurface->SwapUV());
+
+  // Transpose the Face->UVDomain
+  SmExtent2d sUVDomain = GetUVDomain();
+  SmExtent2d sTranspose(SmPoint2d(sUVDomain.GetMin().y,sUVDomain.GetMin().x),
+                        SmPoint2d(sUVDomain.GetMax().y,sUVDomain.GetMax().x) );
+  SetUVDomain(sTranspose);
+
+  // Swap primary and secondary loopuses
+  for (ULONG i=0; i<sUpwardLUs.GetSize(); i++)
+    {
+      SmLoopuse *pLU = sUpwardLUs[i];
+      pLU->GetLoop()->m_pLU = pLU->GetOtherLoopuse();
+    }
 
   SM_ASSERT(sNewUVTrims.GetSize() == sEdgeusesToSet.GetSize());
   for (ULONG ii = 0; ii < sNewUVTrims.GetSize(); ii++)
   {
         sEdgeusesToSet[ii]->SetUVTrimCurve(sNewUVTrims[ii], 0.0, TRUE); // TRUE = delete existing
   }
+  sCleanNewUVTrims.Clear(); // now owned by the edgeuses
 
   // Swap the Face->Faceuses swapping the upper and lower faceuses with one another
   SmFaceuse *pFU = GetUpwardFaceuse();
@@ -13988,7 +14279,7 @@ SmStatus SmFace::ShrinkSurface()
 // #ifdef SM_NO_COMPOSITES
     // Expand the final domain a little ... but not bigger than sSurfDomain.
     sFaceDomain.ExpandRelative( 0.01 );
-    sFaceDomain.Intersect( sNewDomain, sFaceDomain );
+    SER( sFaceDomain.Intersect( sNewDomain, sFaceDomain ) );
 // #endif  // SM_NO_COMPOSITES
 
   this->SetUVDomain(sNewDomain);
@@ -13996,7 +14287,7 @@ SmStatus SmFace::ShrinkSurface()
   SER(pSrf->TrimWithDomain(sFaceDomain));
 
   // remove all associated UVTrimCurves
-  this->RemoveUVTrimCurves();
+  SER( this->RemoveUVTrimCurves() );
 
   return(SM_SUCCESS);
 
@@ -14034,7 +14325,7 @@ void SmFace::WriteAsTrimmedSurface(const TCHAR * cOutputFileName)  const
         fclose(pFile);
         for (ULONG jjj=0; jjj<s3DCurves.GetSize(); jjj++) {
             SmBSplineCurve *pBSC = SM_CAST_PTR(SmBSplineCurve,s3DCurves[jjj]);
-            pBSC->WriteToFile(cOutputFileName);
+            (void)pBSC->WriteToFile(cOutputFileName); // SolidCraft: debug output only
         }
         pFile = SM_FOPEN(cOutputFileName,_T("a+"));
     }
@@ -14044,7 +14335,7 @@ void SmFace::WriteAsTrimmedSurface(const TCHAR * cOutputFileName)  const
         fclose(pFile);
         for (ULONG jjj=0; jjj<sUVCurves.GetSize(); jjj++) {
             SmBSplineCurve *pBSC = sUVCurves[jjj];
-            pBSC->WriteToFile(cOutputFileName);
+            (void)pBSC->WriteToFile(cOutputFileName); // SolidCraft: debug output only
         }
         pFile = SM_FOPEN(cOutputFileName,_T("a+"));
     }
@@ -14341,7 +14632,7 @@ SmStatus SmFace::OutputPolygons
     if (dSrfTol < SM_EFF_ZERO)
     {
         SmExtent3d sBBox;
-        this->CalculateBoundingBox(sBBox);
+        SER( this->CalculateBoundingBox(sBBox) );
         double dSize = sBBox.GetSize().Length();
         dSrfTol = dSize / 300.0;
     }
@@ -14802,14 +15093,14 @@ static SmStatus sm_DrawFaceUVCurve
     {
       // build 3d isoParameter curve
       SmBSplineCurve * pIsoCurve3d = NULL ;
-      pSurface->CreateIsoParametricCurve
+      SER( pSurface->CreateIsoParametricCurve
         (*pFace->GetContext(), // in : context for created objects
           eSurfParam,          // in : NurbParam SurfDir for IsoParamCurve
           dIsoParameter,       // in : NurbParam value for IsoParamCurve
           1.0e-2,              // in : ApproxTol3d when approximation is required.
                                //      0.0 = Set by System: old[curve length * 1.0e-4], new[GetApproxTol3d()]
           pIsoCurve3d,         // out: 3d IsoParameterCurve
-         &sUVDomain) ;         // in : optional trim bound for IsoParameterCurve, NULL to ignore, default:[NULL]
+         &sUVDomain)  );         // in : optional trim bound for IsoParameterCurve, NULL to ignore, default:[NULL]
       SmObjDelete sCleanup(pIsoCurve3d);
 
       // low work - if surface naturally trimmed - display entire IsoCurve
@@ -14930,6 +15221,51 @@ SmBoolean bDebugMe = FALSE ;
 #endif // SM_GFX_OUTPUT_CODE
 
 /*******************************************************************//**
+PURPOSE: Identify a whole closed surface represented only by vertex loops.
+
+NOTES: Isolated vertices do not trim a closed surface to a smaller patch.
+       Its natural seams must be inserted without replacing the face or
+       discarding vertices shared with other topology. No UV trims or loop
+       containment classification are needed for this predicate. Reuse cached
+       surface closure when available; early degeneracy checks run before it
+       is populated and still query the surface directly.
+***********************************************************************/
+SmBoolean SmFace::IsClosedSurfaceWithVertexLoops
+ (const SmFaceProps *pOptFaceProps) // in : current face properties; NULL or unavailable closure = query surface
+ const
+{
+  if(m_pFU == NULL || GetSurface() == NULL) { return FALSE; }
+  SmLoopuse *pFirstLoopuse = m_pFU->Get1stLoopuse();
+  if(pFirstLoopuse == NULL) { return FALSE; }
+  SmLoopuse *pLoopuse = pFirstLoopuse;
+  do
+    {
+      if(!pLoopuse->IsVertexLoopuse()) { return FALSE; }
+      pLoopuse = (SmLoopuse*)pLoopuse->GetNext();
+    }
+  while(pLoopuse != pFirstLoopuse);
+
+  // Stage 2 sets closure before calling HasSeamProblem, while its stage is 2a.
+  if(   pOptFaceProps
+     && pOptFaceProps->m_pFace == this
+     && pOptFaceProps->m_cpSurface == GetSurface()
+     && pOptFaceProps->m_ePropStage >= SM_PROPSTAGE_2a
+     && pOptFaceProps->m_bClosedSurf != UNSURE)
+    { return pOptFaceProps->m_bClosedSurf == TRUE; }
+
+  const SmSurface *pSurface = GetSurface();
+  SmExtent2d       sDomain  = pSurface->GetNaturalUVDomain();
+  SmXSectTol3d     sXSectTol = SmTol::GetXSectTol3d(this,this);
+  SmBoolean       bClosedU  = pSurface->IsClosed(sDomain,SM_SP_U,&sXSectTol.val);
+  SmBoolean       bClosedV  = pSurface->IsClosed(sDomain,SM_SP_V,&sXSectTol.val);
+  ULONG           lPoles   = pSurface->GetSingularities();
+
+  return    (bClosedU && bClosedV)
+         || (bClosedU && (lPoles & SM_SS_VMIN) && (lPoles & SM_SS_VMAX))
+         || (bClosedV && (lPoles & SM_SS_UMIN) && (lPoles & SM_SS_UMAX));
+}
+
+/*******************************************************************//**
 PURPOSE: Return TRUE when face is degenerate
 
 NOTES: A degenerate face is one in which every point on
@@ -14967,6 +15303,9 @@ SmBoolean SmFace::IsDegenerate
   SmZoneTol3d * pOptZoneTol3d)      // in : Optional zone tol to apply to face and edges
  const
 {
+  // A missing natural boundary does not make the retained closed surface a sliver.
+  if(IsClosedSurfaceWithVertexLoops()) { return FALSE; }
+
   // return value
   SmBoolean bFaceDegenerate = TRUE ;
 
@@ -15226,7 +15565,7 @@ SmBoolean bDebugMe = FALSE ;
           if(sSolutions.GetSize() > 0)
             {
               // insert any GlobalCoincidenceChecker() solutions into target curve classification
-              pClassify1->InsertTopologyIntersections(sSolutions,        // in : array of target solutions
+              (void)pClassify1->InsertTopologyIntersections(sSolutions,        // in : array of target solutions // SolidCraft: a failed insertion leaves the classification without it, read below as not coincident
                                                       0) ;               // in : lSolutionObjectIndex
 
               //      // if the classification modified the curve shape to tighten tolerances
@@ -15241,7 +15580,7 @@ SmBoolean bDebugMe = FALSE ;
               //      }
 
               // insert anyGlobalCoincidenceChecker() solutions into other curve classification
-              pClassify2->InsertTopologyIntersections(sSolutions,        // in : array of target solutions
+              (void)pClassify2->InsertTopologyIntersections(sSolutions,        // in : array of target solutions // SolidCraft: a failed insertion leaves the classification without it, read below as not coincident
                                                       1) ;               // in : lSolutionObjectIndex
 
               // done with this edge once it is completely coincident
@@ -15537,7 +15876,7 @@ NOTES:   This method is helpful when reading in models from other systems that
          Pass the output from HasSeamProblem to those methods to save a
          little time by avoiding calling HasSeamProblem() twice.
 ***********************************************************************/
-SmBoolean SmFace::HasSeamProblem
+SmStatus SmFace::HasSeamProblem // SolidCraft change: returns a status (SmFace.h)
 (
   SmCurveClassification & rCrvClassU,     // i/o: ConstU_Seam/Face Classification, const U isoParameterCurve 
   SmCurveClassification & rCrvClassV,     // i/o: ConstV_Seam/Face Classification, const V isoParameterCurve
@@ -15591,9 +15930,14 @@ static ULONG lCount      = 1 ; lCount++ ;
   reMissingSeam  = SM_SP_UNKNOWN ;
   reNearMissSeam = SM_SP_UNKNOWN ;
 
+  // SolidCraft change: the outputs say "no problem" until the classification finds one
+  reCrossedSeam  = SM_SP_NEITHER ;
+  reMissingSeam  = SM_SP_NEITHER ;
+  reNearMissSeam = SM_SP_NEITHER ;
+
   // no work - no surface - return Okay
   if(GetSurface() == NULL)
-    { return FALSE ; }
+    { return SM_SUCCESS ; }
 
   // classify periodic surface and prepare for upcoming classifications
   SmSurface       * pSurface   = GetSurface() ;
@@ -15611,7 +15955,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       reCrossedSeam  = SM_SP_NEITHER ;
       reMissingSeam  = SM_SP_NEITHER ;
       reNearMissSeam = SM_SP_NEITHER ;
-      return FALSE ; 
+      return SM_SUCCESS ; 
     }
 
   // locals
@@ -15637,7 +15981,7 @@ static ULONG lCount      = 1 ; lCount++ ;
   if(pFaceProps->m_ePropStage < SM_PROPSTAGE_2a)
     {
       // run FaceProps->SetProps_Stage2: This is a recursive call after which HasSeamProblem has already run
-      pFaceProps->SetProps_Stage2(this, pFaceProps->m_lFaceIndx == SM_UNDEF_ULONG ? 0 : pFaceProps->m_lFaceIndx, SM_HO_ALL) ;
+      SER( pFaceProps->SetProps_Stage2(this, pFaceProps->m_lFaceIndx == SM_UNDEF_ULONG ? 0 : pFaceProps->m_lFaceIndx, SM_HO_ALL) ) ;
 
       // set output and return
       rCrvClassU     = *pFaceProps->m_pCrvClassU ;
@@ -15658,7 +16002,9 @@ static ULONG lCount      = 1 ; lCount++ ;
       // Build SeamConstU curve
       SmCrvOnSurf * pSeamConstU = NULL ;
 
-      pSurface->CreateSeamCurve(*pContext, SM_SP_U, pSeamConstU, bPeriodicU) ;
+      // SolidCraft change: a seam curve that was not made cannot be classified (it was used NULL)
+      SER( pSurface->CreateSeamCurve(*pContext, SM_SP_U, pSeamConstU, bPeriodicU) ) ;
+      NER( pSeamConstU ) ;
 
       // build SeamU classification object
       SmCurveInterval         aDataU[20] ;
@@ -15683,15 +16029,13 @@ static ULONG lCount      = 1 ; lCount++ ;
       sCrvClassU.SetTgtLoopsOnly(bOuterLoopOnly) ;
       sCrvClassU.SetOKToSetTolerance(FALSE) ;
 
-      // init output
-      rCrvClassU = sCrvClassU ;
-
-      // switch pSeamConstU ownership to rCrvClassU
-      rCrvClassU.SetIsCurveOwned(TRUE) ;
+      // init output: hand pSeamConstU to rCrvClassU (operator= deep copies an owned curve)
       sCrvClassU.SetIsCurveOwned(FALSE) ;
+      rCrvClassU = sCrvClassU ;
+      rCrvClassU.SetIsCurveOwned(TRUE) ;
 
       // classify the SeamCurve3d against this face
-      CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
+      SER( CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
                                             //      FALSE=classify such points as unknown. (good when Curve is known to be InFace)
                       rCrvClassU,           // i/o: contains m_cpCurve to classify, accumulates ivls as they are found.
                       bHasBigGaps_TRUE,     // in : TRUE = m_cpCurve and Face->Edges connect to Face where Edge/Face gaps are suspected to exceed XSectTol3d.
@@ -15710,11 +16054,11 @@ static ULONG lCount      = 1 ; lCount++ ;
                                             //      If this is the only classification call, then CrvClassif is complete
                                             //      and may be used as returned.
                                             //      NULL to ignore, default:[NULL]
-                      bUVSpaceOkay_FALSE) ; // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
+                      bUVSpaceOkay_FALSE)  ); // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
                                             //      FALSE= don't use UVSpace because UVTrimCurves are not known to be valid, default:[TRUE]
 
       // How many times is the U Seam crossed by loop (can be crossed by an Edge or Edge->Vertex->Edge complex)
-      rCrvClassU.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListU, &pFaceProps->m_sDoneTouchListU) ;
+      SER( rCrvClassU.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListU, &pFaceProps->m_sDoneTouchListU)  );
 
       // Find and Fix False SeamEdge EndPoint Classifications for CrvClassifies that start and stop on a SeamEdge
       //  this cleanup stops predicate SmCurveClassification::IsCrossedByEdge() from returning false positives
@@ -15727,7 +16071,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       SmPointClassification * pFirstOnEdge, * pLastOnEdge ;
       SmEdgeuse             * pFirstEdgeuseOnEdge, * pLastEdgeuseOnEdge ;
       ULONG                   lFalseEdgeClassifyCnt ;
-      sms_ReviewStartAndStopOnSeamCrvClassifies
+      SER( sms_ReviewStartAndStopOnSeamCrvClassifies
         (rCrvClassU,                              // in : Tgt CrvClassification
          *(SmCurve *)(pSeamConstU->GetUVCurve()), // in : UVTrimLine associated with ClassifyCrv
          pFirstOnEdge,                            // out: NotNULL = ClassifyCrv First PtClassify on an EdgeSide part of FaceBndry, NULL = Not on an Edge
@@ -15735,7 +16079,7 @@ static ULONG lCount      = 1 ; lCount++ ;
          pFirstEdgeuseOnEdge,                     // out: The Edgeuse that bounds the FirstPtClassify when it classifies to an Edge
          pLastEdgeuseOnEdge,                      // out: The Edgeuse that bounds the LastPtClassify  when it classifies to an Edge
          lFalseEdgeClassifyCnt,                   // out: number of PtClassify Edge to UNKNOWN changes made to CrvClassification
-         pOptFaceProps) ;                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
+         pOptFaceProps)  );                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
 
       // analyze rCrvClassU for problems (Crossing or Missing)
       bCrossedU  = rCrvClassU.IsCrossedByEdge() ;    // only count seam crossings by an Edge
@@ -15802,7 +16146,8 @@ static ULONG lCount      = 1 ; lCount++ ;
     {
       // Build SeamConstV curve
       SmCrvOnSurf * pSeamConstV = NULL ;
-      pSurface->CreateSeamCurve(*pContext, SM_SP_V, pSeamConstV, bPeriodicV) ;
+      SER( pSurface->CreateSeamCurve(*pContext, SM_SP_V, pSeamConstV, bPeriodicV) ) ;
+      NER( pSeamConstV ) ;
      // SmObjDelete sObjCleapupCrv(pSeamConstV); // JLMCC added to attempt to address memory leak
 
       // build SeamV classification object
@@ -15830,16 +16175,14 @@ static ULONG lCount      = 1 ; lCount++ ;
       sCrvClassV.SetTgtLoopsOnly(bOuterLoopOnly) ; 
       sCrvClassV.SetOKToSetTolerance(FALSE) ;
 
-      // init output
-      rCrvClassV = sCrvClassV ;
-
-      // switch pSeamConstV ownership to pCrvClassU
-      rCrvClassV.SetIsCurveOwned(TRUE) ;
+      // init output: hand pSeamConstV to rCrvClassV (operator= deep copies an owned curve)
       sCrvClassV.SetIsCurveOwned(FALSE) ;
+      rCrvClassV = sCrvClassV ;
+      rCrvClassV.SetIsCurveOwned(TRUE) ;
 
 
       // classify the SeamCurve3d against this face (works for composites)
-      CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
+      SER( CurveOnClassify(FALSE,                // in : TRUE =Do expensive PtClassification for Curves not XSecting any Face->Bndrys
                                             //      FALSE=classify such points as unknown. (good when Curve is known to be InFace)
                       rCrvClassV,           // i/o: contains m_cpCurve to classify, accumulates ivls as they are found.
                       bHasBigGaps_TRUE,     // in : TRUE = m_cpCurve and Face->Edges connect to Face where Edge/Face gaps are suspected to exceed XSectTol3d.
@@ -15858,11 +16201,11 @@ static ULONG lCount      = 1 ; lCount++ ;
                                             //      If this is the only classification call, then CrvClassif is complete
                                             //      and may be used as returned.
                                             //      NULL to ignore, default:[NULL]
-                      bUVSpaceOkay_FALSE) ; // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
+                      bUVSpaceOkay_FALSE)  ); // in : TRUE = okay to try UVSpace Classification if 3Space classification is dodgey (tolerant cases)
                                             //      FALSE= don't use UVSpace because UVTrimCurves are not known to be valid, default:[TRUE]
 
       // How many times is the V Seam crossed (Can be crossed by an Edge or and Edge->Vertex->Edge complex
-      rCrvClassV.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListV, &pFaceProps->m_sDoneTouchListV) ;
+      SER( rCrvClassV.GetLoopCrossings(sLoops, pFaceProps, &sCrossingCounts, &pFaceProps->m_sRawTouchListV, &pFaceProps->m_sDoneTouchListV)  );
 
       // Find and Fix False SeamEdge EndPoint Classifications for CrvClassifies that start and stop on a SeamEdge
       //  this cleanup stops predicate SmCurveClassification::IsCrossedByEdge() from returning false positives
@@ -15875,7 +16218,7 @@ static ULONG lCount      = 1 ; lCount++ ;
       SmPointClassification * pFirstOnEdge, * pLastOnEdge ;
       SmEdgeuse             * pFirstEdgeuseOnEdge, * pLastEdgeuseOnEdge ;
       ULONG                   lFalseEdgeClassifyCnt ;
-      sms_ReviewStartAndStopOnSeamCrvClassifies
+      SER( sms_ReviewStartAndStopOnSeamCrvClassifies
         (rCrvClassV,                              // in : Tgt CrvClassification
          *(SmCurve *)(pSeamConstV->GetUVCurve()), // in : UVTrimLine associated with ClassifyCrv
          pFirstOnEdge,                            // out: NotNULL = ClassifyCrv First PtClassify on an EdgeSide part of FaceBndry, NULL = Not on an Edge
@@ -15883,7 +16226,7 @@ static ULONG lCount      = 1 ; lCount++ ;
          pFirstEdgeuseOnEdge,                     // out: The Edgeuse that bounds the FirstPtClassify when it classifies to an Edge
          pLastEdgeuseOnEdge,                      // out: The Edgeuse that bounds the LastPtClassify  when it classifies to an Edge
          lFalseEdgeClassifyCnt,                   // out: number of PtClassify Edge to UNKNOWN changes made to CrvClassification
-         pOptFaceProps) ;                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
+         pOptFaceProps)  );                         // in : FaceProps for CrvClassification Associated Face, only used for DebugBlocks
 
       // analyze rCrvClassV for problems (Crossing or Missing)
       bCrossedV  = rCrvClassV.IsCrossedByEdge() ;    // only count seam crossings by an Edge
@@ -15945,6 +16288,33 @@ static ULONG lCount      = 1 ; lCount++ ;
 
     } // end periodic in V direction check
 
+  // With only isolated vertex loops, the whole closed surface is retained.
+  // Fill the unknown portions of each seam, keeping existing vertex hits so
+  // insertion connects to the original graph, including shared vertices.
+  if(IsClosedSurfaceWithVertexLoops(pFaceProps))
+    {
+      SmCurveClassification *pClasses[2]  = {&rCrvClassU,&rCrvClassV};
+      SmBoolean              bPeriodic[2] = {bPeriodicU,bPeriodicV};
+      for(ULONG lDirection=0; lDirection<2; ++lDirection)
+        {
+          if(!bPeriodic[lDirection]) { continue; }
+          SmCurveClassification &rClass = *pClasses[lDirection];
+          for(ULONG lInterval=0; lInterval<rClass.GetSize(); ++lInterval)
+            {
+              SmPointClassification *pPoints[3] = {&rClass[lInterval].m_vStart,
+                                                   &rClass[lInterval].m_vMid,
+                                                   &rClass[lInterval].m_vEnd};
+              for(ULONG lPoint=0; lPoint<3; ++lPoint)
+                {
+                  if(pPoints[lPoint]->GetPointClass() == SM_PC_UNKNOWN)
+                    { pPoints[lPoint]->SetClassObject(SM_PC_FACE,(SmFace*)this); }
+                }
+            }
+        }
+      bMissingU = bPeriodicU && rCrvClassU.IsCrossingFace(this);
+      bMissingV = bPeriodicV && rCrvClassV.IsCrossingFace(this);
+    }
+
   // remember when SeamCrvU has no FaceLoop Bndry XSects
   SmBoolean bNoXSectSeamU =    rCrvClassU.GetSize() == 1
                             && rCrvClassU[0].m_vStart.GetPointClass() == SM_PC_UNKNOWN
@@ -15981,10 +16351,37 @@ static ULONG lCount      = 1 ; lCount++ ;
       //   should be marked missing. This only happens when either SeamCrvU or SeamCrvV
       //   has no Intersections with the boundaries of the Face but not both.
 
-      // use the DoneTouchLists to determine when a entire SeamU is missing from the face
+      // Both seam curves start at (Umin,Vmin). If a nonintersecting seam has
+      // this point inside the face, its entire curve is inside. Coincident
+      // IN/ON/IN touches can disappear from the processed crossing list.
+      SmBoolean bVStartInFace = rCrvClassV.GetSize() > 0
+                            && rCrvClassV[0].m_vStart.GetPointClass() == SM_PC_FACE
+                            && rCrvClassV[0].m_vStart.GetObject() == this ;
+      SmBoolean bUStartInFace = rCrvClassU.GetSize() > 0
+                            && rCrvClassU[0].m_vStart.GetPointClass() == SM_PC_FACE
+                            && rCrvClassU[0].m_vStart.GetObject() == this ;
+
+      // Point-only touches divide a seam but do not cross a face boundary.
+      // Keep them out of the crossing flags used to request MoveSeam. Use the
+      // raw lists so coincident edge touches remain visible after processing.
+      SmBoolean                    bTouchesBoundary[2] = {FALSE,FALSE};
+      const SmTArray<SmTouchData> *pTouchLists[2] = {&pFaceProps->m_sRawTouchListU,&pFaceProps->m_sRawTouchListV};
+      for(ULONG lSeam=0; lSeam<2; ++lSeam)
+        {
+          const SmTArray<SmTouchData> &crTouches = *pTouchLists[lSeam];
+          for(ULONG lTouch=0; lTouch<crTouches.GetSize(); ++lTouch)
+            {
+              SmLoop *pLoop = (SmLoop*)crTouches[lTouch].m_pConnectedTo;
+              if(pLoop && !pLoop->GetLoopuse()->IsVertexLoopuse())
+                { bTouchesBoundary[lSeam] = TRUE; break; }
+            }
+        }
+
+      // use the shared seam point or crossing list to detect a missing SeamU
       if(   bNoXSectSeamU 
-         && pFaceProps->m_sDoneTouchListV.GetSize() > 0
-         && pFaceProps->m_sDoneTouchListV[0].m_eLoopDir == SM_CD_IN)
+         && (   bVStartInFace
+             || (   pFaceProps->m_sDoneTouchListV.GetSize() > 0
+                 && pFaceProps->m_sDoneTouchListV[0].m_eLoopDir == SM_CD_IN)))
         {
           // Mark the NonIntersecting TgtSeamU Crv as missing
           bMissingU = TRUE ; 
@@ -15994,15 +16391,17 @@ static ULONG lCount      = 1 ; lCount++ ;
           rCrvClassU[0].m_vMid  .SetClassObject(SM_PC_FACE, (SmFace*)this) ;
           rCrvClassU[0].m_vEnd  .SetClassObject(SM_PC_FACE, (SmFace*)this) ;
 
-          // CrvClassU and CrvClassV cross each other somewhere within the bit of missing SeamV that's in the face
-          bCrossedU = TRUE ;
-          bCrossedV = TRUE ; 
+          // A boundary crossing can require relocating either seam. Isolated
+          // vertex loops only require insertion through their existing vertices.
+          if(bTouchesBoundary[1])
+            { bCrossedU = bCrossedV = TRUE; }
         }
 
-      // use the DoneTouchLists to determine when a entire SeamV is missing from the face
+      // use the shared seam point or crossing list to detect a missing SeamV
       if(   bNoXSectSeamV 
-         && pFaceProps->m_sDoneTouchListU.GetSize() > 0
-         && pFaceProps->m_sDoneTouchListU[0].m_eLoopDir == SM_CD_IN)
+         && (   bUStartInFace
+             || (   pFaceProps->m_sDoneTouchListU.GetSize() > 0
+                 && pFaceProps->m_sDoneTouchListU[0].m_eLoopDir == SM_CD_IN)))
         {
           // Mark the NonIntersecting TgtSeamV Crv as missing
           bMissingV = TRUE ; 
@@ -16012,67 +16411,53 @@ static ULONG lCount      = 1 ; lCount++ ;
           rCrvClassV[0].m_vMid  .SetClassObject(SM_PC_FACE, (SmFace*)this) ;
           rCrvClassV[0].m_vEnd  .SetClassObject(SM_PC_FACE, (SmFace*)this) ;
         
-          // CrvClassU and CrvClassV cross each other somewhere within the bit of missing SeamU that's in the face
-          bCrossedU = TRUE ;
-          bCrossedV = TRUE ; 
+          // A boundary crossing can require relocating either seam. Isolated
+          // vertex loops only require insertion through their existing vertices.
+          if(bTouchesBoundary[0])
+            { bCrossedU = bCrossedV = TRUE; }
         }
     } // end doubly periodic surface check
 
-    // this leaves one last case that shows up on both singly and doubly periodic surfaces
-    // when all the Face's SeamCrv(s) are completely missing there is no DoneTouchDirList info
-    // to use to infer if a NonXSecting SeamCrv is completely missing or completely outside the face.
-    //
-    // When neither seam is XSected - then all the loops are Area_Loops - assume for this quicky check
-    // that the 1st loop really is the outer loop and check it's orientation.
-    // When the 'outer-most loop runs Clockwise (typically it runs CounterClockwise) - both seams are missing
-    // BUT... don't use this check to extend the method.  Because HasSeamProblem is part of the Healer
-    // we must assume that the stored Loop order and the Loop orientation data may need healing.  We need
-    // to determine who the outer-most loop is geometrically by running a classify Crv through all the loops.
-    // That all happens in SmFaceProps::SetProps_Stage3() which is not assumed available to this method.
-    //  to extend - figure out how to run and use the SetProps_Stage3() results without slowing the healer down
-    //  too much to determine when the seams are missing rather than just outside the face.
+    // If neither seam intersects a boundary on a doubly periodic surface, all
+    // closed clockwise area loops describe holes in the retained face. Use the
+    // defining curves, not stored loop labels or optional UV trims. Stage 3 loop
+    // containment is not available while these Stage 2 properties are built.
+    if(bPeriodicU && bPeriodicV && bNoXSectSeamU && bNoXSectSeamV && sLoops.GetSize() > 0)
+      {
+        SmBoolean bAllClockwise = TRUE;
+        for(ULONG lLoop=0; lLoop<sLoops.GetSize(); ++lLoop)
+          {
+            // Isolated vertices do not enclose a retained patch. They have no
+            // measured loop orientation and cannot disprove missing seams.
+            if(sLoops[lLoop]->GetLoopuse()->IsVertexLoopuse())
+              { continue; }
+            SmOrientType eOrient = SM_OT_UNKNOWN;
+            if(!sLoops[lLoop]->IsClosedPtrs()
+               || ComputeLoopOrientation
+                    (sLoops[lLoop], // in : target loop
+                     eOrient,       // out: measured orientation
+                     NULL,          // out: UV bounds not needed
+                     TRUE)          // in : use defining 3D curves
+                != SM_SUCCESS
+               || eOrient != SM_OT_OPPOSITE)
+              { bAllClockwise = FALSE; break; }
+          }
+        if(bAllClockwise)
+          {
+            bMissingU = bMissingV = TRUE;
+            SmCurveClassification *pClasses[2] = {&rCrvClassU,&rCrvClassV};
+            for(ULONG lDirection=0; lDirection<2; ++lDirection)
+              {
+                (*pClasses[lDirection])[0].m_vStart.SetClassObject(SM_PC_FACE,(SmFace*)this);
+                (*pClasses[lDirection])[0].m_vMid.SetClassObject(SM_PC_FACE,(SmFace*)this);
+                (*pClasses[lDirection])[0].m_vEnd.SetClassObject(SM_PC_FACE,(SmFace*)this);
+              }
+          }
+      }
 
-      // the last case - all the Face->Seams are nonXSecting - they can be either missing or out of the face
-      //  Missing an entire SeamCrv is possible and healable on ClosedSurfaces, i.e. Spheres and Tori
-      if(   (bPeriodicU == TRUE  && bPeriodicV == FALSE && bNoXSectSeamU)
-         || (bPeriodicU == FALSE && bPeriodicV == TRUE  && bNoXSectSeamV)
-         || (bPeriodicU == TRUE  && bPeriodicV == TRUE  && bNoXSectSeamU && bNoXSectSeamV))
-        {
-          // we don't yet have enough information to det if the Seams are Missing or Outside the Face for this case
-
-          // This case needs to be addressed but it can't be computed with just the SeamU and SeamV ClassifyCrvs.
-          // So do this one later but put in a cheap (and unreliable) check to see if the healer needs this function.
-          SM_ASSERT_MSG(sLoops[0]->GetLoopuse()->GetOrientation() == SM_OT_SAME, _T("SmFace::HasSeamProblem: Found a torus with a Clockwise OuterLoop that may be missing two seams - review case - if neeeded extend this method.")) ;
-        
-#ifdef SM_DEBUG_CODE
-          if (bDebugMe || lDebugCount == lCount)
-            {
-              if(pOptFaceProps) { pOptFaceProps->Dump() ; }
-              rCrvClassU.Dump();
-              rCrvClassV.Dump();
-
-              ULONG di ;
-              SmBrep * pBrep = GetBrep() ;
-              SM_PTR_ARRAY(sDEdges, SmEdge, 10) ;
-              SM_PTR_ARRAY(sDLoops, SmLoop, 10) ;
-              GetLoops(sDLoops) ;
-              GetEdges(sDEdges) ;
-
-              // redraw face, curve, and Curve classification
-              smgfx_Erase();
-              smgfx_SetLook(1,2, 0,0,1) ; if(pBrep) pBrep->Draw( TRUE ); sm_GraphicsLoop();
-              smgfx_SetLook(2,3, 1,0,0) ; this->Draw(SM_DM_WIREFRAME) ; sm_GraphicsLoop() ;
-              smgfx_SetLook(4,5, 0,1,0) ; for(di=0;di<sDEdges.GetSize();di++)
-                                            { if(sDEdges[di]) sDEdges[di]->Draw() ; sm_GraphicsLoop() ; }
-              smgfx_SetLook(6,7, 1,0,1) ; for(di=0;di<sDLoops.GetSize();di++)
-                                            { if(sDLoops[di]) sDLoops[di]->Draw() ; sm_GraphicsLoop() ; }
-              smgfx_SetLook(5,6, 0, 1, 1) ; if(pSurface) pSurface->DrawParams() ; sm_GraphicsLoop() ;
-              smgfx_SetLook(4,5,.2,.2,.2) ; if(pSurface) pSurface->DrawSeams() ; sm_GraphicsLoop() ;
-              smgfx_SetLook(1,2, 0, 1,.2) ; if(pSurface) pSurface->DrawUV(8,8,FALSE,NULL,TRUE ) ; sm_GraphicsLoop() ;
-              sm_GraphicsLoop() ;
-            }
-#endif // SM_DEBUG_CODE
-        } // end missing SeamCrvs when a NoAreaLoop
+    // Other nonintersecting cases remain unresolved. In particular, stored
+    // loop order/orientation cannot replace geometric evidence for singly
+    // periodic surfaces or ambiguous, degenerate, and mixed-orientation loops.
 
      // begin obsolete -old strategy for finding completely missing seams
      // if(bPeriodicU && bPeriodicV)
@@ -16314,8 +16699,8 @@ static ULONG lCount      = 1 ; lCount++ ;
      //      //                                         //                      //      SM_CMT_BOTLOOP,         // NoArea_Loop (invalid) contains upperdomain UVPoints - AddMisingSeam heals to OuterLoop
      //      //                                         //                      //      SM_CMT_TOPLOOP,         // NoArea_Loop (invalid) contains lowerdomain UVPoints - AddMisingSeam heals to OuterLoop
      //      //                                         //                      //      SM_CMT_WIRELOOP,        // A set of connected Edgeuses without a closed portion.
-     //      //                 eClassifyStartType,     // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
-     //      //                 eClassifyStopType,      // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
+     //      //                 eClassifyStartType,     // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_SEAM_NO_EDGEUSE SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
+     //      //                 eClassifyStopType,      // out: oneof: SM_CD_LAMINA SM_CD_SEAM SM_CD_SEAM_NO_EDGEUSE SM_CD_POLE SM_CD_POLE_NO_VERTEX SM_CD_NONE
      //      //                 sOrderedNoAreaIndices,  // out: NoArea_loops Ordered from lowest domain to highest domain.
      //      //                 pLooptreeRoot,          // out: LoopContainmentTree based solely on geometry relations, NULL on Input  
      //      //                 sTmpClassification,     // in : scratch CurveClassification memory to save time - contains last ClassifyCrv used - only good for debugging
@@ -16361,7 +16746,7 @@ static ULONG lCount      = 1 ; lCount++ ;
                    :                             SM_SP_NEITHER ;
 
   // all done
-  return(bCrossedU || bCrossedV || bMissingU || bMissingV) ;
+  return SM_SUCCESS ;
 
 } // end SmFace::HasSeamProblem
 
@@ -16433,8 +16818,19 @@ SmBoolean SmFace::HasCoincidentVertices
   SmBoolean bQuitEarly = (pOptToSurviveVerts == NULL && pOptToSurviveVerts == NULL) ;
   SmBoolean bDone      = FALSE ; 
 
+  // Only vertices a box search finds within SM_EFF_ZERO of each other can pass the distance
+  // test below: each vertex is compared with those, in the order of the all-pairs loop.
+  const ULONG lNumVerts = sVertices.GetSize() ;
+  std::vector<SmExtent3d> sBoxes(lNumVerts) ;
+  std::vector<bool> sKnown(lNumVerts, true) ;
+  for(ii=0;ii<lNumVerts;ii++)
+    { sBoxes[ii] = SmExtent3d(sVertices[ii]->GetPoint()) ; }
+  SmBoxSearch sSearch ;
+  sSearch.Build(sBoxes, sKnown) ;
+  std::vector<ULONG> sCand ;
+
   // for every Vertex
-  for(ii=0;ii<sVertices.GetSize() && bDone == FALSE;ii++)
+  for(ii=0;ii<lNumVerts && bDone == FALSE;ii++)
     {
       SmVertex *pToSurviveVertex = sVertices[ii] ;
 
@@ -16443,8 +16839,13 @@ SmBoolean SmFace::HasCoincidentVertices
         { continue ; }
 
       // for every other vertex - look for coincident partners 
-      for(jj=ii+1;jj<sVertices.GetSize();jj++)
+      if(!sSearch.Query(sBoxes[ii], SM_EFF_ZERO, sCand))
+        { sm_AllFrom(0, lNumVerts, sCand) ; }
+      for(ULONG kc=0;kc<sCand.size();kc++)
         {
+          jj = sCand[kc] ;
+          if(jj <= ii)
+            { continue ; }
           SmVertex *pToDeleteVertex = sVertices[jj] ;
 
           double dDistSq = pToSurviveVertex->GetPoint().DistanceBetweenSquared(pToDeleteVertex->GetPoint()) ;
@@ -16604,6 +17005,13 @@ SmBoolean SmFace::HasCoincidentEdges
   SmBoolean bQuitEarly = (pOptToSurviveEdges == NULL && pOptToSurviveEdges == NULL) ;
   SmBoolean bDone      = FALSE ; 
 
+  // An edge is compared only with the later edges whose start vertex is one of the vertices
+  // coincident with its start or end (as the test below requires), in the all-pairs order.
+  std::unordered_map<const SmVertex *, std::vector<ULONG> > sEdgesStartingAt ;
+  for(ii=0;ii<sEdges.GetSize();ii++)
+    { sEdgesStartingAt[sEdges[ii]->GetStartVertex()].push_back(ii) ; }
+  std::vector<ULONG> sCand ;
+
   // for every Edge
   for(ii=0;ii<sEdges.GetSize() && bDone == FALSE;ii++)
     {           
@@ -16621,8 +17029,21 @@ SmBoolean SmFace::HasCoincidentEdges
       sm_FindCoincidentVerts(pToSurviveEdge->GetEndVertex(),   sToSurviveVerts, sToDeleteVerts, sEndVerts) ;
 
       // for every other Edge - look for coincident partners 
-      for(jj=ii+1;jj<sEdges.GetSize();jj++)
+      sCand.clear() ;
+      for(ULONG kv=0;kv<sStartVerts.GetSize()+sEndVerts.GetSize();kv++)
         {
+          const SmVertex *pV = kv < sStartVerts.GetSize() ? sStartVerts[kv] : sEndVerts[kv-sStartVerts.GetSize()] ;
+          auto it = sEdgesStartingAt.find(pV) ;
+          if(it == sEdgesStartingAt.end())
+            { continue ; }
+          for(ULONG jE : it->second)
+            { if(jE > ii) sCand.push_back(jE) ; }
+        }
+      std::sort(sCand.begin(), sCand.end()) ;
+      sCand.erase(std::unique(sCand.begin(), sCand.end()), sCand.end()) ;
+      for(ULONG kc=0;kc<sCand.size();kc++)
+        {
+          jj = sCand[kc] ;
           SmEdge    * pToDeleteEdge     = sEdges[jj] ;
           SmCurve   * pToDeleteCurve    = pToDeleteEdge->GetCurve() ;
           SmExtent1d  sDeleteIvl        = pToDeleteEdge->GetInterval() ;
@@ -16638,7 +17059,7 @@ SmBoolean SmFace::HasCoincidentEdges
               SmBoolean bAdditionalWorkNeeded ;
               SmSolutionArray sSolutions ;
               SmXSectTol3d    sXSectTol3d = SmTol::GetXSectTol3d(sSurviveZoneTol3d, sDeleteZoneTol3d) ;
-              pToSurviveCurve->GlobalCoincidenceChecker    // PRE SM_TOLERANT_XSECT VERSION
+              (void)pToSurviveCurve->GlobalCoincidenceChecker    // PRE SM_TOLERANT_XSECT VERSION // SolidCraft: on failure no solutions are reported, read below as not coincident
                 (sSurviveIvl,                              // in : 'this' curve interval to examine
                  *pToDeleteCurve,                          // in : other curve
                  sDeleteIvl,                               // in : other-curve interval to examine
@@ -16870,8 +17291,8 @@ SmStatus SmFace::MoveSeam                    // rtn: SM_SUCCESS = okay, SM_ERR_I
   SmBSplineSurface * pJoinedSurface     = NULL ;
   SmBoolean          bSurfaceIsAnalytic = FALSE;
   SmStatus           eStat;
-  SmPeriodicExtent1d sPeriodicU(sIvlU.GetLength()) ; sPeriodicU.SetMinMax(0,0,NULL,TRUE) ; // creates a 0 ivl of the right period - adjust this with 1st sample point
-  SmPeriodicExtent1d sPeriodicV(sIvlV.GetLength()) ; sPeriodicV.SetMinMax(0,0,NULL,TRUE) ; // creates a 0 ivl of the right period - adjust this with 1st sample point
+  SmPeriodicExtent1d sPeriodicU(sIvlU.GetLength()) ; SER( sPeriodicU.SetMinMax(0,0,NULL,TRUE)  ); // creates a 0 ivl of the right period - adjust this with 1st sample point
+  SmPeriodicExtent1d sPeriodicV(sIvlV.GetLength()) ; SER( sPeriodicV.SetMinMax(0,0,NULL,TRUE)  ); // creates a 0 ivl of the right period - adjust this with 1st sample point
   SmZoneTol3d        sZoneTol3d = SmTol::GetZoneTol3d(pSurface) ;
   SM_PTR_ARRAY(sFaces,      SmFace,  2) ;
   SM_PTR_ARRAY(sLoopuses,   SmLoopuse, 20) ;
@@ -16983,12 +17404,12 @@ SmBoolean bDebugMe = FALSE ;
               SmBoolean bIsMulti;
 
               // for the first sample point
-              pCurve->EvaluateGeometric(dParam, 1, TRUE, sPV[0]) ;
-              pSurface->DropPoint(sPV[0][0], sUVDomain, NULL, bSuccess, sUVPt[0][0], dGap, bIsMulti, SM_SO_MINIMIZE) ;
-              pSurface->DropVectors(sUVPt[0][0], TRUE, TRUE, 1, &sPV[0][1], &sUVPt[0][1]) ;
+              SER( pCurve->EvaluateGeometric(dParam, 1, TRUE, sPV[0])  );
+              SER( pSurface->DropPoint(sPV[0][0], sUVDomain, NULL, bSuccess, sUVPt[0][0], dGap, bIsMulti, SM_SO_MINIMIZE)  );
+              SER( pSurface->DropVectors(sUVPt[0][0], TRUE, TRUE, 1, &sPV[0][1], &sUVPt[0][1])  );
 
               // set periodic interval to start point = a single point (NotFullInterval) periodic interval
-              pPeriodic->SetMinMax(sUVPt[0][0][ii] - pIvl->GetMin(), sUVPt[0][0][ii] - pIvl->GetMin(), NULL, TRUE) ;
+              SER( pPeriodic->SetMinMax(sUVPt[0][0][ii] - pIvl->GetMin(), sUVPt[0][0][ii] - pIvl->GetMin(), NULL, TRUE)  );
 
               // The following sampling algorithm may need some work - it runs on assumptions
               //  1. don't actually need curve max and min values sampling at the Curve ends and a few internal sample points will be enough.
@@ -17023,9 +17444,9 @@ SmBoolean bDebugMe = FALSE ;
                           dParam     = sEdgeIvl.Evaluate(dNormParam) ;
 
                           // for the next sample point
-                          pCurve->EvaluateGeometric(dParam, 1, TRUE, sPV[1]) ;
-                          pSurface->DropPoint(sPV[1][0], sUVDomain, NULL, bSuccess, sUVPt[1][0], dGap, bIsMulti, SM_SO_MINIMIZE) ;
-                          pSurface->DropVectors(sUVPt[1][0], TRUE, TRUE, 1, &sPV[1][1], &sUVPt[1][1]) ;
+                          SER( pCurve->EvaluateGeometric(dParam, 1, TRUE, sPV[1])  );
+                          SER( pSurface->DropPoint(sPV[1][0], sUVDomain, NULL, bSuccess, sUVPt[1][0], dGap, bIsMulti, SM_SO_MINIMIZE)  );
+                          SER( pSurface->DropVectors(sUVPt[1][0], TRUE, TRUE, 1, &sPV[1][1], &sUVPt[1][1])  );
 
                           // Pick direction from last sample point to next
                           // usually the direction of the last sample point tangent, except
@@ -17121,8 +17542,8 @@ SmBoolean bDebugMe = FALSE ;
 
                           // add next sample point Interval (shifted to period [0 length] noting the direction from the last sample point
                           // if inconclusive direction, just skip this sample.  [B556]
-                          pPeriodic->AddInterval( dLo - pIvl->GetMin(),
-                                                  dHi - pIvl->GetMin(), bForward) ;
+                          (void)pPeriodic->AddInterval( dLo - pIvl->GetMin(),
+                                                  dHi - pIvl->GetMin(), bForward); // SolidCraft: an inconclusive sample is skipped, as above
 
                           // small performance savings for tori - build both Bounding Boxes on first pass
                           if(bFixSeamBoth && ii == 0)
@@ -17140,8 +17561,8 @@ SmBoolean bDebugMe = FALSE ;
 
                               // add next sample point Interval (shifted to period [0 length] noting the direction from the last sample point
                               // if inconclusive direction, just skip this sample.  [B556]
-                              sPeriodicV.AddInterval( dLo - pIvl->GetMin(),
-                                                      dHi - pIvl->GetMin(), bForward) ;
+                              (void)sPeriodicV.AddInterval( dLo - pIvl->GetMin(),
+                                                      dHi - pIvl->GetMin(), bForward); // SolidCraft: an inconclusive sample is skipped, as above
                            }
 
                           // obsolete - idea - pick interval based on Curr tangent direction
@@ -17273,7 +17694,7 @@ static ULONG     lDebugCnt     = 0 ;
                   if(sVertexuses[jj]->GetVertexFaceGap())
                     { sPtUV = sVertexuses[jj]->GetVertexFaceGap()->GetFaceUV() ; }
                   else 
-                    { sVertexuses[jj]->ComputeUVPoint(sPtUV, FALSE) ; } // FALSE = don't make new UVTrimCurves
+                    { SER( sVertexuses[jj]->ComputeUVPoint(sPtUV, FALSE)  ); } // FALSE = don't make new UVTrimCurves
 
                   sParams.Add(sPtUV[ii]) ;        // ii = 0:[UVal], ii == 1:[VVal]
                   sParamIvl.AddValue(sPtUV[ii]) ; 
@@ -17358,7 +17779,7 @@ static ULONG     lDebugCnt     = 0 ;
                       if(sVertexuses[jj]->GetVertexFaceGap())
                         { sPtUV = sVertexuses[jj]->GetVertexFaceGap()->GetFaceUV() ; }
                       else 
-                        { sVertexuses[jj]->ComputeUVPoint(sPtUV, FALSE) ; } // FALSE = don't make new UVTrimCurves
+                        { SER( sVertexuses[jj]->ComputeUVPoint(sPtUV, FALSE)  ); } // FALSE = don't make new UVTrimCurves
 
                       if(SM_ARE_SAME_TO_TOL(sUniqueParams[lMaxSpaceIndx], sPtUV[ii], SM_EFF_ZERO_PARAM))
                         { sPairedVertexuses.Add(sVertexuses[jj]) ; }
@@ -17442,7 +17863,7 @@ static ULONG     lDebugCnt     = 0 ;
               sThisIvl.SetFullPeriod(FALSE) ; 
               
               SM_OBJ_ARRAY(sKnots, double, 16) ;
-              pSurface->GetKnots(eSurfParam, sKnots) ;
+              SER( pSurface->GetKnots(eSurfParam, sKnots)  );
 
               // for every sKnots - find knot closest to dNewParam far outside of the pPeriodic interval
               for(jj=0;jj<sKnots.GetSize();jj++)
@@ -17456,7 +17877,7 @@ static ULONG     lDebugCnt     = 0 ;
                       double dLo = pPeriodic->MapValue(dThisKnot - pIvl->GetMin() - dFar) ; 
                       double dHi = pPeriodic->MapValue(dThisKnot - pIvl->GetMin() + dFar) ; 
                       // note: when dLo > dHi the interval includes the seam
-                      sThisIvl.SetMinMax(dLo, dHi) ;
+                      SER( sThisIvl.SetMinMax(dLo, dHi)  );
                       
                       // check that knot interval is outside of pPeriodic by a dFar distance
                       if(pPeriodic->AreDisjoint(sThisIvl) == TRUE) 
@@ -17547,7 +17968,7 @@ static ULONG     lDebugCnt     = 0 ;
               if ( bSurfaceIsAnalytic )
                 {
                   SmSurface * pAnalyticSurface = NULL;
-                  pJoinedSurface->CopyAndAddAnalytics( *pContext, pAnalyticSurface );
+                  SER( pJoinedSurface->CopyAndAddAnalytics( *pContext, pAnalyticSurface ) );
 
                   // Since pJoinedSurface is an SmBSplineSurface, pAnalyticBSplineSurface should always be defined.
                   SmBSplineSurface * pAnalyticBSplineSurface = SM_CAST_PTR( SmBSplineSurface, pAnalyticSurface );
@@ -17599,7 +18020,7 @@ static ULONG     lDebugCnt     = 0 ;
 
               // swap the face->surface
               if(pBrep) 
-                { pBrep->ReplaceSurface( this, pJoinedSurface, FALSE, NULL, FALSE ) ; } // FALSE= delete OldSurf here, no New Trim Curves
+                { SER( pBrep->ReplaceSurface( this, pJoinedSurface, FALSE, NULL, FALSE )  ); } // FALSE= delete OldSurf here, no New Trim Curves
               else
                 { this->SetSurface( pJoinedSurface, TRUE ) ; } // TRUE = delete OldSurf here
                                  
@@ -17627,14 +18048,15 @@ static ULONG     lDebugCnt     = 0 ;
       SmTArray<SmVertex*> sTheseSeamVertices ;
 
       // When the Face still has SeamProblems
-      if(HasSeamProblem(rCrvClassU,        // or after FaceChange - If Face still has Seam problems (rebuilds CrvClassU and CrvClassV)
-                        rCrvClassV,        
-                        eCrossedSeam,
-                        eMissingSeam,
-                        eNearMissSeam))
+      SER( HasSeamProblem(rCrvClassU,        // or after FaceChange - If Face still has Seam problems (rebuilds CrvClassU and CrvClassV)
+                          rCrvClassV,        
+                          eCrossedSeam,
+                          eMissingSeam,
+                          eNearMissSeam) ) ;
+      if(HasSeamProblem(eCrossedSeam, eMissingSeam))
         {
           // Fix remaining SeamProblems by Splitting SeamCrossingEdges and inserting MissingSeam Intervals (may split faces - usually doesn't)
-          SplitAtSeam( rCrvClassU, 
+          SER( SplitAtSeam( rCrvClassU, 
                        rCrvClassV, 
                        eCrossedSeam, 
                        eMissingSeam,
@@ -17642,7 +18064,7 @@ static ULONG     lDebugCnt     = 0 ;
                       &sTheseNewFaces,    
                       &sTheseNewSeamEdges,
                       &sTheseSeamVertices,
-                       pOptFaceProps) ;
+                       pOptFaceProps)  );
 
            if(pOptNewFaces    ) { pOptNewFaces    ->Append(sTheseNewFaces    ) ; }
            if(pOptNewSeamEdges) { pOptNewSeamEdges->Append(sTheseNewSeamEdges) ; }
@@ -17659,7 +18081,8 @@ static ULONG     lDebugCnt     = 0 ;
       SmCurveClassification sDbgCrvClassU ;
       SmCurveClassification sDbgCrvClassV ;
       SmSurfParamType eDbgCrossedSeam, eDbgMissingSeam, eDbgNearMissSeam ;
-      SmBoolean bIsCrossing = HasSeamProblem(sDbgCrvClassU, sDbgCrvClassV, eDbgCrossedSeam, eDbgMissingSeam, eDbgNearMissSeam) ;
+      SER( HasSeamProblem(sDbgCrvClassU, sDbgCrvClassV, eDbgCrossedSeam, eDbgMissingSeam, eDbgNearMissSeam) ) ;
+      SmBoolean bIsCrossing = HasSeamProblem(eDbgCrossedSeam, eDbgMissingSeam) ;
       SM_ASSERT_MSG(bIsCrossing==FALSE, _T("SmFace::MoveSeam - running MoveSeam() did not fix the seam problem"));
 
       if(bDebugMe)
@@ -17723,7 +18146,7 @@ void sm_RemoveSuspectSplitAtSeamUVTrimCurves
           for(ii=0;ii<sEdges.GetSize();ii++)
             {
               SmEdge * pEdge = sEdges[ii] ;
-              pEdge->GetEdgeuses(sEdgeuses) ;
+              (void)pEdge->GetEdgeuses(sEdgeuses) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
               // for everyOther Edgeuse
               for(jj=0;jj<sEdgeuses.GetSize();jj+=2)
@@ -17750,7 +18173,7 @@ void sm_RemoveSuspectSplitAtSeamUVTrimCurves
           for(jj=0;jj<sEdges.GetSize();jj++)
             {
               SmEdge * pEdge = sEdges[jj] ;
-              pEdge->GetEdgeuses(sEdgeuses) ;
+              (void)pEdge->GetEdgeuses(sEdgeuses) ; // SolidCraft: a list getter; it fails only out of memory, and the list stays empty
 
               // for every other Edgeuse
               for(kk=0;kk<sEdgeuses.GetSize();kk+=2)
@@ -17785,8 +18208,10 @@ void sm_RemoveSuspectSplitAtSeamUVTrimCurves
      - Face->GetContext() != NULL
      - all edges crossing seams have been split at the seam
      - seam moved to a good location (avoid making sliver faces)
-     - Missing PoleVertices have been added
-     - Loops properly oriented
+     - Missing PoleVertices have been added, except for vertex-only closed
+       faces whose seam endpoints create the missing poles during insertion
+     - Loops properly oriented, except that a vertex-only closed face receives
+       its natural outer boundary and inner vertex-loop roles during insertion
 
   NOTES: This method is paired with HasSeamProblem() such that the HasSeamProblem() output
          can be passed as input to this method to save calling HasSeamProblem() twice.
@@ -17890,7 +18315,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
               SmCrvOnSurf *pSeam = NULL;
               SmObjDelete  sCleanSeam;
 
-              GetSurface()->CreateSeamCurve( *GetContext(), eSeamDir, pSeam, TRUE );
+              SER( GetSurface()->CreateSeamCurve( *GetContext(), eSeamDir, pSeam, TRUE ) );
               GetEdges( sEdges );
               sCleanSeam.SetObj( pSeam );
 
@@ -17901,7 +18326,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
                   SmSolutionArray sSols;
                   SmXSectTol3d dXSectTol = SmTol::GetZoneTol3d( pEdge ) + dTol;
 
-                  pECurve->GlobalCurveIntersect( pEdge->GetInterval(), *pSeam, pSeam->GetNaturalInterval(), dXSectTol, sSols );
+                  SER( pECurve->GlobalCurveIntersect( pEdge->GetInterval(), *pSeam, pSeam->GetNaturalInterval(), dXSectTol, sSols ) );
 
                   for ( ULONG kk = 0; kk < sSols.GetSize(); kk++ )
                     {
@@ -17918,7 +18343,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
                           if(pEdgeuse) pEdgeuse->SetUVTrimCurve( NULL, 0.0, TRUE );
 
                           // Split the edge
-                          pBrep->MakeVertexSplitEdge( pEdge, sSol.m_vStart[0], pNewE1, pNewE2, pNewV );
+                          SER( pBrep->MakeVertexSplitEdge( pEdge, sSol.m_vStart[0], pNewE1, pNewE2, pNewV ) );
                         }
                     } // end split at each intersection
                 } // end intersection against each edge
@@ -17942,12 +18367,12 @@ static constexpr SmBoolean bUseJGU = FALSE ;
     {                                                                                     
       pCrvClassU->SetTgtLoopsOnly(FALSE) ;                                                                
       pCrvClassV->SetTgtLoopsOnly(FALSE) ;                                                                
-      HasSeamProblem(rCrvClassU,                                                       
+      SER( HasSeamProblem(rCrvClassU,                                                       
                      rCrvClassV,                                                       
                      eCrossedSeam,                                  
                      eMissingSeam,                                                  
                      eNearMissSeam,                                                 
-                     FALSE) ;          // FALSE = classify against all Face->Loops
+                     FALSE) ) ;        // FALSE = classify against all Face->Loops
     }
 
   // arrive here when SeamProb enums are set - when pOptCrvClassU && pOptCrvClassV are given these must also be given
@@ -18007,7 +18432,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
       SmFixSeamPlanType eMoveSeamResult_V ;
 
       // First, move seam if we can
-      MoveSeam( eMoveSeamResult_U,
+      SER( MoveSeam( eMoveSeamResult_U,
                 eMoveSeamResult_V,
                 rCrvClassU,         
                 rCrvClassV,         
@@ -18019,7 +18444,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
                 &sThisNewFaces,      
                 &sThisNewEdges,      
                 &sThisNewVertices,
-                pOptFaceProps) ; 
+                pOptFaceProps)  ); 
 
       if(pOptNewFaces)     { pOptNewFaces->Append(sThisNewFaces) ; }
       if(pOptNewSeamEdges) { pOptNewSeamEdges->Append(sThisNewEdges) ; }
@@ -18030,7 +18455,8 @@ static constexpr SmBoolean bUseJGU = FALSE ;
       sThisNewVertices.ReSet() ;
 
       // Is there still a problem?
-      bHasSeamProblem = HasSeamProblem(*pCrvClassU, *pCrvClassV, eCrossedSeam, eMissingSeam, eNearMissSeam) ;
+      SER( HasSeamProblem(*pCrvClassU, *pCrvClassV, eCrossedSeam, eMissingSeam, eNearMissSeam) ) ;
+      bHasSeamProblem = HasSeamProblem(eCrossedSeam, eMissingSeam) ;
 
       // no work - no seam problems
       if(bHasSeamProblem == FALSE)
@@ -18038,6 +18464,8 @@ static constexpr SmBoolean bUseJGU = FALSE ;
 
     } // end bUseJGU check
   // End Section added by JGU
+
+  SmBoolean bVertexOnlyClosedSurface = IsClosedSurfaceWithVertexLoops(pOptFaceProps);
 
   // parse input
   SmBoolean bMergeU =    ((eCrossedSeam == SM_SP_U) || (eCrossedSeam == SM_SP_BOTH)) 
@@ -18066,13 +18494,13 @@ static constexpr SmBoolean bUseJGU = FALSE ;
       sm_RemoveSuspectSplitAtSeamUVTrimCurves(pCrvClassU) ; 
 
       // Merge rCrvClassU Ivls into Face - fixes both Missing Seams and EdgeCrossings
-      pCrvClassU->MergeIntervals(&sThisNewFaces,    // out: list of new faces, NULL to ignore.
+      SER(pCrvClassU->MergeIntervals(&sThisNewFaces,    // out: list of new faces, NULL to ignore.
                                                     //      When an existing face is split into 2
                                                     //      the oldFace is reused and 1 newFace is
                                                     //      created and placed on this list.
                                  &sThisNewEdges,    // out: list of new edges, NULL to ignore
                                  &sThisNewVertices, // out: list of new vertices, NULL to ignore
-                                 this) ;            // in : pointer to original face - used for debug display only
+                                 this)) ;           // in : pointer to original face - used for debug display only
 
        // when only MergingU accumulate output
       if(bMergeV == FALSE) 
@@ -18103,11 +18531,12 @@ static constexpr SmBoolean bUseJGU = FALSE ;
           SmSurfParamType       eThisCrossedSeam, eThisMissingSeam, eThisNearMissSeam ;
            
           // look for remaining Seam problems - should be no more problems in U
-          bHasSeamProblem = pTgtFace->HasSeamProblem(sThisCrvClassU, 
-                                                     sThisCrvClassV, 
-                                                     eThisCrossedSeam, 
-                                                     eThisMissingSeam, 
-                                                     eThisNearMissSeam) ;
+          SER( pTgtFace->HasSeamProblem(sThisCrvClassU, 
+                                        sThisCrvClassV, 
+                                        eThisCrossedSeam, 
+                                        eThisMissingSeam, 
+                                        eThisNearMissSeam) ) ;
+          bHasSeamProblem = HasSeamProblem(eThisCrossedSeam, eThisMissingSeam) ;
 
           // check that CrvClassU and CrvClassV share common endpoints
           SM_ASSERT_MSG(   pCrvClassU->GetPointClassByIndex(0)->GetPointClass() == pCrvClassV->GetPointClassByIndex(0)->GetPointClass()
@@ -18127,7 +18556,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
           if(bHasSeamProblem)
             {
               // Insert ConstVSeam Ivls into ThisFace
-              SplitAtSeam(sThisCrvClassU, 
+              SER( SplitAtSeam(sThisCrvClassU, 
                           sThisCrvClassV,
                           eThisCrossedSeam,
                           eThisMissingSeam,
@@ -18135,7 +18564,7 @@ static constexpr SmBoolean bUseJGU = FALSE ;
                           &sThisNewFaces2,
                           &sThisNewEdges2, 
                           &sThisNewVertices2,
-                          pOptFaceProps) ;
+                          pOptFaceProps)  );
 
               // when asked - accumulate output - don't add this Face twice
               if(pOptNewFaces) { pOptNewFaces->Append(sThisNewFaces2) ; }
@@ -18149,24 +18578,77 @@ static constexpr SmBoolean bUseJGU = FALSE ;
         } // end iter every Face - looking for V dir Seam problems after U dir seam Merge
     } // end need to MergeV && MergeU check
 
-  // when only merging V Dir Seam
-  else if(bMergeV) 
+  // Merge V alone, or after a U cut that left this face intact.
+  else if(bMergeV)
     {
+      // A nonseparating U seam leaves the face intact. Keep the known interior
+      // classification of V and attach its ends to the shared seam vertex.
+      // Either seam may be divided at existing vertices; carry the corner
+      // between the complete walks without changing intermediate classifications.
+      // Reclassifying this intermediate two-boundary face loses the V interior.
+      if(bMergeU && sThisNewEdges.GetSize() > 0 && pCrvClassU->GetSize() > 0 && pCrvClassV->GetSize() > 0
+         && (*pCrvClassU)[0].m_vStart.GetPointClass() == SM_PC_VERTEX
+         && pCrvClassU->GetLast().m_vEnd.GetPointClass() == SM_PC_VERTEX
+         && (*pCrvClassU)[0].m_vStart.GetObject() == pCrvClassU->GetLast().m_vEnd.GetObject())
+        {
+          SmVertex              *pCorner = (*pCrvClassU)[0].m_vStart.GetVertexObject();
+          SmPointClassification *pEnds[2] = {&(*pCrvClassV)[0].m_vStart,&pCrvClassV->GetLast().m_vEnd};
+          for(ULONG lEnd=0; lEnd<2; ++lEnd)
+            if(pEnds[lEnd]->GetPointClass() == SM_PC_FACE && pEnds[lEnd]->GetObject() == this)
+              { pEnds[lEnd]->SetClassObject(SM_PC_VERTEX,pCorner); }
+        }
+      if(bMergeU)
+        {
+          if(pOptNewSeamEdges) { pOptNewSeamEdges->Append(sThisNewEdges); }
+          if(pOptSeamVertices) { pOptSeamVertices->Append(sThisNewVertices); }
+        }
       // remove UVTrimCurves attached to Edges ending at Vertices classified to the SeamCurve. They often jump SeamBndries.
       sm_RemoveSuspectSplitAtSeamUVTrimCurves(pCrvClassV) ; 
 
       // Merge rCrvClassV Ivls into Face - fixes both Missing Seams and EdgeCrossings
-      pCrvClassV->MergeIntervals(&sThisNewFaces, 
-                                 &sThisNewEdges,
-                                 &sThisNewVertices,
-                                 this) ;
-    
+      SER(pCrvClassV->MergeIntervals
+        (&sThisNewFaces,    // out: new faces
+         &sThisNewEdges,    // out: new edges
+         &sThisNewVertices, // out: new vertices
+         this)) ;           // in : original face
+
       // accumulate output
       if(pOptNewFaces)     { pOptNewFaces->Append(sThisNewFaces) ; }
       if(pOptNewSeamEdges) { pOptNewSeamEdges->Append(sThisNewEdges) ; }
       if(pOptSeamVertices) { pOptSeamVertices->Append(sThisNewVertices) ; }
     
     } // end need to MergeU check
+
+  if(bVertexOnlyClosedSurface)
+    {
+      // Seam insertion makes the only edge loop the natural outer boundary.
+      // Any original vertices off the seams remain inner vertex loops.
+      SmTArray<SmLoop*> sLoops;
+      SmLoop          *pOuterLoop = NULL;
+      GetLoops(sLoops);
+      for(ULONG lLoop=0; lLoop<sLoops.GetSize(); ++lLoop)
+        {
+          if(!sLoops[lLoop]->GetLoopuse()->IsVertexLoopuse())
+            {
+              AERN(pOuterLoop == NULL,SM_ERR_ASSERT_FAILURE);
+              pOuterLoop = sLoops[lLoop];
+            }
+        }
+      NER(pOuterLoop);
+      Notify(SM_NO_PRE_EDIT,this,pBrep,NULL);
+      for(ULONG lLoop=0; lLoop<sLoops.GetSize(); ++lLoop)
+        {
+          SmLoopuse *pUses[2] = {NULL,NULL};
+          sLoops[lLoop]->GetLoopuses(pUses[0],pUses[1]);
+          for(ULONG lSide=0; lSide<2; ++lSide)
+            {
+              pUses[lSide]->SetOrientation(sLoops[lLoop] == pOuterLoop ? SM_OT_SAME : SM_OT_OPPOSITE);
+              if(sLoops[lLoop] == pOuterLoop) { pUses[lSide]->GetFaceuse()->SetList(pUses[lSide]); }
+            }
+        }
+      SER(RemoveUVTrimCurves());
+      Notify(SM_NO_POST_EDIT,this,pBrep,NULL);
+    }
 
 #ifdef SM_DEBUG_CODE
   if(bDebugMe)
@@ -18266,10 +18748,10 @@ SmStatus SmFace::ShrinkGeometry()
   // end CalculateUVDomainFromUVTrimCurves
 
   // Trim the surface and reset the surface domain to the Face's trim boundary
-  pSurface->TrimWithDomain(sNewDomain);
+  SER( pSurface->TrimWithDomain(sNewDomain) );
 
   // remove all associated UVTrimCurves
-  this->RemoveUVTrimCurves();
+  SER( this->RemoveUVTrimCurves() );
 
 // Remove Composites
 //  // Now Trim all Curves to the face edges  (NOT composites)
@@ -18318,7 +18800,9 @@ SmStatus SmFace::ShrinkGeometry()
 //      }
 
       // trim the curve to the used interval - some derived curve types don't trim
-      pCurve->Trim(sIvl) ; // may snap sIvl by tol to existing knots
+      // SolidCraft: (void), as upstream notes: SmCurve::Trim refuses for curve types that don't
+      // trim (SM_ERR), and those keep their whole curve
+      (void)pCurve->Trim(sIvl) ; // may snap sIvl by tol to existing knots
 
 // Remove Composites
 //      // update compositeEdge intervals
@@ -18536,7 +19020,7 @@ static int iDebugTess = 0;
           }
           else
           {
-            pSurface->CalculateBoundingBox( GetUVDomain(), &sBBox );
+            SER( pSurface->CalculateBoundingBox( GetUVDomain(), &sBBox ) );
             dDist = sBBox.GetMin().DistanceBetween( sBBox.GetMax() ) / 4.0;
           }
 
@@ -18593,7 +19077,7 @@ static int iDebugTess = 0;
           double        d2ndMaxUVLoopGap = SM_EFF_ZERO ; 
           const SmGap * pMaxFaceGap = GetMaxGap3d() ;
           const SmGap * pMaxLoopGap = GetMaxLoopGap3d() ;
-          CalculateMaxLoopUVGap(dMaxUVLoopGap, &d2ndMaxUVLoopGap) ;
+          SER( CalculateMaxLoopUVGap(dMaxUVLoopGap, &d2ndMaxUVLoopGap)  );
 
           // normally okay but this does not work well for faces with missing SeamCurves where the 
           // max UVLoopGap = Surface->NaturalUVDomain->PeriodicDir->Length
@@ -18608,8 +19092,8 @@ static int iDebugTess = 0;
           // get U and V knots and their Intervals - all surfaces now return some kind of 'pretend' knot vector when not a BSplineSurface
           SmTArray<double> sUKnots;                         // surface domain
           SmTArray<double> sVKnots;                         // surface domain
-          pSurface->GetKnots(SM_SP_U, sUKnots);             // surface domain
-          pSurface->GetKnots(SM_SP_V, sVKnots);             // surface domain
+          SER( pSurface->GetKnots(SM_SP_U, sUKnots) );             // surface domain
+          SER( pSurface->GetKnots(SM_SP_V, sVKnots) );             // surface domain
           SmExtent1d sUIvl(sUKnots[0], sUKnots.GetLast());  // surface domain
           SmExtent1d sVIvl(sVKnots[0], sVKnots.GetLast());  // surface domain
 
@@ -18617,14 +19101,14 @@ static int iDebugTess = 0;
           if(pOptUVDomain && (sUVDomain.AreDisjoint(*pOptUVDomain) == FALSE))
             {
               // crosshatch FaceDomain/pOptDomain intersection
-              sUVDomain.Intersect(*pOptUVDomain, sUVDomain) ;
+              SER( sUVDomain.Intersect(*pOptUVDomain, sUVDomain)  );
             }
 
           // Trim sUIvl and sVIvl down to the bits that are in the trimmed sUVDomain
-          sUIvl.SetMinMax(smos_Max(sUVDomain.GetMin().x, sUKnots[0]),
-                          smos_Min(sUVDomain.GetMax().x, sUKnots.GetLast())) ;
-          sVIvl.SetMinMax(smos_Max(sUVDomain.GetMin().y, sVKnots[0]),
-                          smos_Min(sUVDomain.GetMax().y, sVKnots.GetLast())) ;
+          SER( sUIvl.SetMinMax(smos_Max(sUVDomain.GetMin().x, sUKnots[0]),
+                          smos_Min(sUVDomain.GetMax().x, sUKnots.GetLast()))  );
+          SER( sVIvl.SetMinMax(smos_Max(sUVDomain.GetMin().y, sVKnots[0]),
+                          smos_Min(sUVDomain.GetMax().y, sVKnots.GetLast()))  );
         
           // arrive here when sUKnots = array of constant U isocurves to be drawn when in sUIvl (for BSplines: Knot values)
           //                sVKnots = array of constant V isocurves to be drawn when in sVIvl 
@@ -18655,7 +19139,7 @@ static int iDebugTess = 0;
 
               // draw Const VKnot UVCurves
               smgfx_OutputLineWidth( crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet );
-              sm_DrawFaceUVCurve( crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet ); 
+              SER( sm_DrawFaceUVCurve( crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet ) ); 
 
               // draw between VKnot ConstV UVCurves
               if (   ii > 0                           // Draw BetweenCurves in intervals: Ivl[ii] = [Knotii-1,Knotii]
@@ -18673,7 +19157,7 @@ static int iDebugTess = 0;
 
                       // draw between Const Vknot UVCurves
                       smgfx_OutputLineWidth(crDisp.m_dCrossHatchLineWidth, pOptGfxSet ); // a sm_DrawFaceUVCurve 'bug' changes this value
-                      sm_DrawFaceUVCurve(crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet ); 
+                      SER( sm_DrawFaceUVCurve(crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet ) ); 
 
                     } // end every between V knot curve
                 } // end need between V knot UVCurves check
@@ -18704,7 +19188,7 @@ static int iDebugTess = 0;
 
               // draw Const UKnot UVCurves
               smgfx_OutputLineWidth(crDisp.m_dCrossHatchKnotLineWidth, pOptGfxSet) ; // a sm_DrawFaceUVCurve 'bug' changes this value
-              sm_DrawFaceUVCurve(crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet );
+              SER( sm_DrawFaceUVCurve(crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet ) );
 
               // draw between UKnot ConstU UVCurves
               if (   ii > 0                          // Draw BetweenCurves in intervals: Ivl[ii] = [Knotii-1,Knotii]
@@ -18722,7 +19206,7 @@ static int iDebugTess = 0;
 
                       // draw between Const Uknot UVCurves
                       smgfx_OutputLineWidth(crDisp.m_dCrossHatchLineWidth, pOptGfxSet ); // a sm_DrawFaceUVCurve 'bug' changes this value
-                      sm_DrawFaceUVCurve(crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet );
+                      SER( sm_DrawFaceUVCurve(crDisp, this, pSurface, sStart, sEnd, sXSectTol3d, pOptUVDomain, pOptGfxSet ) );
 
                     } // end every between U knot curve
                 } // end need between U knot UVCurves check
@@ -18740,7 +19224,7 @@ static int iDebugTess = 0;
   // Draw pincushion display
   if(crDisp.m_bDrawPinCushion)
     {
-      GetSurface()->OutputGraphics(crDisp, NULL, pOptUVDomain) ;
+      SER( GetSurface()->OutputGraphics(crDisp, NULL, pOptUVDomain)  );
     } // end crDisp.m_bDrawPinCushion - Draw pincushion display
 
   // Draw polygon of surface
@@ -18818,7 +19302,7 @@ static int iDebugTess = 0;
         {
           SmEdgeuse * pEdgeuse = sEdgeuses1[ii] ;
           SmEdge    * pEdge    = pEdgeuse->GetEdge() ;
-          pEdge->GetEdgeuses(sNeighborEdgeuses) ;
+          SER( pEdge->GetEdgeuses(sNeighborEdgeuses)  );
 
           pEdge->DrawParams(pOptGfxSet) ;
           pEdgeuse->Draw(1, FALSE, pOptGfxSet) ;    // FALSE = don't draw UVTrimCurves
@@ -18926,7 +19410,7 @@ SmDisplayList * SmFace::Draw( SmGfxArraySet * pOptGfxSet )  const
                            : FALSE ;
 
   // output Face graphics
-  OutputGraphics(rDisp, bSwapNormals, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(rDisp, bSwapNormals, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end new displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -18993,11 +19477,11 @@ SmDisplayList * SmFace::DrawUVCurves
     {
       SmEdgeuse *pEU = (SmEdgeuse*)sAllEdgeuses[i];
       SmBSplineCurve * pUVCurve = NULL ;
-      pEU->GetOrCreateUVTrimCurve(pUVCurve) ;
+      (void)pEU->GetOrCreateUVTrimCurve(pUVCurve) ; // SolidCraft: drawing only
 
       if(pUVCurve)
         {
-          pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sBox) ;
+          (void)pUVCurve->CalculateBoundingBox(pUVCurve->GetNaturalInterval(), &sBox) ; // SolidCraft: drawing only
           if(i==0) s3dBox = sBox ;
           else     s3dBox.Union(sBox, s3dBox) ;
         }
@@ -19005,7 +19489,7 @@ SmDisplayList * SmFace::DrawUVCurves
 
   SmExtent2d sUVDomain = pSurface->GetNaturalUVDomain() ;
   SmExtent2d sUVBox(s3dBox) ;
-  sUVBox.Intersect(sUVDomain, sUVBox) ;
+  (void)sUVBox.Intersect(sUVDomain, sUVBox) ; // SolidCraft: drawing only
 
   // Draw the UVPlane Icon positioned and sized to the UVTrimCurve boundary
   if(pSurface)
@@ -19026,7 +19510,7 @@ SmDisplayList * SmFace::DrawUVCurves
 
       // output 2d UVTrimCurves on nearby plane
       SmBSplineCurve * pUVCurve = NULL ;
-      pEU->GetOrCreateUVTrimCurve(pUVCurve) ;
+      (void)pEU->GetOrCreateUVTrimCurve(pUVCurve) ; // SolidCraft: drawing only
       if(pUVCurve)
         {
           //      smgfx_OutputColor(smgfx_GetColor()) ;
@@ -19113,7 +19597,7 @@ SmDisplayList * SmFace::Draw
     }
 
   // output Face graphics
-  OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end new displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -19197,7 +19681,7 @@ SmDisplayList * SmFace::DrawUV
   sDisp.m_bVaryCrossHatchColor = bVaryCrossHatchColor ;
 
   // output Face graphics
-  OutputGraphics(sDisp, bSwapNormals, pOptUVDomain, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, bSwapNormals, pOptUVDomain, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end new displayList
   smgfx_OutputColor(sColor,pOptGfxSet) ;
@@ -19296,7 +19780,7 @@ SmDisplayList * SmFace::DrawSubdivisions
   // create temp Brep containing a copy of just this face
   SmBrep* pCopyBrep = new( sContext ) SmBrep();
 
-  pBrep->CopyFaces(sFaces, pCopyBrep, &sNewFaces, FALSE, NULL) ;
+  (void)pBrep->CopyFaces(sFaces, pCopyBrep, &sNewFaces, FALSE, NULL) ; // SolidCraft: drawing only
 
   SmFace *pCopyFace = sNewFaces[0] ; NERN(pCopyFace) ;
 
@@ -19304,7 +19788,7 @@ SmDisplayList * SmFace::DrawSubdivisions
   SM_ASSERT_VALID_NO_STREAM(pCopyFace) ;
 
   // build the Face TessSrfCache and UV tessellation in pCopyBrep - pCopyBrep gets saved and then deleted when sTess is deleted
-  sTess.DoTessellation(pCopyBrep, bFailedFaces) ;
+  (void)sTess.DoTessellation(pCopyBrep, bFailedFaces) ; // SolidCraft: drawing only
 
   // Fetch pCopyFace's just made tessellation PolyBrep and its associated TessSrfCache
   SmPolyBrep     * pUVPolyBrep = sTess.GetTessBrepOfFace(pCopyFace) ; NERN(pUVPolyBrep);
@@ -19401,7 +19885,7 @@ SmDisplayList * SmFace::DrawLoopusesForFaceuse
   sDisp.m_pFaceuse       = pFaceuse ? pFaceuse : GetUpwardFaceuse() ;
 
   // output Face graphics
-  OutputGraphics(sDisp, FALSE, NULL, pOptGfxSet);
+  (void)OutputGraphics(sDisp, FALSE, NULL, pOptGfxSet); // SolidCraft: drawing only
 
   // end new displayList
   smgfx_OutputColor(sColor, pOptGfxSet);
@@ -19450,7 +19934,7 @@ SmDisplayList * SmFace::DrawNeighbors( SmGfxArraySet * pOptGfxSet ) const
   sDisp.m_bDrawNeighbors       = TRUE;
 
   // output Face graphics
-  OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end new displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -19493,7 +19977,7 @@ SmDisplayList * SmFace::DrawMicro( SmGfxArraySet * pOptGfxSet ) const
   sDisp.m_bDrawMicro           = TRUE;
 
   // output Face graphics
-  OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ;
+  (void)OutputGraphics(sDisp, bSwapNormals, NULL, pOptGfxSet) ; // SolidCraft: drawing only
 
   // end new displayList
   smgfx_OutputColor(sColor, pOptGfxSet) ;
@@ -20006,16 +20490,38 @@ SmBoolean sm_AssertTestFace34( const SmFace* pFace )
     SmTArray<SmEdge*> sEdges;
     pFace->GetEdges( sEdges );
 
+    // GlobalCoincidenceChecker finds nothing for two curves whose boxes over their intervals
+    // are farther apart than the tolerance: only the pairs a box search finds near each other
+    // are compared (every pair whose box could not be computed still is).
+    const ULONG lNumEdges = sEdges.GetSize();
+    std::vector<SmExtent3d> sBoxes(lNumEdges);
+    std::vector<bool> sKnown(lNumEdges, false);
+    double dMaxTol = 0.0;
+    for ( ii = 0; ii < lNumEdges; ii++ )
+    {
+        const SmExtent1d sI = sEdges[ii]->GetInterval();
+        sKnown[ii] = sEdges[ii]->GetCurve()->CalculateBoundingBox( sI, &sBoxes[ii] ) == SM_SUCCESS;
+        dMaxTol = smos_Max( dMaxTol, SmTol::GetZoneTol3d( sEdges[ii] ).val );
+    }
+    SmBoxSearch sSearch;
+    sSearch.Build( sBoxes, sKnown );
+    std::vector<ULONG> sCand;
+
     // Compare each edge with all others
-    for ( ii = 0; ii < sEdges.GetSize(); ii++ )
+    for ( ii = 0; ii < lNumEdges; ii++ )
     {
         SmEdge    *pE1 = sEdges[ii];
         SmCurve   *pC1 = pE1->GetCurve();
         SmExtent1d sI1 = pE1->GetInterval();
         SmZoneTol3d dT1 = SmTol::GetZoneTol3d( pE1 );
 
-        for ( jj = ii+1; jj < sEdges.GetSize(); jj++ )
+        if ( !sKnown[ii] || !std::isfinite(dMaxTol) || !sSearch.Query( sBoxes[ii], dMaxTol, sCand ) )
+            { sm_AllFrom( 0, lNumEdges, sCand ); }
+        for ( ULONG kc = 0; kc < sCand.size(); kc++ )
         {
+            jj = sCand[kc];
+            if ( jj <= ii )
+                { continue; }
             SmEdge     *pE2 = sEdges[jj];
             SmCurve    *pC2 = pE2->GetCurve();
             SmExtent1d  sI2 = pE2->GetInterval();
@@ -20024,7 +20530,7 @@ SmBoolean sm_AssertTestFace34( const SmFace* pFace )
             SmBoolean   bMoreWork = FALSE;
             SmSolutionArray sSols;
 
-            pC1->GlobalCoincidenceChecker( sI1, *pC2, sI2, dT, bMoreWork, sSols );
+            (void)pC1->GlobalCoincidenceChecker( sI1, *pC2, sI2, dT, bMoreWork, sSols ); // SolidCraft: on failure no solutions are reported, read below as no overlap
 
             // Check solutions for range intersections
             for (kk = 0; kk < sSols.GetSize(); kk++ )
@@ -20812,7 +21318,7 @@ SmBoolean bDebugMe = FALSE;
                   // classify the point against the Face->Brep
                   SmBoolean bDoBoundaryIntersections = TRUE ;
                   SmPointClassification sPointClassification(sSurfaceFaceZoneTol3d, GetContext()) ;  // should be sPolePoints ZoneTol3d
-                  this->Point3DClassify(sPolePoints[ii], sSurfaceFaceZoneTol3d, bDoBoundaryIntersections, sPointClassification) ;
+                  (void)this->Point3DClassify(sPolePoints[ii], sSurfaceFaceZoneTol3d, bDoBoundaryIntersections, sPointClassification) ; // SolidCraft: a validity check reads what it found
 
                    // When Surface has poles they must be marked by vertices or out of the model
                    SmPointClassificationType ePointType = sPointClassification.GetPointClass() ;
@@ -20918,7 +21424,7 @@ SmBoolean bDebugMe = FALSE;
                   eStat = pThisVU->ComputeUVPoint( uvPt ); // side effect: build UVTrimCurve - GWC: do we want that in AssertValid?
                   if( eStat == SM_SUCCESS )
                     {
-                      this->PointClassify( uvPt,
+                      (void)this->PointClassify( uvPt, // SolidCraft: a validity check reads what it found
                                            sVertexZoneTol3d,
                                            TRUE,  // bDoBoundaryIntersections,
                                            TRUE,  // bUseUVClassification,
@@ -20926,7 +21432,7 @@ SmBoolean bDebugMe = FALSE;
                     }
                   else
                     {
-                      this->Point3DClassify( pThisVert->GetPoint(),
+                      (void)this->Point3DClassify( pThisVert->GetPoint(), // SolidCraft: a validity check reads what it found
                                              sVertexZoneTol3d,
                                              TRUE, // bDoBoundaryIntersections,
                                              ptClass );
@@ -21014,11 +21520,13 @@ SmBoolean bDebugMe = FALSE;
   SmSurfParamType eNearMissSeam;
 
   // Test = FALSE when pFace->Edges intersects pFace->PeriodicSurface->Seam
-  HasSeamProblem(sCrvClassU, 
-                 sCrvClassV, 
-                 eCrossedSeam, 
-                 eMissingSeam, 
-                 eNearMissSeam) ;
+  // SolidCraft change: a classification that fails is a check that fails
+  if (HasSeamProblem(sCrvClassU, 
+                     sCrvClassV, 
+                     eCrossedSeam, 
+                     eMissingSeam, 
+                     eNearMissSeam) != SM_SUCCESS)
+    { bRtn = FALSE ; }
 
   /* 29 */ // Face OuterLoop boundaries cannot cross a periodic surface seam
   bRtn &= SM_ASSERT_BOOLEAN_REPORT(29, SM_LEVEL_2, eCrossedSeam == SM_SP_NEITHER, _T("")) ;
@@ -21180,7 +21688,7 @@ SmStatus  SmFace::GetPointsInFace
   if(lPointCount > 1)
     {
       // seed the random number generator
-      srand((unsigned)time(NULL)) ;
+      srand(SM_RAND_SEED) ;
     }
 
   // check input - return SM_ERR for degenerate surface
@@ -21237,10 +21745,10 @@ SmStatus  SmFace::GetPointsInFace
 
       // set search range to face boundary domain
       SmExtent2d sTrimUVDomain, sUVDomain ;
-      CalculateUVDomainFromUVTrimCurves(sTrimUVDomain) ;
+      SER( CalculateUVDomainFromUVTrimCurves(sTrimUVDomain)  );
       SmExtent2d sSurfUVDomain = GetSurface()->GetNaturalUVDomain() ;
-      sSurfUVDomain.Intersect(sTrimUVDomain, sUVDomain) ;
-      sUInterval.SetMinMax(sUVDomain.GetMin().x,sUVDomain.GetMax().x) ;
+      SER( sSurfUVDomain.Intersect(sTrimUVDomain, sUVDomain)  );
+      SER( sUInterval.SetMinMax(sUVDomain.GetMin().x,sUVDomain.GetMax().x)  );
 
       // create isoParameter UVTrimCurve - we'll keep reusing it until done
       SmPoint2d sUVStart = m_vUVDomain.Evaluate(dU, 0.0) ;
@@ -21360,7 +21868,7 @@ SmBoolean bDebugMe = FALSE ;
                                 : 0.0 ;
                       double dVNorm   =  ((double)(kk+1) + dVDither) / ((double)(smpCnt+1)) ;
                       SmPoint3d sUVPoint ;
-                      pCurve->EvaluatePoint( sIvl.Evaluate(dVNorm), sUVPoint) ;
+                      SER( pCurve->EvaluatePoint( sIvl.Evaluate(dVNorm), sUVPoint)  );
                       rUV.Add(SmPoint2d(dUParam, sUVPoint.y)) ;
                     }
 
@@ -21377,8 +21885,8 @@ SmBoolean bDebugMe = FALSE ;
   SmVector3d sPnt, sPV ;
   for(ii=0;ii<rUV.GetSize();ii++)
     {
-      pSurface->EvaluatePoint (rUV[ii], sPnt) ;
-      pSurface->EvaluateNormal(rUV[ii], TRUE, TRUE, sPV) ;
+      SER( pSurface->EvaluatePoint (rUV[ii], sPnt)  );
+      SER( pSurface->EvaluateNormal(rUV[ii], TRUE, TRUE, sPV)  );
       rPV.Add(sPnt) ;
       rPV.Add(sPV) ;
     }

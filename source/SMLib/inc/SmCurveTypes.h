@@ -57,12 +57,30 @@ enum SmOffsetDirectionType {
 PURPOSE: This enum defines what type of corner to produce when doing
     curve filleting of composites.
 
-NOTES: 
+NOTES: SM_OC_CURVE_EXTENSION (a SolidCraft change) continues each offset
+    as its own curve (a line along its line, an arc along its circle) to
+    where the two meet. Only SmPrimitiveCreation::CreateTaperExtrude takes
+    it so far: there each wall continues as its own surface (a line's plane,
+    an arc's cone) and neighbouring walls meet along their intersection.
 ***********************************************************************/
 enum SmOffsetCornerType {
     SM_OC_LINEAR_EXTENSION,
     SM_OC_FILLET_CORNER,
-    SM_OC_LINEAR_CHAMFER
+    SM_OC_LINEAR_CHAMFER,
+    SM_OC_CURVE_EXTENSION
+};
+
+/*******************************************************************//**
+PURPOSE: Why CreateTaperExtrude could not close a corner with
+    SM_OC_CURVE_EXTENSION (a SolidCraft change).
+
+NOTES: 
+***********************************************************************/
+enum SmTaperCornerRefusal {
+    SM_TCR_NONE,       // the corner was closed
+    SM_TCR_APART,      // the continued curves do not meet
+    SM_TCR_NOT_EXACT,  // a curve there is neither a line nor an arc: its wall has no exact continuation
+    SM_TCR_WALL_CLOSES // a wall closes before the far end: its neighbours meet across it, or its arc shrinks to its centre
 };
 
 /*******************************************************************//**

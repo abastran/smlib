@@ -466,6 +466,10 @@ SmStatus SmLocalSolve1d::SolveOscillating(
       double dPrevT    = m_v1Prev.m_dT;
       double dCurrFVal = m_vCurr.m_dFOfT;
 
+      // A sign change is found only at a guess the evaluator computed: a failed
+      // evaluation leaves sTempIter holding no function value.
+      SmBoolean bFoundSignChange = FALSE;
+
       for ( i = 0; i < clNumGuesses; i++ )
         {
           double dMidT = dPrevT + sGuesses[i] * ( dCurrT - dPrevT );
@@ -487,12 +491,13 @@ SmStatus SmLocalSolve1d::SolveOscillating(
 
           if ( sTempIter.m_dFOfT * dCurrFVal <= 0 )
             {
+              bFoundSignChange = TRUE;
               break; // Found one: opposite sign.
             }
         } // end loop on clNumGuesses interior values looking for sign change
 
       // See if we found a sign change.
-      if ( sTempIter.m_dFOfT * dCurrFVal <= 0 )
+      if ( bFoundSignChange )
         {
           // Found a sign change.  Set our member bracketing data.
 
@@ -842,6 +847,12 @@ TCHAR sBuff[SM_TBLOCK_SIZE];
 
               return SM_ERR;
             }
+        }
+      else
+        {
+          // No other start point: the failed evaluation left m_vCurr
+          // with no function value to iterate from.
+          return eStat;
         }
     } // end Evaluate failure branch
 
@@ -1268,9 +1279,9 @@ TCHAR sBuff[SM_TBLOCK_SIZE];
   if ( m_bHaveLowerBracket && m_bHaveUpperBracket )
     {
       // solve with bisection
-      SolveByBisection( 20, m_dLowerBracketT, m_dUpperBracketT,
+      (void)SolveByBisection( 20, m_dLowerBracketT, m_dUpperBracketT,
           m_dLowerBracketF, m_dUpperBracketF,
-          m_vCurr.m_dT, m_vCurr.m_dFOfT );
+          m_vCurr.m_dT, m_vCurr.m_dFOfT ); // SolidCraft: a failed bisection writes nothing, m_vCurr keeps the last evaluated iterate judged next
     }
 
   if ( smos_Fabs( m_vCurr.m_dFOfT ) < m_dAcceptableAccuracy )

@@ -71,6 +71,9 @@ enum SmBooleanOperationType ;
 #define SM_AI_REUSE_UVCURVES_ID  122  // JLMCC per FS, modified for consistency
 #define SM_AI_TESSELLATING       124  // used as part of tessellator
 #define SM_AI_REPLACE_COMPOSITES 126  // NonPersistent attribute used to replace CompositeFace tracking with Attribute tracking
+#define SM_AI_FILLET_EDGECURVE   128  // SolidCraft change: a fillet surface's filleted edge, during a piecewise merge
+#define SM_AI_FOLLOWED_BLEND     130  // SolidCraft change: SmOffsetFacesExecutive's marks, during one call
+#define SM_AI_FILLET_CORNER_FACE 132  // SolidCraft change: a face of a set-back fillet corner's patch (SmFilletExecutive::SetMarkCornerPatches)
                                       //   after a boolean every AObject with this attribute is a child of the AObject originally marked
                                       //   When tracking one AObject (a face) use SmAttribute, when tracking many faces use 
                                       //   SmLongAttribute or SmPointerAttribute so that children of different parents can be identified.
@@ -128,11 +131,11 @@ enum SmBooleanOperationType ;
 PURPOSE: 
 
 NOTES:
- static class object - don't add virtual methods to SmAttributeData.  
- Virtual methods conflict with the methods in SmTArray<SmAttributeData>
- that use memset() to clear memory - with SmAttributeData virtual methods the
- virtual pointer tables get corrupted by SmTArray<SmAttributeData>::ReSet() 
- calls and the like.
+ m_sAttributes is an SmTArray, whose base SmObject has a virtual destructor,
+ so SmAttributeData and the classes derived from it must be constructed and
+ destroyed: store them in an SmTObjArray, never in an SmTArray, which
+ calloc()s, memset()s and memcpy()s its elements without running constructors
+ or destructors.
 
 ***********************************************************************/
 class SM_EXPORT SmAttributeData

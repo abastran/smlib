@@ -593,7 +593,7 @@ SmSurfaceIntersector::SmSurfaceIntersector
           // inform the public
           WARN(_T("SmSurfaceIntersector constructor: Given Surface1->UVDomain not completely contained in Surface1->NaturalUVDomain - changing input domain")) ;
           // change input domain to intersection of input and natural domains
-          sSurf1UVDomain.Intersect(crUVDomain1, sSurf1UVDomain) ;
+          (void)sSurf1UVDomain.Intersect(crUVDomain1, sSurf1UVDomain) ; // SolidCraft: a disjoint domain comes back degenerate, which the warning below reports
 
           // when that intersection is degenerate - inform the public
           if(sSurf1UVDomain.IsDegenerate(SM_EFF_ZERO))
@@ -610,7 +610,7 @@ SmSurfaceIntersector::SmSurfaceIntersector
           // inform the public
           WARN(_T("SmSurfaceIntersector constructor: Given Surface2->UVDomain not completely contained in Surface2->NaturalUVDomain - changing input domain")) ;
           // change input domain to intersection of input and natural domains
-          sSurf2UVDomain.Intersect(crUVDomain2, sSurf2UVDomain) ;
+          (void)sSurf2UVDomain.Intersect(crUVDomain2, sSurf2UVDomain) ; // SolidCraft: a disjoint domain comes back degenerate, which the warning below reports
 
           // when that intersection is degenerate - inform the public
           if(sSurf2UVDomain.IsDegenerate(SM_EFF_ZERO))
@@ -680,12 +680,16 @@ static SmTsectCurveType sm_ComputeCurveType
     SmPoint3d sP1, sP2;
     SmExtent1d sIvl1 = cpUVCurve1->GetNaturalInterval();
     SmExtent1d sIvl2 = cpUVCurve2->GetNaturalInterval();
-    cpUVCurve1->EvaluatePoint(sIvl1.Evaluate(0.5),sP1);
-    cpUVCurve2->EvaluatePoint(sIvl2.Evaluate(0.5),sP2);
+    // SolidCraft change: normals that cannot be evaluated show no tangency; the curve keeps
+    // the crossing type it starts with (they were compared unset).
+    if (   cpUVCurve1->EvaluatePoint(sIvl1.Evaluate(0.5),sP1) != SM_SUCCESS
+        || cpUVCurve2->EvaluatePoint(sIvl2.Evaluate(0.5),sP2) != SM_SUCCESS)
+      { return eRet; }
     SmVector3d sNorm1, sNorm2;
     SmVector2d sUV1(sP1.x,sP1.y), sUV2(sP2.x,sP2.y);
-    cpSurface1->EvaluateNormal(sUV1,TRUE,TRUE,sNorm1);
-    cpSurface2->EvaluateNormal(sUV2,TRUE,TRUE,sNorm2);
+    if (   cpSurface1->EvaluateNormal(sUV1,TRUE,TRUE,sNorm1) != SM_SUCCESS
+        || cpSurface2->EvaluateNormal(sUV2,TRUE,TRUE,sNorm2) != SM_SUCCESS)
+      { return eRet; }
     double dSign = 1.0;
     double dDot = sNorm1.Dot(sNorm2);
     if (dDot < 0.0) { dSign = -1.0; }
@@ -989,7 +993,7 @@ static ULONG lDebugCount = 0 ;
                       // copy and trim the Surf1->NaturalBoundaryCurve
                       NER(pBSC1);
                       SmBSplineCurve* pBSC = new (*pSurf1->GetContext()) SmBSplineCurve(*pBSC1);
-                      pBSC->Trim(sTrimIvl1);   // may snap sIvl by tol to existing knots
+                      SER( pBSC->Trim(sTrimIvl1) );   // may snap sIvl by tol to existing knots
 
                       // classify intersection crossing/tangent/coincident 
                       // -cheap check- check interval endpoints only
@@ -1015,8 +1019,8 @@ static ULONG lDebugCount = 0 ;
                       // get endPoint SurfaceValues
                       //SmVector3d sStartNorm[2], sEndNorm[2] ;
                       SmTsectPnt sStartTPnt, sEndTPnt ;
-                      ComputePointValues(s2DStart, sStartTPnt) ;
-                      ComputePointValues(s2DEnd,   sEndTPnt) ;
+                      SER( ComputePointValues(s2DStart, sStartTPnt)  );
+                      SER( ComputePointValues(s2DEnd,   sEndTPnt)  );
 
                       // classify IntersectionCurve from its endPoint intersection classifications
                       SmTsectCurveType eType =   
@@ -1183,8 +1187,8 @@ lCount ++ ;
           ULONG lCoord = ii % 2 ;
 
           if(lCoord == 1) 
-               { sIntervals[ii].SetMinMax(m_vUVDomain[lSrf].GetMin().x,m_vUVDomain[lSrf].GetMax().x) ; }
-          else { sIntervals[ii].SetMinMax(m_vUVDomain[lSrf].GetMin().y,m_vUVDomain[lSrf].GetMax().y) ; }
+               { SER( sIntervals[ii].SetMinMax(m_vUVDomain[lSrf].GetMin().x,m_vUVDomain[lSrf].GetMax().x)  ); }
+          else { SER( sIntervals[ii].SetMinMax(m_vUVDomain[lSrf].GetMin().y,m_vUVDomain[lSrf].GetMax().y)  ); }
 
         } // end iter ii, adding isocurve and its interval to processing arrays
 
@@ -1211,11 +1215,11 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
               SmCurve        * pCurve       = pEdge->GetCurve() ;
               SmExtent1d       sIvl         = pEdge->GetInterval() ;
               SmBSplineCurve * pUVTrimCurve = NULL ;
-              pEdgeuse->GetOrCreateUVTrimCurve(pUVTrimCurve) ;
+              SER( pEdgeuse->GetOrCreateUVTrimCurve(pUVTrimCurve)  );
 
               // UVTrimCurve BBox
               SmExtent3d sBBox ;
-              pUVTrimCurve->CalculateBoundingBox(sIvl, &sBBox) ;
+              SER( pUVTrimCurve->CalculateBoundingBox(sIvl, &sBBox)  );
 
               // BBox corner values
               double sUVMinX = sBBox.GetMin().x ;
@@ -1416,21 +1420,21 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
 
                       // Use TargetCurve to get 3DPoint
                       SmPoint3d sCurvePoint ;
-                      sTargetCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], sCurvePoint) ;
+                      SER( sTargetCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], sCurvePoint)  );
 
                       // Use UVTrimCurve to get UVGuessPoint
                       SmPoint3d sUVGuess ;
-                      sUVTrimCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], sUVGuess) ;
+                      SER( sUVTrimCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], sUVGuess)  );
 
                       // drop CurvePoint onto Surface to find UVPoint
                       SmSolution sSol ;
                       SmBoolean bFoundAnswer ;
-                      m_cpSurface[lSrf]->LocalPointSolve(m_vUVDomain[lSrf], 
+                      SER( m_cpSurface[lSrf]->LocalPointSolve(m_vUVDomain[lSrf], 
                                                          SM_SO_MINIMIZE, 
                                                          sCurvePoint, 
                                                          SmPoint2d(sUVGuess.x, sUVGuess.y),
                                                          bFoundAnswer, 
-                                                         sSol) ;
+                                                         sSol)  );
                       if(bFoundAnswer == FALSE)
                         {
                           SM_DBG_WARN(_T("GWC:Intersector StartPoint from Edge/Surface xsect failed")) ;
@@ -1594,7 +1598,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
 
                   // compute the isoParamCurve's Position and Tangent
                   SmPoint3d sPT[2] ;
-                  pTgtBSC->Evaluate(rSol.m_vStart[0], 1, TRUE, sPT) ;
+                  SER( pTgtBSC->Evaluate(rSol.m_vStart[0], 1, TRUE, sPT)  );
 
                   // look for tangent surface/surfaceBoundaryCurve tangent intersections
                   // that are point intersections.
@@ -1602,7 +1606,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                   if(lCrv < 4)
                     { // Set bIsDegenerate = TRUE: pTSP is a degenerate pt XSect curve
                       //                    FALSE: pTSP is part of XSect curve and should be traced.
-                      ClassifyBoundaryStartPointIntersection(*pTSP, bIsDegenerate) ;
+                      SER( ClassifyBoundaryStartPointIntersection(*pTSP, bIsDegenerate)  );
                     }
 
                   // when the IntersectionPoint is degenerate (not part of an intersection curve)
@@ -1633,7 +1637,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                       pTSP->m_dDeviation = rSol.m_vStart.m_dSolutionValue;
                       if(lCrv >= 4) 
                         { 
-                          AddThroughPoint(*pTSP) ;
+                          SER( AddThroughPoint(*pTSP)  );
                         }
                       else if (m_vUVDomain[1-lSrf].IsPoint2dOnBoundary(sUVs[1-lSrf],SM_EFF_ZERO*100.0))
                         {
@@ -1645,7 +1649,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                       else 
                         {
                           // Add unique TsectPnts to the m_vStartPoints list
-                          AddStartPoint(*pTSP);
+                          SER( AddStartPoint(*pTSP) );
                         }
                     }
                 } // end single point intersection check
@@ -1718,12 +1722,12 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                           SmTArray<double> sBreakParameters ;
                           sBreakParameters.Add(rSol.m_vStart[0]) ;
                           sBreakParameters.Add(rSol.m_vEnd[0]) ;
-                          pTgtBSC->ApproximateCurve(*m_cpContext, sBreakParameters,
+                          SER( pTgtBSC->ApproximateCurve(*m_cpContext, sBreakParameters,
                                                     m_dThisApproxTol3d/3.0,
                                                     dAchievedTolerance, pBSCResult,
                                                     TRUE,    // in : bOptCreateAnalytics      
                                                     FALSE,   // in : bOptMatchParameterization
-                                                    FALSE) ; // in : bJustCopyBSplines        
+                                                    FALSE)  ); // in : bJustCopyBSplines        
 
                         }
                           
@@ -1898,7 +1902,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
 
                       // Expand the interval by a little
                       sUVIvl2.ExpandAbsolute(dIvlSize*SM_EFF_ZERO_SQRT);
-                      sUVIvl2.Intersect(pTgtBSC->GetNaturalInterval(),sUVIvl2);
+                      SER( sUVIvl2.Intersect(pTgtBSC->GetNaturalInterval(),sUVIvl2) );
 
                       // Swap start and end only when sUV is not on the boundary and
                       // the end has better deviation
@@ -1942,18 +1946,18 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                         {
                           // Use TargetCurve to get 3DPoint
                           SmPoint3d sPoint ;
-                          sTargetCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], sPoint) ;
+                          SER( sTargetCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], sPoint)  );
 
                           // Use UVTrimCurve to get UVGuessPoint
                           SmPoint3d s3dGuess ;
-                          sUVTrimCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], s3dGuess) ;
+                          SER( sUVTrimCurves[lCrv]->EvaluatePoint(rSol.m_vStart[0], s3dGuess)  );
 
                           // drop 3dPoint onto Surface to find UVPoint
                           SmSolution sSol ;
                           SmBoolean bFoundAnswer ;
-                          m_cpSurface[lSrf]->LocalPointSolve(m_vUVDomain[lSrf], SM_SO_MINIMIZE, 
+                          SER( m_cpSurface[lSrf]->LocalPointSolve(m_vUVDomain[lSrf], SM_SO_MINIMIZE, 
                                                              sPoint, SmPoint2d(s3dGuess.x,s3dGuess.y),
-                                                             bFoundAnswer, sSol) ;
+                                                             bFoundAnswer, sSol)  );
                           if(bFoundAnswer == FALSE)
                             {
                               SM_DBG_WARN(_T("GWC:Intersector StartPoint from Edge/Surface xsect failed")) ;
@@ -1994,13 +1998,13 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
 // begin GWC:CHANGE_CLASSIFY_UPDATE
                           // compute the isoParamCurve's Position and Tangent
                           SmPoint3d sPT[2] ;
-                          pTgtBSC->Evaluate(rSol.m_vStart[0], 1, TRUE, sPT) ;
+                          SER( pTgtBSC->Evaluate(rSol.m_vStart[0], 1, TRUE, sPT)  );
 
                           // look for tangent surface/surfaceBoundaryCurve tangent intersections
                           // that are point intersections.
                           SmBoolean bIsDegenerate = FALSE ;
                           if(lCrv < 4)
-                            { ClassifyBoundaryStartPointIntersection(*pTSP, bIsDegenerate) ;
+                            { SER( ClassifyBoundaryStartPointIntersection(*pTSP, bIsDegenerate)  );
                             }
 
                           // when the IntersectionPoint is degenerate (not part of an intersection curve)
@@ -2028,7 +2032,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                                pTSP->m_dDeviation = rSol.m_vStart.m_dSolutionValue;
                               if(lCrv >= 4)
                                 {
-                                  AddThroughPoint(*pTSP);
+                                  SER( AddThroughPoint(*pTSP) );
                                 }
                               else if(m_vUVDomain[1-lSrf].IsPoint2dOnBoundary(sUVs[1-lSrf],SM_EFF_ZERO*100.0))
                                 {
@@ -2037,7 +2041,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
                               else 
                                 {
                                   // Add unique TsectPnts to the m_vStartPoints list
-                                  AddStartPoint(*pTSP);
+                                  SER( AddStartPoint(*pTSP) );
                                 }
                             }
                         }
@@ -2052,7 +2056,7 @@ static constexpr SmBoolean bGWCAddEdgeThroughPoints = FALSE ;
   for(ULONG ii=0; ii<sEdgeCrossings.GetSize(); ii++) 
     {
       // Add unique TsectPnts to the m_vStartPoints list
-      AddStartPoint(*sEdgeCrossings[ii]);
+      SER( AddStartPoint(*sEdgeCrossings[ii]) );
     }
 
   // for every degenerate point 
@@ -2506,7 +2510,7 @@ SmBoolean bDebugMe = FALSE ;
         } // end zero length normal check
 
       // save the unitized normal and the UV param value in the TsectPnt
-      sNorm.Unitize();
+      (void)sNorm.Unitize(); // SolidCraft: a zero vector stays zero
       rTsectPnt.SrfNorm(lSrf) = sNorm;
 
     } // end iter lSrf, computing surface and surface normal evaluations for both surfaces
@@ -2878,7 +2882,7 @@ SmBoolean bDebugMe = FALSE ;
           rTsectPnt.CrvDeriv() = pOptPreviousPnt->CrvDeriv();
 
           // Need to normalize this: all the other TsectPnts will be unit.
-          rTsectPnt.CrvDeriv().Unitize();
+          (void)rTsectPnt.CrvDeriv().Unitize(); // SolidCraft: a zero vector stays zero
 
           for (ULONG jSrf=0; jSrf<=1; jSrf++) 
             {
@@ -3760,6 +3764,71 @@ NOTES: A TsectPnt is a duplicate and should not be added to m_sStartPoints when
                    is accurate enough to handle all cases. That predicate is a heuristic. 
                    [cf. B254 B295]
 ***********************************************************************/
+// SolidCraft change: tangent start point clustering helpers (see AddStartPoint)
+static SmBoolean sm_IsTangentType(SmIntersectionPointType eType)
+{
+  return    eType == SM_IP_TANGENT_POINT
+         || eType == SM_IP_TANGENT_CURVE
+         || eType == SM_IP_COINCIDENCE;
+}
+
+// lower is better: a traceable tangent-curve point first, then the smallest deviation
+static double sm_TangentStartRank(const SmTsectPnt & crTSP)
+{
+  return (crTSP.m_ePointType == SM_IP_TANGENT_CURVE ? 0.0 : 1.0) + smos_Min(crTSP.m_dDeviation, 0.5);
+}
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when two tangent-type boundary start points lie on the same
+   boundary side of both surfaces, near each other, and the surfaces stay within tolerance
+   of each other along that boundary between them: they are two samples of one tangential
+   contact crossing the boundary, not two intersection branches.
+***********************************************************************/
+SmBoolean SmSurfaceIntersector::IsSameTangentCluster
+  (SmTsectPnt & rA,          // in : tangent-type boundary start point (any type: see bAnyTypeA)
+   SmTsectPnt & rB,          // in : tangent-type boundary start point
+   SmBoolean    bAnyTypeA)   // in : TRUE = rA may be of any type (a traced curve end)
+  const
+{
+  if (   (!sm_IsTangentType(rA.m_ePointType) && !bAnyTypeA)
+      || !sm_IsTangentType(rB.m_ePointType))
+    { return FALSE; }
+  // both on a common boundary side of each surface
+  for (ULONG k=0; k<2; k++)
+    {
+      SmBoolean bSameU = rA.UParamType(k) != SM_EP_INSIDE && rA.UParamType(k) == rB.UParamType(k)
+                         && smos_Fabs(rA.UVPos(k).x - rB.UVPos(k).x) < SM_EFF_ZERO_SQRT;
+      SmBoolean bSameV = rA.VParamType(k) != SM_EP_INSIDE && rA.VParamType(k) == rB.VParamType(k)
+                         && smos_Fabs(rA.UVPos(k).y - rB.UVPos(k).y) < SM_EFF_ZERO_SQRT;
+      if (!bSameU && !bSameV)
+        { return FALSE; }
+    }
+  // near each other: a contact of order n smears the boundary solution over ~ tol^(1/n);
+  // stay within a few sqrt(tol) (order 2) of each other
+  double dSize   = 1.0 + rA.SrfPos(0).GetMaxDimension();
+  double dRadius = 10.0 * smos_Sqrt(m_dThisApproxTol3d * dSize);
+  if (rA.SrfPos(0).DistanceBetween(rB.SrfPos(0)) > dRadius)
+    { return FALSE; }
+  // the surfaces stay within tolerance along the boundary in between
+  const SmExtent2d &sDom1 = m_vUVDomain[1];
+  for (ULONG i=1; i<4; i++)
+    {
+      double dT = 0.25 * i;
+      SmPoint2d sUV0 = rA.UVPos(0) + dT * (rB.UVPos(0) - rA.UVPos(0));
+      SmPoint2d sUV1 = rA.UVPos(1) + dT * (rB.UVPos(1) - rA.UVPos(1));
+      SmPoint3d sP0;
+      if (m_cpSurface[0]->EvaluatePoint(sUV0, sP0) != SM_SUCCESS)
+        { return FALSE; }
+      SmBoolean bOk = FALSE, bIsMulti = FALSE;
+      SmPoint2d sDropUV1;
+      double dGap = SM_BIG_DOUBLE;
+      if (   m_cpSurface[1]->DropPoint(sP0, sDom1, &sUV1, bOk, sDropUV1, dGap, bIsMulti) != SM_SUCCESS
+          || !bOk || dGap > m_dThisApproxTol3d)
+        { return FALSE; }
+    }
+  return TRUE;
+}
+
 SmStatus SmSurfaceIntersector::AddStartPoint
  (SmTsectPnt & rStartTSP)             // in : candidate StartPoint to add to m_vStartPoints array
 {
@@ -3786,6 +3855,29 @@ SmStatus SmSurfaceIntersector::AddStartPoint
                                 || rStartTSP.VParamType(1) == SM_EP_START
                                 || rStartTSP.VParamType(1) == SM_EP_END
                                 || rStartTSP.VParamType(1) == SM_EP_BOTH) ;
+
+  // SolidCraft change: where the surfaces touch tangentially along a curve that crosses a
+  // boundary, the boundary/surface intersection is within tolerance over a whole stretch of
+  // the boundary, and FindBoundaryStartPoints() returns a cluster of start points there.
+  // Tracing each of them gives the tangent curve again (the 'already traced' test only looks at
+  // a trace's 2nd point) plus short spurious curves snapped from one cluster point to the next.
+  // Keep one start point per cluster: the tangent-curve point with the smallest deviation.
+  if (sm_IsTangentType(rStartTSP.m_ePointType))
+    {
+      for (ULONG i=0; i<sStartPts.GetSize(); i++)
+        {
+          SmTsectPnt *pTSP = sStartPts[i];
+          if (!IsSameTangentCluster(rStartTSP, *pTSP, FALSE))
+            { continue; }
+          if (sm_TangentStartRank(rStartTSP) < sm_TangentStartRank(*pTSP))
+            {
+              // the new point is the better representative: it takes pTSP's place
+              m_vStartPoints.InsertAfter(&rStartTSP, pTSP);
+              m_vStartPoints.Remove(pTSP);
+            }
+          return SM_SUCCESS;
+        }
+    }
 
   // check every StartPoint for a match to input point
   for (ULONG i=0; i<sStartPts.GetSize(); i++) 
@@ -3879,18 +3971,22 @@ SmBoolean bDebugMe = FALSE ;
                   double dCurvature0 = 0 ;
                   double dCurvature1 = 0 ;
                   SmVector3d sTangPlaneDir ;
-                  smsurf_EvaluateNormalSection(rStartTSP.m_vSurfacePV[0],rStartTSP.UVDeriv(0),sTangPlaneDir, dCurvature0) ;
-                  smsurf_EvaluateNormalSection(rStartTSP.m_vSurfacePV[1],rStartTSP.UVDeriv(1),sTangPlaneDir, dCurvature1) ;
+                  // SolidCraft: (void), a curvature not evaluated stays 0, the tightest angle tolerance
+                  (void)smsurf_EvaluateNormalSection(rStartTSP.m_vSurfacePV[0],rStartTSP.UVDeriv(0),sTangPlaneDir, dCurvature0) ;
+                  (void)smsurf_EvaluateNormalSection(rStartTSP.m_vSurfacePV[1],rStartTSP.UVDeriv(1),sTangPlaneDir, dCurvature1) ;
                   double dCurvature = smos_Max( smos_Fabs(dCurvature0), smos_Fabs(dCurvature1) ) ;
                   double dCRadius   = SM_IS_ZERO(dCurvature) ? 100 * m_dThisApproxTol3d : smos_Min(1.0/dCurvature,100 * m_dThisApproxTol3d) ;
                   double dAngTolRad = .01 + smos_ArcTangent2(m_dThisApproxTol3d, dCRadius) ;
 
+                  // SolidCraft change: similar tangents are the essential test (above). Without
+                  // an angle (a zero tangent, as at a tangent or singular point) it is not met; the
+                  // angle stayed 0 and the two were taken for one pair, dropping one of them.
                   double dAngBetweenRad = 0 ;
-                  rStartTSP.CrvDeriv().AngleBetween(pTSP->CrvDeriv(), dAngBetweenRad) ; 
+                  SmStatus eAngStat = rStartTSP.CrvDeriv().AngleBetween(pTSP->CrvDeriv(), dAngBetweenRad) ; 
 
                   // when tangent angels are the same - these are an exact/bounded startPoint pair
                   //   only save the exact intersection and discard the bounded intersection
-                  if(dAngBetweenRad < dAngTolRad)
+                  if(eAngStat == SM_SUCCESS && dAngBetweenRad < dAngTolRad)
                     {
                       // save the exact intersection
                       if(bBoundedStart)
@@ -4058,7 +4154,7 @@ static SmBoolean sm_IsPointOnCurve     // rtn: TRUE=PointToTest is on curve betw
   // let s3DBox = bounding box for hermite curve
   SmExtent3d s3DBox;
   SmExtent1d sHermiteDomain = sHerm3d.GetNaturalInterval();  // (We know it's [0,1]...)
-  sHerm3d.CalculateBoundingBox( sHermiteDomain, &s3DBox );
+  (void)sHerm3d.CalculateBoundingBox( sHermiteDomain, &s3DBox ); // SolidCraft: the box of a cubic Hermite segment cannot fail
 
   // let sPntBox = HalfSize+Tol Sized box centered on the crPointToTest
   // (Note: that can be a pretty big box.)
@@ -4104,7 +4200,7 @@ SmBoolean bDebugMe2 = FALSE;
       // So u gets expanded by 1.6, which would include a point across the seam.
 
       SmExtent3d sUVBox;
-      sHermUV.CalculateBoundingBox( sUVDomain, &sUVBox );
+      (void)sHermUV.CalculateBoundingBox( sUVDomain, &sUVBox ); // SolidCraft: the box of a cubic Hermite segment cannot fail
 
       // sUVBox.ExpandAbsolute( sUVBox.GetSize().Length() );
 
@@ -4117,14 +4213,14 @@ SmBoolean bDebugMe2 = FALSE;
       if ( dLen < dDiag / 100 )
         { dLen = dDiag / 100; }
       sTemp.ExpandAbsolute( dLen );
-      sUVBox.SetUInterval( sTemp );
+      (void)sUVBox.SetUInterval( sTemp ); // SolidCraft: an interval expanded from the box itself, it cannot fail
 
       sTemp = sUVBox.GetVInterval();
       dLen = sTemp.GetLength();
       if ( dLen < dDiag / 100 )
         { dLen = dDiag / 100; }
       sTemp.ExpandAbsolute( dLen );
-      sUVBox.SetVInterval( sTemp );
+      (void)sUVBox.SetVInterval( sTemp ); // SolidCraft: an interval expanded from the box itself, it cannot fail
 
 
       // Let sUV = UVPoint to test.
@@ -4210,7 +4306,7 @@ SmBoolean bDebugMe = FALSE;
       {
           // crPointToTest has a direction: check that too.  [B401]
           SmVector3d sPV[2];
-          sHerm3d.Evaluate( sSol.m_vStart[0], 1, FALSE, sPV );
+          (void)sHerm3d.Evaluate( sSol.m_vStart[0], 1, FALSE, sPV ); // SolidCraft: a cubic Hermite evaluates everywhere
           // We actually want one that's pointing back into the curve that
           // we're creating, so look for negative dot product.
 
@@ -5052,12 +5148,116 @@ static ULONG lDebugCount = 0 ;
   SmTsectPnt *pNextTSP     = NULL;
   SmBoolean bHitBoundary;
 
+  // SolidCraft change: TRUE when the span from rFrom to rTo already lies on a found curve
+  // (rTo and three points of the span, approximated by a chord-length Hermite, all on
+  // r3DCurves).  Used for the 2nd point of a trace whose first step was ended by TestPoint()
+  // (snapped onto another start point or curve end): those exits skipped the 'already traced'
+  // test below, so a curve that is one span long (a tangent line from one boundary start
+  // point to the other) was traced a second time from its other end.
+  auto bSpanOnFoundCurve = [&](SmTsectPnt &rFrom, SmTsectPnt &rTo) -> SmBoolean
+    {
+      if (r3DCurves.GetSize() == 0 || rTo.m_ePointType == SM_IP_SINGULARITY)
+        { return FALSE; }
+      if (!IsPointOnCurve(rTo.CrvPos(), r3DCurves))
+        { return FALSE; }
+      double dChord = rTo.CrvPos().DistanceBetween(rFrom.CrvPos());
+      SmVector3d sT0 = rFrom.CrvDeriv(), sT1 = rTo.CrvDeriv();
+      double dL0 = sT0.Length(), dL1 = sT1.Length();
+      if (dL0 > SM_EFF_ZERO) { sT0 = sT0 * (dChord / dL0); }
+      if (dL1 > SM_EFF_ZERO) { sT1 = sT1 * (dChord / dL1); }
+      SmHermiteCurve sSpan(rFrom.CrvPos(), sT0, rTo.CrvPos(), sT1);
+      sSpan.SetContext(NULL);
+      for (int k = 1; k <= 3; k++)
+        {
+          SmPoint3d sMid;
+          if (sSpan.EvaluatePoint(0.25 * k, sMid) != SM_SUCCESS || !IsPointOnCurve(sMid, r3DCurves))
+            { return FALSE; }
+        }
+      return TRUE;
+    };
+
+  // SolidCraft change: TRUE when this span of a tangent-curve trace passes by a free end
+  // of an already found curve (other than one at this trace's start point).  Tangent
+  // curves are only determined to about sqrt(tol), so that is the reach used.
+  auto bReachesFoundCurveEnd = [&](SmTsectPnt &rFrom, SmTsectPnt &rTo, double &rdT) -> SmBoolean
+    {
+      // tangential contact: near-parallel normals at both span ends
+      if (   rTo.m_dTangentPlaneAngleRad   > SM_DEG2RAD(1.0)
+          || rFrom.m_dTangentPlaneAngleRad > SM_DEG2RAD(1.0))
+        { return FALSE; }
+      double dReach = smos_Max(10.0 * m_dThisApproxTol3d,
+                               smos_Sqrt(m_dThisApproxTol3d * (1.0 + rTo.CrvPos().GetMaxDimension())));
+      SmVector3d sSeg = rTo.CrvPos() - rFrom.CrvPos();
+      double dSegLenSq = sSeg.LengthSquared();
+      for (ULONG jj=0; jj<r3DCurves.GetSize(); jj++)
+        {
+          SmCurve *pCurve = r3DCurves[jj];
+          if (pCurve->IsDegenerate())
+            { continue; }
+          SmExtent1d sIvl = pCurve->GetNaturalInterval();
+          for (int e=0; e<2; e++)
+            {
+              SmPoint3d sEnd;
+              if (pCurve->EvaluatePoint(e == 0 ? sIvl.GetMin() : sIvl.GetMax(), sEnd) != SM_SUCCESS)
+                { continue; }
+              if (sEnd.DistanceBetween(rStartPoint.CrvPos()) < dReach)
+                { continue; }
+              // only an end the span has gone past: an end ahead of the trace may be
+              // a true junction (a corner) that the trace is about to reach itself
+              double dT = dSegLenSq > 0.0 ? (sEnd - rFrom.CrvPos()).Dot(sSeg) / dSegLenSq : 1.0;
+              if (dT < 0.0 || dT > 0.95)
+                { continue; }
+              SmPoint3d sNear = rFrom.CrvPos() + dT * sSeg;
+              if (sNear.DistanceBetween(sEnd) < dReach)
+                { rdT = dT; return TRUE; }
+            }
+        }
+      return FALSE;
+    };
+
   // 4. iterate intersection trace - finding and adding points to m_vCurvePoints array
   //     stop when - step out of bounds
   while (!bDone) 
     {
       // 4a. get tracedCurve's last node
       SmTsectPnt *pTSP = m_vCurvePoints.GetLastNode();
+
+      // SolidCraft change: a tangent curve traced from its other end that has run onto
+      // the free end of an already traced curve is the same tangent curve, whose earlier
+      // trace stopped part way (tangential tracing is ill-conditioned).  Stop here so the
+      // two traces meet instead of the second retracing the first.
+      SmTsectPnt *pPrevTSP = m_vCurvePoints.GetPrevNode(pTSP);
+      double dEndT = 1.0;
+      if (   pPrevTSP != NULL && pPrevTSP != pTSP
+          && bReachesFoundCurveEnd(*pPrevTSP, *pTSP, dEndT))
+        {
+          // shorten the last span so it ends at that curve end rather than overlap it
+          double dUVDerivLen = pPrevTSP->UVDeriv(0).Length();
+          if (dEndT <= 0.05 && m_vCurvePoints.GetFirstNode() != pPrevTSP)
+            {
+              // the previous point is already at that curve end
+              m_vCurvePoints.RemoveLast();
+            }
+          else if (dEndT < 0.95 && dUVDerivLen > SM_EFF_ZERO)
+            {
+              double dShortStep = dEndT * pTSP->UVPos(0).DistanceBetween(pPrevTSP->UVPos(0)) / dUVDerivLen;
+              SmTsectPnt *pEndTSP = (SmTsectPnt*)m_vTSPntMgr.GetNewElement();
+              pEndTSP->m_ePointType = SM_IP_UNKNOWN;
+              SmBoolean bGood = FALSE, bClip = FALSE, bHit = FALSE;
+              double dDev = 0.0, dAng = 0.0;
+              if (   ComputeNextPoint(*pPrevTSP, dShortStep, *pEndTSP, bGood, dDev, dAng, bClip, bHit) == SM_SUCCESS
+                  && bGood
+                  && m_vUVDomain[0].ContainsPoint2d(pEndTSP->UVPos(0), dUVTol_0)
+                  && m_vUVDomain[1].ContainsPoint2d(pEndTSP->UVPos(1), dUVTol_1))
+                {
+                  m_vCurvePoints.RemoveLast();
+                  pEndTSP->m_dDeviation = dDev;
+                  SER(AddPointToCurve(*pEndTSP));
+                }
+            }
+          bDone = TRUE;
+          break;
+        }
 
       // 4b. let dStepSize = last step size if given, else 100 * m_dThisApproxTol3d ;
       //     step size is used in the surface UV domains to get next UV guess points
@@ -5220,6 +5420,12 @@ static ULONG lDebugCount = 0 ;
       if (   bDone 
           || pNextTSP->m_dCurveParameter != dLastCurveParam )
         {
+          // SolidCraft change: don't retrace an already found curve (see bSpanOnFoundCurve)
+          if (lPointCount == 0 && bSpanOnFoundCurve(*pTSP, *pNextTSP))
+            {
+              bDone = TRUE;
+              break;
+            }
           SER( AddPointToCurve( *pNextTSP ));
 
           if ( bDone ) // Done with this curve.
@@ -5318,6 +5524,9 @@ static ULONG lDebugCount = 0 ;
                   // TestPoint() snapped to something.
                   if (bDone) 
                     {
+                      // SolidCraft change: don't retrace an already found curve (see bSpanOnFoundCurve)
+                      if (lPointCount == 0 && bSpanOnFoundCurve(*pTSP, *pNextTSP))
+                        { return SM_SUCCESS; }
                       // TestPoint() detected an end condition: done tracing.
                       SER(AddPointToCurve(*pNextTSP));
 #ifdef SM_DEBUG_CODE
@@ -6055,7 +6264,8 @@ SmStatus SmSurfaceIntersector::FindInteriorCurves
       // trace curve can switch the trace direction when the first step is out of bounds
 
       // when Start point is not Bounded and currently traced curve is not closed
-      if(   !m_bCurveIsClosed
+      if(   m_vCurvePoints.GetLastNode() != NULL // SolidCraft change: nothing traced, nothing to reverse
+         && !m_bCurveIsClosed
          && !pStartTSP->IsBounded()
          &&  dInputTraceDirection == m_dCurveTraceDirection) // no switch in TraceCurve() of trace direction
         {
@@ -6091,6 +6301,142 @@ SmStatus SmSurfaceIntersector::FindInteriorCurves
   return SM_SUCCESS;
 
 } // SmSurfaceIntersector::FindInteriorCurves
+
+/*******************************************************************//**
+SolidCraft change: split intersection curves at singular points.
+
+PURPOSE: Helpers for SmSurfaceIntersector::DoIntersection which split
+    traced crossing curves where they pass through a singular point of the
+    intersection, i.e. a point where the two surface normals are parallel
+    while two (or more) branches cross.  The marching tracer steps straight
+    through such a point (n1 x n2 vanishes only at the point itself), so the
+    output curves crossed there without ending.  After splitting, every
+    branch ends at the singular point.
+
+NOTES: The detection samples s(t) = |n1 x n2| (sine of the angle between
+    the unit surface normals) along each output curve using the shared
+    parameterization of the 3D and UV curves, finds sharp local minima where
+    s drops to (near) zero, and refines them by golden section search.
+***********************************************************************/
+static double sm_SingularSine(const SmSurface * cpSrf1,
+                              const SmSurface * cpSrf2,
+                              const SmCurve   * cpUV1,
+                              const SmCurve   * cpUV2,
+                              double            dT)
+{
+  SmPoint3d  sUV1, sUV2;
+  SmVector3d sN1, sN2;
+  if (cpUV1->EvaluatePoint(dT, sUV1) != SM_SUCCESS) return -1.0;
+  if (cpUV2->EvaluatePoint(dT, sUV2) != SM_SUCCESS) return -1.0;
+  if (cpSrf1->EvaluateNormal(SmPoint2d(sUV1.x, sUV1.y), TRUE, TRUE, sN1) != SM_SUCCESS) return -1.0;
+  if (cpSrf2->EvaluateNormal(SmPoint2d(sUV2.x, sUV2.y), TRUE, TRUE, sN2) != SM_SUCCESS) return -1.0;
+  double dL1 = sN1.Length(), dL2 = sN2.Length();
+  if (dL1 < SM_EFF_ZERO || dL2 < SM_EFF_ZERO) return -1.0;
+  return (sN1 * sN2).Length() / (dL1 * dL2);
+}
+
+static SmStatus sm_SplitCurvesAtSingularPoints
+  (const SmContext            & crContext,
+   const SmSurface            * cpSrf1,
+   const SmSurface            * cpSrf2,
+   double                       dTol3d,
+   SmTArray<SmCurve*>         & r3DCurves,
+   SmTArray<SmCurve*>         & rUV1Curves,
+   SmTArray<SmCurve*>         & rUV2Curves,
+   SmTArray<SmTsectCurveType> & rCurveTypes,
+   SmTArray<double>           & rDeviations)
+{
+  const ULONG  lSamplesPerSpan = 8;
+  const double dGolden         = 0.5 * (smos_Sqrt(5.0) - 1.0);
+
+  ULONG lCount = r3DCurves.GetSize();
+  for (ULONG ii = 0; ii < lCount; ii++)
+    {
+      SmCurve *pC3 = r3DCurves[ii];
+      SmCurve *pUV1 = ii < rUV1Curves.GetSize() ? rUV1Curves[ii] : NULL;
+      SmCurve *pUV2 = ii < rUV2Curves.GetSize() ? rUV2Curves[ii] : NULL;
+      if (!pC3 || !pUV1 || !pUV2) continue;
+      if (rCurveTypes[ii] != SM_TC_CROSSING && rCurveTypes[ii] != SM_TC_NEAR_TANGENT) continue;
+      if (!pC3->IsKindOf(SmBSplineCurve_TYPE) || pC3->IsDegenerate()) continue;
+
+      // sample s(t) on every knot span
+      SmTArray<double> sKnots;
+      SER(((SmBSplineCurve *)pC3)->GetKnots(sKnots));
+      if (sKnots.GetSize() < 2) continue;
+      SmTArray<double> sT, sS;
+      for (ULONG kk = 0; kk + 1 < sKnots.GetSize(); kk++)
+        for (ULONG jj = 0; jj < lSamplesPerSpan; jj++)
+          {
+            double dT = sKnots[kk] + (sKnots[kk+1] - sKnots[kk]) * (double)jj / (double)lSamplesPerSpan;
+            sT.Add(dT);
+            sS.Add(sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dT));
+          }
+      sT.Add(sKnots[sKnots.GetSize()-1]);
+      sS.Add(sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, sKnots[sKnots.GetSize()-1]));
+
+      SmPoint3d sStart, sEnd;
+      SER(pC3->EvaluatePoint(sT[0], sStart));
+      SER(pC3->EvaluatePoint(sT[sT.GetSize()-1], sEnd));
+
+      SmTArray<double> sSplits;
+      ULONG lLastSplitIndex = 0;  // sample index of the previous split (or the curve start)
+      for (ULONG kk = 1; kk + 1 < sS.GetSize(); kk++)
+        {
+          if (sS[kk] < 0.0 || sS[kk-1] < 0.0 || sS[kk+1] < 0.0) continue;
+          if (!(sS[kk] <= sS[kk-1] && sS[kk] < sS[kk+1])) continue;
+          // golden section refine on [t(k-1), t(k+1)]
+          double dA = sT[kk-1], dB = sT[kk+1];
+          double dC = dB - dGolden * (dB - dA), dD = dA + dGolden * (dB - dA);
+          double dFC = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dC);
+          double dFD = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dD);
+          for (int it = 0; it < 80 && dB - dA > SM_EFF_ZERO * (1.0 + smos_Fabs(dA)); it++)
+            {
+              if (dFC < dFD) { dB = dD; dD = dC; dFD = dFC; dC = dB - dGolden * (dB - dA); dFC = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dC); }
+              else           { dA = dC; dC = dD; dFC = dFD; dD = dA + dGolden * (dB - dA); dFD = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dD); }
+            }
+          double dTStar = 0.5 * (dA + dB);
+          double dSStar = sm_SingularSine(cpSrf1, cpSrf2, pUV1, pUV2, dTStar);
+          SmPoint3d sP;
+          SER(pC3->EvaluatePoint(dTStar, sP));
+          // the curve must really cross the point: the intersection angle has to rise again
+          // between the previous split (or the curve start) and this point and between this
+          // point and the curve end, otherwise this is the same (high order contact) singular
+          // region as an end that already terminates the curve there
+          double dRiseBefore = 0.0, dRiseAfter = 0.0;
+          for (ULONG mm = lLastSplitIndex; mm < kk; mm++)          if (sS[mm] > dRiseBefore) dRiseBefore = sS[mm];
+          for (ULONG mm = kk + 1; mm < sS.GetSize(); mm++)         if (sS[mm] > dRiseAfter)  dRiseAfter  = sS[mm];
+          // accept only a point where the normals are parallel to numerical precision on a curve
+          // which is a true crossing on both sides (excludes near-tangent and tangent curves),
+          // away from the curve ends
+          if (   dSStar >= 0.0 && dSStar < 1.0e-6
+              && dRiseBefore > 1.0e-3 && dRiseAfter > 1.0e-3
+              && sP.DistanceBetween(sStart) > 10.0 * dTol3d
+              && sP.DistanceBetween(sEnd)   > 10.0 * dTol3d)
+            {
+              sSplits.Add(dTStar);
+              lLastSplitIndex = kk;
+            }
+        }
+
+      // split from the last parameter down: 'this' keeps the leading part, the new curve is the tail
+      for (long kk = (long)sSplits.GetSize() - 1; kk >= 0; kk--)
+        {
+          double   dSplit = sSplits[(ULONG)kk];
+          SmCurve *pTail3 = NULL, *pTailUV1 = NULL, *pTailUV2 = NULL;
+          if (pC3->CreateBySplitCurve(crContext, dSplit, pTail3) != SM_SUCCESS || !pTail3) continue;
+          SER(pUV1->CreateBySplitCurve(crContext, dSplit, pTailUV1));
+          SER(pUV2->CreateBySplitCurve(crContext, dSplit, pTailUV2));
+          r3DCurves.Add(pTail3);
+          rUV1Curves.Add(pTailUV1);
+          rUV2Curves.Add(pTailUV2);
+          SmTsectCurveType eType = rCurveTypes[ii];
+          double           dDev  = rDeviations[ii];
+          rCurveTypes.Add(eType);
+          rDeviations.Add(dDev);
+        }
+    }
+  return SM_SUCCESS;
+}
 
 /*******************************************************************//**
 PURPOSE: This method is the top level interface function for performing
@@ -6135,6 +6481,8 @@ SmStatus SmSurfaceIntersector::DoIntersection
   if (pSurface1UVCurves) { pSurface1UVCurves->ReSet() ; }
   if (pSurface2UVCurves) { pSurface2UVCurves->ReSet() ; }
   if (pDeviations)       { pDeviations->ReSet();        }
+  m_vTangentSeeds.ReSet(); // SolidCraft change: filled by FindInteriorCurves(), used by FindTangentCurves()
+  m_vTangentNodes.ReSet(); // SolidCraft change: filled by FindTangentCurves(), used by AddTangentNodes()
 
   // 
   // 
@@ -6198,7 +6546,7 @@ SmBoolean bDebugMe = FALSE ;
     { return SM_SUCCESS; }
 
   // get bounding box intersection - the region containing a possible intersection
-  sBBox.Intersect(pRoot2->m_sBBox,sBBox);
+  SER( sBBox.Intersect(pRoot2->m_sBBox,sBBox) );
   sBBox.ExpandAbsolute(m_dThisApproxTol3d);
 
   // Find node pairs in the tree where intersections might exist
@@ -6241,8 +6589,8 @@ SmBoolean bDebugMe = FALSE ;
   SmSolution & rSol = sSolutions[0];
 
   // refine the intersection sBBox size based on leafNode BBox intersections
-  sBBox.SetMinMax(SmPoint3d(rSol.m_vStart[0],rSol.m_vStart[1],rSol.m_vStart[2]),
-                  SmPoint3d(rSol.m_vStart[3],rSol.m_vStart[4],rSol.m_vStart[5]) );
+  SER( sBBox.SetMinMax(SmPoint3d(rSol.m_vStart[0],rSol.m_vStart[1],rSol.m_vStart[2]),
+                  SmPoint3d(rSol.m_vStart[3],rSol.m_vStart[4],rSol.m_vStart[5]) ) );
   
 #ifdef SM_DEBUG_CODE
   // draw common bounding boxes(red)
@@ -6544,7 +6892,12 @@ SmBoolean bDebugMe = FALSE ;
           //    2. Reverse direction has not yet been traced
           //    3. Surface0 UVTangent is tangent to all Surface0 UVBoundaries that the start point lies upon
           //    4. Surface1 UVTangent is tangent to all Surface1 UVBoundaries that the start point lies upon
-          if(   !m_bCurveIsClosed                               // curve is not yet closed
+          // SolidCraft change: TraceCurve() returns SM_SUCCESS with an empty m_vCurvePoints when the
+          // start point is a tangent/coincidence point (or a bounded point) already on a found curve,
+          // and leaves m_bCurveIsClosed as the previous curve left it; there is nothing to trace back
+          // from then (ReverseCurveDirection() of the empty list failed with SM_ERR_NULL_POINTER).
+          if(   m_vCurvePoints.GetLastNode() != NULL               // something was traced
+             && !m_bCurveIsClosed                               // curve is not yet closed
              && dInputTraceDirection == m_dCurveTraceDirection  // have yet to trace the reverse direction
              && (   (pStartTSP->UParamType(0) == SM_EP_INSIDE || SM_IS_ZERO_TO_TOL(pStartTSP->UVDeriv(0).x, SM_EFF_ZERO))
                  && (pStartTSP->VParamType(0) == SM_EP_INSIDE || SM_IS_ZERO_TO_TOL(pStartTSP->UVDeriv(0).y, SM_EFF_ZERO)))
@@ -6611,6 +6964,22 @@ SmBoolean bDebugMe = FALSE ;
             }
 #endif // SM_DEBUG_CODE
 
+          // SolidCraft change: a traced curve that ends on a boundary inside a tangential
+          // contact consumes the start points of that contact's boundary cluster: the trace
+          // reaches the boundary within tolerance but not necessarily at the cluster's
+          // representative start point, which would otherwise be traced again from that end.
+          SmTsectPnt *pEnds[2] = { m_vCurvePoints.GetFirstNode(), m_vCurvePoints.GetLastNode() };
+          for (ULONG e=0; e<2 && pEnds[1] != pEnds[0]; e++)
+            {
+              SmTArray<SmTsectPnt*> sLeft;
+              m_vStartPoints.GetAllNodes(sLeft);
+              for (ULONG q=0; q<sLeft.GetSize(); q++)
+                {
+                  if (IsSameTangentCluster(*pEnds[e], *sLeft[q], TRUE))
+                    { m_vStartPoints.Remove(sLeft[q]); }
+                }
+            }
+
           // create and add a 3DCurve and 2 UVTrimCurves with a CurveType and Deviation value
           // from the points in m_vCurvePoints.
           //   deviation = max distance between 3dCurve and surfaces. 
@@ -6634,6 +7003,10 @@ SmBoolean bDebugMe = FALSE ;
                          sCurveTypes,sDeviations));
 //    }
 
+  // SolidCraft change: trace the tangential curves the marcher above cannot follow
+  SER(FindTangentCurves(s3DCurves,sSurface1UVCurves,sSurface2UVCurves,
+                        sCurveTypes,sDeviations));
+
   // remove degenerate Curves whose points lie on nonNegenerate intersections
   for (long ii=0; (ULONG)ii<s3DCurves.GetSize() && s3DCurves.GetSize() > 0; ii++) 
     {
@@ -6644,7 +7017,7 @@ SmBoolean bDebugMe = FALSE ;
       if(pCurve->IsDegenerate())
         {
           // and degenerate point is on another curve
-          pCurve->EvaluatePoint(0.0, sCurvePoint) ;
+          SER( pCurve->EvaluatePoint(0.0, sCurvePoint)  );
           if(IsPointOnCurve(sCurvePoint,s3DCurves,(ULONG *)&ii))
             {
               // remove and delete the Curve and its associated UVCurves
@@ -6671,6 +7044,10 @@ SmBoolean bDebugMe = FALSE ;
             } 
         } // end degenerateCurve check
     } // end iter every s3DCurves[i] looking for degenerate curves to remove
+
+  // SolidCraft change: report the singular points where crossing branches meet
+  SER(AddTangentNodes(s3DCurves,sSurface1UVCurves,sSurface2UVCurves,
+                      sCurveTypes,sDeviations));
 
 #ifdef SM_DEBUG_CODE
   // draw Brep1(Blue), Brep2(green), Surf1-Face1(cyan-black), Surf2-Face2(yellow-black)
@@ -6704,6 +7081,14 @@ SmBoolean bDebugMe = FALSE ;
       sm_GraphicsLoop();
     }
 #endif // SM_DEBUG_CODE
+
+  // SolidCraft change: split crossing curves at singular points (parallel normals) they pass through
+  if (!m_bDoingSelfIntersection)
+    {
+      SER(sm_SplitCurvesAtSingularPoints(crContext, m_cpSurface[0], m_cpSurface[1], m_dThisApproxTol3d,
+                                         s3DCurves, sSurface1UVCurves, sSurface2UVCurves,
+                                         sCurveTypes, sDeviations));
+    }
 
   // set outputs
   SM_ASSERT(   (p3DCurves         == NULL || p3DCurves->GetSize()         == 0)
@@ -6928,7 +7313,7 @@ static ULONG lDebugCount = 0 ;
           *pStartPnt = *pTSP;
 
           // Add unique TsectPnts to the m_vStartPoints list
-          AddStartPoint(*pStartPnt);
+          SER( AddStartPoint(*pStartPnt) );
           pTSP->m_dCurveParameter = 0.0;
           if (!(   pOptStartDirection 
                 && crTsectPoints.GetSize() > 1) ) 
@@ -6949,7 +7334,7 @@ static ULONG lDebugCount = 0 ;
       // add all intermediate points to m_vThroughPoints array
       else
         {
-          AddThroughPoint(*pTSP);
+          SER( AddThroughPoint(*pTSP) );
         }
 
     }  // end iter every given target through point
@@ -7427,7 +7812,6 @@ SmBoolean SmSurfaceIntersector::IsPointOnCurve
             {
               const SmSurface *pSrf1 = m_cpSurface[0];
               const SmSurface *pSrf2 = m_cpSurface[1];
-              SmBoolean bOk;
               SmBoolean bIsMulti;
               SmExtent2d sDom1 = pSrf1->GetNaturalUVDomain();
               SmExtent2d sDom2 = pSrf2->GetNaturalUVDomain();
@@ -7435,23 +7819,28 @@ SmBoolean SmSurfaceIntersector::IsPointOnCurve
 
               SmPoint2d sIntPtUV1, sIntPtUV2;
               // (Note, these IntPtGaps are presumably 'zero', but we need the uv's.)
-              pSrf1->DropPoint( crPointToTest, sDom1, NULL, bOk, sIntPtUV1, dIntPtGap1, bIsMulti );
-              pSrf2->DropPoint( crPointToTest, sDom2, NULL, bOk, sIntPtUV2, dIntPtGap2, bIsMulti );
-
+              // SolidCraft change: each drop and evaluation must succeed (its status, and the
+              // drop's bOk). One that fails leaves its point unset, and a gap measured from an
+              // unset point said the test point lay on this curve, so a start point of another
+              // curve was taken as already traced. Without all four points there is no evidence.
               SmPoint3d sCrvPt;
-              pCurve->EvaluatePoint( dCrvParam, sCrvPt );
-
               SmPoint2d sCrvPtUV1, sCrvPtUV2;
               double dCrvPtGap1 = 0.0, dCrvPtGap2 = 0.0;
-              pSrf1->DropPoint( sCrvPt, sDom1, &sIntPtUV1, bOk, sCrvPtUV1, dCrvPtGap1, bIsMulti );
-              pSrf2->DropPoint( sCrvPt, sDom2, &sIntPtUV2, bOk, sCrvPtUV2, dCrvPtGap2, bIsMulti );
+              SmBoolean bOk1 = FALSE, bOk2 = FALSE, bOk3 = FALSE, bOk4 = FALSE;
+              if (   pSrf1->DropPoint( crPointToTest, sDom1, NULL, bOk1, sIntPtUV1, dIntPtGap1, bIsMulti ) != SM_SUCCESS || !bOk1
+                  || pSrf2->DropPoint( crPointToTest, sDom2, NULL, bOk2, sIntPtUV2, dIntPtGap2, bIsMulti ) != SM_SUCCESS || !bOk2
+                  || pCurve->EvaluatePoint( dCrvParam, sCrvPt ) != SM_SUCCESS
+                  || pSrf1->DropPoint( sCrvPt, sDom1, &sIntPtUV1, bOk3, sCrvPtUV1, dCrvPtGap1, bIsMulti ) != SM_SUCCESS || !bOk3
+                  || pSrf2->DropPoint( sCrvPt, sDom2, &sIntPtUV2, bOk4, sCrvPtUV2, dCrvPtGap2, bIsMulti ) != SM_SUCCESS || !bOk4 )
+                { continue; }
 
               SmPoint3d sMidSrf1, sMidSrf2;
 
               SmPoint2d sMidPtUV1( ( sIntPtUV1 + sCrvPtUV1 ) / 2 );
               SmPoint2d sMidPtUV2( ( sIntPtUV2 + sCrvPtUV2 ) / 2 );
-              pSrf1->EvaluatePoint( sMidPtUV1, sMidSrf1 );
-              pSrf2->EvaluatePoint( sMidPtUV2, sMidSrf2 );
+              if (   pSrf1->EvaluatePoint( sMidPtUV1, sMidSrf1 ) != SM_SUCCESS
+                  || pSrf2->EvaluatePoint( sMidPtUV2, sMidSrf2 ) != SM_SUCCESS )
+                { continue; }
 
               double dGapMid = sMidSrf1.DistanceBetween( sMidSrf2 );
 
@@ -7636,16 +8025,20 @@ SmStatus SmSurfaceIntersector::ComputeLawPointValues
       // First compute the plane and delta plane to be used to intersect
       double     dDeltaParam = dParameter + dDeltaStep;
       SmVector3d sPV[2], sPVDelta[2];
-      crPointCurve.Evaluate(dParameter,  1, TRUE, sPV);
-      crPointCurve.Evaluate(dDeltaParam, 1, TRUE, sPVDelta);
+      SER( crPointCurve.Evaluate(dParameter,  1, TRUE, sPV) );
+      SER( crPointCurve.Evaluate(dDeltaParam, 1, TRUE, sPVDelta) );
         
       if (bAverageNormals) 
         {
           double dNormParam;
-          crPointCurveInterval.Inversion(dParameter,dNormParam);
+          SER( crPointCurveInterval.Inversion(dParameter,dNormParam) );
           sPV[1] = (1.0-dNormParam)*caNormals[0] + dNormParam*caNormals[1];
 
-          crPointCurveInterval.Inversion(dDeltaParam,dNormParam);
+          // SolidCraft: the step can end just past the curve's interval, where SM_ERR comes with
+          // the unclamped parameter set and the normals' blend extrapolates as wanted; only a
+          // zero-length interval leaves it undefined.
+          SmStatus eInvStat = crPointCurveInterval.Inversion(dDeltaParam,dNormParam) ;
+          if (eInvStat != SM_SUCCESS && dNormParam == SM_UNDEF_DOUBLE) { SER( eInvStat ); }
           sPVDelta[1] = (1.0-dNormParam)*caNormals[0] + dNormParam*caNormals[1];       
         }
       
@@ -8060,7 +8453,7 @@ SmBoolean bDebugMe=FALSE;
 
   for (ULONG icp=0; icp<sCurvePnts.GetSize(); icp++) 
     {
-       AddPointToCurve(*sCurvePnts[icp]);
+       SER( AddPointToCurve(*sCurvePnts[icp]) );
     }
 
 
@@ -8415,7 +8808,7 @@ SmBoolean bDebugMe = FALSE ;
                  && m_vUVDomain[1-lSrf].ContainsPoint2d(sUV1,10.0 * SM_EFF_ZERO))
                 { 
                   // evaluate the thisSurface naturalBoundary 3d Point
-                  m_cpSurface[lSrf]->EvaluatePoint(sUV0, sCurvePoint[tgt]) ;
+                  SER( m_cpSurface[lSrf]->EvaluatePoint(sUV0, sCurvePoint[tgt])  );
 
                   // get originPoint/currentPoint distance
                   dSampleDist = (rTSectPnt.SrfPos(1) - sCurvePoint[tgt]).Length() ;
@@ -8426,16 +8819,16 @@ SmBoolean bDebugMe = FALSE ;
                   //       the project point is just outside the domain
                   SmBoolean bFoundAnswer = FALSE ;
                   SmSolution sSolution ;
-                  m_cpSurface[1-lSrf]->LocalPointSolve(m_vUVDomain[1-lSrf], SM_SO_NORMALIZE, 
+                  SER( m_cpSurface[1-lSrf]->LocalPointSolve(m_vUVDomain[1-lSrf], SM_SO_NORMALIZE, 
                                                        sCurvePoint[tgt], sUV1, 
-                                                       bFoundAnswer, sSolution) ;
+                                                       bFoundAnswer, sSolution)  );
                   // when a solution was found
                   if(bFoundAnswer)
                     {
                       // evaluate the nearest OtherSurface point
                       sUVDrop.Set(sSolution.m_vStart.m_adParameters[0],
                                   sSolution.m_vStart.m_adParameters[1]) ;
-                      m_cpSurface[1-lSrf]->Evaluate(sUVDrop, 1, 1, TRUE, TRUE, TRUE, sOSurfPV[0]) ;
+                      SER( m_cpSurface[1-lSrf]->Evaluate(sUVDrop, 1, 1, TRUE, TRUE, TRUE, sOSurfPV[0])  );
 
                       // get the BoundaryCurve/Surface gap vector
                       //   little trick: Subtract the sXSectGap from every gap SamplePoint 
@@ -8681,12 +9074,12 @@ SmBoolean sm_IsPointUnique
       SmVector3d sPoint ;
 
       // report duplicate startPoints
-      pCurve->EvaluatePoint(sIvl.GetMin(), sPoint) ;
+      (void)pCurve->EvaluatePoint(sIvl.GetMin(), sPoint) ; // SolidCraft: dump only
       if(rPoint.DistanceBetween(sPoint)< d3DTol)
         { return(FALSE) ; }
 
       // report duplicate endPoints
-      pCurve->EvaluatePoint(sIvl.GetMax(), sPoint) ;
+      (void)pCurve->EvaluatePoint(sIvl.GetMax(), sPoint) ; // SolidCraft: dump only
       if(rPoint.DistanceBetween(sPoint)< d3DTol)
         { return(FALSE) ; }
 

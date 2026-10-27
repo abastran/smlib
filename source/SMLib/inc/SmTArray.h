@@ -28,7 +28,11 @@
 #include <SmContext.h>
 #endif
 
-#ifdef _WIN32
+// On Windows a DLL build instantiates and exports these arrays here, in every file that includes
+// this header. A static build (SM_STATIC) exports nothing, so it instantiates them where they are
+// used, as every other platform does; that keeps each object file a few MB smaller.
+// (SolidCraft change.)
+#if defined(_WIN32) && !defined(SM_STATIC)
 #define SM_TARRAY_TEMPLATE_PREDECLARATION(x) template class SM_EXPORT SmTArray<x>
 #else
 #define SM_TARRAY_TEMPLATE_PREDECLARATION(x)
@@ -2394,7 +2398,7 @@ SM_TARRAY_TEMPLATE_PREDECLARATION(void*) ;
 #define SM_HISTOGRAM_EDGELEN_BUCKETCNT 11
 #define SM_HISTOGRAM_EDGELEN_INDEX(a) (  ((a) < 1e-5) ?  0 \
                                        : ((a) > 1e+4) ? 10 \
-                                       : ((ULONG)(smos_Floor(smos_Log10(a))) + 6) )
+                                       : ((ULONG)(smos_Floor(smos_Log10(a)) + 6)) )
 
 #endif // __SMTARRAY_H__
 

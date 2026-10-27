@@ -21,7 +21,7 @@
 /*******************************************************************//**
 File Local Function Declarations
 ***********************************************************************/
-static void sm_GetEllipseTrimIntervals
+static SmStatus sm_GetEllipseTrimIntervals // SolidCraft change: returns its steps' status (was void)
   (const SmContext     &crContext,            // in : for temp object construction
    const SmPoint3d     &rEllipseOrigin,       // in : origin            of ellipse
    const SmVector3d    &rEllipseXAxis,        // in : xAxis             of ellipse
@@ -35,7 +35,7 @@ static void sm_GetEllipseTrimIntervals
    double               dTol,                 // in : approximation tolerance
    SmTArray<SmExtent1d> &rIvls) ;             // out: array of ellipse intervals inside trimmed cone
 
-static void sm_AddEllipseIntervalsTrimmedToTwoCones
+static SmStatus sm_AddEllipseIntervalsTrimmedToTwoCones // SolidCraft change: returns its steps' status (was void)
   (const SmContext            & crContext,              // in : for temp object construction
    const SmPoint3d            & rEllipseOrigin,         // in : origin            of ellipse
    const SmVector3d           & rEllipseXAxis,          // in : xAxis             of ellipse
@@ -96,10 +96,10 @@ SmCone::SmCone
       sLineVec = sPnt - crOrigin;
     }
   // unitize LineVec
-  sLineVec.Unitize() ;
+  (void)sLineVec.Unitize() ; // SolidCraft: a zero vector stays zero
 
   // init domain to +/- infinity for cylinders - cones will be adjusted
-  m_vAnalUVDomain.SetMinMax(0.0,   -SM_INFINITE_PARAMETER,
+  (void)m_vAnalUVDomain.SetMinMax(0.0,   -SM_INFINITE_PARAMETER, // SolidCraft: a constructor cannot report
                             360.0,  SM_INFINITE_PARAMETER);
 
   // build generator curve
@@ -119,16 +119,16 @@ SmCone::SmCone
   SmBoolean bCylinder ;
   SmPoint3d sApexPoint ;
   double    dApexParam ;
-  GetApex(bCylinder, sApexPoint, dApexParam) ;
+  (void)GetApex(bCylinder, sApexPoint, dApexParam) ; // SolidCraft: a constructor cannot report
 
   // infinite cylinders run between +/- infinity
   // infinite cones     run between apex and +infinity
   if ( !bCylinder )
     {
-      m_vAnalUVDomain.SetMinMax(  0.0,   dApexParam,
+      (void)m_vAnalUVDomain.SetMinMax(  0.0,   dApexParam, // SolidCraft: a constructor cannot report
                                 360.0, SM_INFINITE_PARAMETER);
       // adjust generator curve domain
-      pNewLine->AdjustSTEPInterval( SmExtent1d( dApexParam, SM_INFINITE_PARAMETER ));
+      (void)pNewLine->AdjustSTEPInterval( SmExtent1d( dApexParam, SM_INFINITE_PARAMETER )); // SolidCraft: a constructor cannot report
     }
 
 } // end SmCone::SmCone unbounded cone constructor
@@ -192,7 +192,7 @@ SmCone::SmCone
   // The parameterization of m_pGenCurve(SmLine) is now equivalent to
   // the STEP-definition which is by 'height' from the origin.
   const SmContext * cpContext = GetContext();
-  SmVector3d        sZAxis    = crXAxis * crYAxis ; sZAxis.Unitize() ;
+  SmVector3d        sZAxis    = crXAxis * crYAxis ; (void)sZAxis.Unitize() ; // SolidCraft: a zero vector stays zero
   SmVector3d        sLineVec  = dHeight * sZAxis + (dTopRadius - dBotRadius) * crXAxis ;
   double            dLength   = sLineVec.Length() ;
   SmLine          * pLine     = new (*cpContext) SmLine
@@ -495,6 +495,12 @@ PURPOSE: Find and return cone apex
 NOTES: When cone is secretly a cylinder it has
   no apex and the cone origin is returned.  Check the
   bCylinder flag before using.
+  SolidCraft change: that answer is a success, as the cone's is. It was
+  SM_ERR, so a caller passing statuses on never reached its cylinder case:
+  GetMaxAnalyticDomain kept a cylinder's v-domain at its current height, a
+  boolean merging two coaxial cylinder faces clipped the merged face's
+  domain to it, and the edge rebuilt on that face sat 1 mm off its surface.
+  SM_ERR is now only the generator line failing to invert the apex.
 ***********************************************************************/
 SmStatus SmCone::GetApex
   (SmBoolean &bIsCylinder,     // out: FALSE = shape is a cone and has an apex point
@@ -508,7 +514,7 @@ SmStatus SmCone::GetApex
   {
       rApexPoint = m_vPosition.GetOriginRef();
       dApexParam = 0.0;
-      return(SM_ERR);
+      return(SM_SUCCESS);
   }
   else
   {
@@ -520,6 +526,44 @@ SmStatus SmCone::GetApex
   return(SM_SUCCESS);
 
 } // end SmCone::GetApex
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. The bottom and top radii of the cone's offset by
+    dSignedOffsetDistance (negative or zero where the offset passes the axis).
+***********************************************************************/
+void SmCone::GetOffsetRadii
+(
+  double   dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double & rdBotRadius,            // out: the offset's bottom radius
+  double & rdTopRadius             // out: the offset's top radius
+) const
+{
+  // When UVs are swapped - reverse orientation of offset
+  // When InsideOut       - reverse orientation of offset
+  double dOffsetSign =   1.0
+                       * (m_bSwapUV    ? -1.0 : 1.0)
+                       * (m_bInsideOut ? -1.0 : 1.0) ;
+  double dOffRadDist = smos_Cosine(m_dSemiAngleDeg * SM_PI / 180.0) * dOffsetSign * dSignedOffsetDistance ;
+  rdBotRadius = GetBotRadius() + dOffRadDist;
+  rdTopRadius = GetTopRadius() + dOffRadDist;
+} // end SmCone::GetOffsetRadii
+
+/*******************************************************************//**
+PURPOSE: SolidCraft change. TRUE when the offset by dSignedOffsetDistance
+    shrinks the cone (or cylinder) onto its axis or past it: both of the
+    offset's radii below dTol (SmSurface::OffsetCollapses).
+***********************************************************************/
+SmBoolean SmCone::OffsetCollapses
+(
+  double dSignedOffsetDistance,  // in : offset dist, (neg val = Offset dir opposite surface normal)
+  double dTol                    // in : the radius below which the offset is the axis
+) const
+{
+  double dBotRadius = 0.0;
+  double dTopRadius = 0.0;
+  GetOffsetRadii(dSignedOffsetDistance, dBotRadius, dTopRadius);
+  return dBotRadius < dTol && dTopRadius < dTol;
+} // end SmCone::OffsetCollapses
 
 /*******************************************************************//**
 PURPOSE: Create an offset surface(s) for the cone.
@@ -578,7 +622,7 @@ SmBoolean bDebugMe = FALSE ;
   double      dSin        = smos_Sine  (m_dSemiAngleDeg * SM_PI / 180.0) ;
   double      dCos        = smos_Cosine(m_dSemiAngleDeg * SM_PI / 180.0) ;
   SmVector3d  dNorm       = dCos * crXAxis - dSin * sZAxis ;
-              dNorm.Unitize();
+              (void)dNorm.Unitize(); // SolidCraft: a zero vector stays zero
   SmVector3d  sOffVec     =  dOffsetSign * dSignedOffsetDistance * dNorm ;
   double      dOffZDist   = -dSin * dOffsetSign * dSignedOffsetDistance ;
   double      dOffRadDist =  dCos * dOffsetSign * dSignedOffsetDistance ;
@@ -586,15 +630,16 @@ SmBoolean bDebugMe = FALSE ;
   // get new Bot and Top radii from Old and dOffRadDist
   double dOldBotRadius = GetBotRadius();
   double dOldTopRadius = GetTopRadius();
-  double dNewBotRadius = dOldBotRadius + dOffRadDist;
-  double dNewTopRadius = dOldTopRadius + dOffRadDist;
+  double dNewBotRadius = 0.0;
+  double dNewTopRadius = 0.0;
+  GetOffsetRadii(dSignedOffsetDistance, dNewBotRadius, dNewTopRadius);
 
   // In the case of negative or interior offset cones
   // Old behavior: Don't create result AND return success
   // New behavior: Create new SmCone AND return success
   // If both top and bottom are negative then don't create result like before
-  if(   dNewBotRadius < dThisApproxTol3d 
-     && dNewTopRadius < dThisApproxTol3d) 
+  // (SolidCraft: the offset collapses onto the axis, OffsetCollapses)
+  if ( OffsetCollapses(dSignedOffsetDistance, dThisApproxTol3d) )
     { return SM_SUCCESS ; }
 
   // only the BotRadius or TopRadius has gone negative
@@ -617,11 +662,11 @@ SmBoolean bDebugMe = FALSE ;
                                            }
       // New Cone Position - truncated at new apex position
       SmAxis2Placement newPosition;
-      newPosition.SetCanonical(sBotOrigin, crXAxis, crYAxis);
+      SER( newPosition.SetCanonical(sBotOrigin, crXAxis, crYAxis) );
 
       // Make the new cone - truncated at new apex - preserving original cone bSwapUV and bInsideOut values
       SmCone* pOffCone = NULL;
-      SmCone::CreateCanonical(crContext,      // in : new object context
+      SER( SmCone::CreateCanonical(crContext,      // in : new object context
                               newPosition,    // in : m_vOrigin = STEP BotCircle Center Point    
                                               //      m_vXAxis  = STEP Surface  0 degree rotation
                                               //      m_vYAxis  = STEP Surface 90 degree rotation
@@ -633,7 +678,7 @@ SmBoolean bDebugMe = FALSE ;
                               m_bSwapUV,      // in : optional: FALSE= map:[NurbU<->AnalU], TRUE=map:[NurbU<->AnalV],
                                               //                           [NurbV<->AnalV],          [NurbV<->AnalU],
                                               //      default:[FALSE], for experts - always use default value
-                              m_bInsideOut) ; // in : optional: FALSE= ZAxis from Bot to Top, TRUE=negate, 
+                              m_bInsideOut)  ); // in : optional: FALSE= ZAxis from Bot to Top, TRUE=negate, 
                                               //      default:[FALSE], for experts - always use default value
 
 
@@ -661,26 +706,26 @@ SmBoolean bDebugMe = FALSE ;
 
       // compute the offsetSurf Nurb domain to be a properly trimmed subset of the input Nurb domain
       SmExtent2d sTgtNurbDomain ;
-      if(m_bSwapUV) { sTgtNurbDomain.SetMinMax(sNurbDomain.GetUMin(),
+      if(m_bSwapUV) { SER( sTgtNurbDomain.SetMinMax(sNurbDomain.GetUMin(),
                                                sNurbDomain.GetVMin(),
                                                sNurbDomain.GetUMin() + dNewHeight/dHeight * sNurbDomain.GetUMax(),
-                                               sNurbDomain.GetVMax()) ;
+                                               sNurbDomain.GetVMax())  );
                     }
-      else          { sTgtNurbDomain.SetMinMax(sNurbDomain.GetUMin(),
+      else          { SER( sTgtNurbDomain.SetMinMax(sNurbDomain.GetUMin(),
                                                sNurbDomain.GetVMin(),
                                                sNurbDomain.GetUMax(),
-                                               sNurbDomain.GetVMin() + dNewHeight/dHeight * sNurbDomain.GetVMax()) ;
+                                               sNurbDomain.GetVMin() + dNewHeight/dHeight * sNurbDomain.GetVMax())  );
                     }
 
       // update the pOffCone NurbDomain
-      ((SmBSplineSurface *)pOffCone)->Reparameterize(sTgtNurbDomain) ;
+      SER( ((SmBSplineSurface *)pOffCone)->Reparameterize(sTgtNurbDomain)  );
 
       // adjust the GenCurve Nurb domain to be a properly trimmed subset of the input NurbDomain
       SmExtent1d sTgtGenNurbIvl = m_bSwapUV ? sTgtNurbDomain.GetUInterval() : sTgtNurbDomain.GetVInterval() ;
-      ((SmBSplineCurve *)pOffCone->GetGenCurve())->EditParameterization(sTgtGenNurbIvl) ;
+      SER( ((SmBSplineCurve *)pOffCone->GetGenCurve())->EditParameterization(sTgtGenNurbIvl)  );
 
       // rebuild the PolarCurve to make sure all is coordinated
-      pOffCone->RebuildPolarConverter() ;
+      SER( pOffCone->RebuildPolarConverter()  );
 
 #ifdef SM_DEBUG_CODE
       if(bDebugMe)
@@ -711,12 +756,12 @@ SmBoolean bDebugMe = FALSE ;
 
   // copy the cone
   SmSurface *pCopy = NULL;
-  Copy(crContext, pCopy);
+  SER( Copy(crContext, pCopy) );
   SmCone *pOffCone = (SmCone *)pCopy;
 
   // modify analytic parameters - new BaseRadius and new Cone Center
   pOffCone->m_dBaseRadius = m_dBaseRadius + dOffRadDist;
-  pOffCone->m_vPosition.SetCanonical(crOrigin + dOffZDist * sZAxis, crXAxis, crYAxis) ;
+  SER( pOffCone->m_vPosition.SetCanonical(crOrigin + dOffZDist * sZAxis, crXAxis, crYAxis)  );
 
   // modify every Cone Nurb ControlPoint position - preserves the input NURB domain
   if(pOffCone->GetGwNurbPointer())
@@ -903,7 +948,7 @@ SmBoolean bDebugMe = FALSE ;
   // translate the NewCone->GenCurve from current center line
   SmAxis2Placement sMove ;
   sMove.Translate(sOffVec) ;
-  pOffCone->m_pGenCurve->Transform(sMove) ; 
+  SER( pOffCone->m_pGenCurve->Transform(sMove)  ); 
 
 #ifdef SM_DEBUG_CODE
   // draw 
@@ -1340,15 +1385,15 @@ SmBoolean bDebugMe = FALSE ;
   SmExtent1d sNurbIvl = pIsoCurve->GetNaturalInterval() ;
   SmPoint3d sMinPoint, sMaxPoint, sMidPoint ;
   if(   m_bInsideOut
-     && eSTEPParam == SM_SP_U) { pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sMaxPoint) ;                                
-                                 pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sMinPoint) ;
+     && eSTEPParam == SM_SP_U) { SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sMaxPoint)  );                                
+                                 SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sMinPoint)  );
                                }
-  else                         { pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sMinPoint) ;                                
-                                 pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sMaxPoint) ;
+  else                         { SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMin(), sMinPoint)  );                                
+                                 SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMax(), sMaxPoint)  );
                                }
 
 
-  pIsoCurve->EvaluatePoint(sNurbIvl.GetMid(), sMidPoint) ;
+  SER( pIsoCurve->EvaluatePoint(sNurbIvl.GetMid(), sMidPoint)  );
 
   double dScaledZero = SM_EFF_ZERO * (1.0 + smos_3Max(sMinPoint.GetMaxDimension(), sMidPoint.GetMaxDimension(),
                                                       rConeOrigin.GetMaxDimension()));
@@ -1417,23 +1462,23 @@ SmBoolean bDebugMe = FALSE ;
       if(pOptDomain == NULL) 
         { 
           // let anlytic interval = cone sweep interval
-          sAnalInterval.SetMinMax(m_vAnalUVDomain.GetMin().x, 
-                                  m_vAnalUVDomain.GetMax().x) ; 
+          SER( sAnalInterval.SetMinMax(m_vAnalUVDomain.GetMin().x, 
+                                  m_vAnalUVDomain.GetMax().x)  ); 
         }
       else // get angles to given points
         {
           // let Ivl = angles (deg) to min/max points measured in circle coordinate system
           double dAngleMinRad, dAngleMaxRad ;
           SmVector3d sZAxis = sConeZAxis ;
-          sZAxis.CCWAngleBetween(rConeXAxis, sStartVec, dAngleMinRad) ;
-          sZAxis.CCWAngleBetween(rConeXAxis, sEndVec, dAngleMaxRad) ;
+          SER( sZAxis.CCWAngleBetween(rConeXAxis, sStartVec, dAngleMinRad)  );
+          SER( sZAxis.CCWAngleBetween(rConeXAxis, sEndVec, dAngleMaxRad)  );
           double dAngleMinDeg = dAngleMinRad * 180.0 / SM_PI ;
           double dAngleMaxDeg = dAngleMaxRad * 180.0 / SM_PI ;
           if(   dAngleMaxDeg < dAngleMinDeg
              || (    SM_IS_ZERO(dAngleMaxDeg-dAngleMinDeg) 
                  && !SM_IS_ZERO(dNurbSpanSize))) 
             { dAngleMaxDeg += 360.0 ; }
-          sAnalInterval.SetMinMax(dAngleMinDeg, dAngleMaxDeg) ;
+          SER( sAnalInterval.SetMinMax(dAngleMinDeg, dAngleMaxDeg)  );
         }
       
       // radius = dist(circlePoints to Cone axis)  (dScaledZero is too small)
@@ -1493,15 +1538,15 @@ SmBoolean bDebugMe = FALSE ;
       if(pOptDomain == NULL) 
         { 
           // let anlytic interval = cone linear interval
-          sAnalInterval.SetMinMax(m_vAnalUVDomain.GetMin().y, 
-                                  m_vAnalUVDomain.GetMax().y) ; 
+          SER( sAnalInterval.SetMinMax(m_vAnalUVDomain.GetMin().y, 
+                                  m_vAnalUVDomain.GetMax().y)  ); 
         }
       else // get heights to given points
         {
           // let Ivl = heights to min/max points
           double dMinHeight = (sMinPoint - rConeOrigin).Dot(sConeZAxis) ;
           double dMaxHeight = (sMaxPoint - rConeOrigin).Dot(sConeZAxis) ;
-          sAnalInterval.SetMinMax(dMinHeight, dMaxHeight) ; 
+          SER( sAnalInterval.SetMinMax(dMinHeight, dMaxHeight)  ); 
         }
       
       // pick StartPoint to set IsoCurveMinPoint = StartPoint + sAnalIvl.GetMin() * dScale * dVec 
@@ -1518,7 +1563,7 @@ SmBoolean bDebugMe = FALSE ;
                                              dScale, 3, &crContext, pIsoCurve, m_bInsideOut) ;
       
       // set pLine Nurb domain
-      pLine->SmBSplineCurve::EditParameterization(sNurbIvl) ;
+      SER( pLine->SmBSplineCurve::EditParameterization(sNurbIvl)  );
 
       // save it
       rpNewIsoCurve = pLine;
@@ -1635,23 +1680,11 @@ SmStatus SmCone::CreateIsoCircleFromPoint
   SmVector3d       sZAxis         = m_vPosition.GetZAxis() ;
   SmExtent1d       sHeightStepIvl = m_vAnalUVDomain.GetVInterval() ;
   double           dParam ;
-  smgu_LineClosestPoint(rOrigin, sZAxis, crReferencePoint, dParam) ;
+  SER( smgu_LineClosestPoint(rOrigin, sZAxis, crReferencePoint, dParam)  );
 
   // skip points not within the height bounds of the cone
   if(!sHeightStepIvl.ContainsValue(dParam, d3DTolerance))
     { return(SM_SUCCESS) ; }
-
-  // build Step Point on Surface for Point
-  double dRadius            = GetRadius(dParam) ;
-  SmPoint3d  sCenter        = rOrigin + dParam * sZAxis ;
-  SmVector3d sVec           = crReferencePoint - sCenter ;
-  if ( sVec.LengthSquared() < 2 * SM_EFF_ZERO_SQ )
-  {
-      // Given point is on our axis.
-      sVec = m_vPosition.GetXAxis();
-  }
-  sVec.Unitize();
-  SmPoint3d sPointOnSurface = sCenter + dRadius * sVec ;
 
 #ifdef SM_DEBUG_CODE
 SmBoolean bDebugMe = FALSE ;
@@ -1668,18 +1701,20 @@ SmBoolean bDebugMe = FALSE ;
       smgfx_SetLook(1,2, 0,0,0) ; if(pFace) pFace->Draw(SM_DM_CROSSHATCH) ; sm_GraphicsLoop() ;
       smgfx_SetLook(3,4, 1,1,0) ; m_pGenCurve->Draw() ; sm_GraphicsLoop() ; 
       smgfx_SetLook(5,6, 1,0,0) ; crReferencePoint.Draw() ; sm_GraphicsLoop() ;
-      smgfx_SetLook(7,8, 0,1,0) ; sPointOnSurface.Draw() ; sm_GraphicsLoop() ;
       sm_GraphicsLoop() ;
     }
 #endif // SM_DEBUG_CODE
 
-  // map Point to StepUV
-  SmLocationType eloc ;
-  SmPoint2d sStepUV, sNurbUV ;
-  STEPInversion(m_vAnalUVDomain, sPointOnSurface, d3DTolerance, sStepUV, eloc) ;
-  
+  // the circle's StepV is its height dParam (the cone's v is the distance along its axis, see
+  // GetRadius): a reference point within d3DTolerance beyond an end is on that end's circle.
+  // SolidCraft change: this was STEPInversion() of the reference point moved onto the cone at
+  // that height, with its status voided. For a point beyond an end, that point lies beyond the
+  // generator's end by up to d3DTolerance/cos(semi angle), farther than the d3DTolerance the
+  // inversion solves to, and the inversion left StepV unset; the iso circle was built through it.
+  SmPoint2d sStepUV(m_vAnalUVDomain.GetMin().x, sHeightStepIvl.ClampValue(dParam)), sNurbUV ;
+
   // map StepUV to NurbUV
-  ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV) ; 
+  SER( ConvertUVFromSTEPToNURBS(sStepUV, sNurbUV)  ); 
 
   // build and return the isoParametercurve                    
   SER(CreateIsoParametricCurve(crContext,                      
@@ -2262,8 +2297,8 @@ double SmCone::GetHeight() const
       SmPoint2d sBotUV = m_bInsideOut ? GetNaturalUVDomain().GetMax()
                                       : GetNaturalUVDomain().GetMin() ;
       SmPoint3d sTop, sBot;
-      EvaluatePoint(sTopUV,sTop);
-      EvaluatePoint(sBotUV,sBot);
+      if ( EvaluatePoint(sTopUV,sTop) != SM_SUCCESS ) { return 0.0 ; } // SolidCraft change: no height without its end points
+      if ( EvaluatePoint(sBotUV,sBot) != SM_SUCCESS ) { return 0.0 ; } // SolidCraft change: no height without its end points
       double dHeight = (sTop - sBot).Dot(m_vPosition.GetZAxis()) ;
       return dHeight;
       //SM_ASSERT(dHeight > 0.0) ;
@@ -2305,7 +2340,10 @@ SmExtent2d SmCone::GetMaxAnalyticDomain()
   double dApexParam;
   SmPoint3d sApexPt;
   SmBoolean bIsCylinder;
-  this->GetApex( bIsCylinder, sApexPt, dApexParam );
+  // SolidCraft change: without the apex the v-domain is returned as it is, not expanded (as
+  // for an apex inside it)
+  if (this->GetApex( bIsCylinder, sApexPt, dApexParam ) != SM_SUCCESS)
+    { return SmExtent2d( 0.0, sVDom.GetMin(), 360.0, sVDom.GetMax() ); }
 
   // The apex parameter must not be within our current v-domain.
   // If it is, we will just return our current v-domain, not expanded.
@@ -2315,9 +2353,9 @@ SmExtent2d SmCone::GetMaxAnalyticDomain()
   if ( bIsCylinder )
     { sVDom = sVDomBig; }
   else if ( dApexParam <= sVDom.GetMin()+SM_EFF_ZERO )
-    { sVDom.SetMinMax( dApexParam, sVDomBig.GetMax() ); }
+    { (void)sVDom.SetMinMax( dApexParam, sVDomBig.GetMax() ); } // SolidCraft: ordered by the test before it
   else if ( dApexParam >= sVDom.GetMax()-SM_EFF_ZERO )
-    { sVDom.SetMinMax( sVDomBig.GetMin(), dApexParam ); }
+    { (void)sVDom.SetMinMax( sVDomBig.GetMin(), dApexParam ); } // SolidCraft: ordered by the test before it
 
   // u-domain is 0 to 360.
   SmExtent2d sDom( 0.0, sVDom.GetMin(), 360.0, sVDom.GetMax() );
@@ -2374,6 +2412,7 @@ SmStatus SmCone::GlobalSurfaceIntersect
           break;
 
       case SmCone_TYPE:
+      case SmCylinder_TYPE:
           SER(IntersectWithCone(crContext,crUVDomain,(SmCone&)crOtherSurface,
               crOtherUVDomain, bUseSurfaceEdges, pdOptApproxTol3d,
               pdOptAngTolRad, bNeedNurbIntersection, 
@@ -2480,10 +2519,10 @@ SmStatus sm_TotalCoincidenceChecker(
   // Using end points, set bRev flag, and quit if not coincident.
   SmBoolean bRev = UNSURE;
   SmPoint3d sPt00, sPt01, sPt10, sPt11;
-  cpThis ->EvaluatePoint( crThisDomain .GetMin(), sPt00 );
-  cpThis ->EvaluatePoint( crThisDomain .GetMax(), sPt01 );
-  cpOther->EvaluatePoint( crOtherDomain.GetMin(), sPt10 );
-  cpOther->EvaluatePoint( crOtherDomain.GetMax(), sPt11 );
+  SER( cpThis ->EvaluatePoint( crThisDomain .GetMin(), sPt00 ) );
+  SER( cpThis ->EvaluatePoint( crThisDomain .GetMax(), sPt01 ) );
+  SER( cpOther->EvaluatePoint( crOtherDomain.GetMin(), sPt10 ) );
+  SER( cpOther->EvaluatePoint( crOtherDomain.GetMax(), sPt11 ) );
 
   double dDist_S_S = sPt00.DistanceBetween( sPt10 );
   double dDist_S_E = sPt00.DistanceBetween( sPt11 );
@@ -2498,14 +2537,14 @@ SmStatus sm_TotalCoincidenceChecker(
           rbReversed = FALSE;
           return SM_SUCCESS;
       }
-      dDist_E_S = sPt01.DistanceBetween( sPt11 );
+      dDist_E_S = sPt01.DistanceBetween( sPt10 );
       if ( dDist_S_E < sApproxTol3d && dDist_E_S < sApproxTol3d )
       {
           rbAreCoinc = TRUE;
           rbReversed = TRUE;
           return SM_SUCCESS;
       }
-      return FALSE;
+      return SM_SUCCESS;
   }
 
   // Not a line.  If not a circle, return no coincidence.
@@ -2523,8 +2562,8 @@ SmStatus sm_TotalCoincidenceChecker(
       // Both curves closed, same endpoints.
       // Check 1st derivs for orientation.
       SmVector3d sPV1[2], sPV2[2];
-      cpThis ->Evaluate( crThisDomain .GetMin(), 1, TRUE, sPV1, TRUE );
-      cpOther->Evaluate( crOtherDomain.GetMin(), 1, TRUE, sPV2, TRUE );
+      SER( cpThis ->Evaluate( crThisDomain .GetMin(), 1, TRUE, sPV1, TRUE ) );
+      SER( cpOther->Evaluate( crOtherDomain.GetMin(), 1, TRUE, sPV2, TRUE ) );
       double dDot = sPV1[1].Dot( sPV2[1] );
       bRev = ( dDot < -SM_EFF_ZERO );
   }
@@ -2554,21 +2593,21 @@ SmStatus sm_TotalCoincidenceChecker(
   // Check interior.  For circles, one interior point is sufficient.
   double dDist;
 
-  cpThis ->EvaluatePoint( crThisDomain .Evaluate( 0.5 ), sPt01 );
+  SER( cpThis ->EvaluatePoint( crThisDomain .Evaluate( 0.5 ), sPt01 ) );
 
   // If reversed, parameterization could vary.
   double dT2 = crOtherDomain.Evaluate( 0.5 );
   if ( ! bRev )
   {
-      cpOther->EvaluatePoint( dT2, sPt11 );
+      SER( cpOther->EvaluatePoint( dT2, sPt11 ) );
       dDist = sPt01.DistanceBetween( sPt11 );
   }
   else
   {
       SmBoolean bOk;
-      cpOther->DropPoint( crOtherDomain, sPt01, NULL, sApproxTol3d, &dT2,
+      SER( cpOther->DropPoint( crOtherDomain, sPt01, NULL, sApproxTol3d, &dT2,
                           bOk, dT2, dDist,
-                          SM_SO_INTERSECT );
+                          SM_SO_INTERSECT ) );
       if ( !bOk ) { dDist = SM_BIG_DOUBLE; }
   }
 
@@ -2794,11 +2833,25 @@ SmBoolean bDebugMe = FALSE;
 
       // get the axis intervals for both cylinders
       // Recall, these are not our v-parameters, they are based on 0 to Height.
-      double dMin      = 0.0;        // Our current bottom and top.
-      double dMax      = dHeight;
-      double dMinOther = smos_Min(dParam,dParam2); // Other's bottom and top project on us.
+      // SolidCraft: the intervals the two faces cover, from the intersection domains
+      // (crUVDomain, crOtherUVDomain), not the whole cylinders. A face trimmed along its axis
+      // (a hole cut through a plate is shorter than the tool cylinder it came from) otherwise
+      // gets lines that start outside it, and the domain check below drops them all.
+      SmExtent2d sThisStepDom, sOtherStepDom;
+      SER( ConvertDomainFromNURBSToSTEP( crUVDomain, sThisStepDom ) );
+      SER( crOtherCone.ConvertDomainFromNURBSToSTEP( crOtherUVDomain, sOtherStepDom ) );
+      double dMin      = sThisStepDom.GetVMin() - m_vAnalUVDomain.GetVMin(); // Our face's bottom and top.
+      double dMax      = sThisStepDom.GetVMax() - m_vAnalUVDomain.GetVMin();
+      SER( smgu_LineClosestPoint( sCenterBot, sConeAxis, rOBasePt + sOtherStepDom.GetVMin() * sOConeAxis, dParam ));
+      SER( smgu_LineClosestPoint( sCenterBot, sConeAxis, rOBasePt + sOtherStepDom.GetVMax() * sOConeAxis, dParam2 ));
+      double dMinOther = smos_Min(dParam,dParam2); // Other face's bottom and top project on us.
       double dMaxOther = smos_Max(dParam,dParam2);
       SM_ASSERT( dMinOther <= dMaxOther );
+
+      // no work: the faces are disjoint along the parallel axis
+      if ( dMinOther > dMax + dTol || dMaxOther < dMin - dTol )
+        { return SM_SUCCESS;
+        }
 
       // shorten interval to point when cylinder ends touch on same plane (to tolerance) 
       if (dMinOther > dMax-dTol) { dMin = dMax; }
@@ -2956,15 +3009,19 @@ SmBoolean bDebugMe = FALSE;
               SmPoint2d      sThisStepUV, sOtherStepUV ;
               SmPoint2d      sThisNurbUV, sOtherNurbUV ;
               SmLocationType eThisLoc, eOtherLoc ;
-              STEPInversion(m_vAnalUVDomain, sLinePt, dScaledZero, 
-                            sThisStepUV, eThisLoc) ; 
-              crOtherCone.STEPInversion(crOtherCone.m_vAnalUVDomain, sLinePt, dScaledZero, 
-                                        sOtherStepUV, eOtherLoc) ;
+              // SolidCraft change: an off-surface or out-of-domain answer sets the location read below;
+              // any other status is a failure
+              SmStatus eThisInv = STEPInversion(m_vAnalUVDomain, sLinePt, dScaledZero,
+                                                sThisStepUV, eThisLoc);
+              if(!SmSurface::STEPInversionAnswered(eThisInv)) { SER(eThisInv) ; }
+              SmStatus eOtherInv = crOtherCone.STEPInversion(crOtherCone.m_vAnalUVDomain, sLinePt, dScaledZero,
+                                                             sOtherStepUV, eOtherLoc);
+              if(!SmSurface::STEPInversionAnswered(eOtherInv)) { SER(eOtherInv) ; }
               if(   eThisLoc  == SM_LT_EXTERIOR
                  || eOtherLoc == SM_LT_EXTERIOR)
                  { continue ; }
-              ConvertUVFromSTEPToNURBS(sThisStepUV,  sThisNurbUV) ; 
-              crOtherCone.ConvertUVFromSTEPToNURBS(sOtherStepUV, sOtherNurbUV) ;
+              SER( ConvertUVFromSTEPToNURBS(sThisStepUV,  sThisNurbUV)  ); 
+              SER( crOtherCone.ConvertUVFromSTEPToNURBS(sOtherStepUV, sOtherNurbUV)  );
 
               // skip Points whose NurbUV values are outside of their surface UVDomains
               if(   !crUVDomain.ContainsPoint2d     (sThisNurbUV,  SM_EFF_ZERO)
@@ -2975,7 +3032,7 @@ SmBoolean bDebugMe = FALSE;
               if (dMax-dMin < dTol) 
                 {
                   // make a degenerate line
-                  SmBSplineCurve::CreateDegenerateCurve(crContext,3,sLinePt,pBSCurve);
+                  SER( SmBSplineCurve::CreateDegenerateCurve(crContext,3,sLinePt,pBSCurve) );
                   SM_ASSERT(pBSCurve != NULL) ; 
                   if (pOptCurveTypes) { pOptCurveTypes->Add(SM_TC_TOUCHING); }
                 } // end make degenerate point branch
@@ -3059,7 +3116,7 @@ SmBoolean bDebugMe = FALSE;
       SER(sFrame.SetCanonical(aPoints[0], sXAxis, sYAxis));
 
       // build and add every ellipse arc segment trimmed to both cones to pOpt3DCurves array
-      sm_AddEllipseIntervalsTrimmedToTwoCones
+      SER( sm_AddEllipseIntervalsTrimmedToTwoCones
         (crContext,                  // in : for temp object construction
          sFrame.GetOriginRef(),      // in : origin            of ellipse
          sFrame.GetXAxisRef(),       // in : xAxis             of ellipse
@@ -3074,11 +3131,11 @@ SmBoolean bDebugMe = FALSE;
          crOtherUVDomain,            // in : nurb trim boundaries for cone
          dTol,                       // in : approximation tolerance
          pOpt3DCurves,               // out: accumulate all nonDegnerate intersections trimmed to both cones
-         sDegenerateCurves) ;        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
+         sDegenerateCurves)  );        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
       
       // build and output 2nd ellipse segment (2nd half of 1st ellipse arc) trimmed to both cones            
       SER(sFrame.SetCanonical(aPoints[0], sXAxis, -sYAxis));
-      sm_AddEllipseIntervalsTrimmedToTwoCones
+      SER( sm_AddEllipseIntervalsTrimmedToTwoCones
         (crContext,                  // in : for temp object construction
          sFrame.GetOriginRef(),      // in : origin            of ellipse
          sFrame.GetXAxisRef(),       // in : xAxis             of ellipse
@@ -3093,14 +3150,14 @@ SmBoolean bDebugMe = FALSE;
          crOtherUVDomain,            // in : nurb trim boundaries for cone
          dTol,                       // in : approximation tolerance
          pOpt3DCurves,               // out: accumulate all nonDegnerate intersections trimmed to both cones
-         sDegenerateCurves) ;        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
+         sDegenerateCurves)  );        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
 
       // build and output 3rd ellipse segment  (1st half of perpendicular ellipse)            
       double dEll2Radius = sVecToInt2.Length();
       sYAxis = sVecToInt2;
-      sYAxis.Unitize();
+      (void)sYAxis.Unitize(); // SolidCraft: a zero vector stays zero
       SER(sFrame.SetCanonical(aPoints[0], sXAxis, sYAxis));
-      sm_AddEllipseIntervalsTrimmedToTwoCones
+      SER( sm_AddEllipseIntervalsTrimmedToTwoCones
         (crContext,                  // in : for temp object construction
          sFrame.GetOriginRef(),      // in : origin            of ellipse
          sFrame.GetXAxisRef(),       // in : xAxis             of ellipse
@@ -3115,11 +3172,11 @@ SmBoolean bDebugMe = FALSE;
          crOtherUVDomain,            // in : nurb trim boundaries for cone
          dTol,                       // in : approximation tolerance
          pOpt3DCurves,               // out: accumulate all nonDegnerate intersections trimmed to both cones
-         sDegenerateCurves) ;        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
+         sDegenerateCurves)  );        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
 
       // build and output 4th ellipse segment (2nd half of 2nd perpendicular ellipse)             
       SER(sFrame.SetCanonical(aPoints[0], sXAxis, -sYAxis));
-      sm_AddEllipseIntervalsTrimmedToTwoCones
+      SER( sm_AddEllipseIntervalsTrimmedToTwoCones
         (crContext,                  // in : for temp object construction
          sFrame.GetOriginRef(),      // in : origin            of ellipse
          sFrame.GetXAxisRef(),       // in : xAxis             of ellipse
@@ -3134,7 +3191,7 @@ SmBoolean bDebugMe = FALSE;
          crOtherUVDomain,            // in : nurb trim boundaries for cone
          dTol,                       // in : approximation tolerance
          pOpt3DCurves,               // out: accumulate all nonDegnerate intersections trimmed to both cones
-         sDegenerateCurves) ;        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
+         sDegenerateCurves)  );        // out: accumulate all unique Degnerate intersections (they may coincide with pOpt3DCurve)
 
       // arrive here when pOpt3DCurves contains all elliptical curve intersections
       //             and sDegenerateCurves contains a unique set of degenerate curves
@@ -3148,7 +3205,7 @@ SmBoolean bDebugMe = FALSE;
           SmBSplineCurve *pDegenerateCrv = sDegenerateCurves[ii] ;
           SmPoint3d sPoint ;
           SmExtent1d sIvl = pDegenerateCrv->GetNaturalInterval() ;
-          pDegenerateCrv->EvaluatePoint(sIvl.GetMin(), sPoint) ;
+          SER( pDegenerateCrv->EvaluatePoint(sIvl.GetMin(), sPoint)  );
 
           // see if its on any of the curve intersections.
           //   Don't check other degnerate curves because the
@@ -3160,7 +3217,9 @@ SmBoolean bDebugMe = FALSE;
               double dAnalParam ;
               SmCurveLocationType eLoc ;
               SmBSplineCurve *pIntersectCurve = (SmBSplineCurve *)pOpt3DCurves->GetAt(jj) ;
-              pIntersectCurve->STEPInversion(sPoint, dAnalParam, &eLoc) ;
+              // SolidCraft change: the analytic curves answer every point with SM_SUCCESS (off the
+              // curve: SM_CL_EXTERIOR); any other status is a failure, with eLoc unset
+              SER( pIntersectCurve->STEPInversion(sPoint, dAnalParam, &eLoc) );
 
               // when point is on Curve - its not unique
               if(eLoc != SM_CL_EXTERIOR)
@@ -3627,7 +3686,7 @@ static ULONG lDebugCount = 0 ;
       // wrong side of the apex, and would probably cause problems
       // in topology operations, but here we can live with it.
       double dRad = smos_Fabs( GetRadius(dVParam) );
-      crPlane.MakeNewPlaneEllipse(crContext,
+      SER( crPlane.MakeNewPlaneEllipse(crContext,
                                   crOtherUVDomain,
                                   sCenterPoint,
                                   dRad, dRad,
@@ -3636,7 +3695,7 @@ static ULONG lDebugCount = 0 ;
                                   SmExtent1d(GetStartAngleDeg(),  // trimmed to cone limits
                                              GetEndAngleDeg()),
                                   dTol,
-                                  sCrvs) ;
+                                  sCrvs)  );
       
       // Set outputs for each trimmed intersection curve result.
       ULONG ii;
@@ -3700,7 +3759,7 @@ static ULONG lDebugCount = 0 ;
 
       // Project (and negate) planeNormal into plane Perp to coneAxis
       sVec = sConeAxis * (sConeAxis * sPlaneNormal) ;
-      sVec.Unitize();
+      (void)sVec.Unitize(); // SolidCraft: a zero vector stays zero
 
       // Find ConeLine which is ellipse Center Line projected to one side of the cone
       // sPt1 = ConeBottom/Cone/PlaneNormal-ConeAxis-Plane xSect Point
@@ -3761,7 +3820,7 @@ static ULONG lDebugCount = 0 ;
       if(SM_IS_ZERO(dMajRad))
         {
           SmBSplineCurve *pCrv = NULL ;
-          SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sEnd1, pCrv) ;
+          SER( SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sEnd1, pCrv)  );
           NER(pCrv) ;
 
           // set outputs
@@ -3776,11 +3835,11 @@ static ULONG lDebugCount = 0 ;
 
         } // end degenerate curve check
 
-      sXAxis.Unitize();
+      (void)sXAxis.Unitize(); // SolidCraft: a zero vector stays zero
 
       // get minor axis
       SmVector3d sYAxis = sPlaneNormal * sXAxis; // sYAxis = ellipse minor axis
-      sYAxis.Unitize() ;
+      (void)sYAxis.Unitize() ; // SolidCraft: a zero vector stays zero
 
       // get minor radius
       if (IsCylinder()) // when working on a cylinder
@@ -3818,7 +3877,7 @@ static ULONG lDebugCount = 0 ;
 
       // trim full ellipse to cone boundaries
       SmTArray<SmExtent1d> sEllipseIvls ;
-      sm_GetEllipseTrimIntervals
+      SER( sm_GetEllipseTrimIntervals
         (crContext,                // in : for temp object construction
          sCenter,                  // in : origin            of ellipse
          sXAxis,                   // in : xAxis             of ellipse
@@ -3830,7 +3889,7 @@ static ULONG lDebugCount = 0 ;
          *this,                    // in : Cone with trim boundaries
          GetNaturalUVDomain(),     // in : nurb trim boundaries for cone
          dTol,                     // in : approximation tolerance
-         sEllipseIvls) ;           // out: array of ellipse intervals inside trimmed cone
+         sEllipseIvls)  );           // out: array of ellipse intervals inside trimmed cone
 
       // for every ellipse interval trimmed to cone
       SmTArray<SmBSplineCurve *> s3dTrimCurves ;
@@ -3839,7 +3898,7 @@ static ULONG lDebugCount = 0 ;
           SmExtent1d sIvl = sEllipseIvls[ii] ;
 
           // make intersection curve(s) trimmed to cone and plane limits
-          crPlane.MakeNewPlaneEllipse(crContext,
+          SER( crPlane.MakeNewPlaneEllipse(crContext,
                                       crOtherUVDomain,
                                       sCenter,
                                       dMajRad, dMinRad,
@@ -3847,7 +3906,7 @@ static ULONG lDebugCount = 0 ;
                                       sYAxis,
                                       sIvl,
                                       dTol,
-                                      s3dTrimCurves) ;
+                                      s3dTrimCurves)  );
 
           // set outputs
           for(ULONG jj=0;jj<s3dTrimCurves.GetSize();jj++)
@@ -4354,7 +4413,7 @@ static ULONG lDebugCount = 0 ;
   ULONG jj ;
   SmTArray<double> sCirKnots;
   SmTArray<ULONG>  sCirMults;
-  pTestSurface->GetKnots(eLinearIsoParam, sCirKnots, &sCirMults) ;
+  if ( pTestSurface->GetKnots(eLinearIsoParam, sCirKnots, &sCirMults)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
   ULONG lCirKnotCount = sCirMults.GetSize() ;
   if(   sCirMults[0] != 3
      || sCirMults[lCirKnotCount-1] != 3)
@@ -4367,8 +4426,8 @@ static ULONG lDebugCount = 0 ;
 
   // evaluate Nurb min/max domain points
   SmPoint3d sMinPnt, sMaxPnt;
-  pTestSurface->EvaluatePoint(sUVDomain.GetMin(),sMinPnt);
-  pTestSurface->EvaluatePoint(sUVDomain.GetMax(),sMaxPnt);
+  if ( pTestSurface->EvaluatePoint(sUVDomain.GetMin(),sMinPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
+  if ( pTestSurface->EvaluatePoint(sUVDomain.GetMax(),sMaxPnt) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
 
   // scale zero value and angle tolerance
   double dAngTol     = dToleranceScale * SM_EFF_ZERO_SQRT ;
@@ -4403,20 +4462,22 @@ static ULONG lDebugCount = 0 ;
 
   // make temporary Top BSPline isoParameter curve - hopefully it has an arc shape
   SmBSplineCurve  *pTopIsoCrv = NULL;
-  SER(pTestSurface->SmBSplineSurface::CreateIsoParametricCurve(crContext, 
+  if(pTestSurface->SmBSplineSurface::CreateIsoParametricCurve(crContext, 
                                                                eSweepIsoParam, 
                                                                dTopKnot, 
                                                                0.0, 
-                                                               pTopIsoCrv));
+                                                               pTopIsoCrv) != SM_SUCCESS)
+    { return FALSE; }
   SmObjDelete sCleanTop(pTopIsoCrv);
 
   // make temporary Bot BSPline isoParameter curve - hopefully it has an arc shape
   SmBSplineCurve  *pBotIsoCrv = NULL;
-  SER(pTestSurface->SmBSplineSurface::CreateIsoParametricCurve(crContext, 
+  if(pTestSurface->SmBSplineSurface::CreateIsoParametricCurve(crContext, 
                                                                eSweepIsoParam, 
                                                                dBotKnot, 
                                                                0.0, 
-                                                               pBotIsoCrv));
+                                                               pBotIsoCrv) != SM_SUCCESS)
+    { return FALSE; }
   SmObjDelete sCleanBot(pBotIsoCrv);
 
   // classify IsoparamCurves - get Nurb TopCurve and BotCurve radius and start/end 
@@ -4438,10 +4499,10 @@ static ULONG lDebugCount = 0 ;
       dBotEndAng   = dTopEndAng ;
       dBotRad      = 0.0 ;
       SmPoint3d sPoint ; 
-      pBotIsoCrv->EvaluatePoint(pBotIsoCrv->GetNaturalInterval().GetMid(), sPoint) ;
-      sBotRefFrame.SetCanonical(sPoint,
+      if ( pBotIsoCrv->EvaluatePoint(pBotIsoCrv->GetNaturalInterval().GetMid(), sPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
+      if ( sBotRefFrame.SetCanonical(sPoint, // SolidCraft change: a surface it cannot evaluate is not recognized
                                 sTopRefFrame.GetXAxisRef(),
-                                sTopRefFrame.GetYAxisRef()) ;
+                                sTopRefFrame.GetYAxisRef())  != SM_SUCCESS ) { return FALSE ; }
     }
   else if(bBotArc && bTopDegenerate)
     { // cone with a vertex                      
@@ -4449,10 +4510,10 @@ static ULONG lDebugCount = 0 ;
       dTopEndAng   = dBotEndAng ;                    
       dTopRad      = 0.0 ;
       SmPoint3d sPoint ; 
-      pTopIsoCrv->EvaluatePoint(pTopIsoCrv->GetNaturalInterval().GetMid(), sPoint) ;
-      sTopRefFrame.SetCanonical(sPoint,
+      if ( pTopIsoCrv->EvaluatePoint(pTopIsoCrv->GetNaturalInterval().GetMid(), sPoint)  != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
+      if ( sTopRefFrame.SetCanonical(sPoint, // SolidCraft change: a surface it cannot evaluate is not recognized
                                 sBotRefFrame.GetXAxisRef(),
-                                sBotRefFrame.GetYAxisRef()) ;
+                                sBotRefFrame.GetYAxisRef())  != SM_SUCCESS ) { return FALSE ; }
     }
   else if(!bTopArc || !bBotArc)
     { // not a cone - Top or Bot circular isoParameter curve is degenerate or not an arc
@@ -4461,7 +4522,7 @@ static ULONG lDebugCount = 0 ;
   
   // check for not a cone - top/bot start angles or top/bot end angles vary by more than tolerance
   double dTwistAng;
-  sTopRefFrame.GetXAxisRef().AngleBetween(sBotRefFrame.GetXAxisRef(),dTwistAng);
+  if ( sTopRefFrame.GetXAxisRef().AngleBetween(sBotRefFrame.GetXAxisRef(),dTwistAng) != SM_SUCCESS ) { return FALSE ; } // SolidCraft change: a surface it cannot evaluate is not recognized
   if (   smos_Fabs(dTopStartAng-dBotStartAng) > dAngTol
       || smos_Fabs(dTopEndAng  -dBotEndAng  ) > dAngTol
       || smos_Fabs(dTwistAng) > dAngTol)
@@ -4476,7 +4537,7 @@ static ULONG lDebugCount = 0 ;
   // not a cone - height of cone is degenerate (cone is a disk) 
   if(dHeight < SM_EFF_ZERO_SQRT) 
     { return FALSE; }
-  sNurbZAxis.Unitize();
+  (void)sNurbZAxis.Unitize(); // SolidCraft: a zero vector stays zero
 
   // check for not a cone - bottom arc's plane is not perpendicular to cone axis
   if (!sNurbZAxis.IsParallelTo(sBotRefFrame.GetZAxis(),dAngTol))
@@ -4491,11 +4552,12 @@ static ULONG lDebugCount = 0 ;
   double dMidRad,  dMidStartAng, dMidEndAng;
   SmAxis2Placement sMidRefFrame;
   double dMidParam = ( dBotKnot + dTopKnot ) / 2.0;
-  SER(pTestSurface->SmBSplineSurface::CreateIsoParametricCurve(crContext, 
+  if(pTestSurface->SmBSplineSurface::CreateIsoParametricCurve(crContext, 
                                                                eSweepIsoParam, 
                                                                dMidParam, 
                                                                0.0, 
-                                                               pMidIsoCrv));
+                                                               pMidIsoCrv) != SM_SUCCESS)
+    { return FALSE; }
   SmObjDelete sCleanMid(pMidIsoCrv);
 
   // It must be circular.
@@ -4578,7 +4640,11 @@ SmBoolean bDebugMe2 = FALSE;
   //  //      The cone parametrization is highly constrained and will not generally be the same as the pTestSurface
   //  //      
   // reparameterize the NURB so that AnalyticSurface->NurbDomain == InputSurface->NurbDomain
-  rpCone->Reparameterize(pTestSurface->GetNaturalUVDomain()) ;
+  // SolidCraft change: a cone it cannot reparameterize onto the input domain is not the input
+  if (rpCone->Reparameterize(pTestSurface->GetNaturalUVDomain()) != SM_SUCCESS)
+    { delete rpCone; rpCone = NULL;
+      return FALSE;
+    }
 
 
   // obsolete - it's a mistake to copy the pTestSurface Nurb into the new Cone object
@@ -4728,8 +4794,8 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
 
   // evaluate Nurb min/max domain points
   SmPoint3d  sNurbMinPoint, sNurbMaxPoint;
-  EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint);
-  EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint);
+  SER( EvaluatePoint(sNurbUVDomain.GetMin(),sNurbMinPoint) );
+  SER( EvaluatePoint(sNurbUVDomain.GetMax(),sNurbMaxPoint) );
 
   // scaled zero value
   double dToleranceScale = 1000.0 ;  // loose because surf is already labeled analytic
@@ -4801,10 +4867,10 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
       dBotEndAng   = dTopEndAng ;
       dBotRad      = 0.0 ;
       SmPoint3d sPoint ; 
-      pBotIsoCrv->EvaluatePoint(pBotIsoCrv->GetNaturalInterval().GetMid(), sPoint) ;
-      sBotRefFrame.SetCanonical(sPoint,
+      SER( pBotIsoCrv->EvaluatePoint(pBotIsoCrv->GetNaturalInterval().GetMid(), sPoint)  );
+      SER( sBotRefFrame.SetCanonical(sPoint,
                                 sTopRefFrame.GetXAxisRef(),
-                                sTopRefFrame.GetYAxisRef()) ;
+                                sTopRefFrame.GetYAxisRef())  );
     }
   else if(bBotArc && bTopDegenerate)
     { // once with a vertex                      
@@ -4812,10 +4878,10 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
       dTopEndAng   = dBotEndAng ;                    
       dTopRad      = 0.0 ;
       SmPoint3d sPoint ; 
-      pTopIsoCrv->EvaluatePoint(pTopIsoCrv->GetNaturalInterval().GetMid(), sPoint) ;
-      sTopRefFrame.SetCanonical(sPoint,
+      SER( pTopIsoCrv->EvaluatePoint(pTopIsoCrv->GetNaturalInterval().GetMid(), sPoint)  );
+      SER( sTopRefFrame.SetCanonical(sPoint,
                                 sBotRefFrame.GetXAxisRef(),
-                                sBotRefFrame.GetYAxisRef()) ;
+                                sBotRefFrame.GetYAxisRef())  );
     }
   else if(!bTopArc || !bBotArc)
     { // not a cone - Top or Bot circular isoParameter curve is degenerate or not an arc
@@ -4824,7 +4890,7 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
 
   // not a cone - top/bot start angles or top/bot end angles vary by more than tolerance
   double dTwistAng;
-  sTopRefFrame.GetXAxisRef().AngleBetween(sBotRefFrame.GetXAxisRef(),dTwistAng);
+  SER( sTopRefFrame.GetXAxisRef().AngleBetween(sBotRefFrame.GetXAxisRef(),dTwistAng) );
   if (   smos_Fabs(dTopStartAng-dBotStartAng) > dAngTol
       || smos_Fabs(dTopEndAng  -dBotEndAng  ) > dAngTol
       || smos_Fabs(dTwistAng) > dAngTol)
@@ -4840,7 +4906,7 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
   // not a cone - height of cone is degenerate (cone is a disk) 
   if(dHeight < SM_EFF_ZERO_SQRT) 
     { SER_MSG(SM_ERR, _T("Modified Nurb SmCone: Cone Height is now degenerate")) ; }
-  sNurbZAxis.Unitize();
+  (void)sNurbZAxis.Unitize(); // SolidCraft: a zero vector stays zero
 
   // not a cone - bottom arc's plane is not perpendicular to cone axis
   if (!sNurbZAxis.IsParallelTo(sBotRefFrame.GetZAxis(),dAngTol))
@@ -4858,10 +4924,21 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
   SmVector3d sYAxis = sStepZAxis * rXAxis;
 
   // when top and bot radius values are nearly equal
-  if (smos_Fabs(dBotRad-dTopRad) < SM_EFF_ZERO*(1.0+dBotRad)) 
+  if (smos_Fabs(dBotRad-dTopRad) < SM_EFF_ZERO*(1.0+dBotRad))
     {
       // make them exactly equal - Try to eliminate some numerical inaccurracies
-      dTopRad = dBotRad; 
+      dTopRad = dBotRad;
+    }
+  // SolidCraft: an SmCylinder has one radius (its semi-angle is zero by its type, which
+  // AssertValid holds it to). Radii read back from its NURBS (after SwapUV, as
+  // OrientTrimmedSurfaces turns a face) differ by rounding, more than SM_EFF_ZERO allows: within
+  // the rounding a NURBS carries (SM_EFF_ZERO_SQRT, as the height test above) they are its one
+  // radius; a NURBS modified further than that is no longer a cylinder.
+  else if (IsKindOf(SmCylinder_TYPE))
+    {
+      if (!(smos_Fabs(dBotRad-dTopRad) < SM_EFF_ZERO_SQRT*(1.0+dBotRad)))
+        { SER_MSG(SM_ERR, _T("Modified Nurb SmCylinder: Top and Bot radii differ")) ; }
+      dBotRad = dTopRad = 0.5 * (dBotRad + dTopRad);
     }
 
   // arrive here when surface has passed all not-a-cone filters
@@ -4889,7 +4966,7 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
   m_bPlanarGenerator = TRUE ;
   m_vPosition = bInsideOut ? sTopRefFrame : sBotRefFrame;
   m_bSwapUV          = bSwapUV ;
-  m_vAnalUVDomain.SetMinMax(dTopStartAng, 0.0, dTopEndAng, dHeight) ;
+  SER( m_vAnalUVDomain.SetMinMax(dTopStartAng, 0.0, dTopEndAng, dHeight)  );
 
   // Make and Save m_pGenCurve
   SmPoint3d  sLinePoint =   m_vPosition.GetOriginRef() 
@@ -4905,11 +4982,11 @@ SmStatus SmCone::RebuildSTEPFromNURBParameters()
                                    3, cpContext, NULL,        // in : dim, context, optNurb
                                    bInsideOut) ;              // in : InsideOut
   // set the NurbDomain
-  pLine->SmBSplineCurve::EditParameterization(sLinearIvl, FALSE) ;
+  SER( pLine->SmBSplineCurve::EditParameterization(sLinearIvl, FALSE)  );
 
   // Build newCone PolarConverter from Nurb midPoint rotation isoParamCurve
   // Build one more temporary isoParameterCurve - because this time it will be of type SmCircle
-  RebuildPolarConverter() ;
+  SER( RebuildPolarConverter()  );
 
   // Save the gencurve
   if(m_pGenCurve) { delete m_pGenCurve ; m_pGenCurve = NULL ; }
@@ -5060,7 +5137,11 @@ SmBoolean SmCone::GetPositivePoint
   // see if point lies on far side of cone apex
   SmBoolean bCylinder ;
   SmPoint3d sApexPoint ;
-  GetApex(bCylinder, sApexPoint, dApexParam) ;
+  // SolidCraft change: without the apex the point is left alone (sApexPoint was read unset)
+  if (GetApex(bCylinder, sApexPoint, dApexParam) != SM_SUCCESS)
+    { rPositivePoint = crTestPoint ;
+      return FALSE ;
+    }
   SmVector3d sZAxis = m_vPosition.GetZAxis() ;
   SmBoolean bNegate =  (   !bCylinder
                         && (   (m_dSemiAngleDeg > 0.0 && (crTestPoint - sApexPoint).Dot(sZAxis) < 0.0)
@@ -5170,7 +5251,7 @@ SmBoolean bDebugMe = FALSE ;
   //     o change m_vPosition
   //     o change m_pNurb               
 
-  SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale) ;
+  SER( SmSurfOfRevolution::Transform(crRotateNMove, cpOptScale)  );
 
   // Now transform cone-specific stuff.
 
@@ -5186,7 +5267,7 @@ SmBoolean bDebugMe = FALSE ;
       SmExtent1d sDomainV = m_vAnalUVDomain.GetVInterval();
       sDomainV.Scale(dScale);
 
-      m_vAnalUVDomain.SetVInterval(sDomainV);
+      SER( m_vAnalUVDomain.SetVInterval(sDomainV) );
       //m_vAnalUVDomain.SetVMin( dScale * sDomainV.GetMin() );
       //m_vAnalUVDomain.SetVMax( dScale * sDomainV.GetMax() );
     }
@@ -5273,13 +5354,49 @@ ULONG SmCone::GetMemoryUsed       // rtn: smaller size of actually used memory i
 } // end SmCone::GetMemoryUsed
 
 /*******************************************************************//**
+PURPOSE: Test whether a point on a cone lies inside a STEP trim domain
+            of that cone.
+
+NOTES: SmCone::STEPInversion ignores its domain argument and only
+       reports whether the point is inside the whole cone, so the
+       trim domain limits are checked here.
+***********************************************************************/
+static SmStatus sm_IsConePointInTrimDomain
+  (const SmCone      & crCone,          // in : cone the point lies on
+   const SmExtent2d  & crAnalUVDomain,  // in : STEP trim domain of the cone
+   const SmPoint3d   & crPoint,         // in : point on the cone
+   double              dTol,            // in : 3d tolerance
+   SmBoolean         & rbInside)        // out: TRUE = the point is inside crAnalUVDomain
+{
+  rbInside = FALSE ;
+  SmPoint2d      sSTEPUV ;
+  SmLocationType eLoc ;
+  // SolidCraft change: an off-surface or out-of-domain answer sets the location read below;
+  // any other status is a failure
+  SmStatus eInv = crCone.STEPInversion(crAnalUVDomain, crPoint, dTol, sSTEPUV, eLoc) ;
+  if(!SmSurface::STEPInversionAnswered(eInv))
+    { SER(eInv) ; }
+  if(eLoc == SM_LT_EXTERIOR)
+    { return SM_SUCCESS ; }
+
+  if(!crAnalUVDomain.GetVInterval().ContainsValue(sSTEPUV.y, dTol))
+    { return SM_SUCCESS ; }
+
+  // the sweep angle is arbitrary at a pole
+  rbInside = (   eLoc == SM_LT_POLE
+              || crAnalUVDomain.GetUInterval().ContainsPeriodicValue(sSTEPUV.x, 360.0)) ;
+  return SM_SUCCESS ;
+
+} // end sm_IsConePointInTrimDomain
+
+/*******************************************************************//**
 PURPOSE: Find the set of intervals on an ellipse known to be
             on the cone's surface that are inside given cone's 
             trim boundaries.
 
 NOTES: return intervals are in the ellipse's anal domain
 ***********************************************************************/
-void sm_GetEllipseTrimIntervals
+SmStatus sm_GetEllipseTrimIntervals
   (const SmContext     &crContext,            // in : for temp object construction
    const SmPoint3d     &rEllipseOrigin,       // in : origin            of ellipse
    const SmVector3d    &rEllipseXAxis,        // in : xAxis             of ellipse
@@ -5312,28 +5429,30 @@ void sm_GetEllipseTrimIntervals
                                 SmExtent1d(0.0, 360.0),
                                 dEllipseXRadius, dEllipseYRadius,
                                 3, &crContext) ;
-  // cone locals
-  double           dHeight       = crCone.GetHeight();
-  SmVector3d       sConeAxis     = crCone.GetPosition().GetZAxis();
-//cbi change:  const SmPoint3d &rCenterBot    = crCone.GetPosition().GetOriginRef();
-  SmPoint3d rCenterBot = crCone.GetPosition().GetOriginRef()
-                         + crCone.GetSTEPUVDomain().GetVMin() * sConeAxis;
-  SmPoint3d        sCenterTop    = rCenterBot + dHeight * sConeAxis;
-
   // map given NurbDomain into StepDomain - m_bInsideOut swaps Nurb GenCurve Min/Max Points
   SmExtent2d       sAnalUVDomain ;
-  crCone.ConvertDomainFromNURBSToSTEP(crUVDomain, sAnalUVDomain) ;
+  SER( crCone.ConvertDomainFromNURBSToSTEP(crUVDomain, sAnalUVDomain)  );
   SmExtent1d       sSweepIvl     = sAnalUVDomain.GetUInterval() ;
+
+  // cone locals - bottom and top trim circles sit at the v limits of the trim domain,
+  //               which may be a subset of the whole cone
+  SmVector3d       sConeAxis     = crCone.GetPosition().GetZAxis();
+  double           dBotHeight    = sAnalUVDomain.GetVMin() ;
+  double           dTopHeight    = sAnalUVDomain.GetVMax() ;
+  double           dBotRadius    = crCone.GetRadius(dBotHeight) ;
+  double           dTopRadius    = crCone.GetRadius(dTopHeight) ;
+  SmPoint3d        rCenterBot    = crCone.GetPosition().GetOriginRef() + dBotHeight * sConeAxis;
+  SmPoint3d        sCenterTop    = crCone.GetPosition().GetOriginRef() + dTopHeight * sConeAxis;
   //SmBoolean        bIsClosed     = sSweepIvl.IsClosed(360.0) ;  //unused
   //double           dStartAng     = sSweepIvl.GetMin();        //unused
   //double           dEndAng       = sSweepIvl.GetMax();        //unused
 
   // get cone corners [StartLine start, StartLine end, EndLine start EndLine end]
   SmPoint3d sCorners[4] ;
-  crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(0.0, 0.0), sCorners[0]) ;
-  crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(0.0, 1.0), sCorners[1]) ;
-  crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(1.0, 0.0), sCorners[2]) ;
-  crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(1.0, 1.0), sCorners[3]) ;
+  SER( crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(0.0, 0.0), sCorners[0])  );
+  SER( crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(0.0, 1.0), sCorners[1])  );
+  SER( crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(1.0, 0.0), sCorners[2])  );
+  SER( crCone.EvaluateSTEPPoint(sAnalUVDomain.Evaluate(1.0, 1.0), sCorners[3])  );
   SmVector3d sStartLineVec = sCorners[1] - sCorners[0] ;
   SmVector3d sEndLineVec   = sCorners[3] - sCorners[2] ;
 
@@ -5344,22 +5463,22 @@ static ULONG lDebugCount = 0 ;
   if (bDebugMe || lCount == lDebugCount) 
     {
       SmBSplineCurve *pCirc1 = NULL ; 
-      if(SM_IS_ZERO(crCone.GetTopRadius()))
+      if(SM_IS_ZERO(dTopRadius))
            { SmBSplineCurve::CreateDegenerateCurve(crContext, 3, sCenterTop, pCirc1) ; }
       else { pCirc1 = new (crContext) SmCircle(sCenterTop, 
                                                crCone.GetPosition().GetXAxisRef(), 
                                                crCone.GetPosition().GetYAxisRef(),
-                                               sSweepIvl, crCone.GetTopRadius(), 3, &crContext) ;
+                                               sSweepIvl, dTopRadius, 3, &crContext) ;
            }
       SmObjDelete sClean1(pCirc1) ;
 
       SmBSplineCurve *pCirc2 = NULL ; 
-      if(SM_IS_ZERO(crCone.GetBotRadius()))
+      if(SM_IS_ZERO(dBotRadius))
            { SmBSplineCurve::CreateDegenerateCurve(crContext, 3, rCenterBot, pCirc2) ; }
       else { pCirc2 = new (crContext) SmCircle(rCenterBot, 
                                                crCone.GetPosition().GetXAxisRef(), 
                                                crCone.GetPosition().GetYAxisRef(),
-                                               sSweepIvl, crCone.GetBotRadius(), 3, &crContext) ;
+                                               sSweepIvl, dBotRadius, 3, &crContext) ;
            }
       SmObjDelete sClean2(pCirc2) ;
       SmFace *pFace = (SmFace *)crCone.GetFace() ;
@@ -5388,20 +5507,20 @@ static ULONG lDebugCount = 0 ;
   ULONG lNumTsect1, lNumTsect2 ;
   SmPoint3d sTsectPoints[6] ;
   double dParam[2] ;
-  smgu_CirclePlaneIntersect(dTol, 
-                            crCone.GetTopRadius(), sCenterTop, sConeAxis,
+  SER( smgu_CirclePlaneIntersect(dTol, 
+                            dTopRadius, sCenterTop, sConeAxis,
                             rEllipseOrigin, sEllipseZ, 
-                            lNumTsect1, sTsectPoints) ;
-  smgu_CirclePlaneIntersect(dTol, 
-                            crCone.GetBotRadius(), rCenterBot, sConeAxis,
+                            lNumTsect1, sTsectPoints)  );
+  SER( smgu_CirclePlaneIntersect(dTol, 
+                            dBotRadius, rCenterBot, sConeAxis,
                             rEllipseOrigin, sEllipseZ, 
-                            lNumTsect2, sTsectPoints+2) ;
-  smgu_LinePlaneIntersect  (sCorners[0], sStartLineVec,
+                            lNumTsect2, sTsectPoints+2)  );
+  SER( smgu_LinePlaneIntersect  (sCorners[0], sStartLineVec,
                             rEllipseOrigin, sEllipseZ,
-                            dParam[0]) ;
-  smgu_LinePlaneIntersect  (sCorners[2], sEndLineVec,
+                            dParam[0])  );
+  SER( smgu_LinePlaneIntersect  (sCorners[2], sEndLineVec,
                             rEllipseOrigin, sEllipseZ,
-                            dParam[1]) ;
+                            dParam[1])  );
 
   // Check for degenerate solutions, within tol. [B10]
   // (smgu_CirclePlaneIntersect() doesn't do that.)
@@ -5438,15 +5557,18 @@ static ULONG lDebugCount = 0 ;
          || (ii >=2 && lNumTsect2 == 2))
         {
           // map XSectPoint to ConeUV point
-          crCone.STEPInversion(sAnalUVDomain, sTsectPoints[ii], dTol, sConeSTEPUV, eLoc) ;
+          // SolidCraft change: an off-surface or out-of-domain answer sets the location read below;
+          // any other status is a failure
+          SmStatus eInv = crCone.STEPInversion(sAnalUVDomain, sTsectPoints[ii], dTol, sConeSTEPUV, eLoc);
+          if(!SmSurface::STEPInversionAnswered(eInv)) { SER(eInv) ; }
 
           // when ConeUV is cone trim boundaries
           //      skip circle instersections on seams because the line intersections will catch seam intersections
           if(   eLoc == SM_LT_INTERIOR
-             && eLoc != SM_LT_U_SEAM)
+             && sSweepIvl.ContainsPeriodicValue(sConeSTEPUV.x, 360.0))
             {
               // add ellipse angleDeg for intersection to in/out angle dXSectAngle array
-              sFullEllipse.STEPInversion(sTsectPoints[ii], dXSectAngle[lCnt]) ;
+              SER( sFullEllipse.STEPInversion(sTsectPoints[ii], dXSectAngle[lCnt])  );
               lCnt++ ;
             }
         } // end skip tangent intersection cases
@@ -5460,22 +5582,29 @@ static ULONG lDebugCount = 0 ;
   //    This computation needs both functions to have the same behavior near corners.
   double dScaledZero = SM_EFF_ZERO * (1.0 + smos_Max(sCorners[0].GetMaxDimension(),
                                                      sCorners[3].GetMaxDimension())) ;
+
+  // circle crossings within dTol of a seam line were skipped above,
+  // so seam line crossings within dTol of the line ends must be kept here
+  double dStartLineLen    = sStartLineVec.Length() ;
+  double dEndLineLen      = sEndLineVec.Length() ;
+  double dStartParamTol   = (dStartLineLen > SM_EFF_ZERO) ? smos_Max(dScaledZero, dTol / dStartLineLen) : dScaledZero ;
+  double dEndParamTol     = (dEndLineLen   > SM_EFF_ZERO) ? smos_Max(dScaledZero, dTol / dEndLineLen)   : dScaledZero ;
   if(   (   lNumTsect1 == 3 || lNumTsect2 == 3)
-     || (   dParam[0] >= 0.0 - dScaledZero
-         && dParam[0] <= 1.0 + dScaledZero))
+     || (   dParam[0] >= 0.0 - dStartParamTol
+         && dParam[0] <= 1.0 + dStartParamTol))
     {
       sTsectPoints[4] = sCorners[0] + dParam[0] * sStartLineVec;
-      sFullEllipse.STEPInversion( sTsectPoints[4], dXSectAngle[lCnt] );
+      SER( sFullEllipse.STEPInversion( sTsectPoints[4], dXSectAngle[lCnt] ) );
       lCnt += 1 ;
     }
 
   // for EndSeamLine/ellipse xsect
   if(   (   lNumTsect1 == 3 || lNumTsect2 == 3)
-     || (   dParam[1] >= 0.0 - dScaledZero
-         && dParam[1] <= 1.0 + dScaledZero))
+     || (   dParam[1] >= 0.0 - dEndParamTol
+         && dParam[1] <= 1.0 + dEndParamTol))
     {
       sTsectPoints[5] = sCorners[2] + dParam[1] * sEndLineVec;
-      sFullEllipse.STEPInversion( sTsectPoints[5], dXSectAngle[lCnt] );
+      SER( sFullEllipse.STEPInversion( sTsectPoints[5], dXSectAngle[lCnt] ) );
       lCnt += 1 ;
     }
 
@@ -5488,7 +5617,7 @@ static ULONG lDebugCount = 0 ;
   // The ellipse trim range has not yet been applied.  When there are no intersections
   // the whole curve must lie outside the cone trim domain.
   if(lCnt < 2) 
-    { return ; }
+    { return SM_SUCCESS ; }
 
   // when there are intersections there should be an even number of them
   // unless ellipse intersects a corner exactly.
@@ -5525,11 +5654,12 @@ static ULONG lDebugCount = 0 ;
       // classify nonDegenerate interval midPoint
       SmPoint3d sSegmentMidPoint ;
       double sSegmentMidAngDeg = (dEndAngDeg + dStartAngDeg) / 2.0 ;
-      sFullEllipse.EvaluateSTEPPoint(sSegmentMidAngDeg, sSegmentMidPoint) ;
-      crCone.STEPInversion(sAnalUVDomain, sSegmentMidPoint, dTol, sConeSTEPUV, eLoc) ;
+      SER( sFullEllipse.EvaluateSTEPPoint(sSegmentMidAngDeg, sSegmentMidPoint)  );
 
       // Remember if segment MidPointUV is within cone trim boundaries
-      bInside[iThis] = (eLoc == SM_LT_EXTERIOR) ? FALSE : TRUE ;
+      SmBoolean bMidInside ;
+      SER( sm_IsConePointInTrimDomain(crCone, sAnalUVDomain, sSegmentMidPoint, dTol, bMidInside) );
+      bInside[iThis] = bMidInside ;
 
     } // end iter every interval to classify it
 
@@ -5563,7 +5693,7 @@ static ULONG lDebugCount = 0 ;
           sUnTrimmedIvl.AddValue( dStartAngDeg );
           sUnTrimmedIvl.AddValue( dEndAngDeg );
 
-          sEllipseIvl.IntersectPeriodic(sUnTrimmedIvl, 360.0, sTrimIvls, FALSE) ;
+          SER( sEllipseIvl.IntersectPeriodic(sUnTrimmedIvl, 360.0, sTrimIvls, FALSE)  );
 
           // add every trim invl to output
           rIvls.Append(sTrimIvls) ;                
@@ -5615,7 +5745,7 @@ static ULONG lDebugCount = 0 ;
       sm_GraphicsLoop() ;
     }
 #endif // SM_DEBUG_CODE
-
+  return SM_SUCCESS;
 } // end sm_GetEllipseTrimIntervals
 
 /*******************************************************************//**
@@ -5625,7 +5755,7 @@ PURPOSE: Trim an intersection ellipse known to be on two cones
 
 NOTES:
 ***********************************************************************/
-void sm_AddEllipseIntervalsTrimmedToTwoCones
+SmStatus sm_AddEllipseIntervalsTrimmedToTwoCones
   (const SmContext            & crContext,              // in : for temp object construction
    const SmPoint3d            & rEllipseOrigin,         // in : origin            of ellipse
    const SmVector3d           & rEllipseXAxis,          // in : xAxis             of ellipse
@@ -5649,7 +5779,7 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
   double dScaledAngZero = SM_EFF_ZERO * 100.0 * (1.0 + 360.0) ;
 
   // get ellipse intervals trimmed to 1st cone
-  sm_GetEllipseTrimIntervals
+  SER( sm_GetEllipseTrimIntervals
     (crContext,                  // in : for temp object construction
      rEllipseOrigin,             // in : origin            of ellipse
      rEllipseXAxis,              // in : xAxis             of ellipse
@@ -5661,10 +5791,10 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
      crCone1,                    // in : Cone with trim boundaries
      crUVDomain1,                // in : nurb trim boundaries for cone
      dTol,                       // in : approximation tolerance
-     sThisIvls) ;                // out: array of ellipse intervals inside trimmed cone
+     sThisIvls)  );                // out: array of ellipse intervals inside trimmed cone
 
   // get ellipse intervals trimmed to second cone
-  sm_GetEllipseTrimIntervals
+  SER( sm_GetEllipseTrimIntervals
     (crContext,                  // in : for temp object construction
      rEllipseOrigin,             // in : origin            of ellipse
      rEllipseXAxis,              // in : xAxis             of ellipse
@@ -5676,7 +5806,7 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
      crCone2,                    // in : Cone with trim boundaries
      crUVDomain2,                // in : nurb trim boundaries for cone
      dTol,                       // in : approximation tolerance
-     sOtherIvls) ;               // out: array of ellipse intervals inside trimmed cone
+     sOtherIvls)  );               // out: array of ellipse intervals inside trimmed cone
 
   // for every thisCone/OtherCone trimmed interval combination
   ULONG ii, jj, kk, ll ;
@@ -5690,7 +5820,7 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
           SmExtent1d sOtherIvl = sOtherIvls[jj] ;
 
           // find intersection of two intervals - the ellipse arc in both cones
-          sThisIvl.IntersectPeriodic(sOtherIvl, 360.0, sXSectIvls) ; 
+          SER( sThisIvl.IntersectPeriodic(sOtherIvl, 360.0, sXSectIvls)  ); 
 
           // build and output all trimmed interval intersections
           for(kk=0;kk<sXSectIvls.GetSize();kk++)
@@ -5716,7 +5846,7 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
                       SmBSplineCurve *pDegenerateCurve = rDegenerateCurves[ll] ;
                       SmExtent1d sInt = pDegenerateCurve->GetNaturalInterval() ;
                       SmPoint3d sDegeneratePoint ;
-                      pDegenerateCurve->EvaluatePoint( sInt.GetMin(), sDegeneratePoint) ;
+                      SER( pDegenerateCurve->EvaluatePoint( sInt.GetMin(), sDegeneratePoint)  );
 
                       double dDist = sDegeneratePoint.DistanceBetween(sEllipsePoint) ;
                       double dScaledZero = SM_EFF_ZERO * 100.0 * (1.0 * sEllipsePoint.GetMaxDimension()) ;
@@ -5734,7 +5864,9 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
                       // map Point to Ellipse
                       double dAnalParam ;
                       SmCurveLocationType eLoc ;
-                      pCurve->STEPInversion(sEllipsePoint, dAnalParam, &eLoc) ;
+                      // SolidCraft change: the analytic curves answer every point with SM_SUCCESS (off the
+                      // curve: SM_CL_EXTERIOR); any other status is a failure, with eLoc unset
+                      SER( pCurve->STEPInversion(sEllipsePoint, dAnalParam, &eLoc) );
 
                       // when point is on any existing curve - its not unique
                       if(eLoc != SM_CL_EXTERIOR)
@@ -5767,6 +5899,7 @@ void sm_AddEllipseIntervalsTrimmedToTwoCones
             } // end iter every ellipse interval trimmed to both this and other cone
         } // end iter every ellipse interval trimmed to other cone
     } // end iter every ellipse interval trimmed to this cone
+  return SM_SUCCESS;
 } // end sm_AddEllipseIntervalsTrimmedToTwoCones
 
 /*******************************************************************//**
@@ -5821,7 +5954,7 @@ SmBoolean SmCone::AssertValid
   // check temporary genCurve against parameterization of NurbSurface
   const SmContext &crContext = *GetContext() ;
   SmBSplineCurve  *pGenCurve = NULL ;
-  CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ;
+  (void)CreateGeneratorFromAngle(crContext, 0.0, pGenCurve) ; // SolidCraft: a validity check reads what it computed
   SmObjDelete sClean(pGenCurve) ;
 
   // GenCurve AnalInterval   must equal Surface->AnalUVDomain->GetVInterval,
@@ -5869,7 +6002,7 @@ SmBoolean SmCone::AssertValid
   SmBoolean bIsCylinder ;
   SmPoint3d sApexPoint ;
   double    dApexParam ;
-  GetApex(bIsCylinder, sApexPoint, dApexParam) ;
+  (void)GetApex(bIsCylinder, sApexPoint, dApexParam) ; // SolidCraft: a validity check reads what it computed
   bRtn &= SM_ASSERT_VALUE_REPORT(6, SM_LEVEL_0, 
                                 (    bIsCylinder
                                  || !sAnalIvlV.ContainsValue    (dApexParam, SM_EFF_ZERO)
@@ -5885,7 +6018,7 @@ SmBoolean SmCone::AssertValid
   // - use cone NearMidPoint which should never be an apex point.
   SmPoint2d sNurbUV = GetNaturalUVDomain().Evaluate(.45678,.45678) ;
   SmVector3d sDerivs[4] ; // [D, Dv, Du]
-  Evaluate(sNurbUV, 1, 1, TRUE, TRUE, TRUE, sDerivs) ;
+  (void)Evaluate(sNurbUV, 1, 1, TRUE, TRUE, TRUE, sDerivs) ; // SolidCraft: a validity check reads what it computed
   SmVector3d sSweepDir = m_bSwapUV ? sDerivs[1] : sDerivs[2] ;
   SmPoint3d  sOnAxis   = rConeOrig + (sDerivs[0] - rConeOrig).Dot(sConeZAxis) * sConeZAxis ;
   SmPoint3d  sSweepZ   = (sDerivs[0] - sOnAxis) * sSweepDir ;
