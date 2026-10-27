@@ -15,6 +15,8 @@ project(smlib_capi C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# ISO C++17, not gnu++17: GCC's GNU modes fuse multiplies and adds.
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Rust links the MSVC runtime as a DLL (/MD); so must we.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -38,6 +40,12 @@ file(GLOB SMAPI_SOURCES CONFIGURE_DEPENDS ${SRC}/SM_API/src/*.cpp)
 list(FILTER SMAPI_SOURCES EXCLUDE REGEX "/StdAfx\\.cpp$")
 
 set(SMLIB_DEFINES NDEBUG NOMINMAX SM_STATIC)
+# No fused multiply-add: a contraction rounds differently, and SMLib's tangent and coincident
+# cases decide on the last bits, so every compiler and CPU must do the same arithmetic. MSVC
+# does not contract by default.
+if(NOT MSVC)
+  add_compile_options(-ffp-contract=off)
+endif()
 if(NOT SMLIB_RAND_SEED STREQUAL "")
   list(APPEND SMLIB_DEFINES SM_RAND_SEED=${SMLIB_RAND_SEED}u)
 endif()
