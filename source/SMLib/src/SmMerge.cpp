@@ -5158,6 +5158,24 @@ SmBoolean bDebugRadialEdges = FALSE ;
         {
           SER( m_vTI.m_pBrep->FindAndSetInfiniteRegion() );
         }
+
+      // SolidCraft change: every region's enclosing shell first (SmBrep::AssertValid test 12).
+      // STEP 6 merges regions and appends the merged region's shells after the survivor's own,
+      // so when a union seals a void the void's shell can come first; FindAndSetInfiniteRegion()
+      // above only swaps void flags. SetRegionIsVoidFlagsForNestedSolids() walks the nesting from
+      // the infinite region and puts each region's outer shell first; on a manifold solid its
+      // void flags are the ones STEP 7 set.
+      SmTArray<SmRegion*> sResultRegions;
+      m_vTI.m_pBrep->GetRegions(sResultRegions);
+      if (   (   eOperation == SM_BO_UNION
+              || eOperation == SM_BO_DIFFERENCE
+              || eOperation == SM_BO_INTERSECTION )
+          && sResultRegions.GetSize() > 2
+          && sResultRegions[0] == m_vTI.m_pBrep->GetInfiniteRegion()
+          && m_vTI.m_pBrep->IsManifoldSolid() )
+        {
+          SER( m_vTI.m_pBrep->SetRegionIsVoidFlagsForNestedSolids() );
+        }
     } // end STEP 8 - find and set the infinite region if missing
 
   // STEP 9. Propagate OtherBrep SrcRegion attributes to ResultRegion attributes 

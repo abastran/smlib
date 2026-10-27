@@ -357,6 +357,32 @@ void rational_cylinder_cut()
     smlib_brep_free(c);
 }
 
+// A union that seals a void: a cube 100 hollowed to an open cup (walls and floor 10) and a lid
+// 100 x 100 x 10 over its top 10, so the cavity 80 x 80 x 80 closes. Deleting the faces the two
+// share merged the cup's solid region into the one MakeFaceuse split off at the cavity, which
+// kept the cavity's shell first: SMLib's check refused the body (test 12, "inner shell is not
+// geometrically inside its containing outer shell"). Either operand order, and a cut of the
+// sealed body after it. V = 100^3 - 80^3.
+void sealed_void_join()
+{
+    smlib_brep *cube = box(0, 0, 0, 100, 100, 100);
+    smlib_brep *hollow = box(10, 10, 10, 90, 90, 110);
+    smlib_brep *lid = box(0, 0, 90, 100, 100, 100);
+    smlib_brep *corner = box(-1, -1, -1, 5, 5, 5);
+    smlib_brep *cup = nullptr;
+    smlib_brep *sealed = nullptr;
+    CHECK(smlib_boolean(cube, hollow, SMLIB_BOOLEAN_SUBTRACT, &cup) == SMLIB_OK);
+    const double v = 100.0 * 100.0 * 100.0 - 80.0 * 80.0 * 80.0;
+    expect("cup joined with its lid", cup, lid, SMLIB_BOOLEAN_UNION, v, 1e-9, 1);
+    expect("lid joined with its cup", lid, cup, SMLIB_BOOLEAN_UNION, v, 1e-9, 1);
+    CHECK(smlib_boolean(cup, lid, SMLIB_BOOLEAN_UNION, &sealed) == SMLIB_OK);
+    expect("sealed cube less a corner", sealed, corner, SMLIB_BOOLEAN_SUBTRACT, v - 5.0 * 5.0 * 5.0, 1e-9, 1);
+    for (smlib_brep *b : {cube, hollow, lid, corner, cup, sealed})
+    {
+        smlib_brep_free(b);
+    }
+}
+
 } // namespace
 
 // A body from flat arrays written by smlib_flat_write (a test fixture), or NULL.
@@ -650,6 +676,7 @@ int main(int argc, char **argv)
         {"cylinder_grazing_box_edge", cylinder_grazing_box_edge},
         {"pleated_skins_join", pleated_skins_join},
         {"grazing_edge_crossing", grazing_edge_crossing},
+        {"sealed_void_join", sealed_void_join},
     };
     for (const Case &c : cases)
     {
