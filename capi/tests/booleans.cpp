@@ -661,6 +661,183 @@ void grazing_edge_crossing()
     }
 }
 
+// Rig case booleans/steel-026: an overlapped K joint, a CHS 88.9 x 5 chord along x and two
+// CHS 48.3 x 4 braces at +-45 deg coped to it, overlapping each other above it (the three bodies
+// as SolidCraft hands them over, tests/data/k-joint-*.txt), joined chord, brace a, brace b. The
+// braces' intersection curve lies in the plane x = 0 and ends at the vertex where both braces meet
+// the chord, which the solver placed 5.3e-6 off that plane. Before the 1.0.1 replay the edge
+// ended 5.44e-6 from its vertex, more than half the vertex's tolerance (5.42e-6), and SMLib's
+// check refused the body ("Edge/Vertex gap"); without the enclosing shell put first it fails the
+// check's test 12. The braces are coped, so neither overlaps the chord: the union is the chord
+// plus the braces' union.
+void overlapped_k_joint()
+{
+    smlib_brep *chord = from_flat_file(SMLIB_TEST_DATA "/k-joint-chord.txt");
+    smlib_brep *a = from_flat_file(SMLIB_TEST_DATA "/k-joint-brace-a.txt");
+    smlib_brep *b = from_flat_file(SMLIB_TEST_DATA "/k-joint-brace-b.txt");
+    smlib_brep *braces = nullptr;
+    smlib_brep *r = nullptr;
+    CHECK(chord != nullptr && a != nullptr && b != nullptr);
+    if (chord != nullptr && a != nullptr && b != nullptr)
+    {
+        CHECK(near(volume(chord), PI * (44.45 * 44.45 - 39.45 * 39.45) * 400.0, 1e-9));
+        CHECK(smlib_boolean(a, b, SMLIB_BOOLEAN_UNION, &braces) == SMLIB_OK && sound(braces));
+        const smlib_brep *all[] = {chord, a, b};
+        CHECK(smlib_boolean_union_all(all, 3, &r) == SMLIB_OK && sound(r));
+        CHECK(r != nullptr && braces != nullptr && near(volume(r), volume(chord) + volume(braces), 1e-7));
+    }
+    for (smlib_brep *x : {chord, a, b, braces, r})
+    {
+        smlib_brep_free(x);
+    }
+}
+
+// SMLib's cylinder of radius `r` and height `h`, its seam turned `seam_deg` about its own axis,
+// then its axis turned from +z by `theta_deg` about +y (90 gives +x) and its base moved to `base`.
+smlib_brep *turned_cylinder(double r, double h, const double base[3], double theta_deg, double seam_deg)
+{
+    const double o[3] = {0, 0, 0};
+    smlib_brep *c = nullptr;
+    smlib_brep *seamed = nullptr;
+    smlib_brep *out = nullptr;
+    CHECK(smlib_make_cylinder(o, r, h, &c) == SMLIB_OK);
+    const double ss = std::sin(seam_deg * PI / 180.0);
+    const double cs = std::cos(seam_deg * PI / 180.0);
+    const double seam[4][4] = {{cs, ss, 0, 0}, {-ss, cs, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+    CHECK(smlib_brep_transform(c, seam, &seamed) == SMLIB_OK);
+    const double s = std::sin(theta_deg * PI / 180.0);
+    const double k = std::cos(theta_deg * PI / 180.0);
+    const double move[4][4] = {{k, 0, -s, 0}, {0, 1, 0, 0}, {s, 0, k, 0}, {base[0], base[1], base[2], 1}};
+    CHECK(smlib_brep_transform(seamed, move, &out) == SMLIB_OK);
+    smlib_brep_free(c);
+    smlib_brep_free(seamed);
+    return out;
+}
+
+// A cylinder C r 44.45 along x (-200..200) and two rods r 24.15 at +-45 deg whose axes meet at
+// (0, 0, 30), joined (C u A) u B. Equal cylinders with crossing axes meet in two ellipses, which
+// SmCone::IntersectWithCone trims to both faces with sm_GetEllipseTrimIntervals. Rod A's face in
+// C u A starts at v = 36.29; its seam crosses the ellipse in the plane x = 0 at v = 15.85, outside
+// that. Before the 1.0.1 replay the function took the seam lines from the face's v range but the
+// end circles and its classification from the whole cylinder: it found no crossing and dropped the
+// ellipse as outside. The union was C u A, B gone (status OK, check clean), with the seam at 0, 35
+// and 60 deg.
+// V by slices y = const: each cylinder's slice is a rectangle (its caps are square to its axis),
+// so the union's slice is the union of three rectangles, its area by inclusion-exclusion of their
+// convex intersections, integrated over y.
+void equal_rods_join()
+{
+    const double cb[3] = {-200, 0, 0};
+    const double ab[3] = {-28.284271247462, 0, 1.715728752538};
+    const double bb[3] = {28.284271247462, 0, 1.715728752538};
+    for (double seam : {0.0, 35.0, 60.0, 90.0})
+    {
+        smlib_brep *c = turned_cylinder(44.45, 400, cb, 90, seam);
+        smlib_brep *a = turned_cylinder(24.15, 240, ab, 45, seam);
+        smlib_brep *b = turned_cylinder(24.15, 240, bb, -45, seam);
+        smlib_brep *ca = nullptr;
+        CHECK(smlib_boolean(c, a, SMLIB_BOOLEAN_UNION, &ca) == SMLIB_OK);
+        char what[64];
+        std::snprintf(what, sizeof what, "(C u A) u B, seam %g deg", seam);
+        expect(what, ca, b, SMLIB_BOOLEAN_UNION, 3137849.373374, 1e-7, 1);
+        for (smlib_brep *x : {c, a, b, ca})
+        {
+            smlib_brep_free(x);
+        }
+    }
+}
+
+// The same joint with tubes (rig case booleans/steel-026 built from SMLib's cylinders): chord CHS
+// 88.9 x 5, braces CHS 48.3 x 4 coped to the chord's outer cylinder. Before the 1.0.1 replay the
+// braces' union failed (1001), and (chord u A) u B was refused (-1100) or, with the seam at 90 deg,
+// 4592 mm3 too big; without the enclosing shell put first it fails the check's test 12.
+// The braces are coped, so neither overlaps the chord: the union is the chord plus the braces'
+// union.
+void equal_tubes_join()
+{
+    const double cb[3] = {-200, 0, 0};
+    const double ci[3] = {-210, 0, 0};
+    const double ab[3] = {-28.284271247462, 0, 1.715728752538};
+    const double ai[3] = {-35.35533905932748, 0, -5.355339059327475};
+    const double bb[3] = {28.284271247462, 0, 1.715728752538};
+    const double bi[3] = {35.35533905932748, 0, -5.355339059327475};
+    for (double seam : {0.0, 35.0, 60.0, 90.0})
+    {
+        smlib_brep *outer = turned_cylinder(44.45, 400, cb, 90, seam);
+        smlib_brep *bore = turned_cylinder(39.45, 420, ci, 90, seam);
+        smlib_brep *chord = nullptr;
+        CHECK(smlib_boolean(outer, bore, SMLIB_BOOLEAN_SUBTRACT, &chord) == SMLIB_OK);
+        smlib_brep *brace[2] = {nullptr, nullptr};
+        for (int i = 0; i < 2; ++i)
+        {
+            smlib_brep *rod = turned_cylinder(24.15, 240, i == 0 ? ab : bb, i == 0 ? 45 : -45, seam);
+            smlib_brep *hole = turned_cylinder(20.15, 260, i == 0 ? ai : bi, i == 0 ? 45 : -45, seam);
+            smlib_brep *tube = nullptr;
+            CHECK(smlib_boolean(rod, hole, SMLIB_BOOLEAN_SUBTRACT, &tube) == SMLIB_OK);
+            CHECK(smlib_boolean(tube, outer, SMLIB_BOOLEAN_SUBTRACT, &brace[i]) == SMLIB_OK);
+            for (smlib_brep *x : {rod, hole, tube})
+            {
+                smlib_brep_free(x);
+            }
+        }
+        smlib_brep *braces = nullptr;
+        smlib_brep *chord_a = nullptr;
+        smlib_brep *r = nullptr;
+        int f0 = failures;
+        CHECK(smlib_boolean(brace[0], brace[1], SMLIB_BOOLEAN_UNION, &braces) == SMLIB_OK && sound(braces));
+        CHECK(smlib_boolean(chord, brace[0], SMLIB_BOOLEAN_UNION, &chord_a) == SMLIB_OK);
+        CHECK(smlib_boolean(chord_a, brace[1], SMLIB_BOOLEAN_UNION, &r) == SMLIB_OK && sound(r));
+        CHECK(r != nullptr && braces != nullptr && near(volume(r), volume(chord) + volume(braces), 1e-7));
+        if (failures != f0)
+        {
+            std::fprintf(stderr, "tubes, seam %g deg: wrong result above\n", seam);
+        }
+        for (smlib_brep *x : {outer, bore, chord, brace[0], brace[1], braces, chord_a, r})
+        {
+            smlib_brep_free(x);
+        }
+    }
+}
+
+// The other caller of sm_GetEllipseTrimIntervals, SmCone::IntersectWithPlane (a cone cut
+// obliquely by a plane), with the cone's natural domain and with a trimmed one: a cylinder
+// r 10 x 100 and a cone r 20 -> 10 x 100 (axis z) less everything above a plane through
+// (0, 0, c) tilted by a about y, each also after a flat cut below z = 10 that trims its side.
+// Cylinder: pi r^2 (c - z0); cone: circular segments of each slice z = const, Gauss-Legendre
+// between the kinks.
+void oblique_cone_cuts()
+{
+    const double o[3] = {0, 0, 0};
+    smlib_brep *cyl = nullptr;
+    smlib_brep *cone = nullptr;
+    smlib_brep *cyl_cut = nullptr;
+    smlib_brep *cone_cut = nullptr;
+    CHECK(smlib_make_cylinder(o, 10, 100, &cyl) == SMLIB_OK);
+    CHECK(smlib_make_cone(o, 20, 10, 100, &cone) == SMLIB_OK);
+    smlib_brep *bottom = box(-100, -100, -10, 100, 100, 10);
+    auto tilted = [](double c, double a_deg) {
+        smlib_brep *b = box(-100, -100, 0, 100, 100, 200);
+        smlib_brep *t = nullptr;
+        const double a = a_deg * PI / 180.0;
+        const double m[4][4] = {{std::cos(a), 0, std::sin(a), 0}, {0, 1, 0, 0}, {-std::sin(a), 0, std::cos(a), 0}, {0, 0, c, 1}};
+        CHECK(smlib_brep_transform(b, m, &t) == SMLIB_OK);
+        smlib_brep_free(b);
+        return t;
+    };
+    smlib_brep *at60 = tilted(60, 30);
+    smlib_brep *at50 = tilted(50, 20);
+    CHECK(smlib_boolean(cyl, bottom, SMLIB_BOOLEAN_SUBTRACT, &cyl_cut) == SMLIB_OK);
+    CHECK(smlib_boolean(cone, bottom, SMLIB_BOOLEAN_SUBTRACT, &cone_cut) == SMLIB_OK);
+    expect("cylinder cut at 30 deg", cyl, at60, SMLIB_BOOLEAN_SUBTRACT, PI * 100.0 * 60.0, 1e-8, 1);
+    expect("trimmed cylinder cut at 30 deg", cyl_cut, at60, SMLIB_BOOLEAN_SUBTRACT, PI * 100.0 * 50.0, 1e-8, 1);
+    expect("cone cut at 20 deg", cone, at50, SMLIB_BOOLEAN_SUBTRACT, 48362.539826, 1e-8, 1);
+    expect("trimmed cone cut at 20 deg", cone_cut, at50, SMLIB_BOOLEAN_SUBTRACT, 36414.015767, 1e-8, 1);
+    for (smlib_brep *x : {cyl, cone, cyl_cut, cone_cut, bottom, at60, at50})
+    {
+        smlib_brep_free(x);
+    }
+}
+
 int main(int argc, char **argv)
 {
     struct Case
@@ -677,6 +854,10 @@ int main(int argc, char **argv)
         {"pleated_skins_join", pleated_skins_join},
         {"grazing_edge_crossing", grazing_edge_crossing},
         {"sealed_void_join", sealed_void_join},
+        {"overlapped_k_joint", overlapped_k_joint},
+        {"equal_rods_join", equal_rods_join},
+        {"equal_tubes_join", equal_tubes_join},
+        {"oblique_cone_cuts", oblique_cone_cuts},
     };
     for (const Case &c : cases)
     {
