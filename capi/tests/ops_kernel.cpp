@@ -412,6 +412,20 @@ void concave_corner_setback()
     CHECK(smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, mixed, radii, 3, mixed_corner, &setback, 1, 0.1, &r, holes, 64, &len, nullptr,
                                    nullptr) == SMLIB_ERR_UNSUPPORTED &&
           r == nullptr);
+    // Both corners asked for, the mixed one second: the refusal names it by its point's index.
+    const double both_edges[15] = {50, 20, 10, 40, 30, 10, 40, 20, 15, 60, 30, 10, 60, 20, 15};
+    const double both_radii[5] = {5, 5, 5, 5, 5};
+    const double both_corners[6] = {40, 20, 10, 60, 20, 10};
+    const double both_setbacks[2] = {7.5, 7.5};
+    for (int open = 0; open < 2; ++open)
+    {
+        int64_t failed_corner = -1;
+        int32_t s = open == 1 ? smlib_blend_setback_open(notched, SMLIB_BLEND_ROUND, both_edges, both_radii, 5, both_corners, both_setbacks, 2, 0.1,
+                                                         &r, holes, 64, &len, nullptr, &failed_corner)
+                              : smlib_blend_setback(notched, SMLIB_BLEND_ROUND, both_edges, both_radii, 5, both_corners, both_setbacks, 2, 0.1,
+                                                    &r, nullptr, &failed_corner);
+        CHECK(s == SMLIB_ERR_UNSUPPORTED && r == nullptr && failed_corner == 1);
+    }
     smlib_brep_free(notched);
 }
 

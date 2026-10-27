@@ -456,10 +456,11 @@ bool closed_nonmanifold(const SmBrep &r)
 // is rounded, all of one convexity (SMLib's same-convexity N x N corners, the only ones that
 // build a setback). With `patches`, the
 // faces of each setback corner's patch in `b` afterwards (one list per setback, in order): the
-// faces on the surfaces that corner made.
+// faces on the surfaces that corner made. A setback refused as SMLIB_ERR_UNSUPPORTED writes its
+// index in `setbacks` to `refused` (when not NULL).
 int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::vector<double> &sizes, int32_t kind,
                     const std::vector<SmFilletLaw *> &laws, const std::vector<std::pair<SmVertex *, double>> &setbacks = {},
-                    std::vector<std::vector<SmFace *>> *patches = nullptr)
+                    std::vector<std::vector<SmFace *>> *patches = nullptr, int64_t *refused = nullptr)
 {
     SmTArray<SmEdge *> es;
     SmTArray<double> values;
@@ -518,8 +519,9 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
         return blend_failure(exec, s);
     }
     std::vector<SmFilletCorner *> set_back;
-    for (const auto &sb : setbacks)
+    for (size_t j = 0; j < setbacks.size(); ++j)
     {
+        const auto &sb = setbacks[j];
         SmFilletCorner *corner = exec.GetFilletCornerOfVertex(sb.first);
         if (corner == nullptr)
         {
@@ -534,6 +536,10 @@ int32_t round_edges(SmBrep *b, const std::vector<SmEdge *> &edges, const std::ve
         SmFilletCornerType type = corner->GetCornerType();
         if (type != SM_FCR_N_x_N_CONVEX)
         {
+            if (refused != nullptr)
+            {
+                *refused = static_cast<int64_t>(j);
+            }
             return SMLIB_ERR_UNSUPPORTED;
         }
         corner->SetSetBackDist(sb.second);
@@ -1428,8 +1434,16 @@ int32_t blend_call(const char *fn, const smlib_brep *brep, int32_t kind, const d
             }
             bool solid_in = w->IsManifoldSolid();
             std::vector<std::vector<SmFace *>> patches;
-            s = kind == SMLIB_BLEND_CHAMFER ? chamfer_edges(w.get(), picked, each)
-                                            : round_edges(w.get(), picked, each, kind, {}, back, holes == nullptr ? nullptr : &patches);
+            int64_t refused = -1;
+            s = kind == SMLIB_BLEND_CHAMFER
+                    ? chamfer_edges(w.get(), picked, each)
+                    : round_edges(w.get(), picked, each, kind, {}, back, holes == nullptr ? nullptr : &patches, &refused);
+            // A corner SMLib does not set back: the first of the caller's points that picked it.
+            if (s == SMLIB_ERR_UNSUPPORTED && refused >= 0 && static_cast<size_t>(refused) < first_corner.size() &&
+                out_failed_corner != nullptr)
+            {
+                *out_failed_corner = first_corner[static_cast<size_t>(refused)];
+            }
             if (s != SMLIB_OK || holes == nullptr)
             {
                 return s != SMLIB_OK ? s : finish(std::move(w), solid_in, out);

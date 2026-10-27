@@ -634,8 +634,9 @@ int32_t smlib_blend(const smlib_brep *brep, int32_t kind, const double *points, 
  * SMLIB_ERR_PICK_AMBIGUOUS (its index in `out_failed_corner`, if not NULL); a vertex where no
  * blended edge meets is SMLIB_ERR_ARG; a corner where some edge is not blended, or whose edges are
  * not all convex or all concave (SMLib builds a setback only where all are blended, of one
- * convexity), is SMLIB_ERR_UNSUPPORTED, as is any setback on a chamfer (its corners are
- * bevelled). A setback as long as an edge at its corner, or two on the ends of one
+ * convexity), is SMLIB_ERR_UNSUPPORTED with the index of the first point that picked it in
+ * `out_failed_corner` (if not NULL), as is any setback on a chamfer (its corners are bevelled; no
+ * index is written). A setback as long as an edge at its corner, or two on the ends of one
  * edge that together are, is SMLIB_ERR_NO_ROOM. The setback must reach past where the corner's
  * blends meet without one (on a corner of rounds of radius r between faces square to each other,
  * past r), else SMLib fails (its status): the patch does not join contact lines that already
