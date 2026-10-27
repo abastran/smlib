@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <map>
 #include <string>
@@ -976,8 +977,9 @@ int main(int argc, char **argv)
     if (!exports.empty())
     {
         std::string dumps = dir + "/dumps";
-        std::string mk = "mkdir -p '" + dumps + "' && rm -f '" + dumps + "'/*";
-        CHECK(std::system(mk.c_str()) == 0);
+        std::error_code ec;
+        std::filesystem::remove_all(dumps, ec);
+        CHECK(std::filesystem::create_directories(dumps, ec) && !ec);
         CHECK(smlib_set_dump_dir(dumps.c_str()) == SMLIB_OK);
         Arrays bad = Snapshot(exports[0].second);
         bad.i[SMLIB_FLAT_EDGEUSE_EDGE][0] = 1000;
