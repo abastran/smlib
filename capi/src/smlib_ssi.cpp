@@ -305,7 +305,7 @@ extern "C" int32_t smlib_surface_cone(const double apex[3], const double xaxis[3
                          SmVector3d x = v3(xaxis), y = v3(yaxis);
                          SmVector3d z = unit_cross(x, y);
                          const double h0 = height[0], h1 = height[1];
-                         const double t = std::tan(half_angle_deg * M_PI / 180.0);
+                         const double t = std::tan(half_angle_deg * SM_PI / 180.0);
                          SmPoint3d o = v3(apex) + z * h0;
                          SmAxis2Placement pl(o, x, y);
                          SmCone *cone = nullptr;

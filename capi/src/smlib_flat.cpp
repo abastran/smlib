@@ -2809,7 +2809,7 @@ bool ConicDomainOfNurbs(const SmBSplineCurve &rNurbs, const SmPoint3d &o, SmVect
             return false;
         }
         const SmVector3d d = p - o;
-        deg = std::atan2(d.Dot(y) / ry, d.Dot(x) / rx) * 180.0 / M_PI;
+        deg = std::atan2(d.Dot(y) / ry, d.Dot(x) / rx) * 180.0 / SM_PI;
         return std::fabs(std::hypot(d.Dot(x) / rx, d.Dot(y) / ry) - 1.0) <= 1e-9 && std::fabs(d.Dot(z)) <= 1e-9 * (1.0 + rx + ry);
     };
     const int n = 16;
